@@ -576,6 +576,26 @@ h1 {
   line-height: 1.6;
 }
 
+.save-note {
+  margin: 0;
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.6;
+}
+
+.save-note--saving {
+  color: #075985;
+}
+
+.save-note--saved {
+  color: #166534;
+}
+
+.save-note--error {
+  color: #b91c1c;
+}
+
 .expense-form {
   display: grid;
   gap: 10px;
@@ -1421,6 +1441,11 @@ h1 {
 .r9-status-button:active {
   transform: translateY(3px);
   box-shadow: 0 3px 0 rgb(0 0 0 / 65%);
+}
+
+.r9-status-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .r9-care-button {

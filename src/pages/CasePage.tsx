@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
@@ -16,6 +16,7 @@ import {
   formatFareYen,
   waitingFareSettings,
 } from '../services/fare'
+import { saveCaseRecord } from '../services/caseRecords'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
@@ -24,6 +25,7 @@ import type {
 import type {
   ExpenseItem,
   OperationStatus,
+  PaymentMethod,
   SelectedCareOption,
   StatusTone,
   TimerKey,
@@ -44,12 +46,14 @@ type InputHistory = {
 }
 
 type StatusControlButton = {
+  disabled?: boolean
   label: string
   onClick: () => void
   tone: 'start' | StatusTone
 }
 
-const caseNumber = 'CASE-20260530-001'
+type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
+
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
@@ -78,10 +82,34 @@ const loadInputHistory = () => {
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUID()}`
 
+const createCaseNumber = () => {
+  const now = new Date()
+  const datePart = new Intl.DateTimeFormat('ja-JP', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+  })
+    .format(now)
+    .replaceAll('/', '')
+  const timePart = new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  })
+    .format(now)
+    .replaceAll(':', '')
+
+  return `CASE-${datePart}-${timePart}`
+}
+
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
 export function CasePage() {
+  const caseNumber = useMemo(() => createCaseNumber(), [])
   const [status, setStatus] = useState<OperationStatus>('空車')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
   const [isGpsActive, setIsGpsActive] = useState(false)
@@ -93,6 +121,11 @@ export function CasePage() {
     SelectedCareOption[]
   >([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
+  const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
+  const [caseSaveMessage, setCaseSaveMessage] = useState(
+    '案件終了を押すとFirestoreへ保存します。',
+  )
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
     useState<BasicFareSettings>(basicFareSettings)
   const [currentWaitingFareSettings, setCurrentWaitingFareSettings] =
@@ -213,6 +246,33 @@ export function CasePage() {
     }
   }
 
+  const handleCaseClose = async () => {
+    if (caseSaveState === 'saved' || caseSaveState === 'saving') {
+      handleStatusChange('案件終了')
+      return
+    }
+
+    handleStatusChange('案件終了')
+    setCaseSaveState('saving')
+    setCaseSaveMessage('Firestoreへ保存中です。')
+
+    try {
+      await saveCaseRecord({
+        caseNumber,
+        closedAt: new Date().toISOString(),
+        distanceKm: gps.totalDistanceKm,
+        fareBreakdown,
+        paymentMethod,
+      })
+      setCaseSaveState('saved')
+      setCaseSaveMessage('Firestoreへ保存しました。次フェーズで案件一覧に表示します。')
+    } catch (error) {
+      console.error('Failed to save case record to Firestore', error)
+      setCaseSaveState('error')
+      setCaseSaveMessage('保存に失敗しました。通信状況とFirebase設定を確認してください。')
+    }
+  }
+
   const updateBasicFareSetting = (
     key: keyof BasicFareSettings,
     value: string,
@@ -276,7 +336,10 @@ export function CasePage() {
     },
     {
       label: '案件終了',
-      onClick: () => handleStatusChange('案件終了'),
+      disabled: caseSaveState === 'saving',
+      onClick: () => {
+        void handleCaseClose()
+      },
       tone: 'closed',
     },
   ]
@@ -429,6 +492,7 @@ export function CasePage() {
                   className={`r9-status-button r9-status-button--${button.tone}`}
                   key={button.label}
                   type="button"
+                  disabled={button.disabled}
                   onClick={button.onClick}
                 >
                   {button.label}
@@ -457,7 +521,13 @@ export function CasePage() {
               </details>
             </div>
 
-            <SettlementPanel breakdown={fareBreakdown} />
+            <SettlementPanel
+              breakdown={fareBreakdown}
+              paymentMethod={paymentMethod}
+              saveMessage={caseSaveMessage}
+              saveState={caseSaveState}
+              onPaymentMethodChange={setPaymentMethod}
+            />
           </section>
         </div>
       </div>
