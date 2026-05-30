@@ -16,16 +16,37 @@ Firebase の実プロジェクト情報は `.env.example` をコピーして `.e
 cp .env.example .env.local
 ```
 
+## ルーティング
+
+React Router を導入し、以下の仮画面を用意しています。
+
+| パス | 画面 |
+| --- | --- |
+| `/` | HomePage |
+| `/case` | CasePage |
+| `/admin` | AdminPage |
+
 ## フォルダ構成
 
 ```text
 .
 ├── public/                 # 静的ファイル、PWAアイコン
 ├── src/
-│   ├── lib/
+│   ├── components/         # 共通コンポーネント
+│   ├── hooks/              # カスタムフック
+│   ├── layouts/            # 画面レイアウト
+│   │   └── AppLayout.tsx
+│   ├── pages/              # ルーティング対象画面
+│   │   ├── AdminPage.tsx
+│   │   ├── CasePage.tsx
+│   │   └── HomePage.tsx
+│   ├── services/           # 外部サービス連携
 │   │   └── firebase.ts     # Firebaseアプリ初期化
-│   ├── App.css             # 初期画面スタイル
-│   ├── App.tsx             # 初期画面コンポーネント
+│   ├── store/              # 状態管理
+│   ├── types/              # 共通型定義
+│   ├── utils/              # ユーティリティ
+│   ├── App.css             # 画面スタイル
+│   ├── App.tsx             # React Router設定
 │   ├── index.css           # グローバルスタイル
 │   ├── main.tsx            # React起動とPWA登録
 │   └── vite-env.d.ts       # Vite / PWA / Firebase環境変数型定義
@@ -37,7 +58,7 @@ cp .env.example .env.local
 ## Firebase設定
 
 - Firebase SDK は `firebase` パッケージを利用します。
-- `src/lib/firebase.ts` は `VITE_FIREBASE_*` 環境変数を読み込み、Firebaseアプリを初期化します。
+- `src/services/firebase.ts` は `VITE_FIREBASE_*` 環境変数を読み込み、Firebaseアプリを初期化します。
 - 秘密情報やプロジェクト固有の値はコミットせず、`.env.local` で管理します。
 
 ## PWA設定
