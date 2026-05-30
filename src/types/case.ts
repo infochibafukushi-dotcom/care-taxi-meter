@@ -12,10 +12,13 @@ export type StatusTone =
   | 'settlement'
   | 'closed'
 
+export type TimerKey = 'driving' | 'waiting' | 'accompanying'
+
 export type MeterMetric = {
   label: string
   value: string
   unit?: string
+  tone?: 'fare' | 'timer'
 }
 
 export type MeterAction = {

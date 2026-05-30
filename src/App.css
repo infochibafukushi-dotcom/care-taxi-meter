@@ -279,8 +279,11 @@ h1 {
   box-shadow: 0 18px 34px rgb(7 89 133 / 20%);
 }
 
-.metric-card:nth-child(2),
-.metric-card:nth-child(3) {
+.metric-card--fare {
+  background: #075985;
+}
+
+.metric-card--timer {
   background: #0f172a;
 }
 
@@ -297,6 +300,11 @@ h1 {
   font-size: clamp(2.45rem, 14vw, 4.8rem);
   line-height: 0.95;
   letter-spacing: -0.05em;
+}
+
+.metric-card--timer .metric-value {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(2.15rem, 12vw, 4.4rem);
 }
 
 .metric-value span {

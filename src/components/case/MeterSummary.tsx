@@ -8,7 +8,10 @@ export function MeterSummary({ metrics }: MeterSummaryProps) {
   return (
     <section className="meter-summary" aria-label="メーター情報">
       {metrics.map((metric) => (
-        <div className="metric-card" key={metric.label}>
+        <div
+          className={`metric-card metric-card--${metric.tone ?? 'timer'}`}
+          key={metric.label}
+        >
           <span className="metric-label">{metric.label}</span>
           <strong className="metric-value">
             {metric.value}
