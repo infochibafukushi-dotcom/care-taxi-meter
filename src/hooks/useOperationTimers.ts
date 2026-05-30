@@ -34,6 +34,7 @@ export function useOperationTimers(activeTimer: TimerKey | null) {
       driving: formatElapsedTime(timerSeconds.driving),
       waiting: formatElapsedTime(timerSeconds.waiting),
       accompanying: formatElapsedTime(timerSeconds.accompanying),
+      seconds: timerSeconds,
     }),
     [timerSeconds],
   )

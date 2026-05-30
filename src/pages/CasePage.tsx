@@ -5,7 +5,12 @@ import { MeterActions } from '../components/case/MeterActions'
 import { MeterSummary } from '../components/case/MeterSummary'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { useOperationTimers } from '../hooks/useOperationTimers'
-import { calculateBasicFareYen, formatFareYen } from '../services/fare'
+import {
+  calculateAccompanimentFareYen,
+  calculateBasicFareYen,
+  calculateWaitingFareYen,
+  formatFareYen,
+} from '../services/fare'
 import type {
   MeterAction,
   MeterMetric,
@@ -31,6 +36,7 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
 const meterActions: MeterAction[] = [
   { label: '運行開始', variant: 'primary', nextStatus: '走行中' },
   { label: '待機開始', variant: 'secondary', nextStatus: '待機中' },
+  { label: '待機解除', variant: 'secondary', nextStatus: '走行中' },
   {
     label: '院内付き添い開始',
     variant: 'secondary',
@@ -49,12 +55,35 @@ export function CasePage() {
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
   const basicFareYen = calculateBasicFareYen(gps.totalDistanceKm)
+  const waitingFareYen = calculateWaitingFareYen(elapsedTimers.seconds.waiting)
+  const accompanimentFareYen = calculateAccompanimentFareYen(
+    elapsedTimers.seconds.accompanying,
+  )
+  const totalFareYen = basicFareYen + waitingFareYen + accompanimentFareYen
 
   const meterMetrics: MeterMetric[] = useMemo(
     () => [
       {
         label: '現在料金',
+        value: formatFareYen(totalFareYen),
+        unit: '円',
+        tone: 'fare',
+      },
+      {
+        label: '基本運賃',
         value: formatFareYen(basicFareYen),
+        unit: '円',
+        tone: 'fare',
+      },
+      {
+        label: '待機料金',
+        value: formatFareYen(waitingFareYen),
+        unit: '円',
+        tone: 'fare',
+      },
+      {
+        label: '院内付き添い料金',
+        value: formatFareYen(accompanimentFareYen),
         unit: '円',
         tone: 'fare',
       },
@@ -66,7 +95,13 @@ export function CasePage() {
         tone: 'timer',
       },
     ],
-    [basicFareYen, elapsedTimers],
+    [
+      accompanimentFareYen,
+      basicFareYen,
+      elapsedTimers,
+      totalFareYen,
+      waitingFareYen,
+    ],
   )
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
@@ -98,7 +133,7 @@ export function CasePage() {
           <p className="eyebrow">Care Taxi Meter</p>
           <h1 id="case-title">介護タクシーメーター</h1>
           <p>
-            現在料金は累計走行距離に応じた基本運賃のみ計算します。介助料金、待機料金、院内付き添い料金、領収書、Firebase保存は未実装です。
+            現在料金は基本運賃、待機料金、院内付き添い料金を合算します。介助料金、領収書、Firebase保存は未実装です。
           </p>
         </section>
 
