@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">介護タクシーメーター</title>
+  <rect width="512" height="512" rx="112" fill="#0ea5e9" />
+  <path fill="#fff" d="M116 254c0-62 50-112 112-112h56c62 0 112 50 112 112v54h-34v46c0 18-15 33-33 33s-33-15-33-33v-46h-80v46c0 18-15 33-33 33s-33-15-33-33v-46h-34v-54Z" />
+  <path fill="#0f172a" d="M174 247c0-25 20-45 45-45h74c25 0 45 20 45 45v20H174v-20Z" />
+  <circle cx="188" cy="320" r="24" fill="#0f172a" />
+  <circle cx="324" cy="320" r="24" fill="#0f172a" />
+  <path fill="#fff" d="M239 96h34v50h-34zM206 113l24-24 35 35-24 24zM282 124l35-35 24 24-35 35z" />
+</svg>
