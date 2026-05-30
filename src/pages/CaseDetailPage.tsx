@@ -16,6 +16,12 @@ type CaseDetailState = {
   settingsMessage: string
 }
 
+type ReceiptDialogState = {
+  customerName: string
+  issuerName: string
+  isOpen: boolean
+}
+
 export function CaseDetailPage() {
   const { caseRecordId } = useParams()
   const [state, setState] = useState<CaseDetailState>({
@@ -24,6 +30,11 @@ export function CaseDetailPage() {
     isLoading: true,
     meterSettings: defaultMeterSettings,
     settingsMessage: '領収書設定を確認中です。',
+  })
+  const [receiptDialog, setReceiptDialog] = useState<ReceiptDialogState>({
+    customerName: '',
+    issuerName: '',
+    isOpen: false,
   })
 
   useEffect(() => {
@@ -81,6 +92,12 @@ export function CaseDetailPage() {
           meterSettings,
           settingsMessage: '会社情報・領収書設定を反映します。',
         }))
+        setReceiptDialog((currentDialog) => ({
+          ...currentDialog,
+          issuerName: currentDialog.isOpen
+            ? currentDialog.issuerName
+            : meterSettings.receipt.issuerName,
+        }))
       })
       .catch((error) => {
         if (!isMounted) {
@@ -107,12 +124,31 @@ export function CaseDetailPage() {
     : '案件IDが指定されていません。'
   const isLoading = caseRecordId ? state.isLoading : false
 
+  const openReceiptDialog = () => {
+    setReceiptDialog({
+      customerName: '',
+      issuerName: state.meterSettings.receipt.issuerName,
+      isOpen: true,
+    })
+  }
+
+  const closeReceiptDialog = () => {
+    setReceiptDialog((currentDialog) => ({
+      ...currentDialog,
+      isOpen: false,
+    }))
+  }
+
   const handleReceiptDownload = async () => {
     if (!caseRecord) {
       return
     }
 
-    await downloadReceiptPdf(caseRecord, state.meterSettings)
+    await downloadReceiptPdf(caseRecord, state.meterSettings, {
+      customerName: receiptDialog.customerName,
+      issuerName: receiptDialog.issuerName,
+    })
+    closeReceiptDialog()
   }
 
   return (
@@ -144,9 +180,7 @@ export function CaseDetailPage() {
             <button
               className="receipt-download-button"
               type="button"
-              onClick={() => {
-                void handleReceiptDownload()
-              }}
+              onClick={openReceiptDialog}
             >
               領収書発行
             </button>
@@ -195,6 +229,70 @@ export function CaseDetailPage() {
           </>
         ) : null}
       </section>
+
+      {receiptDialog.isOpen ? (
+        <div className="receipt-dialog-backdrop" role="presentation">
+          <section
+            aria-labelledby="receipt-dialog-title"
+            aria-modal="true"
+            className="receipt-dialog"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">Receipt</p>
+                <h2 id="receipt-dialog-title">領収書発行設定</h2>
+              </div>
+            </header>
+
+            <label>
+              宛名（任意）
+              <input
+                placeholder="空欄でも発行できます"
+                value={receiptDialog.customerName}
+                onChange={(event) =>
+                  setReceiptDialog((currentDialog) => ({
+                    ...currentDialog,
+                    customerName: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              発行担当者
+              <input
+                value={receiptDialog.issuerName}
+                onChange={(event) =>
+                  setReceiptDialog((currentDialog) => ({
+                    ...currentDialog,
+                    issuerName: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <div className="receipt-dialog-actions">
+              <button
+                className="receipt-dialog-secondary"
+                type="button"
+                onClick={closeReceiptDialog}
+              >
+                キャンセル
+              </button>
+              <button
+                className="receipt-dialog-primary"
+                type="button"
+                onClick={() => {
+                  void handleReceiptDownload()
+                }}
+              >
+                PDF出力
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }

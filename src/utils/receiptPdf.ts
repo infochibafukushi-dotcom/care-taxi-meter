@@ -4,6 +4,11 @@ import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from './caseRecords'
 
+export type ReceiptIssueOptions = {
+  customerName: string
+  issuerName: string
+}
+
 type ReceiptLine = {
   label: string
   value: string
@@ -100,6 +105,7 @@ function drawConfiguredTextLines({
 function createReceiptCanvas(
   caseRecord: StoredCaseRecord,
   settings: MeterSettings,
+  issueOptions: ReceiptIssueOptions,
 ) {
   const canvas = document.createElement('canvas')
   canvas.width = a4Portrait.widthPx
@@ -115,6 +121,8 @@ function createReceiptCanvas(
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
   const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const customerName = issueOptions.customerName.trim()
+  const issuerName = issueOptions.issuerName.trim()
   const companyLines = [
     companyName,
     settings.company.address,
@@ -137,18 +145,26 @@ function createReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
 
-  drawText(context, companyName, 120, 310, {
+  if (customerName) {
+    drawText(context, `${customerName}様`, 120, 285, {
+      color: '#0f172a',
+      font: 'bold 38px sans-serif',
+    })
+    drawLine(context, 120, 306, 520, 306, '#94a3b8')
+  }
+
+  drawText(context, companyName, 120, 335, {
     color: '#0369a1',
     font: 'bold 34px sans-serif',
   })
-  drawText(context, '下記の通り領収いたしました。', 120, 365, {
+  drawText(context, '下記の通り領収いたしました。', 120, 390, {
     color: '#334155',
     font: '30px sans-serif',
   })
   drawConfiguredTextLines({
     context,
     lines: companyLines,
-    startY: 300,
+    startY: 310,
     x: 1120,
   })
 
@@ -212,12 +228,12 @@ function createReceiptCanvas(
     font: '28px sans-serif',
   })
 
-  if (settings.receipt.issuerName.trim()) {
+  if (issuerName) {
     drawText(context, '発行担当者', 120, 1560, {
       color: '#475569',
       font: '28px sans-serif',
     })
-    drawText(context, settings.receipt.issuerName, 290, 1560, {
+    drawText(context, issuerName, 290, 1560, {
       font: '28px sans-serif',
     })
   }
@@ -233,10 +249,11 @@ function createReceiptCanvas(
 export async function downloadReceiptPdf(
   caseRecord: StoredCaseRecord,
   settings: MeterSettings,
+  issueOptions: ReceiptIssueOptions,
 ) {
   const [{ jsPDF }, canvas] = await Promise.all([
     import('jspdf'),
-    Promise.resolve(createReceiptCanvas(caseRecord, settings)),
+    Promise.resolve(createReceiptCanvas(caseRecord, settings, issueOptions)),
   ])
   const pdf = new jsPDF({
     format: 'a4',
