@@ -13,7 +13,7 @@ export function HomePage() {
           <Link className="primary-action" to="/case">
             案件開始ボタン
           </Link>
-          <Link className="secondary-action" to="/case">
+          <Link className="secondary-action" to="/cases">
             案件一覧ボタン
           </Link>
           <Link className="secondary-action" to="/admin">
