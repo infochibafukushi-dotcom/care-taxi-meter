@@ -1,5 +1,11 @@
-import { addDoc, collection, getFirestore } from 'firebase/firestore'
-import { firebaseApp } from '../lib/firebase'
+import {
+  addDoc,
+  collection,
+  getFirestore,
+  serverTimestamp,
+} from 'firebase/firestore'
+import type { FieldValue } from 'firebase/firestore'
+import { getFirebaseApp } from '../lib/firebase'
 import type { FareBreakdown } from './fare'
 import type { PaymentMethod } from '../types/case'
 
@@ -22,9 +28,9 @@ export type CaseRecordDocument = {
   expenseFareYen: number
   totalFareYen: number
   paymentMethod: PaymentMethod
+  savedAt: FieldValue
 }
 
-const db = getFirestore(firebaseApp)
 const caseRecordsCollectionName = 'caseRecords'
 
 export async function saveCaseRecord({
@@ -34,6 +40,7 @@ export async function saveCaseRecord({
   fareBreakdown,
   paymentMethod,
 }: CaseRecordInput) {
+  const db = getFirestore(getFirebaseApp())
   const record: CaseRecordDocument = {
     caseNumber,
     closedAt,
@@ -45,6 +52,7 @@ export async function saveCaseRecord({
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
     paymentMethod,
+    savedAt: serverTimestamp(),
   }
 
   return addDoc(collection(db, caseRecordsCollectionName), record)

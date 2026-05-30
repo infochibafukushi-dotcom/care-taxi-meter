@@ -5,6 +5,7 @@ import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
+import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import {
   basicFareSettings,
@@ -124,7 +125,9 @@ export function CasePage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
-    '案件終了を押すとFirestoreへ保存します。',
+    isFirebaseConfigured
+      ? '案件終了を押すとFirestoreへ保存します。'
+      : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
   )
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
     useState<BasicFareSettings>(basicFareSettings)
@@ -269,7 +272,11 @@ export function CasePage() {
     } catch (error) {
       console.error('Failed to save case record to Firestore', error)
       setCaseSaveState('error')
-      setCaseSaveMessage('保存に失敗しました。通信状況とFirebase設定を確認してください。')
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `保存に失敗しました。${error.message}`
+          : '保存に失敗しました。通信状況とFirebase設定を確認してください。',
+      )
     }
   }
 
