@@ -1,17 +1,15 @@
-import type { OperationStatus } from '../../types/case'
+import type { OperationStatus, StatusTone } from '../../types/case'
 
 type CaseHeaderProps = {
   caseNumber: string
   status: OperationStatus
-  statusOptions: OperationStatus[]
-  onStatusChange: (status: OperationStatus) => void
+  statusTone: StatusTone
 }
 
 export function CaseHeader({
   caseNumber,
   status,
-  statusOptions,
-  onStatusChange,
+  statusTone,
 }: CaseHeaderProps) {
   return (
     <header className="meter-header">
@@ -19,21 +17,12 @@ export function CaseHeader({
         <span className="meter-label">案件番号</span>
         <strong className="case-number">{caseNumber}</strong>
       </div>
-      <label className="status-control">
+      <div className="status-display" aria-live="polite">
         <span className="meter-label">運行状態</span>
-        <select
-          value={status}
-          onChange={(event) =>
-            onStatusChange(event.target.value as OperationStatus)
-          }
-        >
-          {statusOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
+        <strong className={`status-badge status-badge--${statusTone}`}>
+          {status}
+        </strong>
+      </div>
     </header>
   )
 }

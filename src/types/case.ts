@@ -5,6 +5,13 @@ export type OperationStatus =
   | '精算前'
   | '案件終了'
 
+export type StatusTone =
+  | 'waiting'
+  | 'accompanying'
+  | 'driving'
+  | 'settlement'
+  | 'closed'
+
 export type MeterMetric = {
   label: string
   value: string
@@ -13,5 +20,6 @@ export type MeterMetric = {
 
 export type MeterAction = {
   label: string
-  variant: 'primary' | 'secondary' | 'accent'
+  variant: 'primary' | 'secondary' | 'accent' | 'danger'
+  nextStatus?: OperationStatus
 }
