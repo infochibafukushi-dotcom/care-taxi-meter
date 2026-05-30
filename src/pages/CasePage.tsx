@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { CaseHeader } from '../components/case/CaseHeader'
+import { GpsPanel } from '../components/case/GpsPanel'
 import { MeterActions } from '../components/case/MeterActions'
 import { MeterSummary } from '../components/case/MeterSummary'
+import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import type {
   MeterAction,
@@ -42,7 +44,9 @@ const meterActions: MeterAction[] = [
 export function CasePage() {
   const [status, setStatus] = useState<OperationStatus>('待機中')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
+  const [isGpsActive, setIsGpsActive] = useState(false)
   const elapsedTimers = useOperationTimers(activeTimer)
+  const gps = useCurrentPosition(isGpsActive)
 
   const meterMetrics: MeterMetric[] = useMemo(
     () => [
@@ -61,6 +65,14 @@ export function CasePage() {
   const handleStatusChange = (nextStatus: OperationStatus) => {
     setStatus(nextStatus)
     setActiveTimer(activeTimerMap[nextStatus] ?? null)
+
+    if (nextStatus === '走行中') {
+      setIsGpsActive(true)
+    }
+
+    if (nextStatus === '案件終了') {
+      setIsGpsActive(false)
+    }
   }
 
   return (
@@ -79,11 +91,17 @@ export function CasePage() {
           <p className="eyebrow">Care Taxi Meter</p>
           <h1 id="case-title">介護タクシーメーター</h1>
           <p>
-            GPS計測、料金計算、領収書機能は未実装です。現在料金のみダミー表示です。
+            GPSログ保存、距離計算、料金計算、領収書機能は未実装です。現在料金のみダミー表示です。
           </p>
         </section>
 
         <MeterSummary metrics={meterMetrics} />
+        <GpsPanel
+          errorMessage={gps.errorMessage}
+          isActive={gps.isActive}
+          position={gps.position}
+          status={gps.status}
+        />
         <MeterActions
           actions={meterActions}
           onStatusChange={handleStatusChange}

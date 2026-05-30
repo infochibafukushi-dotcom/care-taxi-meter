@@ -14,6 +14,13 @@ export type StatusTone =
 
 export type TimerKey = 'driving' | 'waiting' | 'accompanying'
 
+export type GpsPosition = {
+  latitude: number
+  longitude: number
+  accuracy: number
+  updatedAt: number
+}
+
 export type MeterMetric = {
   label: string
   value: string
