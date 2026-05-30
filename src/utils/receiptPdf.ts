@@ -153,11 +153,7 @@ function createReceiptCanvas(
     drawLine(context, 120, 306, 520, 306, '#94a3b8')
   }
 
-  drawText(context, companyName, 120, 335, {
-    color: '#0369a1',
-    font: 'bold 34px sans-serif',
-  })
-  drawText(context, '下記の通り領収いたしました。', 120, 390, {
+  drawText(context, '下記の通り領収いたしました。', 120, 365, {
     color: '#334155',
     font: '30px sans-serif',
   })
