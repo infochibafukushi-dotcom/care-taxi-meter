@@ -1861,3 +1861,33 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.receipt-download-button {
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 18px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+  background: #15803d;
+  box-shadow: 0 14px 28px rgb(21 128 61 / 22%);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.receipt-download-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgb(21 128 61 / 28%);
+}
+
+.receipt-download-button:focus-visible {
+  outline: 3px solid rgb(34 197 94 / 38%);
+  outline-offset: 3px;
+}

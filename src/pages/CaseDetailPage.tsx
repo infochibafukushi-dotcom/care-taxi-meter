@@ -4,6 +4,7 @@ import { fetchCaseRecord } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
+import { downloadReceiptPdf } from '../utils/receiptPdf'
 
 type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
@@ -64,6 +65,14 @@ export function CaseDetailPage() {
     : '案件IDが指定されていません。'
   const isLoading = caseRecordId ? state.isLoading : false
 
+  const handleReceiptDownload = async () => {
+    if (!caseRecord) {
+      return
+    }
+
+    await downloadReceiptPdf(caseRecord)
+  }
+
   return (
     <main className="page case-detail-page" aria-labelledby="case-detail-title">
       <section className="content-card case-detail-card">
@@ -88,48 +97,59 @@ export function CaseDetailPage() {
         ) : null}
 
         {caseRecord ? (
-          <div className="case-detail-grid" aria-label="案件詳細">
-            <div>
-              <span>案件番号</span>
-              <strong>{caseRecord.caseNumber}</strong>
+          <>
+            <button
+              className="receipt-download-button"
+              type="button"
+              onClick={() => {
+                void handleReceiptDownload()
+              }}
+            >
+              領収書発行
+            </button>
+            <div className="case-detail-grid" aria-label="案件詳細">
+              <div>
+                <span>案件番号</span>
+                <strong>{caseRecord.caseNumber}</strong>
+              </div>
+              <div>
+                <span>日時</span>
+                <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
+              </div>
+              <div>
+                <span>距離</span>
+                <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
+              </div>
+              <div>
+                <span>基本運賃</span>
+                <strong>{formatFareYen(caseRecord.basicFareYen)}円</strong>
+              </div>
+              <div>
+                <span>待機料金</span>
+                <strong>{formatFareYen(caseRecord.waitingFareYen)}円</strong>
+              </div>
+              <div>
+                <span>付き添い料金</span>
+                <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
+              </div>
+              <div>
+                <span>介助料金</span>
+                <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+              </div>
+              <div>
+                <span>実費</span>
+                <strong>{formatFareYen(caseRecord.expenseFareYen)}円</strong>
+              </div>
+              <div>
+                <span>合計金額</span>
+                <strong>{formatFareYen(caseRecord.totalFareYen)}円</strong>
+              </div>
+              <div>
+                <span>支払方法</span>
+                <strong>{caseRecord.paymentMethod}</strong>
+              </div>
             </div>
-            <div>
-              <span>日時</span>
-              <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
-            </div>
-            <div>
-              <span>距離</span>
-              <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
-            </div>
-            <div>
-              <span>基本運賃</span>
-              <strong>{formatFareYen(caseRecord.basicFareYen)}円</strong>
-            </div>
-            <div>
-              <span>待機料金</span>
-              <strong>{formatFareYen(caseRecord.waitingFareYen)}円</strong>
-            </div>
-            <div>
-              <span>付き添い料金</span>
-              <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
-            </div>
-            <div>
-              <span>介助料金</span>
-              <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
-            </div>
-            <div>
-              <span>実費</span>
-              <strong>{formatFareYen(caseRecord.expenseFareYen)}円</strong>
-            </div>
-            <div>
-              <span>合計金額</span>
-              <strong>{formatFareYen(caseRecord.totalFareYen)}円</strong>
-            </div>
-            <div>
-              <span>支払方法</span>
-              <strong>{caseRecord.paymentMethod}</strong>
-            </div>
-          </div>
+          </>
         ) : null}
       </section>
     </main>
