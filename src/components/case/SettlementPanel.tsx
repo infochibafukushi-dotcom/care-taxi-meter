@@ -1,17 +1,24 @@
-import { useState } from 'react'
 import type { FareBreakdown } from '../../services/fare'
 import { formatFareYen } from '../../services/fare'
 import type { PaymentMethod } from '../../types/case'
 
 type SettlementPanelProps = {
   breakdown: FareBreakdown
+  paymentMethod: PaymentMethod
+  saveMessage: string
+  saveState: 'error' | 'idle' | 'saved' | 'saving'
+  onPaymentMethodChange: (paymentMethod: PaymentMethod) => void
 }
 
 const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', 'その他']
 
-export function SettlementPanel({ breakdown }: SettlementPanelProps) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
-
+export function SettlementPanel({
+  breakdown,
+  paymentMethod,
+  saveMessage,
+  saveState,
+  onPaymentMethodChange,
+}: SettlementPanelProps) {
   return (
     <section className="settlement-panel" aria-labelledby="settlement-title">
       <h2 id="settlement-title">精算画面</h2>
@@ -36,13 +43,13 @@ export function SettlementPanel({ breakdown }: SettlementPanelProps) {
               name="payment-method"
               type="radio"
               value={method}
-              onChange={() => setPaymentMethod(method)}
+              onChange={() => onPaymentMethodChange(method)}
             />
             {method}
           </label>
         ))}
       </fieldset>
-      <p className="empty-note">今回は画面表示のみです。保存処理は未実装です。</p>
+      <p className={`save-note save-note--${saveState}`}>{saveMessage}</p>
     </section>
   )
 }

@@ -2,6 +2,8 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import './App.css'
 import { AppLayout } from './layouts/AppLayout'
 import { AdminPage } from './pages/AdminPage'
+import { CaseDetailPage } from './pages/CaseDetailPage'
+import { CaseListPage } from './pages/CaseListPage'
 import { CasePage } from './pages/CasePage'
 import { HomePage } from './pages/HomePage'
 
@@ -22,6 +24,14 @@ const router = createBrowserRouter([
       {
         path: 'case',
         element: <CasePage />,
+      },
+      {
+        path: 'cases',
+        element: <CaseListPage />,
+      },
+      {
+        path: 'cases/:caseRecordId',
+        element: <CaseDetailPage />,
       },
       {
         path: 'admin',
