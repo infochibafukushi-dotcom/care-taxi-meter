@@ -17,6 +17,11 @@ export type CareOptionMasterItem = {
 };
 
 export type ExpenseSettings = {
+  defaultItems: Array<{
+    id: string;
+    name: string;
+    defaultAmountYen: number;
+  }>;
   defaultNames: string[];
 };
 
@@ -43,12 +48,12 @@ export const basicFareSettings: BasicFareSettings = {
 };
 
 export const waitingFareSettings: TimeFareSettings = {
-  unitSeconds: 300,
+  unitSeconds: 1800,
   unitFareYen: 100,
 };
 
 export const escortFareSettings: TimeFareSettings = {
-  unitSeconds: 300,
+  unitSeconds: 1800,
   unitFareYen: 300,
 };
 
@@ -63,6 +68,13 @@ export const careOptionMaster: CareOptionMasterItem[] = [
 ];
 
 export const expenseSettings: ExpenseSettings = {
+  defaultItems: [
+    { id: "parking", name: "駐車場", defaultAmountYen: 0 },
+    { id: "expressway", name: "高速", defaultAmountYen: 0 },
+    { id: "toll-road", name: "有料道路", defaultAmountYen: 0 },
+    { id: "ferry", name: "フェリー", defaultAmountYen: 0 },
+    { id: "other-expense", name: "その他", defaultAmountYen: 0 },
+  ],
   defaultNames: ["駐車場", "高速", "有料道路", "フェリー", "その他"],
 };
 
