@@ -53,14 +53,17 @@ export const escortFareSettings: TimeFareSettings = {
 }
 
 export const careOptionMaster: CareOptionMasterItem[] = [
-  { id: 'stairs', name: '階段介助', defaultAmountYen: 1000 },
+  { id: 'basic-care', name: '基本介助', defaultAmountYen: 500 },
   { id: 'indoor', name: '室内介助', defaultAmountYen: 500 },
+  { id: 'stairs', name: '階段介助', defaultAmountYen: 1000 },
   { id: 'wheelchair', name: '車椅子介助', defaultAmountYen: 500 },
-  { id: 'stretcher', name: 'ストレッチャー介助', defaultAmountYen: 1500 },
+  { id: 'stretcher', name: 'ストレッチャー', defaultAmountYen: 1500 },
+  { id: 'reclining', name: 'リクライニング', defaultAmountYen: 1000 },
+  { id: 'other-care', name: 'その他', defaultAmountYen: 500 },
 ]
 
 export const expenseSettings: ExpenseSettings = {
-  defaultNames: ['駐車場代', '高速代', '有料道路代', 'フェリー代', 'その他実費'],
+  defaultNames: ['駐車場', '高速', '有料道路', 'フェリー', 'その他'],
 }
 
 export const DEFAULT_BASIC_FARE_SETTINGS = basicFareSettings

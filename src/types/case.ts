@@ -1,4 +1,5 @@
 export type OperationStatus =
+  | '空車'
   | '待機中'
   | '院内付き添い中'
   | '走行中'
@@ -6,6 +7,7 @@ export type OperationStatus =
   | '案件終了'
 
 export type StatusTone =
+  | 'vacant'
   | 'waiting'
   | 'accompanying'
   | 'driving'
