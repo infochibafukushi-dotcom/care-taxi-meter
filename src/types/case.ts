@@ -18,7 +18,16 @@ export type GpsPosition = {
   latitude: number
   longitude: number
   accuracy: number
+  speed: number | null
   updatedAt: number
+}
+
+export type GpsLogEntry = {
+  capturedAt: number
+  latitude: number
+  longitude: number
+  speed: number | null
+  accuracy: number
 }
 
 export type MeterMetric = {

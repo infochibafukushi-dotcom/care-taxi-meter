@@ -91,16 +91,18 @@ export function CasePage() {
           <p className="eyebrow">Care Taxi Meter</p>
           <h1 id="case-title">介護タクシーメーター</h1>
           <p>
-            GPSログ保存、距離計算、料金計算、領収書機能は未実装です。現在料金のみダミー表示です。
+            GPSログはメモリ上に保存します。料金計算、領収書、Firebase保存は未実装です。現在料金のみダミー表示です。
           </p>
         </section>
 
         <MeterSummary metrics={meterMetrics} />
         <GpsPanel
           errorMessage={gps.errorMessage}
+          gpsLogCount={gps.gpsLogCount}
           isActive={gps.isActive}
           position={gps.position}
           status={gps.status}
+          totalDistanceKm={gps.totalDistanceKm}
         />
         <MeterActions
           actions={meterActions}
