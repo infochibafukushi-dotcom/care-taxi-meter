@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchCaseRecord } from '../services/caseRecords'
+import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
 import type { StoredCaseRecord } from '../services/caseRecords'
+import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
@@ -10,6 +12,8 @@ type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
   errorMessage: string
   isLoading: boolean
+  meterSettings: MeterSettings
+  settingsMessage: string
 }
 
 export function CaseDetailPage() {
@@ -18,6 +22,8 @@ export function CaseDetailPage() {
     caseRecord: null,
     errorMessage: '',
     isLoading: true,
+    meterSettings: defaultMeterSettings,
+    settingsMessage: '領収書設定を確認中です。',
   })
 
   useEffect(() => {
@@ -33,31 +39,67 @@ export function CaseDetailPage() {
           return
         }
 
-        setState({
+        setState((currentState) => ({
+          ...currentState,
           caseRecord,
           errorMessage: caseRecord ? '' : '案件が見つかりませんでした。',
           isLoading: false,
-        })
+        }))
       })
       .catch((error) => {
         if (!isMounted) {
           return
         }
 
-        setState({
+        setState((currentState) => ({
+          ...currentState,
           caseRecord: null,
           errorMessage:
             error instanceof Error
               ? error.message
               : '案件詳細の取得に失敗しました。',
           isLoading: false,
-        })
+        }))
       })
 
     return () => {
       isMounted = false
     }
   }, [caseRecordId])
+
+  useEffect(() => {
+    let isMounted = true
+
+    fetchMeterSettings()
+      .then((meterSettings) => {
+        if (!isMounted) {
+          return
+        }
+
+        setState((currentState) => ({
+          ...currentState,
+          meterSettings,
+          settingsMessage: '会社情報・領収書設定を反映します。',
+        }))
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setState((currentState) => ({
+          ...currentState,
+          settingsMessage:
+            error instanceof Error
+              ? `領収書設定を読み込めませんでした。${error.message}`
+              : '領収書設定を読み込めませんでした。',
+        }))
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const caseRecord = state.caseRecord
   const errorMessage = caseRecordId
@@ -70,7 +112,7 @@ export function CaseDetailPage() {
       return
     }
 
-    await downloadReceiptPdf(caseRecord)
+    await downloadReceiptPdf(caseRecord, state.meterSettings)
   }
 
   return (
@@ -98,6 +140,7 @@ export function CaseDetailPage() {
 
         {caseRecord ? (
           <>
+            <p className="empty-note">{state.settingsMessage}</p>
             <button
               className="receipt-download-button"
               type="button"

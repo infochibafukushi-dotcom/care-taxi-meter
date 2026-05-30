@@ -1,4 +1,6 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
+import { defaultMeterSettings } from '../services/meterSettings'
+import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from './caseRecords'
 
@@ -16,6 +18,9 @@ const a4Portrait = {
 
 const receiptFileName = (caseNumber: string) =>
   `receipt-${caseNumber.replaceAll(/[^a-zA-Z0-9-]/g, '-')}.pdf`
+
+const normalizeReceiptTitle = (value: string) =>
+  value.trim() || defaultMeterSettings.receipt.receiptDefault
 
 function drawText(
   context: CanvasRenderingContext2D,
@@ -70,7 +75,32 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   ]
 }
 
-function createReceiptCanvas(caseRecord: StoredCaseRecord) {
+function drawConfiguredTextLines({
+  context,
+  lines,
+  startY,
+  x,
+}: {
+  context: CanvasRenderingContext2D
+  lines: string[]
+  startY: number
+  x: number
+}) {
+  lines
+    .filter((line) => line.trim())
+    .forEach((line, index) => {
+      drawText(context, line, x, startY + index * 40, {
+        align: 'right',
+        color: '#475569',
+        font: index === 0 ? 'bold 28px sans-serif' : '24px sans-serif',
+      })
+    })
+}
+
+function createReceiptCanvas(
+  caseRecord: StoredCaseRecord,
+  settings: MeterSettings,
+) {
   const canvas = document.createElement('canvas')
   canvas.width = a4Portrait.widthPx
   canvas.height = a4Portrait.heightPx
@@ -80,38 +110,62 @@ function createReceiptCanvas(caseRecord: StoredCaseRecord) {
     throw new Error('領収書PDFの作成に失敗しました。')
   }
 
+  const receiptTitle = normalizeReceiptTitle(settings.receipt.receiptDefault)
+  const statementTitle =
+    settings.receipt.statementDefault.trim() ||
+    defaultMeterSettings.receipt.statementDefault
+  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const companyLines = [
+    companyName,
+    settings.company.address,
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
+    settings.company.email ? `MAIL ${settings.company.email}` : '',
+  ]
+
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  drawText(context, '領収書', canvas.width / 2, 160, {
+  drawText(context, receiptTitle, canvas.width / 2, 150, {
     align: 'center',
     font: 'bold 72px sans-serif',
   })
-  drawLine(context, 430, 188, 810, 188, '#0f172a')
+  drawLine(context, 430, 178, 810, 178, '#0f172a')
 
-  drawText(context, '介護タクシーメーター', 120, 285, {
+  drawText(context, statementTitle, canvas.width / 2, 230, {
+    align: 'center',
+    color: '#0369a1',
+    font: 'bold 30px sans-serif',
+  })
+
+  drawText(context, companyName, 120, 310, {
     color: '#0369a1',
     font: 'bold 34px sans-serif',
   })
-  drawText(context, '下記の通り領収いたしました。', 120, 345, {
+  drawText(context, '下記の通り領収いたしました。', 120, 365, {
     color: '#334155',
     font: '30px sans-serif',
+  })
+  drawConfiguredTextLines({
+    context,
+    lines: companyLines,
+    startY: 300,
+    x: 1120,
   })
 
   context.save()
   context.fillStyle = '#f0f9ff'
   context.strokeStyle = '#0284c7'
   context.lineWidth = 3
-  context.roundRect(120, 410, 1000, 150, 22)
+  context.roundRect(120, 430, 1000, 150, 22)
   context.fill()
   context.stroke()
   context.restore()
 
-  drawText(context, '合計金額', 170, 470, {
+  drawText(context, '合計金額', 170, 490, {
     color: '#075985',
     font: 'bold 30px sans-serif',
   })
-  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 520, {
+  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 540, {
     align: 'right',
     color: '#0f172a',
     font: 'bold 64px sans-serif',
@@ -119,9 +173,9 @@ function createReceiptCanvas(caseRecord: StoredCaseRecord) {
 
   const lines = createReceiptLines(caseRecord)
   const tableX = 120
-  const tableTop = 650
+  const tableTop = 670
   const labelWidth = 320
-  const rowHeight = 82
+  const rowHeight = 76
   const tableWidth = 1000
 
   lines.forEach((line, index) => {
@@ -135,11 +189,11 @@ function createReceiptCanvas(caseRecord: StoredCaseRecord) {
 
     drawLine(context, tableX, rowY, tableX + tableWidth, rowY)
     drawLine(context, tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight)
-    drawText(context, line.label, tableX + 32, rowY + 53, {
+    drawText(context, line.label, tableX + 32, rowY + 50, {
       color: '#475569',
       font: 'bold 28px sans-serif',
     })
-    drawText(context, line.value, tableX + tableWidth - 32, rowY + 53, {
+    drawText(context, line.value, tableX + tableWidth - 32, rowY + 50, {
       align: 'right',
       font: isTotal ? 'bold 36px sans-serif' : '30px sans-serif',
     })
@@ -150,14 +204,25 @@ function createReceiptCanvas(caseRecord: StoredCaseRecord) {
   drawLine(context, tableX, tableTop, tableX, tableBottom)
   drawLine(context, tableX + tableWidth, tableTop, tableX + tableWidth, tableBottom)
 
-  drawText(context, '発行日', 120, 1535, {
+  drawText(context, '発行日', 120, 1510, {
     color: '#475569',
     font: '28px sans-serif',
   })
-  drawText(context, formatCaseDateTime(new Date().toISOString()), 240, 1535, {
+  drawText(context, formatCaseDateTime(new Date().toISOString()), 240, 1510, {
     font: '28px sans-serif',
   })
-  drawText(context, '※本領収書は保存済み案件データをもとに発行しています。', 120, 1610, {
+
+  if (settings.receipt.issuerName.trim()) {
+    drawText(context, '発行担当者', 120, 1560, {
+      color: '#475569',
+      font: '28px sans-serif',
+    })
+    drawText(context, settings.receipt.issuerName, 290, 1560, {
+      font: '28px sans-serif',
+    })
+  }
+
+  drawText(context, '※本領収書は保存済み案件データをもとに発行しています。', 120, 1625, {
     color: '#64748b',
     font: '24px sans-serif',
   })
@@ -165,10 +230,13 @@ function createReceiptCanvas(caseRecord: StoredCaseRecord) {
   return canvas
 }
 
-export async function downloadReceiptPdf(caseRecord: StoredCaseRecord) {
+export async function downloadReceiptPdf(
+  caseRecord: StoredCaseRecord,
+  settings: MeterSettings,
+) {
   const [{ jsPDF }, canvas] = await Promise.all([
     import('jspdf'),
-    Promise.resolve(createReceiptCanvas(caseRecord)),
+    Promise.resolve(createReceiptCanvas(caseRecord, settings)),
   ])
   const pdf = new jsPDF({
     format: 'a4',
