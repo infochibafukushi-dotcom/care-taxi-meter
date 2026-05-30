@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1366" height="768" viewBox="0 0 1366 768" role="img" aria-labelledby="title desc">
+  <title id="title">R9-6参考 介護タクシー業務用メーターUIモック 改訂版</title>
+  <desc id="desc">スマホ横向き固定を想定した業務用タクシーメーター風UIの改訂モック。画面全体を機器筐体風にし、黒背景の超大型料金表示、拡大した料金内訳、中央の介助・実費大型ボタン、右側の状態縦ボタン、案件開始・案件終了ボタン、運賃上昇予告バー、通常非表示のGPS、必要時だけ開くテンキーモーダルを含む。</desc>
+  <defs>
+    <linearGradient id="case" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#18202d"/>
+      <stop offset="0.42" stop-color="#0b1018"/>
+      <stop offset="1" stop-color="#03050a"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#334155"/>
+      <stop offset="0.5" stop-color="#111827"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050912"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="fareBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="0.66" stop-color="#facc15"/>
+      <stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+    <radialGradient id="screw" cx="45%" cy="40%" r="65%">
+      <stop offset="0" stop-color="#cbd5e1"/>
+      <stop offset="0.45" stop-color="#64748b"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </radialGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="buttonShadow" x="-10%" y="-10%" width="120%" height="135%">
+      <feDropShadow dx="0" dy="8" stdDeviation="4" flood-color="#000" flood-opacity="0.7"/>
+    </filter>
+    <style>
+      .label { fill: #a7b5c9; font-family: "Noto Sans JP", "Hiragino Sans", sans-serif; font-weight: 900; letter-spacing: .05em; }
+      .value { fill: #f8fafc; font-family: "Roboto Mono", "DIN Alternate", monospace; font-weight: 1000; }
+      .panel-title { fill: #f8fafc; font-family: "Noto Sans JP", sans-serif; font-size: 23px; font-weight: 1000; }
+      .btn-text { fill: #fff; font-family: "Noto Sans JP", sans-serif; font-weight: 1000; text-anchor: middle; dominant-baseline: middle; }
+      .tiny { font-size: 14px; }
+      .small { font-size: 18px; }
+      .medium { font-size: 24px; }
+      .large { font-size: 31px; }
+      .button { filter: url(#buttonShadow); stroke: rgba(255,255,255,.28); stroke-width: 2; }
+      .lampText { font-family: "Roboto Mono", monospace; font-size: 13px; font-weight: 900; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <!-- Rugged meter body -->
+  <rect width="1366" height="768" rx="34" fill="#020617"/>
+  <rect x="12" y="12" width="1342" height="744" rx="32" fill="url(#case)" stroke="#64748b" stroke-width="5"/>
+  <rect x="30" y="30" width="1306" height="708" rx="24" fill="none" stroke="#020617" stroke-width="10"/>
+  <circle cx="42" cy="42" r="12" fill="url(#screw)"/><circle cx="1324" cy="42" r="12" fill="url(#screw)"/>
+  <circle cx="42" cy="726" r="12" fill="url(#screw)"/><circle cx="1324" cy="726" r="12" fill="url(#screw)"/>
+
+  <!-- Header strip -->
+  <rect x="52" y="48" width="1262" height="54" rx="10" fill="#070b12" stroke="#334155" stroke-width="2"/>
+  <text x="72" y="82" class="label" font-size="25">介護タクシー専用クラウドメーター</text>
+  <text x="608" y="82" class="label" font-size="15">LANDSCAPE FIXED / RUGGED METER MOCK</text>
+  <text x="1005" y="72" class="label" font-size="16">案件 CASE-20260530-001</text>
+  <text x="1005" y="92" class="label" font-size="13">GPS通常非表示 / 設定から料金変更</text>
+
+  <!-- Left meter area -->
+  <g transform="translate(52 118)">
+    <rect width="568" height="586" rx="18" fill="url(#bezel)" stroke="#64748b" stroke-width="3"/>
+    <rect x="14" y="14" width="540" height="558" rx="14" fill="#05070c" stroke="#020617" stroke-width="5"/>
+
+    <g transform="translate(30 30)">
+      <rect width="508" height="210" rx="14" fill="url(#screen)" stroke="#22d3ee" stroke-width="5"/>
+      <text x="22" y="42" class="label" font-size="25">現在料金</text>
+      <text x="486" y="42" class="label" font-size="20" text-anchor="end">支払前</text>
+      <text x="254" y="166" class="value" font-size="104" text-anchor="middle" filter="url(#glow)">¥12,800</text>
+    </g>
+
+    <g transform="translate(30 258)">
+      <rect width="508" height="54" rx="10" fill="#101827" stroke="#475569" stroke-width="2"/>
+      <text x="18" y="34" class="label" font-size="18">運賃上昇予告</text>
+      <rect x="164" y="15" width="300" height="24" rx="12" fill="#020617" stroke="#334155"/>
+      <rect x="168" y="19" width="228" height="16" rx="8" fill="url(#fareBar)"/>
+      <rect x="396" y="12" width="5" height="30" fill="#f8fafc"/>
+      <text x="496" y="35" class="value" font-size="20" text-anchor="end">+100円</text>
+    </g>
+
+    <!-- Larger fare breakdown -->
+    <g transform="translate(30 332)">
+      <rect width="508" height="220" rx="12" fill="#0b1220" stroke="#334155" stroke-width="2"/>
+      <text x="18" y="31" class="label" font-size="20">料金内訳</text>
+      <g transform="translate(18 48)">
+        <rect width="472" height="30" rx="7" fill="#111827"/><text x="12" y="22" class="label" font-size="19">運賃</text><text x="458" y="23" class="value" font-size="24" text-anchor="end">7,200円</text>
+        <rect y="36" width="472" height="30" rx="7" fill="#111827"/><text x="12" y="58" class="label" font-size="19">待機</text><text x="458" y="59" class="value" font-size="24" text-anchor="end">1,000円</text>
+        <rect y="72" width="472" height="30" rx="7" fill="#111827"/><text x="12" y="94" class="label" font-size="19">付き添い</text><text x="458" y="95" class="value" font-size="24" text-anchor="end">1,500円</text>
+        <rect y="108" width="472" height="30" rx="7" fill="#111827"/><text x="12" y="130" class="label" font-size="19">介助</text><text x="458" y="131" class="value" font-size="24" text-anchor="end">2,500円</text>
+        <rect y="144" width="472" height="30" rx="7" fill="#111827"/><text x="12" y="166" class="label" font-size="19">実費</text><text x="458" y="167" class="value" font-size="24" text-anchor="end">600円</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Center action area -->
+  <g transform="translate(638 118)">
+    <rect width="430" height="586" rx="18" fill="#080d16" stroke="#64748b" stroke-width="3"/>
+    <rect x="14" y="14" width="402" height="558" rx="14" fill="#0b1220" stroke="#020617" stroke-width="5"/>
+    <text x="32" y="48" class="panel-title">介助ワンタッチ</text>
+    <g transform="translate(28 70)">
+      <rect class="button" x="0" y="0" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text large" x="89" y="37">基本介助</text>
+      <rect class="button" x="196" y="0" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text large" x="285" y="37">室内介助</text>
+      <rect class="button" x="0" y="84" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text large" x="89" y="121">階段介助</text>
+      <rect class="button" x="196" y="84" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text medium" x="285" y="121">車椅子介助</text>
+      <rect class="button" x="0" y="168" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text small" x="89" y="205">ストレッチャー</text>
+      <rect class="button" x="196" y="168" width="178" height="72" rx="12" fill="#1d4ed8"/><text class="btn-text small" x="285" y="205">リクライニング</text>
+      <rect class="button" x="0" y="252" width="374" height="72" rx="12" fill="#334155"/><text class="btn-text large" x="187" y="289">その他 / 金額入力</text>
+    </g>
+
+    <text x="32" y="434" class="panel-title">実費ワンタッチ</text>
+    <g transform="translate(28 456)">
+      <rect class="button" x="0" y="0" width="116" height="50" rx="11" fill="#0f766e"/><text class="btn-text medium" x="58" y="26">駐車場</text>
+      <rect class="button" x="129" y="0" width="116" height="50" rx="11" fill="#0f766e"/><text class="btn-text medium" x="187" y="26">高速</text>
+      <rect class="button" x="258" y="0" width="116" height="50" rx="11" fill="#0f766e"/><text class="btn-text small" x="316" y="26">有料道路</text>
+      <rect class="button" x="0" y="62" width="181" height="50" rx="11" fill="#0f766e"/><text class="btn-text medium" x="90" y="88">フェリー</text>
+      <rect class="button" x="193" y="62" width="181" height="50" rx="11" fill="#0f766e"/><text class="btn-text medium" x="283" y="88">その他</text>
+    </g>
+  </g>
+
+  <!-- Right control area -->
+  <g transform="translate(1084 118)">
+    <rect width="230" height="586" rx="18" fill="url(#bezel)" stroke="#64748b" stroke-width="3"/>
+    <rect x="14" y="14" width="202" height="558" rx="14" fill="#05070c" stroke="#020617" stroke-width="5"/>
+    <text x="115" y="45" class="panel-title" text-anchor="middle">状態操作</text>
+
+    <g transform="translate(28 62)">
+      <rect class="button" x="0" y="0" width="174" height="58" rx="12" fill="#15803d"/><text class="btn-text medium" x="87" y="31">案件開始</text>
+      <rect class="button" x="0" y="70" width="174" height="70" rx="14" fill="#dc2626"/><text class="btn-text large" x="87" y="37">空車</text>
+      <rect class="button" x="0" y="150" width="174" height="70" rx="14" fill="#2563eb"/><text class="btn-text large" x="87" y="187">実車</text>
+      <rect class="button" x="0" y="230" width="174" height="70" rx="14" fill="#facc15"/><text class="btn-text large" fill="#1f2937" x="87" y="267">待機</text>
+      <rect class="button" x="0" y="310" width="174" height="70" rx="14" fill="#16a34a"/><text class="btn-text medium" x="87" y="347">付き添い</text>
+      <rect class="button" x="0" y="390" width="174" height="70" rx="14" fill="#f97316"/><text class="btn-text large" x="87" y="427">支払</text>
+      <rect class="button" x="0" y="472" width="174" height="58" rx="12" fill="#475569"/><text class="btn-text medium" x="87" y="503">案件終了</text>
+    </g>
+
+    <rect x="28" y="614" width="80" height="34" rx="9" fill="#111827" stroke="#475569"/>
+    <text x="68" y="636" class="label" text-anchor="middle" font-size="15">GPS非表示</text>
+    <rect x="122" y="614" width="80" height="34" rx="9" fill="#111827" stroke="#475569"/>
+    <text x="162" y="636" class="label" text-anchor="middle" font-size="15">設定</text>
+  </g>
+
+  <!-- Modal-only keypad preview -->
+  <g transform="translate(764 220)" opacity="0.97">
+    <rect x="-22" y="-22" width="292" height="384" rx="22" fill="rgba(2,6,23,.72)" stroke="#38bdf8" stroke-dasharray="8 7" stroke-width="2"/>
+    <text x="124" y="-2" class="label" font-size="16" text-anchor="middle">テンキーは通常非表示 / 必要時のみモーダル</text>
+    <rect width="248" height="338" rx="18" fill="#020617" stroke="#94a3b8" stroke-width="2"/>
+    <text x="124" y="35" class="label" font-size="18" text-anchor="middle">金額入力モーダル</text>
+    <rect x="20" y="54" width="208" height="58" rx="10" fill="#111827" stroke="#334155"/>
+    <text x="216" y="93" class="value" font-size="34" text-anchor="end">1,000</text>
+    <g class="btn-text medium" transform="translate(20 130)">
+      <rect x="0" y="0" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="30" y="25">7</text>
+      <rect x="74" y="0" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="104" y="25">8</text>
+      <rect x="148" y="0" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="178" y="25">9</text>
+      <rect x="0" y="56" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="30" y="81">4</text>
+      <rect x="74" y="56" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="104" y="81">5</text>
+      <rect x="148" y="56" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="178" y="81">6</text>
+      <rect x="0" y="112" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="30" y="137">1</text>
+      <rect x="74" y="112" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="104" y="137">2</text>
+      <rect x="148" y="112" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="178" y="137">3</text>
+      <rect x="0" y="168" width="60" height="46" rx="9" fill="#e5e7eb"/><text fill="#111827" x="30" y="193">0</text>
+      <rect x="74" y="168" width="60" height="46" rx="9" fill="#64748b"/><text x="104" y="193">削除</text>
+      <rect x="148" y="168" width="60" height="46" rx="9" fill="#16a34a"/><text x="178" y="193">決定</text>
+    </g>
+  </g>
+</svg>
