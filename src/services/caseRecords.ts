@@ -7,6 +7,7 @@ import {
   getFirestore,
   orderBy,
   query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore'
 import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
@@ -110,6 +111,25 @@ export async function saveCaseRecord({
 export async function fetchCaseRecords() {
   const snapshots = await getDocs(
     query(getCaseRecordsCollection(), orderBy('closedAt', 'desc')),
+  )
+
+  return snapshots.docs.map(toStoredCaseRecord)
+}
+
+export async function fetchCaseRecordsInClosedAtRange({
+  endIso,
+  startIso,
+}: {
+  endIso: string
+  startIso: string
+}) {
+  const snapshots = await getDocs(
+    query(
+      getCaseRecordsCollection(),
+      where('closedAt', '>=', startIso),
+      where('closedAt', '<', endIso),
+      orderBy('closedAt', 'desc'),
+    ),
   )
 
   return snapshots.docs.map(toStoredCaseRecord)
