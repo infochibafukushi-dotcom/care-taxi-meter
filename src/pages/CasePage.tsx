@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
+import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import {
   basicFareSettings,
@@ -12,18 +13,25 @@ import {
   calculateFareIncreaseProgress,
   careOptionMaster,
   escortFareSettings,
-  expenseSettings,
   formatFareYen,
   waitingFareSettings,
 } from '../services/fare'
+import { saveCaseRecord } from '../services/caseRecords'
+import {
+  defaultMeterSettings,
+  fetchMeterSettings,
+  fixedTimeFareUnitSeconds,
+} from '../services/meterSettings'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
   TimeFareSettings,
 } from '../services/fare'
+import type { ExpensePreset } from '../services/meterSettings'
 import type {
   ExpenseItem,
   OperationStatus,
+  PaymentMethod,
   SelectedCareOption,
   StatusTone,
   TimerKey,
@@ -44,12 +52,14 @@ type InputHistory = {
 }
 
 type StatusControlButton = {
+  disabled?: boolean
   label: string
   onClick: () => void
   tone: 'start' | StatusTone
 }
 
-const caseNumber = 'CASE-20260530-001'
+type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
+
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
@@ -78,21 +88,57 @@ const loadInputHistory = () => {
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUID()}`
 
+const createCaseNumber = () => {
+  const now = new Date()
+  const datePart = new Intl.DateTimeFormat('ja-JP', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+  })
+    .format(now)
+    .replaceAll('/', '')
+  const timePart = new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  })
+    .format(now)
+    .replaceAll(':', '')
+
+  return `CASE-${datePart}-${timePart}`
+}
+
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
 export function CasePage() {
+  const caseNumber = useMemo(() => createCaseNumber(), [])
   const [status, setStatus] = useState<OperationStatus>('空車')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
+  const [billableTimeStarted, setBillableTimeStarted] = useState({
+    accompanying: false,
+    waiting: false,
+  })
   const [isGpsActive, setIsGpsActive] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsMessage, setSettingsMessage] = useState('Firestore設定を確認中です。')
   const [keypadTarget, setKeypadTarget] = useState<KeypadTarget | null>(null)
   const [inputHistory, setInputHistory] = useState<InputHistory[]>(loadInputHistory)
   const [selectedCareOptions, setSelectedCareOptions] = useState<
     SelectedCareOption[]
   >([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
+  const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
+  const [caseSaveMessage, setCaseSaveMessage] = useState(
+    isFirebaseConfigured
+      ? '案件終了を押すとFirestoreへ保存します。'
+      : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
+  )
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
     useState<BasicFareSettings>(basicFareSettings)
   const [currentWaitingFareSettings, setCurrentWaitingFareSettings] =
@@ -101,16 +147,55 @@ export function CasePage() {
     useState<TimeFareSettings>(escortFareSettings)
   const [currentCareOptionMaster, setCurrentCareOptionMaster] =
     useState<CareOptionMasterItem[]>(careOptionMaster)
-  const [currentExpenseNames, setCurrentExpenseNames] = useState<string[]>(
-    expenseSettings.defaultNames,
+  const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
+    defaultMeterSettings.expensePresets,
   )
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
+  const waitingFareSeconds = billableTimeStarted.waiting
+    ? Math.max(elapsedTimers.seconds.waiting, 1)
+    : 0
+  const escortFareSeconds = billableTimeStarted.accompanying
+    ? Math.max(elapsedTimers.seconds.accompanying, 1)
+    : 0
+
+  useEffect(() => {
+    let isMounted = true
+
+    fetchMeterSettings()
+      .then((settings) => {
+        if (!isMounted) {
+          return
+        }
+
+        setCurrentBasicFareSettings(settings.basicFare)
+        setCurrentWaitingFareSettings(settings.waitingFare)
+        setCurrentEscortFareSettings(settings.escortFare)
+        setCurrentCareOptionMaster(settings.careOptions)
+        setCurrentExpensePresets(settings.expensePresets)
+        setSettingsMessage('Firestore設定を反映しています。')
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setSettingsMessage(
+          error instanceof Error
+            ? `Firestore設定を読み込めませんでした。${error.message}`
+            : 'Firestore設定を読み込めませんでした。',
+        )
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const fareBreakdown = calculateFareBreakdown({
     distanceKm: gps.totalDistanceKm,
-    waitingSeconds: elapsedTimers.seconds.waiting,
-    escortSeconds: elapsedTimers.seconds.accompanying,
+    waitingSeconds: waitingFareSeconds,
+    escortSeconds: escortFareSeconds,
     careOptions: selectedCareOptions,
     expenses,
     settings: {
@@ -208,8 +293,47 @@ export function CasePage() {
       setIsGpsActive(true)
     }
 
+    if (nextStatus === '待機中') {
+      setBillableTimeStarted((current) => ({ ...current, waiting: true }))
+    }
+
+    if (nextStatus === '院内付き添い中') {
+      setBillableTimeStarted((current) => ({ ...current, accompanying: true }))
+    }
+
     if (nextStatus === '空車' || nextStatus === '案件終了') {
       setIsGpsActive(false)
+    }
+  }
+
+  const handleCaseClose = async () => {
+    if (caseSaveState === 'saved' || caseSaveState === 'saving') {
+      handleStatusChange('案件終了')
+      return
+    }
+
+    handleStatusChange('案件終了')
+    setCaseSaveState('saving')
+    setCaseSaveMessage('Firestoreへ保存中です。')
+
+    try {
+      await saveCaseRecord({
+        caseNumber,
+        closedAt: new Date().toISOString(),
+        distanceKm: gps.totalDistanceKm,
+        fareBreakdown,
+        paymentMethod,
+      })
+      setCaseSaveState('saved')
+      setCaseSaveMessage('Firestoreへ保存しました。次フェーズで案件一覧に表示します。')
+    } catch (error) {
+      console.error('Failed to save case record to Firestore', error)
+      setCaseSaveState('error')
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `保存に失敗しました。${error.message}`
+          : '保存に失敗しました。通信状況とFirebase設定を確認してください。',
+      )
     }
   }
 
@@ -228,12 +352,12 @@ export function CasePage() {
 
   const updateTimeFareSetting = (
     setter: Dispatch<SetStateAction<TimeFareSettings>>,
-    key: keyof TimeFareSettings,
     value: string,
   ) => {
     setter((settings) => ({
       ...settings,
-      [key]: toPositiveNumber(value, key === 'unitSeconds' ? 1 : 0),
+      unitFareYen: toPositiveNumber(value),
+      unitSeconds: fixedTimeFareUnitSeconds,
     }))
   }
 
@@ -247,10 +371,19 @@ export function CasePage() {
     )
   }
 
-  const updateExpenseName = (index: number, value: string) => {
-    setCurrentExpenseNames((names) =>
-      names.map((name, currentIndex) =>
-        currentIndex === index ? value.trimStart() : name,
+  const updateExpensePreset = (
+    id: string,
+    key: 'defaultAmountYen' | 'name',
+    value: string,
+  ) => {
+    setCurrentExpensePresets((presets) =>
+      presets.map((preset) =>
+        preset.id === id
+          ? {
+              ...preset,
+              [key]: key === 'name' ? value.trimStart() : toPositiveNumber(value),
+            }
+          : preset,
       ),
     )
   }
@@ -276,7 +409,10 @@ export function CasePage() {
     },
     {
       label: '案件終了',
-      onClick: () => handleStatusChange('案件終了'),
+      disabled: caseSaveState === 'saving',
+      onClick: () => {
+        void handleCaseClose()
+      },
       tone: 'closed',
     },
   ]
@@ -385,18 +521,22 @@ export function CasePage() {
               <h2>実費ワンタッチ</h2>
             </div>
             <div className="r9-expense-grid">
-              {currentExpenseNames
-                .filter((name) => name.trim())
-                .map((name) => (
+              {currentExpensePresets
+                .filter((preset) => preset.name.trim())
+                .map((preset) => (
                   <button
                     className="r9-expense-button"
-                    key={name}
+                    key={preset.id}
                     type="button"
                     onClick={() =>
-                      setKeypadTarget({ amountYen: 0, mode: 'expense', name })
+                      setKeypadTarget({
+                        amountYen: preset.defaultAmountYen,
+                        mode: 'expense',
+                        name: preset.name,
+                      })
                     }
                   >
-                    {name}
+                    {preset.name}
                   </button>
                 ))}
             </div>
@@ -429,6 +569,7 @@ export function CasePage() {
                   className={`r9-status-button r9-status-button--${button.tone}`}
                   key={button.label}
                   type="button"
+                  disabled={button.disabled}
                   onClick={button.onClick}
                 >
                   {button.label}
@@ -457,7 +598,13 @@ export function CasePage() {
               </details>
             </div>
 
-            <SettlementPanel breakdown={fareBreakdown} />
+            <SettlementPanel
+              breakdown={fareBreakdown}
+              paymentMethod={paymentMethod}
+              saveMessage={caseSaveMessage}
+              saveState={caseSaveState}
+              onPaymentMethodChange={setPaymentMethod}
+            />
           </section>
         </div>
       </div>
@@ -472,13 +619,15 @@ export function CasePage() {
           >
             <header className="settings-header">
               <div>
-                <span>仮設定</span>
-                <h2 id="settings-title">料金設定</h2>
+                <span>一時設定</span>
+                <h2 id="settings-title">現在の料金設定</h2>
               </div>
               <button type="button" onClick={() => setIsSettingsOpen(false)}>
                 閉じる
               </button>
             </header>
+
+            <p className="settings-message">{settingsMessage}</p>
 
             <div className="settings-grid">
               <fieldset>
@@ -537,22 +686,11 @@ export function CasePage() {
               <fieldset>
                 <legend>待機・付き添い</legend>
                 <label>
-                  待機単位(秒)
-                  <input
-                    min="0"
-                    type="number"
-                    value={currentWaitingFareSettings.unitSeconds}
-                    onChange={(event) =>
-                      updateTimeFareSetting(
-                        setCurrentWaitingFareSettings,
-                        'unitSeconds',
-                        event.target.value,
-                      )
-                    }
-                  />
+                  待機単位
+                  <input readOnly value="30分" />
                 </label>
                 <label>
-                  待機料金(円)
+                  30分単位料金(円)
                   <input
                     min="0"
                     type="number"
@@ -560,29 +698,17 @@ export function CasePage() {
                     onChange={(event) =>
                       updateTimeFareSetting(
                         setCurrentWaitingFareSettings,
-                        'unitFareYen',
                         event.target.value,
                       )
                     }
                   />
                 </label>
                 <label>
-                  付き添い単位(秒)
-                  <input
-                    min="0"
-                    type="number"
-                    value={currentEscortFareSettings.unitSeconds}
-                    onChange={(event) =>
-                      updateTimeFareSetting(
-                        setCurrentEscortFareSettings,
-                        'unitSeconds',
-                        event.target.value,
-                      )
-                    }
-                  />
+                  付き添い単位
+                  <input readOnly value="30分" />
                 </label>
                 <label>
-                  付き添い料金(円)
+                  30分単位料金(円)
                   <input
                     min="0"
                     type="number"
@@ -590,7 +716,6 @@ export function CasePage() {
                     onChange={(event) =>
                       updateTimeFareSetting(
                         setCurrentEscortFareSettings,
-                        'unitFareYen',
                         event.target.value,
                       )
                     }
@@ -617,14 +742,33 @@ export function CasePage() {
 
               <fieldset>
                 <legend>実費ボタン</legend>
-                {currentExpenseNames.map((name, index) => (
-                  <label key={`${name}-${index}`}>
-                    実費{index + 1}
-                    <input
-                      value={name}
-                      onChange={(event) => updateExpenseName(index, event.target.value)}
-                    />
-                  </label>
+                {currentExpensePresets.map((preset, index) => (
+                  <div className="settings-pair" key={preset.id}>
+                    <label>
+                      実費{index + 1} 名称
+                      <input
+                        value={preset.name}
+                        onChange={(event) =>
+                          updateExpensePreset(preset.id, 'name', event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      金額(円)
+                      <input
+                        min="0"
+                        type="number"
+                        value={preset.defaultAmountYen}
+                        onChange={(event) =>
+                          updateExpensePreset(
+                            preset.id,
+                            'defaultAmountYen',
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
                 ))}
               </fieldset>
             </div>
