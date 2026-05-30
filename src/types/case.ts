@@ -30,6 +30,21 @@ export type GpsLogEntry = {
   accuracy: number
 }
 
+export type SelectedCareOption = {
+  id: string
+  masterId: string
+  name: string
+  amountYen: number
+}
+
+export type ExpenseItem = {
+  id: string
+  name: string
+  amountYen: number
+}
+
+export type PaymentMethod = '現金' | 'クレジット' | 'QR決済' | 'その他'
+
 export type MeterMetric = {
   label: string
   value: string

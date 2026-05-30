@@ -1,20 +1,25 @@
 import { useMemo, useState } from 'react'
+import { CareOptionsPanel } from '../components/case/CareOptionsPanel'
 import { CaseHeader } from '../components/case/CaseHeader'
+import { ExpensesPanel } from '../components/case/ExpensesPanel'
+import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { MeterActions } from '../components/case/MeterActions'
 import { MeterSummary } from '../components/case/MeterSummary'
+import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import {
-  calculateAccompanimentFareYen,
-  calculateBasicFareYen,
-  calculateWaitingFareYen,
+  calculateFareBreakdown,
+  careOptionMaster,
   formatFareYen,
 } from '../services/fare'
 import type {
+  ExpenseItem,
   MeterAction,
   MeterMetric,
   OperationStatus,
+  SelectedCareOption,
   StatusTone,
   TimerKey,
 } from '../types/case'
@@ -52,38 +57,44 @@ export function CasePage() {
   const [status, setStatus] = useState<OperationStatus>('待機中')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
   const [isGpsActive, setIsGpsActive] = useState(false)
+  const [selectedCareOptions, setSelectedCareOptions] = useState<
+    SelectedCareOption[]
+  >([])
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([])
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
-  const basicFareYen = calculateBasicFareYen(gps.totalDistanceKm)
-  const waitingFareYen = calculateWaitingFareYen(elapsedTimers.seconds.waiting)
-  const accompanimentFareYen = calculateAccompanimentFareYen(
-    elapsedTimers.seconds.accompanying,
-  )
-  const totalFareYen = basicFareYen + waitingFareYen + accompanimentFareYen
+
+  const fareBreakdown = calculateFareBreakdown({
+    distanceKm: gps.totalDistanceKm,
+    waitingSeconds: elapsedTimers.seconds.waiting,
+    escortSeconds: elapsedTimers.seconds.accompanying,
+    careOptions: selectedCareOptions,
+    expenses,
+  })
 
   const meterMetrics: MeterMetric[] = useMemo(
     () => [
       {
         label: '現在料金',
-        value: formatFareYen(totalFareYen),
+        value: formatFareYen(fareBreakdown.totalFareYen),
         unit: '円',
         tone: 'fare',
       },
       {
         label: '基本運賃',
-        value: formatFareYen(basicFareYen),
+        value: formatFareYen(fareBreakdown.basicFareYen),
         unit: '円',
         tone: 'fare',
       },
       {
         label: '待機料金',
-        value: formatFareYen(waitingFareYen),
+        value: formatFareYen(fareBreakdown.waitingFareYen),
         unit: '円',
         tone: 'fare',
       },
       {
         label: '院内付き添い料金',
-        value: formatFareYen(accompanimentFareYen),
+        value: formatFareYen(fareBreakdown.escortFareYen),
         unit: '円',
         tone: 'fare',
       },
@@ -95,14 +106,47 @@ export function CasePage() {
         tone: 'timer',
       },
     ],
-    [
-      accompanimentFareYen,
-      basicFareYen,
-      elapsedTimers,
-      totalFareYen,
-      waitingFareYen,
-    ],
+    [elapsedTimers, fareBreakdown],
   )
+
+  const handleAddCareOption = (masterItem: (typeof careOptionMaster)[number]) => {
+    setSelectedCareOptions((currentOptions) => [
+      ...currentOptions,
+      {
+        id: `${masterItem.id}-${Date.now()}-${crypto.randomUUID()}`,
+        masterId: masterItem.id,
+        name: masterItem.name,
+        amountYen: masterItem.defaultAmountYen,
+      },
+    ])
+  }
+
+  const handleCareOptionAmountChange = (id: string, amountYen: number) => {
+    setSelectedCareOptions((currentOptions) =>
+      currentOptions.map((option) =>
+        option.id === id ? { ...option, amountYen: Math.max(0, amountYen) } : option,
+      ),
+    )
+  }
+
+  const handleRemoveCareOption = (id: string) => {
+    setSelectedCareOptions((currentOptions) =>
+      currentOptions.filter((option) => option.id !== id),
+    )
+  }
+
+  const handleAddExpense = (expense: Omit<ExpenseItem, 'id'>) => {
+    setExpenses((currentExpenses) => [
+      ...currentExpenses,
+      { ...expense, id: `expense-${Date.now()}-${crypto.randomUUID()}` },
+    ])
+  }
+
+  const handleRemoveExpense = (id: string) => {
+    setExpenses((currentExpenses) =>
+      currentExpenses.filter((expense) => expense.id !== id),
+    )
+  }
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
     setStatus(nextStatus)
@@ -133,11 +177,25 @@ export function CasePage() {
           <p className="eyebrow">Care Taxi Meter</p>
           <h1 id="case-title">介護タクシーメーター</h1>
           <p>
-            現在料金は基本運賃、待機料金、院内付き添い料金を合算します。介助料金、領収書、Firebase保存は未実装です。
+            現在料金は基本運賃、待機料金、院内付き添い料金、介助料金、実費を合算します。領収書、Firebase保存は未実装です。
           </p>
         </section>
 
         <MeterSummary metrics={meterMetrics} />
+        <FareBreakdownPanel breakdown={fareBreakdown} />
+        <CareOptionsPanel
+          careOptionMaster={careOptionMaster}
+          selectedCareOptions={selectedCareOptions}
+          onAdd={handleAddCareOption}
+          onAmountChange={handleCareOptionAmountChange}
+          onRemove={handleRemoveCareOption}
+        />
+        <ExpensesPanel
+          expenses={expenses}
+          onAdd={handleAddExpense}
+          onRemove={handleRemoveExpense}
+        />
+        <SettlementPanel breakdown={fareBreakdown} />
         <GpsPanel
           errorMessage={gps.errorMessage}
           gpsLogCount={gps.gpsLogCount}

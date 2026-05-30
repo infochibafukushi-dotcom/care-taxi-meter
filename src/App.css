@@ -466,3 +466,220 @@ h1 {
 .gps-note {
   color: #64748b;
 }
+
+.input-panel,
+.fare-breakdown,
+.settlement-panel {
+  padding: 14px;
+  border-radius: 20px;
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 10%);
+}
+
+.input-panel h2,
+.fare-breakdown h2,
+.settlement-panel h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.input-panel__header,
+.fare-breakdown div,
+.settlement-lines div,
+.readonly-line-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.input-panel__header span {
+  color: #0369a1;
+  font-weight: 800;
+}
+
+.field-label {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.field-label input,
+.field-label select,
+.editable-line-item input {
+  min-height: 48px;
+  width: 100%;
+  border: 1px solid rgb(15 23 42 / 18%);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 1rem;
+}
+
+.line-item-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.editable-line-item,
+.readonly-line-item {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.editable-line-item > span,
+.readonly-line-item > span {
+  font-weight: 800;
+}
+
+.editable-line-item label {
+  display: grid;
+  gap: 4px;
+  color: #64748b;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.editable-line-item button,
+.readonly-line-item button,
+.panel-action {
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  background: #475569;
+  font: inherit;
+  font-weight: 800;
+}
+
+.panel-action {
+  width: 100%;
+  margin-top: 12px;
+  background: #0284c7;
+}
+
+.empty-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.expense-form {
+  display: grid;
+  gap: 10px;
+}
+
+.fare-breakdown dl,
+.settlement-lines {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.fare-breakdown dl {
+  padding: 0;
+}
+
+.fare-breakdown div,
+.settlement-lines div {
+  padding: 10px 0;
+  border-bottom: 1px solid rgb(15 23 42 / 10%);
+}
+
+.fare-breakdown dt,
+.fare-breakdown dd {
+  margin: 0;
+}
+
+.fare-breakdown dt,
+.settlement-lines span {
+  color: #475569;
+  font-weight: 700;
+}
+
+.fare-breakdown dd,
+.settlement-lines strong {
+  font-weight: 900;
+}
+
+.fare-breakdown__total {
+  border-top: 2px solid rgb(15 23 42 / 18%);
+  border-bottom: 0 !important;
+  margin-top: 4px;
+  padding-top: 14px !important;
+  font-size: 1.2rem;
+}
+
+.settlement-total {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  color: #fff;
+  background: #075985;
+}
+
+.settlement-total span {
+  color: rgb(255 255 255 / 74%);
+  font-weight: 700;
+}
+
+.settlement-total strong {
+  font-size: clamp(2rem, 10vw, 3.2rem);
+  line-height: 1;
+}
+
+.payment-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0 10px;
+  padding: 0;
+  border: 0;
+}
+
+.payment-methods legend {
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+  color: #475569;
+  font-weight: 800;
+}
+
+.payment-methods label {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+@media (min-width: 520px) {
+  .editable-line-item {
+    grid-template-columns: 1fr 130px auto;
+    align-items: end;
+  }
+
+  .expense-form {
+    grid-template-columns: 1fr 130px;
+  }
+
+  .panel-action {
+    grid-column: 1 / -1;
+  }
+}
