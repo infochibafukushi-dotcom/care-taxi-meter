@@ -5,6 +5,7 @@ import { MeterActions } from '../components/case/MeterActions'
 import { MeterSummary } from '../components/case/MeterSummary'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { useOperationTimers } from '../hooks/useOperationTimers'
+import { calculateBasicFareYen, formatFareYen } from '../services/fare'
 import type {
   MeterAction,
   MeterMetric,
@@ -47,10 +48,16 @@ export function CasePage() {
   const [isGpsActive, setIsGpsActive] = useState(false)
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
+  const basicFareYen = calculateBasicFareYen(gps.totalDistanceKm)
 
   const meterMetrics: MeterMetric[] = useMemo(
     () => [
-      { label: '現在料金', value: '1,250', unit: '円', tone: 'fare' },
+      {
+        label: '現在料金',
+        value: formatFareYen(basicFareYen),
+        unit: '円',
+        tone: 'fare',
+      },
       { label: '運行時間', value: elapsedTimers.driving, tone: 'timer' },
       { label: '待機時間', value: elapsedTimers.waiting, tone: 'timer' },
       {
@@ -59,7 +66,7 @@ export function CasePage() {
         tone: 'timer',
       },
     ],
-    [elapsedTimers],
+    [basicFareYen, elapsedTimers],
   )
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
@@ -91,7 +98,7 @@ export function CasePage() {
           <p className="eyebrow">Care Taxi Meter</p>
           <h1 id="case-title">介護タクシーメーター</h1>
           <p>
-            GPSログはメモリ上に保存します。料金計算、領収書、Firebase保存は未実装です。現在料金のみダミー表示です。
+            現在料金は累計走行距離に応じた基本運賃のみ計算します。介助料金、待機料金、院内付き添い料金、領収書、Firebase保存は未実装です。
           </p>
         </section>
 
