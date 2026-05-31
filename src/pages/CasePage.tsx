@@ -331,15 +331,18 @@ export function CasePage() {
         caseNumber,
         closedAt,
         distanceKm: gps.totalDistanceKm,
+        drivingSeconds: elapsedTimers.seconds.driving,
         fareBreakdown,
         paymentMethod,
         selectedCareOptions,
+        selectedExpenses: expenses,
       })
       setSavedCaseRecord({
         id: savedRecordRef.id,
         caseNumber,
         closedAt,
         distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
+        drivingSeconds: elapsedTimers.seconds.driving,
         basicFareYen: fareBreakdown.basicFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
@@ -351,6 +354,11 @@ export function CasePage() {
           id: careOption.masterId,
           name: careOption.name,
           amount: careOption.amountYen,
+        })),
+        expenseCharges: expenses.map((expense) => ({
+          id: expense.id,
+          name: expense.name,
+          amount: expense.amountYen,
         })),
       })
       setCaseSaveState('saved')

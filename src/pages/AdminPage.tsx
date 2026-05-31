@@ -315,9 +315,14 @@ export function AdminPage() {
             <p className="eyebrow">Admin</p>
             <h1 id="admin-title">管理画面</h1>
           </div>
-          <Link className="text-link" to="/">
-            ホームへ戻る
-          </Link>
+          <div className="admin-header-actions">
+            <Link className="primary-action admin-analytics-link" to="/admin/analytics">
+              売上分析
+            </Link>
+            <Link className="text-link" to="/">
+              ホームへ戻る
+            </Link>
+          </div>
         </div>
 
         <p className="lead admin-lead">
