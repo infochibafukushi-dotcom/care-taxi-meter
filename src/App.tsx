@@ -6,6 +6,7 @@ import { CaseDetailPage } from './pages/CaseDetailPage'
 import { CaseListPage } from './pages/CaseListPage'
 import { CasePage } from './pages/CasePage'
 import { HomePage } from './pages/HomePage'
+import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 
 const routerBaseName =
   import.meta.env.BASE_URL === '/'
@@ -36,6 +37,10 @@ const router = createBrowserRouter([
       {
         path: 'admin',
         element: <AdminPage />,
+      },
+      {
+        path: 'admin/analytics',
+        element: <SalesAnalyticsPage />,
       },
     ],
   },
