@@ -2914,3 +2914,267 @@ h1 {
 .case-detail-address {
   grid-column: 1 / -1;
 }
+
+.work-session-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgb(14 165 233 / 24%);
+  border-radius: 20px;
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 8%);
+}
+
+.work-session-panel--active {
+  border-color: rgb(22 163 74 / 30%);
+  background: #f0fdf4;
+}
+
+.work-session-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.work-session-panel__header span {
+  color: #0369a1;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.work-session-panel__header h2 {
+  margin: 2px 0 0;
+  font-size: 1.15rem;
+}
+
+.work-session-panel__header > strong {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 0.88rem;
+}
+
+.work-session-form,
+.work-session-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.work-session-form label,
+.work-session-detail-grid div {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.work-session-form select {
+  min-height: 44px;
+  border: 1px solid rgb(15 23 42 / 18%);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  font: inherit;
+}
+
+.work-session-detail-grid div {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 72%);
+}
+
+.work-session-detail-grid span,
+.work-session-detail-grid strong {
+  display: block;
+}
+
+.work-session-detail-grid strong {
+  color: #0f172a;
+}
+
+.work-session-primary-button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  color: #fff;
+  background: #0284c7;
+  font: inherit;
+  font-weight: 900;
+}
+
+.work-session-primary-button--danger {
+  background: #dc2626;
+}
+
+.work-session-primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (min-width: 720px) {
+  .work-session-form,
+  .work-session-detail-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.admin-master-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.admin-master-panel__header,
+.admin-master-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-master-panel__header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.admin-master-actions button,
+.admin-master-panel__header > button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 14px;
+  color: #fff;
+  background: #0284c7;
+  font: inherit;
+  font-weight: 800;
+}
+
+.admin-master-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-master-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.admin-master-table th,
+.admin-master-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgb(15 23 42 / 10%);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-master-table th {
+  color: #475569;
+  background: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.admin-master-table input,
+.admin-master-table select {
+  min-height: 38px;
+  width: 100%;
+  min-width: 120px;
+  border: 1px solid rgb(15 23 42 / 16%);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: #0f172a;
+  background: #fff;
+  font: inherit;
+}
+
+.admin-master-table input[type='checkbox'] {
+  min-width: 20px;
+  width: 20px;
+}
+
+.admin-master-table input[type='number'] {
+  min-width: 72px;
+}
+
+.admin-master-table--wide {
+  min-width: 1180px;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 28px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-weight: 800;
+}
+
+.login-form input,
+.work-session-form input {
+  min-height: 44px;
+  border: 1px solid rgb(15 23 42 / 18%);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  font: inherit;
+}
+
+.login-submit,
+.home-button {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.work-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.work-dashboard-grid div {
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.work-dashboard-grid span,
+.work-dashboard-grid strong {
+  display: block;
+}
+
+.work-dashboard-grid span {
+  color: #64748b;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.work-dashboard-grid strong {
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 1.1rem;
+}
+
+.clock-out-summary {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 720px) {
+  .work-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
