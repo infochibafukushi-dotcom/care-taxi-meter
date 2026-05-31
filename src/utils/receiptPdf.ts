@@ -114,10 +114,10 @@ function drawConfiguredTextLines({
   lines
     .filter((line) => line.trim())
     .forEach((line, index) => {
-      drawText(context, line, x, startY + index * 36, {
+      drawText(context, line, x, startY + index * 30, {
         align: 'right',
         color: '#475569',
-        font: index === 0 ? 'bold 28px sans-serif' : '23px sans-serif',
+        font: index === 0 ? 'bold 28px sans-serif' : '22px sans-serif',
       })
     })
 }
@@ -150,7 +150,8 @@ function createReceiptCanvas(
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
     settings.company.email ? `MAIL ${settings.company.email}` : '',
     settings.company.address,
-    `登録番号 ${invoiceNumber}`,
+    '登録番号',
+    invoiceNumber,
   ]
 
   context.fillStyle = '#ffffff'
@@ -171,7 +172,7 @@ function createReceiptCanvas(
   context.save()
   context.strokeStyle = '#e2e8f0'
   context.lineWidth = 2
-  context.roundRect(100, 270, 1040, 190, 18)
+  context.roundRect(100, 270, 1040, 210, 18)
   context.stroke()
   context.restore()
 
@@ -195,7 +196,7 @@ function createReceiptCanvas(
   drawConfiguredTextLines({
     context,
     lines: companyLines,
-    startY: 300,
+    startY: 292,
     x: 1120,
   })
 
