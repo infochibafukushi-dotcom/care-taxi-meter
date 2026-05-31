@@ -135,6 +135,12 @@ export function CaseDetailPage() {
 
   const caseRecord = state.caseRecord
   const assistCharges = caseRecord?.assistCharges ?? []
+  const caseAddressItems = caseRecord
+    ? [
+        { label: '伺い先住所', value: caseRecord.pickupAddress },
+        { label: '送り先住所', value: caseRecord.dropoffAddress },
+      ]
+    : []
   const errorMessage = caseRecordId
     ? state.errorMessage
     : '案件IDが指定されていません。'
@@ -224,22 +230,12 @@ export function CaseDetailPage() {
                   )}
                 </strong>
               </div>
-              <div className="case-detail-address">
-                <span>伺い先住所</span>
-                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
-              </div>
-              <div className="case-detail-address">
-                <span>送り先住所</span>
-                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
-              </div>
-              <div className="case-detail-address">
-                <span>伺い先住所</span>
-                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
-              </div>
-              <div className="case-detail-address">
-                <span>送り先住所</span>
-                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
-              </div>
+              {caseAddressItems.map((addressItem) => (
+                <div className="case-detail-address" key={addressItem.label}>
+                  <span>{addressItem.label}</span>
+                  <strong>{formatAddress(addressItem.value)}</strong>
+                </div>
+              ))}
               <div>
                 <span>距離</span>
                 <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
