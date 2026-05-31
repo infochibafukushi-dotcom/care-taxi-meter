@@ -2175,3 +2175,53 @@ h1 {
   color: #075985;
   background: #e0f2fe;
 }
+
+.assist-item-list {
+  display: grid;
+  gap: 12px;
+}
+
+.assist-item-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(120px, 160px) minmax(80px, auto) minmax(220px, auto);
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgb(15 23 42 / 10%);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.assist-item-toggle input {
+  width: auto;
+  min-height: auto;
+}
+
+.assist-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assist-item-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.case-detail-assist-charges > div {
+  display: grid;
+  gap: 6px;
+}
+
+.case-detail-assist-charges p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .assist-item-row {
+    grid-template-columns: 1fr;
+  }
+}

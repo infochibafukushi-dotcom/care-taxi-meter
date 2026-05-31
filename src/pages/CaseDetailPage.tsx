@@ -124,6 +124,7 @@ export function CaseDetailPage() {
   }, [])
 
   const caseRecord = state.caseRecord
+  const assistCharges = caseRecord?.assistCharges ?? []
   const errorMessage = caseRecordId
     ? state.errorMessage
     : '案件IDが指定されていません。'
@@ -216,9 +217,24 @@ export function CaseDetailPage() {
                 <span>付き添い料金</span>
                 <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
               </div>
-              <div>
+              <div className="case-detail-assist-charges">
                 <span>介助料金</span>
-                <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                {assistCharges.length > 0 ? (
+                  <div>
+                    {assistCharges.map((assistCharge) => (
+                      <p key={`${assistCharge.id}-${assistCharge.name}`}>
+                        <span>{assistCharge.name}</span>
+                        <strong>{formatFareYen(assistCharge.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                )}
               </div>
               <div>
                 <span>実費</span>

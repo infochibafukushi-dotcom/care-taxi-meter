@@ -41,10 +41,21 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+const toNonNegativeInteger = (value: string) =>
+  Math.max(Math.floor(Number(value) || 0), 0)
+
 const createExpensePreset = (): ExpensePreset => ({
   defaultAmountYen: 0,
   id: `expense-${Date.now()}-${crypto.randomUUID()}`,
   name: '',
+})
+
+const createAssistItem = (sortOrder: number): CareOptionMasterItem => ({
+  amount: 0,
+  enabled: true,
+  id: `assist-${Date.now()}-${crypto.randomUUID()}`,
+  name: '新しい介助項目',
+  sortOrder,
 })
 
 export function AdminPage() {
@@ -170,19 +181,61 @@ export function AdminPage() {
     }))
   }
 
-  const updateCareOption = (
+  const updateAssistItem = (
     id: string,
-    key: keyof Pick<CareOptionMasterItem, 'defaultAmountYen'>,
-    value: string,
+    key: keyof Pick<CareOptionMasterItem, 'amount' | 'enabled' | 'name'>,
+    value: string | boolean,
   ) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
-      careOptions: currentSettings.careOptions.map((careOption) =>
-        careOption.id === id
-          ? { ...careOption, [key]: toPositiveNumber(value) }
-          : careOption,
+      assistItems: currentSettings.assistItems.map((assistItem) =>
+        assistItem.id === id
+          ? {
+              ...assistItem,
+              [key]: key === 'amount' ? toNonNegativeInteger(String(value)) : value,
+            }
+          : assistItem,
       ),
     }))
+  }
+
+  const addAssistItem = () => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      assistItems: [
+        ...currentSettings.assistItems,
+        createAssistItem(currentSettings.assistItems.length + 1),
+      ],
+    }))
+  }
+
+  const disableAssistItem = (id: string) => {
+    updateAssistItem(id, 'enabled', false)
+  }
+
+  const moveAssistItem = (id: string, direction: -1 | 1) => {
+    setSettings((currentSettings) => {
+      const items = [...currentSettings.assistItems].sort(
+        (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+      )
+      const currentIndex = items.findIndex((item) => item.id === id)
+      const nextIndex = currentIndex + direction
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= items.length) {
+        return currentSettings
+      }
+
+      const [movedItem] = items.splice(currentIndex, 1)
+      items.splice(nextIndex, 0, movedItem)
+
+      return {
+        ...currentSettings,
+        assistItems: items.map((item, index) => ({
+          ...item,
+          sortOrder: index + 1,
+        })),
+      }
+    })
   }
 
   const updateExpensePreset = (
@@ -237,6 +290,16 @@ export function AdminPage() {
   }
 
   const handleSettingsSave = async () => {
+    const hasEmptyAssistItemName = settings.assistItems.some(
+      (assistItem) => !assistItem.name.trim(),
+    )
+
+    if (hasEmptyAssistItemName) {
+      setSettingsSaveState('error')
+      setSettingsMessage('介助項目の名称は空欄にできません。')
+      return
+    }
+
     setSettingsSaveState('saving')
     setSettingsMessage('Firestoreへ設定を保存中です。')
 
@@ -423,25 +486,90 @@ export function AdminPage() {
                 </label>
               </fieldset>
 
-              <fieldset>
-                <legend>介助料金</legend>
-                {settings.careOptions.map((careOption) => (
-                  <label key={careOption.id}>
-                    {careOption.name}
-                    <input
-                      min="0"
-                      type="number"
-                      value={careOption.defaultAmountYen}
-                      onChange={(event) =>
-                        updateCareOption(
-                          careOption.id,
-                          'defaultAmountYen',
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </label>
-                ))}
+              <fieldset className="admin-settings-wide">
+                <legend>介助項目設定</legend>
+                <p className="admin-settings-note">
+                  名称・金額・表示状態を編集できます。非表示にしても過去案件の介助明細は保持されます。
+                </p>
+                <div className="assist-item-list">
+                  {[...settings.assistItems]
+                    .sort(
+                      (firstItem, secondItem) =>
+                        firstItem.sortOrder - secondItem.sortOrder,
+                    )
+                    .map((assistItem, index, assistItems) => (
+                      <div className="assist-item-row" key={assistItem.id}>
+                        <label>
+                          項目名
+                          <input
+                            value={assistItem.name}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'name',
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          金額(円)
+                          <input
+                            min="0"
+                            step="1"
+                            type="number"
+                            value={assistItem.amount}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'amount',
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="assist-item-toggle">
+                          表示
+                          <input
+                            type="checkbox"
+                            checked={assistItem.enabled}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'enabled',
+                                event.target.checked,
+                              )
+                            }
+                          />
+                        </label>
+                        <div className="assist-item-actions">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => moveAssistItem(assistItem.id, -1)}
+                          >
+                            上へ
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === assistItems.length - 1}
+                            onClick={() => moveAssistItem(assistItem.id, 1)}
+                          >
+                            下へ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => disableAssistItem(assistItem.id)}
+                          >
+                            非表示
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <button type="button" onClick={addAssistItem}>
+                  介助項目を追加
+                </button>
               </fieldset>
 
               <fieldset className="admin-settings-wide">
