@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
+import { ClockInPanel } from '../components/work/ClockInPanel'
+import { CurrentWorkSessionPanel } from '../components/work/CurrentWorkSessionPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
+import { useWorkSession } from '../hooks/useWorkSession'
 import {
   basicFareSettings,
   calculateFareBreakdown,
@@ -17,6 +20,9 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { saveCaseRecord } from '../services/caseRecords'
+import { fetchStaffMembers } from '../services/staffMembers'
+import { fetchStores } from '../services/stores'
+import { fetchVehicles } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
@@ -29,6 +35,7 @@ import type {
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
+import type { StaffMember, Store, Vehicle } from '../types/work'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
@@ -161,6 +168,12 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
+  const [stores, setStores] = useState<Store[]>([])
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [selectedStoreId, setSelectedStoreId] = useState('')
+  const [selectedStaffId, setSelectedStaffId] = useState('')
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
   const operationStartedAtRef = useRef('')
@@ -185,6 +198,7 @@ export function CasePage() {
   )
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
+  const workSession = useWorkSession()
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
     : 0
@@ -225,6 +239,61 @@ export function CasePage() {
       isMounted = false
     }
   }, [])
+
+
+  useEffect(() => {
+    let isMounted = true
+
+    Promise.all([fetchStores(), fetchStaffMembers(), fetchVehicles()])
+      .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
+        if (!isMounted) {
+          return
+        }
+
+        const initialStoreId = loadedStores.find((store) => store.enabled)?.id || ''
+        const initialStaffId = loadedStaffMembers.find(
+          (staffMember) =>
+            staffMember.enabled && (!initialStoreId || staffMember.storeId === initialStoreId),
+        )?.id ?? ''
+        const initialVehicleId = loadedVehicles.find(
+          (vehicle) =>
+            vehicle.enabled &&
+            vehicle.status === '稼働中' &&
+            (!initialStoreId || vehicle.storeId === initialStoreId),
+        )?.id ?? ''
+
+        setStores(loadedStores)
+        setStaffMembers(loadedStaffMembers)
+        setVehicles(loadedVehicles)
+        setSelectedStoreId(initialStoreId)
+        setSelectedStaffId(initialStaffId)
+        setSelectedVehicleId(initialVehicleId)
+      })
+      .catch((error) => {
+        console.error('Failed to load work master data', error)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+
+  const handleSelectedStoreChange = (storeId: string) => {
+    setSelectedStoreId(storeId)
+    setSelectedStaffId(
+      staffMembers.find(
+        (staffMember) => staffMember.enabled && (!storeId || staffMember.storeId === storeId),
+      )?.id ?? '',
+    )
+    setSelectedVehicleId(
+      vehicles.find(
+        (vehicle) =>
+          vehicle.enabled && vehicle.status === '稼働中' && (!storeId || vehicle.storeId === storeId),
+      )?.id ?? '',
+    )
+  }
+
 
   const fareBreakdown = calculateFareBreakdown({
     distanceKm: gps.totalDistanceKm,
@@ -449,6 +518,37 @@ export function CasePage() {
     }
   }
 
+
+  const handleClockIn = async () => {
+    const selectedStore = stores.find((store) => store.id === selectedStoreId)
+    const selectedStaffMember = staffMembers.find(
+      (staffMember) => staffMember.id === selectedStaffId,
+    )
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId)
+
+    if (!selectedStore || !selectedStaffMember || !selectedVehicle) {
+      return
+    }
+
+    try {
+      await workSession.clockIn({
+        staffMember: selectedStaffMember,
+        store: selectedStore,
+        vehicle: selectedVehicle,
+      })
+    } catch (error) {
+      console.error('Failed to clock in', error)
+    }
+  }
+
+  const handleClockOut = async () => {
+    try {
+      await workSession.clockOut()
+    } catch (error) {
+      console.error('Failed to clock out', error)
+    }
+  }
+
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
       handleStatusChange('案件終了')
@@ -486,6 +586,9 @@ export function CasePage() {
         endedAt: operationEndedAtRef.current,
         distanceKm: gps.totalDistanceKm,
         drivingSeconds: finalDrivingSeconds,
+        waitingSeconds: elapsedTimers.seconds.waiting,
+        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        workSession: workSession.currentSession,
         fareBreakdown,
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
@@ -501,6 +604,17 @@ export function CasePage() {
         endedAt: operationEndedAtRef.current,
         distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
         drivingSeconds: finalDrivingSeconds,
+        waitingSeconds: elapsedTimers.seconds.waiting,
+        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        staffId: workSession.currentSession?.staffId ?? '',
+        staffName: workSession.currentSession?.staffName ?? '',
+        staffRole: workSession.currentSession?.staffRole ?? '',
+        vehicleId: workSession.currentSession?.vehicleId ?? '',
+        vehicleName: workSession.currentSession?.vehicleName ?? '',
+        vehicleNumber: workSession.currentSession?.vehicleNumber ?? '',
+        workSessionId: workSession.currentSession?.id ?? '',
+        storeId: workSession.currentSession?.storeId ?? '',
+        storeName: workSession.currentSession?.storeName ?? '',
         basicFareYen: fareBreakdown.basicFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
@@ -670,6 +784,31 @@ export function CasePage() {
             </strong>
           </div>
         </header>
+
+        {workSession.currentSession ? (
+          <CurrentWorkSessionPanel
+            isSaving={workSession.message.tone === 'saving'}
+            workSession={workSession.currentSession}
+            onClockOut={handleClockOut}
+          />
+        ) : (
+          <ClockInPanel
+            isSaving={workSession.message.tone === 'saving'}
+            selectedStaffId={selectedStaffId}
+            selectedStoreId={selectedStoreId}
+            selectedVehicleId={selectedVehicleId}
+            staffMembers={staffMembers}
+            stores={stores}
+            vehicles={vehicles}
+            onClockIn={handleClockIn}
+            onStaffChange={setSelectedStaffId}
+            onStoreChange={handleSelectedStoreChange}
+            onVehicleChange={setSelectedVehicleId}
+          />
+        )}
+        <p className={`save-note save-note--${workSession.message.tone}`}>
+          {workSession.message.text}
+        </p>
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">

@@ -14,6 +14,9 @@ const formatAddress = (address: string) =>
 const formatOptionalDateTime = (dateTime: string) =>
   dateTime ? formatCaseDateTime(dateTime) : '―'
 
+const formatOptionalText = (value: string) =>
+  value.trim() ? value : '未設定'
+
 type CaseRecordsState = {
   caseRecords: StoredCaseRecord[]
   errorMessage: string
@@ -128,6 +131,14 @@ export function CaseListPage() {
               <span className="case-record-address">
                 <small>送り先住所</small>
                 <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
+              </span>
+              <span>
+                <small>担当スタッフ</small>
+                <strong>{formatOptionalText(caseRecord.staffName)}</strong>
+              </span>
+              <span>
+                <small>車両</small>
+                <strong>{formatOptionalText(caseRecord.vehicleName)}</strong>
               </span>
               <span>
                 <small>支払方法</small>
