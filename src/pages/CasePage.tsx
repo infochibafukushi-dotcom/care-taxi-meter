@@ -539,6 +539,20 @@ export function CasePage() {
       return savedCaseRecord
     }
 
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
+
+    if (!workSession.currentSession) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('TOP画面で出勤してから案件を保存してください。')
+      return null
+    }
+
+    if (!selectedVehicle) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('案件車両を選択してください。')
+      return null
+    }
+
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
@@ -573,7 +587,7 @@ export function CasePage() {
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
         workSession: workSession.currentSession,
-        vehicle: vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null,
+        vehicle: selectedVehicle,
         fareBreakdown,
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
@@ -595,9 +609,9 @@ export function CasePage() {
         staffId: workSession.currentSession?.staffId ?? '',
         staffName: workSession.currentSession?.staffName ?? '',
         staffRole: workSession.currentSession?.staffRole ?? '',
-        vehicleId: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.id ?? '',
-        vehicleName: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.name ?? '',
-        vehicleNumber: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.number ?? '',
+        vehicleId: selectedVehicle.id,
+        vehicleName: selectedVehicle.name,
+        vehicleNumber: selectedVehicle.number,
         workSessionId: workSession.currentSession?.id ?? '',
         storeId: workSession.currentSession?.storeId ?? '',
         storeName: workSession.currentSession?.storeName ?? '',
