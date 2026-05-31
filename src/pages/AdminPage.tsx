@@ -568,8 +568,27 @@ export function AdminPage() {
                     }
                   />
                 </label>
+                <label>
+                  適格請求書発行事業者登録番号
+                  <input
+                    placeholder="T1234567890123"
+                    value={settings.receipt.invoiceNumber}
+                    onChange={(event) =>
+                      updateReceipt('invoiceNumber', event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  但し書きデフォルト
+                  <textarea
+                    value={settings.receipt.defaultReceiptNote}
+                    onChange={(event) =>
+                      updateReceipt('defaultReceiptNote', event.target.value)
+                    }
+                  />
+                </label>
                 <p className="admin-settings-note">
-                  領収書の宛名は空欄でも発行できます。宛名入力欄はこのフェーズでは作成していません。
+                  領収書の宛名・但し書き・登録番号は空欄でも保存できます。登録番号が未設定の場合、PDFには「未登録」と表示します。
                 </p>
               </fieldset>
             </div>

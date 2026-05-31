@@ -19,6 +19,7 @@ type CaseDetailState = {
 type ReceiptDialogState = {
   customerName: string
   issuerName: string
+  receiptNote: string
   isOpen: boolean
 }
 
@@ -34,6 +35,7 @@ export function CaseDetailPage() {
   const [receiptDialog, setReceiptDialog] = useState<ReceiptDialogState>({
     customerName: '',
     issuerName: '',
+    receiptNote: defaultMeterSettings.receipt.defaultReceiptNote,
     isOpen: false,
   })
 
@@ -97,6 +99,9 @@ export function CaseDetailPage() {
           issuerName: currentDialog.isOpen
             ? currentDialog.issuerName
             : meterSettings.receipt.issuerName,
+          receiptNote: currentDialog.isOpen
+            ? currentDialog.receiptNote
+            : meterSettings.receipt.defaultReceiptNote,
         }))
       })
       .catch((error) => {
@@ -128,6 +133,7 @@ export function CaseDetailPage() {
     setReceiptDialog({
       customerName: '',
       issuerName: state.meterSettings.receipt.issuerName,
+      receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       isOpen: true,
     })
   }
@@ -147,6 +153,7 @@ export function CaseDetailPage() {
     await downloadReceiptPdf(caseRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
+      receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
   }
@@ -267,6 +274,20 @@ export function CaseDetailPage() {
                   setReceiptDialog((currentDialog) => ({
                     ...currentDialog,
                     issuerName: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              但し書き
+              <textarea
+                placeholder="空欄でも発行できます"
+                value={receiptDialog.receiptNote}
+                onChange={(event) =>
+                  setReceiptDialog((currentDialog) => ({
+                    ...currentDialog,
+                    receiptNote: event.target.value,
                   }))
                 }
               />
