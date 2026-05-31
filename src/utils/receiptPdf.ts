@@ -122,6 +122,47 @@ function drawConfiguredTextLines({
     })
 }
 
+function drawReceiptHeader({
+  companyLines,
+  context,
+  customerName,
+}: {
+  companyLines: string[]
+  context: CanvasRenderingContext2D
+  customerName: string
+}) {
+  context.save()
+  context.strokeStyle = '#e2e8f0'
+  context.lineWidth = 2
+  context.roundRect(100, 270, 1040, 210, 18)
+  context.stroke()
+  context.restore()
+
+  if (customerName) {
+    drawText(context, `${customerName} 様`, 130, 325, {
+      color: '#0f172a',
+      font: 'bold 38px sans-serif',
+    })
+    drawLine(context, 130, 346, 560, 346, '#94a3b8')
+  } else {
+    drawText(context, '________________________________ 様', 130, 325, {
+      color: '#0f172a',
+      font: 'bold 34px sans-serif',
+    })
+  }
+
+  drawText(context, '下記の通り領収いたしました。', 130, 405, {
+    color: '#334155',
+    font: '30px sans-serif',
+  })
+  drawConfiguredTextLines({
+    context,
+    lines: companyLines,
+    startY: 292,
+    x: 1120,
+  })
+}
+
 function createReceiptCanvas(
   caseRecord: StoredCaseRecord,
   settings: MeterSettings,
@@ -169,35 +210,10 @@ function createReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
 
-  context.save()
-  context.strokeStyle = '#e2e8f0'
-  context.lineWidth = 2
-  context.roundRect(100, 270, 1040, 210, 18)
-  context.stroke()
-  context.restore()
-
-  if (customerName) {
-    drawText(context, `${customerName} 様`, 130, 325, {
-      color: '#0f172a',
-      font: 'bold 38px sans-serif',
-    })
-    drawLine(context, 130, 346, 560, 346, '#94a3b8')
-  } else {
-    drawText(context, '________________________________ 様', 130, 325, {
-      color: '#0f172a',
-      font: 'bold 34px sans-serif',
-    })
-  }
-
-  drawText(context, '下記の通り領収いたしました。', 130, 405, {
-    color: '#334155',
-    font: '30px sans-serif',
-  })
-  drawConfiguredTextLines({
+  drawReceiptHeader({
+    companyLines,
     context,
-    lines: companyLines,
-    startY: 292,
-    x: 1120,
+    customerName,
   })
 
   context.save()
