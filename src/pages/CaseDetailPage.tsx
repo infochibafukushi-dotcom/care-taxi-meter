@@ -8,6 +8,9 @@ import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 
+const formatAddress = (address: string) =>
+  address.trim() ? address : '住所未取得'
+
 type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
   errorMessage: string
@@ -201,6 +204,14 @@ export function CaseDetailPage() {
                 <span>日時</span>
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
               </div>
+              <div className="case-detail-address">
+                <span>伺い先住所</span>
+                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
+              </div>
+              <div className="case-detail-address">
+                <span>送り先住所</span>
+                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
+              </div>
               <div>
                 <span>距離</span>
                 <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
@@ -249,6 +260,9 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.paymentMethod}</strong>
               </div>
             </div>
+            <p className="osm-attribution">
+              住所データ © OpenStreetMap contributors
+            </p>
           </>
         ) : null}
       </section>

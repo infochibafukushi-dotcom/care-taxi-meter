@@ -14,6 +14,7 @@ import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/f
 import { getFirebaseApp } from '../lib/firebase'
 import type { FareBreakdown } from './fare'
 import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
+import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -22,8 +23,10 @@ export type CaseRecordInput = {
   drivingSeconds: number
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
+  pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
+  dropoffLocation: CapturedAddressLocation
 }
 
 export type CaseRecordDocument = {
@@ -38,6 +41,14 @@ export type CaseRecordDocument = {
   expenseFareYen: number
   totalFareYen: number
   paymentMethod: string
+  pickupLatitude: number | null
+  pickupLongitude: number | null
+  pickupAddress: string
+  pickupCapturedAt: string | null
+  dropoffLatitude: number | null
+  dropoffLongitude: number | null
+  dropoffAddress: string
+  dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
   savedAt: FieldValue
@@ -62,6 +73,11 @@ export type StoredCaseRecord = Omit<CaseRecordDocument, 'savedAt'> & {
 const caseRecordsCollectionName = 'caseRecords'
 
 const toNumber = (value: unknown) => (typeof value === 'number' ? value : 0)
+
+const toNullableNumber = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+const toString = (value: unknown) => (typeof value === 'string' ? value : '')
 
 const toObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -119,6 +135,14 @@ const toStoredCaseRecord = (
     expenseFareYen: toNumber(data.expenseFareYen),
     totalFareYen: toNumber(data.totalFareYen),
     paymentMethod: toPaymentMethod(data.paymentMethod),
+    pickupLatitude: toNullableNumber(data.pickupLatitude),
+    pickupLongitude: toNullableNumber(data.pickupLongitude),
+    pickupAddress: toString(data.pickupAddress),
+    pickupCapturedAt: toString(data.pickupCapturedAt) || null,
+    dropoffLatitude: toNullableNumber(data.dropoffLatitude),
+    dropoffLongitude: toNullableNumber(data.dropoffLongitude),
+    dropoffAddress: toString(data.dropoffAddress),
+    dropoffCapturedAt: toString(data.dropoffCapturedAt) || null,
     assistCharges: toAssistCharges(data.assistCharges),
     expenseCharges: toExpenseCharges(data.expenseCharges),
   }
@@ -136,8 +160,10 @@ export async function saveCaseRecord({
   drivingSeconds,
   fareBreakdown,
   paymentMethod,
+  pickupLocation,
   selectedCareOptions,
   selectedExpenses,
+  dropoffLocation,
 }: CaseRecordInput) {
   const record: CaseRecordDocument = {
     caseNumber,
@@ -151,6 +177,14 @@ export async function saveCaseRecord({
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
     paymentMethod,
+    pickupLatitude: pickupLocation.latitude,
+    pickupLongitude: pickupLocation.longitude,
+    pickupAddress: pickupLocation.address,
+    pickupCapturedAt: pickupLocation.capturedAt,
+    dropoffLatitude: dropoffLocation.latitude,
+    dropoffLongitude: dropoffLocation.longitude,
+    dropoffAddress: dropoffLocation.address,
+    dropoffCapturedAt: dropoffLocation.capturedAt,
     assistCharges: selectedCareOptions.map((careOption) => ({
       id: careOption.masterId,
       name: careOption.name,

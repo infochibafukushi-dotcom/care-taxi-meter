@@ -2568,3 +2568,61 @@ h1 {
     width: 100%;
   }
 }
+
+.case-record-row--with-addresses {
+  grid-template-columns: 1fr;
+}
+
+.case-record-row--with-addresses strong,
+.case-detail-address strong {
+  overflow: visible;
+  text-overflow: initial;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.case-record-address,
+.case-detail-address {
+  line-height: 1.65;
+}
+
+.osm-attribution {
+  margin: 18px 0 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.r9-address-capture {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgb(14 165 233 / 24%);
+  border-radius: 16px;
+  background: rgb(240 249 255 / 84%);
+}
+
+.r9-address-capture p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.r9-address-capture span {
+  color: #0369a1;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.r9-address-capture strong {
+  color: #0f172a;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.case-detail-address {
+  grid-column: 1 / -1;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
@@ -31,6 +31,11 @@ import type {
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import {
+  captureCurrentAddressLocation,
+  emptyCapturedAddressLocation,
+} from '../utils/reverseGeocode'
+import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
   OperationStatus,
@@ -54,12 +59,6 @@ type InputHistory = {
   name: string
 }
 
-type StatusControlButton = {
-  disabled?: boolean
-  label: string
-  onClick: () => void
-  tone: 'start' | StatusTone
-}
 
 type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 
@@ -156,6 +155,24 @@ export function CasePage() {
   const [currentMeterSettings, setCurrentMeterSettings] =
     useState<MeterSettings>(defaultMeterSettings)
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
+    null,
+  )
+  const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const [dropoffLocation, setDropoffLocation] = useState<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const pickupLocationRef = useRef<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const dropoffLocationRef = useRef<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const pickupCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
+    null,
+  )
+  const dropoffCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
     null,
   )
   const elapsedTimers = useOperationTimers(activeTimer)
@@ -294,6 +311,50 @@ export function CasePage() {
     }
   }
 
+  const capturePickupLocation = () => {
+    const capturePromise = captureCurrentAddressLocation().then((location) => {
+      pickupLocationRef.current = location
+      setPickupLocation(location)
+      return location
+    })
+
+    pickupCapturePromiseRef.current = capturePromise
+    capturePromise.finally(() => {
+      if (pickupCapturePromiseRef.current === capturePromise) {
+        pickupCapturePromiseRef.current = null
+      }
+    })
+
+    return capturePromise
+  }
+
+  const captureDropoffLocation = () => {
+    const capturePromise = captureCurrentAddressLocation().then((location) => {
+      dropoffLocationRef.current = location
+      setDropoffLocation(location)
+      return location
+    })
+
+    dropoffCapturePromiseRef.current = capturePromise
+    capturePromise.finally(() => {
+      if (dropoffCapturePromiseRef.current === capturePromise) {
+        dropoffCapturePromiseRef.current = null
+      }
+    })
+
+    return capturePromise
+  }
+
+  const handleDrivingStart = () => {
+    handleStatusChange('走行中')
+    void capturePickupLocation()
+  }
+
+  const handleSettlementStart = () => {
+    handleStatusChange('精算前')
+    void captureDropoffLocation()
+  }
+
   const handleStatusChange = (nextStatus: OperationStatus) => {
     setStatus(nextStatus)
     setActiveTimer(activeTimerMap[nextStatus] ?? null)
@@ -326,6 +387,18 @@ export function CasePage() {
     setCaseSaveMessage('Firestoreへ保存中です。')
 
     try {
+      if (pickupCapturePromiseRef.current) {
+        await pickupCapturePromiseRef.current
+      }
+
+      if (dropoffCapturePromiseRef.current) {
+        await dropoffCapturePromiseRef.current
+      }
+
+      if (!dropoffLocationRef.current.capturedAt) {
+        await captureDropoffLocation()
+      }
+
       const closedAt = new Date().toISOString()
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
@@ -334,8 +407,10 @@ export function CasePage() {
         drivingSeconds: elapsedTimers.seconds.driving,
         fareBreakdown,
         paymentMethod,
+        pickupLocation: pickupLocationRef.current,
         selectedCareOptions,
         selectedExpenses: expenses,
+        dropoffLocation: dropoffLocationRef.current,
       })
       setSavedCaseRecord({
         id: savedRecordRef.id,
@@ -350,6 +425,14 @@ export function CasePage() {
         expenseFareYen: fareBreakdown.expenseFareYen,
         totalFareYen: fareBreakdown.totalFareYen,
         paymentMethod,
+        pickupLatitude: pickupLocationRef.current.latitude,
+        pickupLongitude: pickupLocationRef.current.longitude,
+        pickupAddress: pickupLocationRef.current.address,
+        pickupCapturedAt: pickupLocationRef.current.capturedAt,
+        dropoffLatitude: dropoffLocationRef.current.latitude,
+        dropoffLongitude: dropoffLocationRef.current.longitude,
+        dropoffAddress: dropoffLocationRef.current.address,
+        dropoffCapturedAt: dropoffLocationRef.current.capturedAt,
         assistCharges: selectedCareOptions.map((careOption) => ({
           id: careOption.masterId,
           name: careOption.name,
@@ -449,35 +532,6 @@ export function CasePage() {
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
     })
   }
-
-  const statusControls: StatusControlButton[] = [
-    {
-      label: '案件開始',
-      onClick: () => handleStatusChange('空車'),
-      tone: 'start',
-    },
-    { label: '空車', onClick: () => handleStatusChange('空車'), tone: 'vacant' },
-    { label: '実車', onClick: () => handleStatusChange('走行中'), tone: 'driving' },
-    { label: '待機', onClick: () => handleStatusChange('待機中'), tone: 'waiting' },
-    {
-      label: '付き添い',
-      onClick: () => handleStatusChange('院内付き添い中'),
-      tone: 'accompanying',
-    },
-    {
-      label: '支払',
-      onClick: () => handleStatusChange('精算前'),
-      tone: 'settlement',
-    },
-    {
-      label: '案件終了',
-      disabled: caseSaveState === 'saving',
-      onClick: () => {
-        void handleCaseClose()
-      },
-      tone: 'closed',
-    },
-  ]
 
   const displayMetrics = [
     { label: '距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
@@ -632,17 +686,58 @@ export function CasePage() {
 
           <section className="r9-right-panel" aria-label="状態操作">
             <div className="r9-status-stack">
-              {statusControls.map((button) => (
-                <button
-                  className={`r9-status-button r9-status-button--${button.tone}`}
-                  key={button.label}
-                  type="button"
-                  disabled={button.disabled}
-                  onClick={button.onClick}
-                >
-                  {button.label}
-                </button>
-              ))}
+              <button
+                className="r9-status-button r9-status-button--start"
+                type="button"
+                onClick={() => handleStatusChange('空車')}
+              >
+                案件開始
+              </button>
+              <button
+                className="r9-status-button r9-status-button--vacant"
+                type="button"
+                onClick={() => handleStatusChange('空車')}
+              >
+                空車
+              </button>
+              <button
+                className="r9-status-button r9-status-button--driving"
+                type="button"
+                onClick={handleDrivingStart}
+              >
+                実車
+              </button>
+              <button
+                className="r9-status-button r9-status-button--waiting"
+                type="button"
+                onClick={() => handleStatusChange('待機中')}
+              >
+                待機
+              </button>
+              <button
+                className="r9-status-button r9-status-button--accompanying"
+                type="button"
+                onClick={() => handleStatusChange('院内付き添い中')}
+              >
+                付き添い
+              </button>
+              <button
+                className="r9-status-button r9-status-button--settlement"
+                type="button"
+                onClick={handleSettlementStart}
+              >
+                支払
+              </button>
+              <button
+                className="r9-status-button r9-status-button--closed"
+                type="button"
+                disabled={caseSaveState === 'saving'}
+                onClick={() => {
+                  void handleCaseClose()
+                }}
+              >
+                案件終了
+              </button>
             </div>
 
             <div className="r9-side-tools">
@@ -664,6 +759,17 @@ export function CasePage() {
                   totalDistanceKm={gps.totalDistanceKm}
                 />
               </details>
+            </div>
+
+            <div className="r9-address-capture" aria-label="住所取得状態">
+              <p>
+                <span>伺い先</span>
+                <strong>{pickupLocation.address || '住所未取得'}</strong>
+              </p>
+              <p>
+                <span>送り先</span>
+                <strong>{dropoffLocation.address || '住所未取得'}</strong>
+              </p>
             </div>
 
             <SettlementPanel
