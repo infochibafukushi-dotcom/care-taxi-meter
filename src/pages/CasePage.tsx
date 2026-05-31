@@ -61,6 +61,7 @@ type InputHistory = {
 
 
 type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
+type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
 
@@ -125,7 +126,10 @@ export function CasePage() {
     waiting: false,
   })
   const [isGpsActive, setIsGpsActive] = useState(false)
+  const [isCareModalOpen, setIsCareModalOpen] = useState(false)
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
+  const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState('Firestore設定を確認中です。')
   const [keypadTarget, setKeypadTarget] = useState<KeypadTarget | null>(null)
@@ -138,7 +142,7 @@ export function CasePage() {
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
     isFirebaseConfigured
-      ? '案件終了を押すとFirestoreへ保存します。'
+      ? '精算・終了で支払方法を選択して保存します。'
       : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
   )
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
@@ -157,6 +161,8 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
+  const [settlementFlowStep, setSettlementFlowStep] =
+    useState<SettlementFlowStep>('receipt')
   const operationStartedAtRef = useRef('')
   const operationEndedAtRef = useRef('')
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
@@ -238,6 +244,23 @@ export function CasePage() {
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
+  const enabledCareOptions = useMemo(
+    () =>
+      currentCareOptionMaster
+        .filter((item) => item.enabled)
+        .sort(
+          (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+        ),
+    [currentCareOptionMaster],
+  )
+  const selectedCareOptionIds = useMemo(
+    () => new Set(selectedCareOptions.map((option) => option.masterId)),
+    [selectedCareOptions],
+  )
+  const expenseTotalYen = expenses.reduce(
+    (total, expense) => total + expense.amountYen,
+    0,
+  )
 
   const persistInputHistory = (nextHistory: InputHistory[]) => {
     setInputHistory(nextHistory)
@@ -273,6 +296,34 @@ export function CasePage() {
       },
     ])
     rememberHistory({ amountYen, mode: 'care', name })
+  }
+
+  const toggleCareOption = (masterItem: CareOptionMasterItem) => {
+    const isSelected = selectedCareOptionIds.has(masterItem.id)
+
+    setSelectedCareOptions((currentOptions) => {
+      if (isSelected) {
+        return currentOptions.filter((option) => option.masterId !== masterItem.id)
+      }
+
+      return [
+        ...currentOptions,
+        {
+          amountYen: masterItem.amount,
+          id: createId(masterItem.id),
+          masterId: masterItem.id,
+          name: masterItem.name,
+        },
+      ]
+    })
+
+    if (!isSelected) {
+      rememberHistory({
+        amountYen: masterItem.amount,
+        mode: 'care',
+        name: masterItem.name,
+      })
+    }
   }
 
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
@@ -360,10 +411,21 @@ export function CasePage() {
   }
 
   const handleSettlementStart = () => {
-    const endedAt = new Date().toISOString()
-    operationEndedAtRef.current = endedAt
+    if (!operationEndedAtRef.current) {
+      const endedAt = new Date().toISOString()
+      operationEndedAtRef.current = endedAt
+    }
     handleStatusChange('精算前')
-    void captureDropoffLocation()
+
+    if (!dropoffLocationRef.current.capturedAt && !dropoffCapturePromiseRef.current) {
+      void captureDropoffLocation()
+    }
+  }
+
+  const handleSettlementFlowStart = () => {
+    setIsSettlementFlowOpen(true)
+    setSettlementFlowStep('receipt')
+    handleSettlementStart()
   }
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
@@ -390,7 +452,7 @@ export function CasePage() {
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
       handleStatusChange('案件終了')
-      return
+      return savedCaseRecord
     }
 
     if (!operationEndedAtRef.current) {
@@ -431,7 +493,7 @@ export function CasePage() {
         selectedExpenses: expenses,
         dropoffLocation: dropoffLocationRef.current,
       })
-      setSavedCaseRecord({
+      const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
         caseNumber,
         closedAt,
@@ -464,9 +526,12 @@ export function CasePage() {
           name: expense.name,
           amount: expense.amountYen,
         })),
-      })
+      }
+
+      setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
       setCaseSaveMessage('Firestoreへ保存しました。レシートまたは領収書を発行できます。')
+      return savedRecord
     } catch (error) {
       console.error('Failed to save case record to Firestore', error)
       setCaseSaveState('error')
@@ -475,6 +540,16 @@ export function CasePage() {
           ? `保存に失敗しました。${error.message}`
           : '保存に失敗しました。通信状況とFirebase設定を確認してください。',
       )
+      return null
+    }
+  }
+
+  const handleSettlementSave = async () => {
+    const savedRecord = await handleCaseClose()
+
+    if (savedRecord) {
+      setSavedCaseRecord(savedRecord)
+      setSettlementFlowStep('receipt')
     }
   }
 
@@ -540,6 +615,7 @@ export function CasePage() {
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
     })
+    setSettlementFlowStep('saved')
   }
 
   const handleA4ReceiptDownload = async () => {
@@ -552,6 +628,11 @@ export function CasePage() {
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
     })
+    setSettlementFlowStep('saved')
+  }
+
+  const handleStartNewCase = () => {
+    window.location.reload()
   }
 
   const displayMetrics = [
@@ -567,8 +648,8 @@ export function CasePage() {
       aria-labelledby="case-title"
     >
       <div className="landscape-notice" role="status">
-        <strong>横向きで使用してください</strong>
-        <span>このメーター画面はスマホ横向き操作を優先しています。</span>
+        <strong>スマホ表示に対応しました</strong>
+        <span>縦画面でも横スクロールせず操作できます。</span>
       </div>
 
       <div className="r9-meter-shell">
@@ -627,61 +708,51 @@ export function CasePage() {
             </div>
           </section>
 
-          <section className="r9-center-panel" aria-label="介助と実費の追加">
+          <section className="r9-center-panel" aria-label="追加料金サマリー">
             <div className="r9-panel-title">
-              <span>ONE TOUCH</span>
-              <h2>介助ワンタッチ</h2>
+              <span>ASSIST</span>
+              <h2>介助サマリー</h2>
             </div>
-            <div className="r9-care-grid">
-              {currentCareOptionMaster
-                .filter((item) => item.enabled)
-                .sort(
-                  (firstItem, secondItem) =>
-                    firstItem.sortOrder - secondItem.sortOrder,
-                )
-                .map((item) => (
-                  <button
-                    className="r9-care-button"
-                    key={item.id}
-                    type="button"
-                    onClick={() =>
-                      setKeypadTarget({
-                        amountYen: item.amount,
-                        mode: 'care',
-                        name: item.name,
-                        sourceId: item.id,
-                      })
-                    }
-                  >
-                    <span>{item.name}</span>
-                    <strong>{formatFareYen(item.amount)}円</strong>
-                  </button>
-                ))}
+            <div className="r9-summary-card">
+              {selectedCareOptions.length === 0 ? (
+                <p className="empty-note">介助項目は未選択です。</p>
+              ) : (
+                <div className="r9-summary-list">
+                  {selectedCareOptions.map((option) => (
+                    <p key={option.id}>
+                      <span>{option.name}</span>
+                      <strong>{formatFareYen(option.amountYen)}円</strong>
+                    </p>
+                  ))}
+                </div>
+              )}
+              <div className="r9-summary-total">
+                <span>介助合計</span>
+                <strong>{formatFareYen(fareBreakdown.careOptionFareYen)}円</strong>
+              </div>
             </div>
 
             <div className="r9-panel-title r9-panel-title--expense">
               <span>COST</span>
-              <h2>実費ワンタッチ</h2>
+              <h2>実費サマリー</h2>
             </div>
-            <div className="r9-expense-grid">
-              {currentExpensePresets
-                .filter((preset) => preset.name.trim())
-                .map((preset) => (
-                  <button
-                    className="r9-expense-button"
-                    key={preset.id}
-                    type="button"
-                    onClick={() =>
-                      setKeypadTarget({
-                        amountYen: preset.defaultAmountYen,
-                        mode: 'expense',
-                        name: preset.name,
-                      })
-                    }
-                  >
-                    {preset.name}
-                  </button>
-                ))}
+            <div className="r9-summary-card">
+              {expenses.length === 0 ? (
+                <p className="empty-note">実費は未追加です。</p>
+              ) : (
+                <div className="r9-summary-list">
+                  {expenses.map((expense) => (
+                    <p key={expense.id}>
+                      <span>{expense.name}</span>
+                      <strong>{formatFareYen(expense.amountYen)}円</strong>
+                    </p>
+                  ))}
+                </div>
+              )}
+              <div className="r9-summary-total">
+                <span>実費合計</span>
+                <strong>{formatFareYen(expenseTotalYen)}円</strong>
+              </div>
             </div>
 
             <div className="r9-history-panel">
@@ -708,56 +779,33 @@ export function CasePage() {
           <section className="r9-right-panel" aria-label="状態操作">
             <div className="r9-status-stack">
               <button
-                className="r9-status-button r9-status-button--start"
-                type="button"
-                onClick={() => handleStatusChange('空車')}
-              >
-                案件開始
-              </button>
-              <button
-                className="r9-status-button r9-status-button--vacant"
-                type="button"
-                onClick={() => handleStatusChange('空車')}
-              >
-                空車
-              </button>
-              <button
                 className="r9-status-button r9-status-button--driving"
                 type="button"
                 onClick={handleDrivingStart}
               >
-                実車
+                送迎開始
               </button>
               <button
-                className="r9-status-button r9-status-button--waiting"
+                className="r9-status-button r9-status-button--assist"
                 type="button"
-                onClick={() => handleStatusChange('待機中')}
+                onClick={() => setIsCareModalOpen(true)}
               >
-                待機
+                介助
               </button>
               <button
-                className="r9-status-button r9-status-button--accompanying"
+                className="r9-status-button r9-status-button--expense"
                 type="button"
-                onClick={() => handleStatusChange('院内付き添い中')}
+                onClick={() => setIsExpenseModalOpen(true)}
               >
-                付き添い
+                実費
               </button>
               <button
                 className="r9-status-button r9-status-button--settlement"
                 type="button"
-                onClick={handleSettlementStart}
-              >
-                支払
-              </button>
-              <button
-                className="r9-status-button r9-status-button--closed"
-                type="button"
                 disabled={caseSaveState === 'saving'}
-                onClick={() => {
-                  void handleCaseClose()
-                }}
+                onClick={handleSettlementFlowStart}
               >
-                案件終了
+                精算・終了
               </button>
             </div>
 
@@ -977,55 +1025,262 @@ export function CasePage() {
         </div>
       ) : null}
 
-      {savedCaseRecord ? (
-        <div className="receipt-dialog-backdrop" role="presentation">
+      {isCareModalOpen ? (
+        <div className="settings-backdrop" role="presentation">
           <section
-            aria-labelledby="payment-complete-title"
+            aria-labelledby="care-modal-title"
             aria-modal="true"
-            className="receipt-dialog payment-complete-dialog"
+            className="settings-modal r9-operation-modal"
             role="dialog"
           >
-            <header>
+            <header className="settings-header">
               <div>
-                <p className="eyebrow">Payment Complete</p>
-                <h2 id="payment-complete-title">支払完了</h2>
+                <span>ASSIST</span>
+                <h2 id="care-modal-title">介助</h2>
               </div>
-            </header>
-            <p>案件を保存しました。印刷方法を選択してください。</p>
-            <div className="payment-complete-total">
-              <span>合計金額</span>
-              <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
-            </div>
-            <div className="receipt-dialog-actions">
-              <button
-                className="receipt-dialog-primary"
-                type="button"
-                onClick={() => {
-                  void handleThermalReceiptPrint()
-                }}
-              >
-                レシート印刷
-              </button>
-              <button
-                className="receipt-dialog-secondary"
-                type="button"
-                onClick={() => {
-                  void handleA4ReceiptDownload()
-                }}
-              >
-                A4領収書
-              </button>
-              <button
-                className="receipt-dialog-secondary"
-                type="button"
-                onClick={() => setSavedCaseRecord(null)}
-              >
+              <button type="button" onClick={() => setIsCareModalOpen(false)}>
                 閉じる
               </button>
+            </header>
+
+            <div className="r9-current-status">
+              <span>現在状態</span>
+              <strong>{status}</strong>
+            </div>
+
+            <div className="r9-operation-sections">
+              <section className="r9-operation-section" aria-labelledby="care-items-title">
+                <div className="r9-operation-section__header">
+                  <h3 id="care-items-title">介助項目</h3>
+                  <strong>{formatFareYen(fareBreakdown.careOptionFareYen)}円</strong>
+                </div>
+                <div className="r9-modal-button-grid r9-modal-button-grid--care">
+                  {enabledCareOptions.map((item) => {
+                    const isSelected = selectedCareOptionIds.has(item.id)
+
+                    return (
+                      <button
+                        className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
+                        key={item.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => toggleCareOption(item)}
+                      >
+                        <span>{isSelected ? '✓ ' : ''}{item.name}</span>
+                        <strong>{formatFareYen(item.amount)}円</strong>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+
+              <section className="r9-operation-section" aria-labelledby="time-addition-title">
+                <div className="r9-operation-section__header">
+                  <h3 id="time-addition-title">時間加算</h3>
+                  <span>待機・付き添いはタイマー加算です</span>
+                </div>
+                <div className="r9-time-toggle-grid">
+                  <button
+                    className={`r9-time-toggle ${status === '待機中' ? 'r9-time-toggle--active' : ''}`}
+                    type="button"
+                    aria-pressed={status === '待機中'}
+                    onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
+                  >
+                    <span>待機 {status === '待機中' ? 'ON' : 'OFF'}</span>
+                    <strong>{elapsedTimers.waiting}</strong>
+                    <em>{formatFareYen(fareBreakdown.waitingFareYen)}円</em>
+                  </button>
+                  <button
+                    className={`r9-time-toggle ${status === '院内付き添い中' ? 'r9-time-toggle--active' : ''}`}
+                    type="button"
+                    aria-pressed={status === '院内付き添い中'}
+                    onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
+                  >
+                    <span>付き添い {status === '院内付き添い中' ? 'ON' : 'OFF'}</span>
+                    <strong>{elapsedTimers.accompanying}</strong>
+                    <em>{formatFareYen(fareBreakdown.escortFareYen)}円</em>
+                  </button>
+                </div>
+              </section>
             </div>
           </section>
         </div>
       ) : null}
+
+      {isExpenseModalOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="expense-modal-title"
+            aria-modal="true"
+            className="settings-modal r9-operation-modal"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>COST</span>
+                <h2 id="expense-modal-title">実費</h2>
+              </div>
+              <button type="button" onClick={() => setIsExpenseModalOpen(false)}>
+                閉じる
+              </button>
+            </header>
+
+            <div className="r9-operation-section">
+              <div className="r9-operation-section__header">
+                <h3>実費ワンタッチ</h3>
+                <strong>{formatFareYen(expenseTotalYen)}円</strong>
+              </div>
+              <div className="r9-modal-button-grid r9-modal-button-grid--expense">
+                {currentExpensePresets
+                  .filter((preset) => preset.name.trim())
+                  .map((preset) => (
+                    <button
+                      className="r9-modal-choice r9-modal-choice--expense"
+                      key={preset.id}
+                      type="button"
+                      onClick={() =>
+                        setKeypadTarget({
+                          amountYen: preset.defaultAmountYen,
+                          mode: 'expense',
+                          name: preset.name,
+                        })
+                      }
+                    >
+                      <span>{preset.name}</span>
+                      <strong>{formatFareYen(preset.defaultAmountYen)}円</strong>
+                    </button>
+                  ))}
+              </div>
+              <div className="r9-summary-card r9-summary-card--modal">
+                {expenses.length === 0 ? (
+                  <p className="empty-note">実費は未追加です。</p>
+                ) : (
+                  <div className="r9-summary-list">
+                    {expenses.map((expense) => (
+                      <p key={expense.id}>
+                        <span>{expense.name}</span>
+                        <strong>{formatFareYen(expense.amountYen)}円</strong>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isSettlementFlowOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="settlement-flow-title"
+            aria-modal="true"
+            className="settings-modal r9-operation-modal r9-settlement-flow"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>SETTLEMENT</span>
+                <h2 id="settlement-flow-title">精算・終了</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettlementFlowOpen(false)}
+              >
+                閉じる
+              </button>
+            </header>
+
+            <div className="r9-current-status">
+              <span>現在状態</span>
+              <strong>{status}</strong>
+            </div>
+
+            <div className="r9-settlement-steps" aria-label="精算・終了手順">
+              <span className="r9-settlement-steps__done">支払方法選択</span>
+              <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
+              <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>レシート・領収書発行</span>
+              <span className={settlementFlowStep === 'saved' ? 'r9-settlement-steps__done' : ''}>発行完了</span>
+              <span>新しい案件を開始</span>
+            </div>
+
+            {!savedCaseRecord ? (
+              <>
+                <div className="r9-address-capture r9-address-capture--modal" aria-label="住所取得状態">
+                  <p>
+                    <span>伺い先</span>
+                    <strong>{pickupLocation.address || '住所未取得'}</strong>
+                  </p>
+                  <p>
+                    <span>送り先</span>
+                    <strong>{dropoffLocation.address || '住所取得中または未取得'}</strong>
+                  </p>
+                </div>
+                <SettlementPanel
+                  breakdown={fareBreakdown}
+                  paymentMethod={paymentMethod}
+                  saveMessage={caseSaveMessage}
+                  saveState={caseSaveState}
+                  onPaymentMethodChange={setPaymentMethod}
+                />
+                <button
+                  className="r9-flow-primary"
+                  type="button"
+                  disabled={caseSaveState === 'saving'}
+                  onClick={() => {
+                    void handleSettlementSave()
+                  }}
+                >
+                  保存
+                </button>
+              </>
+            ) : null}
+
+            {savedCaseRecord ? (
+              <div className="r9-issuance-panel">
+                <p>案件を保存しました。レシートまたは領収書を発行してください。</p>
+                <div className="payment-complete-total">
+                  <span>合計金額</span>
+                  <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
+                </div>
+                <div className="receipt-dialog-actions">
+                  <button
+                    className="receipt-dialog-primary"
+                    type="button"
+                    onClick={() => {
+                      void handleThermalReceiptPrint()
+                    }}
+                  >
+                    レシート発行
+                  </button>
+                  <button
+                    className="receipt-dialog-secondary"
+                    type="button"
+                    onClick={() => {
+                      void handleA4ReceiptDownload()
+                    }}
+                  >
+                    領収書発行
+                  </button>
+                </div>
+                {settlementFlowStep === 'saved' ? (
+                  <div className="r9-issue-complete">
+                    <strong>発行完了</strong>
+                    <button
+                      className="r9-flow-primary"
+                      type="button"
+                      onClick={handleStartNewCase}
+                    >
+                      新しい案件を開始
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
 
       {keypadTarget ? (
         <KeypadModal

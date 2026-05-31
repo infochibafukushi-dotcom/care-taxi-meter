@@ -10,7 +10,7 @@ type SettlementPanelProps = {
   onPaymentMethodChange: (paymentMethod: PaymentMethod) => void
 }
 
-const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', 'その他']
+const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
 
 export function SettlementPanel({
   breakdown,

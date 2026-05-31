@@ -214,15 +214,15 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.caseNumber}</strong>
               </div>
               <div>
-                <span>開始時刻</span>
+                <span>送迎開始時刻</span>
                 <strong>{formatOptionalDateTime(caseRecord.startedAt)}</strong>
               </div>
               <div>
-                <span>終了時刻</span>
+                <span>送迎終了時刻</span>
                 <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
               </div>
               <div>
-                <span>運転時間</span>
+                <span>運転時間（待機・付き添い除く）</span>
                 <strong>
                   {formatDrivingDuration(
                     caseRecord.drivingSeconds,
