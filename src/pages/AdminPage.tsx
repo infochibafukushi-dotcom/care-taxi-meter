@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { StaffManagementPanel } from '../components/admin/StaffManagementPanel'
+import { StoreManagementPanel } from '../components/admin/StoreManagementPanel'
+import { VehicleManagementPanel } from '../components/admin/VehicleManagementPanel'
 import { fetchCaseRecords } from '../services/caseRecords'
+import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
+import { ensureDefaultStore, fetchStores } from '../services/stores'
+import { fetchVehicles, saveVehicle } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { BasicFareSettings, CareOptionMasterItem } from '../services/fare'
@@ -16,6 +22,7 @@ import type {
   MeterSettings,
   ReceiptSettings,
 } from '../services/meterSettings'
+import type { StaffMember, Store, Vehicle } from '../types/work'
 import {
   calculateSalesSummary,
 } from '../utils/caseRecords'
@@ -26,7 +33,7 @@ type AdminSummaryState = {
   caseRecords: StoredCaseRecord[]
 }
 
-type SettingsTab = 'company' | 'fare' | 'receipt'
+type SettingsTab = 'company' | 'fare' | 'receipt' | 'staff' | 'stores' | 'vehicles'
 
 type SettingsSaveState = 'error' | 'idle' | 'saved' | 'saving'
 
@@ -34,6 +41,9 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'fare', label: '料金設定' },
   { id: 'company', label: '会社情報' },
   { id: 'receipt', label: '領収書設定' },
+  { id: 'stores', label: '店舗管理' },
+  { id: 'staff', label: 'スタッフ管理' },
+  { id: 'vehicles', label: '車両管理' },
 ]
 
 const toPositiveNumber = (value: string, minimum = 0) =>
@@ -69,6 +79,10 @@ export function AdminPage() {
   const [settingsMessage, setSettingsMessage] = useState(
     'Firestoreから設定を読み込み中です。',
   )
+  const [stores, setStores] = useState<Store[]>([])
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [masterMessage, setMasterMessage] = useState('店舗・スタッフ・車両情報を読み込み中です。')
 
   useEffect(() => {
     let isMounted = true
@@ -128,6 +142,38 @@ export function AdminPage() {
             : 'Firestore設定を読み込めませんでした。',
         )
         setSettingsSaveState('error')
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+
+  useEffect(() => {
+    let isMounted = true
+
+    Promise.all([fetchStores(), fetchStaffMembers(), fetchVehicles()])
+      .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
+        if (!isMounted) {
+          return
+        }
+
+        setStores(loadedStores)
+        setStaffMembers(loadedStaffMembers)
+        setVehicles(loadedVehicles)
+        setMasterMessage('店舗・スタッフ・車両情報を読み込みました。')
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setMasterMessage(
+          error instanceof Error
+            ? `店舗・スタッフ・車両情報を読み込めませんでした。${error.message}`
+            : '店舗・スタッフ・車両情報を読み込めませんでした。',
+        )
       })
 
     return () => {
@@ -276,6 +322,104 @@ export function AdminPage() {
       ...currentSettings,
       receipt: { ...currentSettings.receipt, [key]: value },
     }))
+  }
+
+
+  const createStaffMember = (): StaffMember => {
+    return {
+      id: `staff-${Date.now()}-${crypto.randomUUID()}`,
+      name: '新しいスタッフ',
+      role: 'driver',
+      enabled: true,
+      sortOrder: staffMembers.length + 1,
+    }
+  }
+
+  const createVehicle = (): Vehicle => {
+    return {
+      id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
+      name: '新しい車両',
+      number: '',
+      status: '稼働中',
+      fuelType: '',
+      enabled: true,
+      sortOrder: vehicles.length + 1,
+    }
+  }
+
+  const handleDefaultStoreSave = async () => {
+    try {
+      const savedStore = await ensureDefaultStore()
+      setStores((currentStores) => {
+        const otherStores = currentStores.filter((store) => store.id !== savedStore.id)
+        return [savedStore, ...otherStores].sort((firstStore, secondStore) =>
+          firstStore.name.localeCompare(secondStore.name, 'ja'),
+        )
+      })
+      setMasterMessage('初期店舗を保存しました。')
+    } catch (error) {
+      setMasterMessage(
+        error instanceof Error
+          ? `初期店舗を保存できませんでした。${error.message}`
+          : '初期店舗を保存できませんでした。',
+      )
+    }
+  }
+
+  const updateStaffMember = (id: string, updates: Partial<StaffMember>) => {
+    setStaffMembers((currentStaffMembers) =>
+      currentStaffMembers.map((staffMember) =>
+        staffMember.id === id ? { ...staffMember, ...updates } : staffMember,
+      ),
+    )
+  }
+
+  const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
+    setVehicles((currentVehicles) =>
+      currentVehicles.map((vehicle) =>
+        vehicle.id === id ? { ...vehicle, ...updates } : vehicle,
+      ),
+    )
+  }
+
+  const handleStaffSave = async () => {
+    const hasEmptyName = staffMembers.some((staffMember) => !staffMember.name.trim())
+
+    if (hasEmptyName) {
+      setMasterMessage('スタッフ名は空欄にできません。')
+      return
+    }
+
+    try {
+      await Promise.all(staffMembers.map(saveStaffMember))
+      setMasterMessage('スタッフ情報を保存しました。')
+    } catch (error) {
+      setMasterMessage(
+        error instanceof Error
+          ? `スタッフ情報を保存できませんでした。${error.message}`
+          : 'スタッフ情報を保存できませんでした。',
+      )
+    }
+  }
+
+  const handleVehicleSave = async () => {
+    const hasEmptyName = vehicles.some((vehicle) => !vehicle.name.trim())
+
+    if (hasEmptyName) {
+      setMasterMessage('車両名は空欄にできません。')
+      return
+    }
+
+    try {
+      await Promise.all(vehicles.map(saveVehicle))
+      setMasterMessage('車両情報を保存しました。')
+    } catch (error) {
+      setMasterMessage(
+        error instanceof Error
+          ? `車両情報を保存できませんでした。${error.message}`
+          : '車両情報を保存できませんでした。',
+      )
+    }
   }
 
   const handleSettingsSave = async () => {
@@ -478,6 +622,34 @@ export function AdminPage() {
               </button>
             ))}
           </div>
+
+          {activeSettingsTab === 'stores' ? (
+            <StoreManagementPanel
+              message={masterMessage}
+              stores={stores}
+              onEnsureDefaultStore={handleDefaultStoreSave}
+            />
+          ) : null}
+
+          {activeSettingsTab === 'staff' ? (
+            <StaffManagementPanel
+              message={masterMessage}
+              staffMembers={staffMembers}
+              onAdd={() => setStaffMembers((currentStaffMembers) => [...currentStaffMembers, createStaffMember()])}
+              onSave={handleStaffSave}
+              onUpdate={updateStaffMember}
+            />
+          ) : null}
+
+          {activeSettingsTab === 'vehicles' ? (
+            <VehicleManagementPanel
+              message={masterMessage}
+              vehicles={vehicles}
+              onAdd={() => setVehicles((currentVehicles) => [...currentVehicles, createVehicle()])}
+              onSave={handleVehicleSave}
+              onUpdate={updateVehicle}
+            />
+          ) : null}
 
           {activeSettingsTab === 'fare' ? (
             <div className="admin-settings-grid">
