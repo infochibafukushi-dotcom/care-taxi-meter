@@ -5,25 +5,38 @@ export type CapturedAddressLocation = {
   longitude: number | null
 }
 
-type NominatimAddress = {
-  city?: unknown
-  county?: unknown
-  house_number?: unknown
-  neighbourhood?: unknown
-  quarter?: unknown
-  road?: unknown
-  state?: unknown
-  suburb?: unknown
-  town?: unknown
-  village?: unknown
+type GoogleAddressComponent = {
+  long_name?: unknown
+  short_name?: unknown
+  types?: unknown
 }
 
-type NominatimReverseResponse = {
-  address?: unknown
+type GoogleGeocodeResult = {
+  address_components?: unknown
+  formatted_address?: unknown
+  geometry?: unknown
+  place_id?: unknown
+  types?: unknown
 }
 
-const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse'
-const NOMINATIM_REQUEST_INTERVAL_MS = 1100
+type GoogleAddressDescriptorLandmark = {
+  display_name?: unknown
+  types?: unknown
+}
+
+type GoogleAddressDescriptor = {
+  landmarks?: unknown
+}
+
+type GoogleGeocodeResponse = {
+  address_descriptor?: unknown
+  results?: unknown
+  status?: unknown
+}
+
+const GOOGLE_GEOCODING_REVERSE_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
+const GOOGLE_GEOCODING_REQUEST_INTERVAL_MS = 100
+const JAPAN_COUNTRY_CODE = 'JP'
 
 export const emptyCapturedAddressLocation: CapturedAddressLocation = {
   address: '',
@@ -32,19 +45,47 @@ export const emptyCapturedAddressLocation: CapturedAddressLocation = {
   longitude: null,
 }
 
-let lastNominatimRequestAt = 0
-let nominatimRequestQueue: Promise<void> = Promise.resolve()
+let lastGoogleGeocodingRequestAt = 0
+let googleGeocodingRequestQueue: Promise<void> = Promise.resolve()
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 
-const toAddressObject = (value: unknown): NominatimAddress =>
+const toRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as NominatimAddress)
+    ? (value as Record<string, unknown>)
     : {}
 
-const toAddressPart = (value: unknown) =>
+const toStringValue = (value: unknown) =>
   typeof value === 'string' ? value.trim() : ''
+
+const toStringArray = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+
+const toAddressComponents = (value: unknown): GoogleAddressComponent[] =>
+  Array.isArray(value)
+    ? value.map((item) => toRecord(item) as GoogleAddressComponent)
+    : []
+
+const toGeocodeResults = (value: unknown): GoogleGeocodeResult[] =>
+  Array.isArray(value)
+    ? value.map((item) => toRecord(item) as GoogleGeocodeResult)
+    : []
+
+const toAddressDescriptorLandmarks = (
+  value: unknown,
+): GoogleAddressDescriptorLandmark[] =>
+  Array.isArray(value)
+    ? value.map((item) => toRecord(item) as GoogleAddressDescriptorLandmark)
+    : []
+
+const toAddressDescriptor = (value: unknown): GoogleAddressDescriptor =>
+  toRecord(value) as GoogleAddressDescriptor
+
+const isSuccessfulGeocodeStatus = (value: unknown) =>
+  value === 'OK' || value === 'ZERO_RESULTS'
 
 function joinUniqueAddressParts(parts: string[]) {
   return parts.reduce<string[]>((uniqueParts, part) => {
@@ -56,43 +97,201 @@ function joinUniqueAddressParts(parts: string[]) {
   }, []).join('')
 }
 
-export function formatJapaneseAddressFromNominatimAddress(
-  address: NominatimAddress,
+function findAddressComponent(
+  components: GoogleAddressComponent[],
+  componentType: string,
 ) {
-  const state = toAddressPart(address.state)
-  const city = toAddressPart(address.city)
-  const town = toAddressPart(address.town)
-  const village = toAddressPart(address.village)
-  const county = toAddressPart(address.county)
-  const suburb = toAddressPart(address.suburb)
-  const neighbourhood = toAddressPart(address.neighbourhood)
-  const quarter = toAddressPart(address.quarter)
-  const road = toAddressPart(address.road)
-  const houseNumber = toAddressPart(address.house_number)
-
-  return joinUniqueAddressParts([
-    state,
-    city || town || village || county,
-    suburb,
-    neighbourhood || quarter,
-    road,
-    houseNumber,
-  ])
+  return components.find((component) =>
+    toStringArray(component.types).includes(componentType),
+  )
 }
 
-function enqueueNominatimRequest<T>(task: () => Promise<T>) {
-  const nextRequest = nominatimRequestQueue.then(async () => {
-    const elapsedMilliseconds = Date.now() - lastNominatimRequestAt
+function getAddressComponentLongName(
+  components: GoogleAddressComponent[],
+  componentType: string,
+) {
+  return toStringValue(findAddressComponent(components, componentType)?.long_name)
+}
 
-    if (elapsedMilliseconds < NOMINATIM_REQUEST_INTERVAL_MS) {
-      await wait(NOMINATIM_REQUEST_INTERVAL_MS - elapsedMilliseconds)
+function normalizeJapaneseAddress(address: string) {
+  return address
+    .replace(/^日本、?\s*/, '')
+    .replace(/^〒\d{3}-?\d{4}\s*/, '')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
+export function formatJapaneseAddressFromGoogleGeocodeResult(
+  result: GoogleGeocodeResult,
+) {
+  const components = toAddressComponents(result.address_components)
+  const administrativeAreaLevel1 = getAddressComponentLongName(
+    components,
+    'administrative_area_level_1',
+  )
+  const locality = getAddressComponentLongName(components, 'locality')
+  const sublocalityLevel1 = getAddressComponentLongName(
+    components,
+    'sublocality_level_1',
+  )
+  const sublocalityLevel2 = getAddressComponentLongName(
+    components,
+    'sublocality_level_2',
+  )
+  const sublocalityLevel3 = getAddressComponentLongName(
+    components,
+    'sublocality_level_3',
+  )
+  const sublocalityLevel4 = getAddressComponentLongName(
+    components,
+    'sublocality_level_4',
+  )
+  const route = getAddressComponentLongName(components, 'route')
+  const premise = getAddressComponentLongName(components, 'premise')
+  const streetNumber = getAddressComponentLongName(components, 'street_number')
+  const formattedAddress = normalizeJapaneseAddress(
+    toStringValue(result.formatted_address),
+  )
+
+  return (
+    joinUniqueAddressParts([
+      administrativeAreaLevel1,
+      locality,
+      sublocalityLevel1,
+      sublocalityLevel2,
+      sublocalityLevel3,
+      sublocalityLevel4,
+      route,
+      premise,
+      streetNumber,
+    ]) || formattedAddress
+  )
+}
+
+function getResultPriority(result: GoogleGeocodeResult) {
+  const types = toStringArray(result.types)
+
+  if (types.includes('street_address')) {
+    return 0
+  }
+
+  if (types.includes('premise')) {
+    return 1
+  }
+
+  if (types.includes('subpremise')) {
+    return 2
+  }
+
+  if (types.includes('establishment') || types.includes('point_of_interest')) {
+    return 3
+  }
+
+  if (types.includes('route')) {
+    return 4
+  }
+
+  return 5
+}
+
+function selectBestAddressResult(results: GoogleGeocodeResult[]) {
+  return [...results].sort(
+    (firstResult, secondResult) =>
+      getResultPriority(firstResult) - getResultPriority(secondResult),
+  )[0]
+}
+
+function toDisplayNameText(value: unknown) {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+
+  const source = toRecord(value)
+  return toStringValue(source.text)
+}
+
+function getFacilityNameFromResult(result: GoogleGeocodeResult) {
+  const types = toStringArray(result.types)
+  const isFacilityResult =
+    types.includes('establishment') ||
+    types.includes('point_of_interest') ||
+    types.includes('hospital') ||
+    types.includes('health') ||
+    types.includes('premise')
+
+  if (!isFacilityResult) {
+    return ''
+  }
+
+  const components = toAddressComponents(result.address_components)
+  return (
+    getAddressComponentLongName(components, 'establishment') ||
+    getAddressComponentLongName(components, 'point_of_interest') ||
+    getAddressComponentLongName(components, 'premise')
+  )
+}
+
+function getFacilityNameFromAddressDescriptor(
+  descriptor: GoogleAddressDescriptor,
+) {
+  const landmark = toAddressDescriptorLandmarks(descriptor.landmarks).find(
+    (candidate) => {
+      const displayName = toDisplayNameText(candidate.display_name)
+      const types = toStringArray(candidate.types)
+
+      return (
+        displayName &&
+        (types.includes('establishment') ||
+          types.includes('point_of_interest') ||
+          types.includes('hospital') ||
+          types.includes('health'))
+      )
+    },
+  )
+
+  return toDisplayNameText(landmark?.display_name)
+}
+
+function getFacilityNameFromResults(results: GoogleGeocodeResult[]) {
+  return results.reduce((facilityName, result) => {
+    if (facilityName) {
+      return facilityName
     }
 
-    lastNominatimRequestAt = Date.now()
+    return getFacilityNameFromResult(result)
+  }, '')
+}
+
+function formatCapturedAddress(
+  result: GoogleGeocodeResult,
+  results: GoogleGeocodeResult[],
+  addressDescriptor: GoogleAddressDescriptor,
+) {
+  const address = formatJapaneseAddressFromGoogleGeocodeResult(result)
+  const facilityName =
+    getFacilityNameFromResults(results) ||
+    getFacilityNameFromAddressDescriptor(addressDescriptor)
+
+  if (!facilityName || facilityName === address) {
+    return address
+  }
+
+  return [facilityName, address].filter(Boolean).join('\n')
+}
+
+function enqueueGoogleGeocodingRequest<T>(task: () => Promise<T>) {
+  const nextRequest = googleGeocodingRequestQueue.then(async () => {
+    const elapsedMilliseconds = Date.now() - lastGoogleGeocodingRequestAt
+
+    if (elapsedMilliseconds < GOOGLE_GEOCODING_REQUEST_INTERVAL_MS) {
+      await wait(GOOGLE_GEOCODING_REQUEST_INTERVAL_MS - elapsedMilliseconds)
+    }
+
+    lastGoogleGeocodingRequestAt = Date.now()
     return task()
   })
 
-  nominatimRequestQueue = nextRequest.then(
+  googleGeocodingRequestQueue = nextRequest.then(
     () => undefined,
     () => undefined,
   )
@@ -127,14 +326,20 @@ function getCurrentPositionOnce() {
   })
 }
 
-async function reverseGeocodeWithNominatim(latitude: number, longitude: number) {
-  return enqueueNominatimRequest(async () => {
-    const url = new URL(NOMINATIM_REVERSE_URL)
-    url.searchParams.set('format', 'jsonv2')
-    url.searchParams.set('lat', String(latitude))
-    url.searchParams.set('lon', String(longitude))
-    url.searchParams.set('addressdetails', '1')
-    url.searchParams.set('accept-language', 'ja')
+async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
+
+  if (!apiKey) {
+    return ''
+  }
+
+  return enqueueGoogleGeocodingRequest(async () => {
+    const url = new URL(GOOGLE_GEOCODING_REVERSE_URL)
+    url.searchParams.set('latlng', `${latitude},${longitude}`)
+    url.searchParams.set('language', 'ja')
+    url.searchParams.set('region', JAPAN_COUNTRY_CODE.toLowerCase())
+    url.searchParams.append('extra_computations', 'ADDRESS_DESCRIPTORS')
+    url.searchParams.set('key', apiKey)
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -146,9 +351,23 @@ async function reverseGeocodeWithNominatim(latitude: number, longitude: number) 
       return ''
     }
 
-    const data = (await response.json()) as NominatimReverseResponse
-    return formatJapaneseAddressFromNominatimAddress(
-      toAddressObject(data.address),
+    const data = (await response.json()) as GoogleGeocodeResponse
+
+    if (!isSuccessfulGeocodeStatus(data.status)) {
+      return ''
+    }
+
+    const results = toGeocodeResults(data.results)
+    const addressResult = selectBestAddressResult(results)
+
+    if (!addressResult) {
+      return ''
+    }
+
+    return formatCapturedAddress(
+      addressResult,
+      results,
+      toAddressDescriptor(data.address_descriptor),
     )
   })
 }
@@ -161,7 +380,7 @@ export async function captureCurrentAddressLocation() {
   }
 
   try {
-    const address = await reverseGeocodeWithNominatim(
+    const address = await reverseGeocodeWithGoogle(
       location.latitude,
       location.longitude,
     )
