@@ -61,6 +61,12 @@ React Router を導入し、以下の仮画面を用意しています。
 - `src/services/firebase.ts` は `VITE_FIREBASE_*` 環境変数を読み込み、Firebaseアプリを初期化します。
 - 秘密情報やプロジェクト固有の値はコミットせず、`.env.local` で管理します。
 
+## Google Geocoding API設定
+
+- 住所取得は Google Geocoding API の逆ジオコーディングを利用します。
+- `VITE_GOOGLE_MAPS_API_KEY` に Google Maps Platform の API キーを設定してください。
+- GitHub Pages で利用する場合、API キーには公開URLの HTTP referrer 制限と Geocoding API の API 制限を設定してください。
+
 ## PWA設定
 
 - `vite-plugin-pwa` を導入しています。
