@@ -5,8 +5,21 @@ export type CapturedAddressLocation = {
   longitude: number | null
 }
 
+type NominatimAddress = {
+  city?: unknown
+  county?: unknown
+  house_number?: unknown
+  neighbourhood?: unknown
+  quarter?: unknown
+  road?: unknown
+  state?: unknown
+  suburb?: unknown
+  town?: unknown
+  village?: unknown
+}
+
 type NominatimReverseResponse = {
-  display_name?: unknown
+  address?: unknown
 }
 
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse'
@@ -24,6 +37,48 @@ let nominatimRequestQueue: Promise<void> = Promise.resolve()
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+
+const toAddressObject = (value: unknown): NominatimAddress =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as NominatimAddress)
+    : {}
+
+const toAddressPart = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : ''
+
+function joinUniqueAddressParts(parts: string[]) {
+  return parts.reduce<string[]>((uniqueParts, part) => {
+    if (!part || uniqueParts.includes(part)) {
+      return uniqueParts
+    }
+
+    return [...uniqueParts, part]
+  }, []).join('')
+}
+
+export function formatJapaneseAddressFromNominatimAddress(
+  address: NominatimAddress,
+) {
+  const state = toAddressPart(address.state)
+  const city = toAddressPart(address.city)
+  const town = toAddressPart(address.town)
+  const village = toAddressPart(address.village)
+  const county = toAddressPart(address.county)
+  const suburb = toAddressPart(address.suburb)
+  const neighbourhood = toAddressPart(address.neighbourhood)
+  const quarter = toAddressPart(address.quarter)
+  const road = toAddressPart(address.road)
+  const houseNumber = toAddressPart(address.house_number)
+
+  return joinUniqueAddressParts([
+    state,
+    city || town || village || county,
+    suburb,
+    neighbourhood || quarter,
+    road,
+    houseNumber,
+  ])
+}
 
 function enqueueNominatimRequest<T>(task: () => Promise<T>) {
   const nextRequest = nominatimRequestQueue.then(async () => {
@@ -92,7 +147,9 @@ async function reverseGeocodeWithNominatim(latitude: number, longitude: number) 
     }
 
     const data = (await response.json()) as NominatimReverseResponse
-    return typeof data.display_name === 'string' ? data.display_name : ''
+    return formatJapaneseAddressFromNominatimAddress(
+      toAddressObject(data.address),
+    )
   })
 }
 
