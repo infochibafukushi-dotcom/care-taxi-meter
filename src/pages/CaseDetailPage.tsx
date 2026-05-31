@@ -232,6 +232,14 @@ export function CaseDetailPage() {
                 <span>送り先住所</span>
                 <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
               </div>
+              <div className="case-detail-address">
+                <span>伺い先住所</span>
+                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
+              </div>
+              <div className="case-detail-address">
+                <span>送り先住所</span>
+                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
+              </div>
               <div>
                 <span>距離</span>
                 <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
