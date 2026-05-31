@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
@@ -17,6 +17,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { saveCaseRecord } from '../services/caseRecords'
+import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
   fetchMeterSettings,
@@ -27,7 +28,14 @@ import type {
   CareOptionMasterItem,
   TimeFareSettings,
 } from '../services/fare'
-import type { ExpensePreset } from '../services/meterSettings'
+import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
+import { downloadReceiptPdf } from '../utils/receiptPdf'
+import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import {
+  captureCurrentAddressLocation,
+  emptyCapturedAddressLocation,
+} from '../utils/reverseGeocode'
+import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
   OperationStatus,
@@ -51,12 +59,6 @@ type InputHistory = {
   name: string
 }
 
-type StatusControlButton = {
-  disabled?: boolean
-  label: string
-  onClick: () => void
-  tone: 'start' | StatusTone
-}
 
 type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 
@@ -150,6 +152,29 @@ export function CasePage() {
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
     defaultMeterSettings.expensePresets,
   )
+  const [currentMeterSettings, setCurrentMeterSettings] =
+    useState<MeterSettings>(defaultMeterSettings)
+  const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
+    null,
+  )
+  const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const [dropoffLocation, setDropoffLocation] = useState<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const pickupLocationRef = useRef<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const dropoffLocationRef = useRef<CapturedAddressLocation>(
+    emptyCapturedAddressLocation,
+  )
+  const pickupCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
+    null,
+  )
+  const dropoffCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
+    null,
+  )
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
   const waitingFareSeconds = billableTimeStarted.waiting
@@ -168,10 +193,11 @@ export function CasePage() {
           return
         }
 
+        setCurrentMeterSettings(settings)
         setCurrentBasicFareSettings(settings.basicFare)
         setCurrentWaitingFareSettings(settings.waitingFare)
         setCurrentEscortFareSettings(settings.escortFare)
-        setCurrentCareOptionMaster(settings.careOptions)
+        setCurrentCareOptionMaster(settings.assistItems)
         setCurrentExpensePresets(settings.expensePresets)
         setSettingsMessage('Firestore設定を反映しています。')
       })
@@ -285,6 +311,50 @@ export function CasePage() {
     }
   }
 
+  const capturePickupLocation = () => {
+    const capturePromise = captureCurrentAddressLocation().then((location) => {
+      pickupLocationRef.current = location
+      setPickupLocation(location)
+      return location
+    })
+
+    pickupCapturePromiseRef.current = capturePromise
+    capturePromise.finally(() => {
+      if (pickupCapturePromiseRef.current === capturePromise) {
+        pickupCapturePromiseRef.current = null
+      }
+    })
+
+    return capturePromise
+  }
+
+  const captureDropoffLocation = () => {
+    const capturePromise = captureCurrentAddressLocation().then((location) => {
+      dropoffLocationRef.current = location
+      setDropoffLocation(location)
+      return location
+    })
+
+    dropoffCapturePromiseRef.current = capturePromise
+    capturePromise.finally(() => {
+      if (dropoffCapturePromiseRef.current === capturePromise) {
+        dropoffCapturePromiseRef.current = null
+      }
+    })
+
+    return capturePromise
+  }
+
+  const handleDrivingStart = () => {
+    handleStatusChange('走行中')
+    void capturePickupLocation()
+  }
+
+  const handleSettlementStart = () => {
+    handleStatusChange('精算前')
+    void captureDropoffLocation()
+  }
+
   const handleStatusChange = (nextStatus: OperationStatus) => {
     setStatus(nextStatus)
     setActiveTimer(activeTimerMap[nextStatus] ?? null)
@@ -317,15 +387,65 @@ export function CasePage() {
     setCaseSaveMessage('Firestoreへ保存中です。')
 
     try {
-      await saveCaseRecord({
+      if (pickupCapturePromiseRef.current) {
+        await pickupCapturePromiseRef.current
+      }
+
+      if (dropoffCapturePromiseRef.current) {
+        await dropoffCapturePromiseRef.current
+      }
+
+      if (!dropoffLocationRef.current.capturedAt) {
+        await captureDropoffLocation()
+      }
+
+      const closedAt = new Date().toISOString()
+      const savedRecordRef = await saveCaseRecord({
         caseNumber,
-        closedAt: new Date().toISOString(),
+        closedAt,
         distanceKm: gps.totalDistanceKm,
+        drivingSeconds: elapsedTimers.seconds.driving,
         fareBreakdown,
         paymentMethod,
+        pickupLocation: pickupLocationRef.current,
+        selectedCareOptions,
+        selectedExpenses: expenses,
+        dropoffLocation: dropoffLocationRef.current,
+      })
+      setSavedCaseRecord({
+        id: savedRecordRef.id,
+        caseNumber,
+        closedAt,
+        distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
+        drivingSeconds: elapsedTimers.seconds.driving,
+        basicFareYen: fareBreakdown.basicFareYen,
+        waitingFareYen: fareBreakdown.waitingFareYen,
+        escortFareYen: fareBreakdown.escortFareYen,
+        careOptionFareYen: fareBreakdown.careOptionFareYen,
+        expenseFareYen: fareBreakdown.expenseFareYen,
+        totalFareYen: fareBreakdown.totalFareYen,
+        paymentMethod,
+        pickupLatitude: pickupLocationRef.current.latitude,
+        pickupLongitude: pickupLocationRef.current.longitude,
+        pickupAddress: pickupLocationRef.current.address,
+        pickupCapturedAt: pickupLocationRef.current.capturedAt,
+        dropoffLatitude: dropoffLocationRef.current.latitude,
+        dropoffLongitude: dropoffLocationRef.current.longitude,
+        dropoffAddress: dropoffLocationRef.current.address,
+        dropoffCapturedAt: dropoffLocationRef.current.capturedAt,
+        assistCharges: selectedCareOptions.map((careOption) => ({
+          id: careOption.masterId,
+          name: careOption.name,
+          amount: careOption.amountYen,
+        })),
+        expenseCharges: expenses.map((expense) => ({
+          id: expense.id,
+          name: expense.name,
+          amount: expense.amountYen,
+        })),
       })
       setCaseSaveState('saved')
-      setCaseSaveMessage('Firestoreへ保存しました。次フェーズで案件一覧に表示します。')
+      setCaseSaveMessage('Firestoreへ保存しました。レシートまたは領収書を発行できます。')
     } catch (error) {
       console.error('Failed to save case record to Firestore', error)
       setCaseSaveState('error')
@@ -365,7 +485,7 @@ export function CasePage() {
     setCurrentCareOptionMaster((options) =>
       options.map((option) =>
         option.id === id
-          ? { ...option, defaultAmountYen: toPositiveNumber(value) }
+          ? { ...option, amount: toPositiveNumber(value) }
           : option,
       ),
     )
@@ -388,34 +508,30 @@ export function CasePage() {
     )
   }
 
-  const statusControls: StatusControlButton[] = [
-    {
-      label: '案件開始',
-      onClick: () => handleStatusChange('空車'),
-      tone: 'start',
-    },
-    { label: '空車', onClick: () => handleStatusChange('空車'), tone: 'vacant' },
-    { label: '実車', onClick: () => handleStatusChange('走行中'), tone: 'driving' },
-    { label: '待機', onClick: () => handleStatusChange('待機中'), tone: 'waiting' },
-    {
-      label: '付き添い',
-      onClick: () => handleStatusChange('院内付き添い中'),
-      tone: 'accompanying',
-    },
-    {
-      label: '支払',
-      onClick: () => handleStatusChange('精算前'),
-      tone: 'settlement',
-    },
-    {
-      label: '案件終了',
-      disabled: caseSaveState === 'saving',
-      onClick: () => {
-        void handleCaseClose()
-      },
-      tone: 'closed',
-    },
-  ]
+  const handleThermalReceiptPrint = async () => {
+    if (!savedCaseRecord) {
+      return
+    }
+
+    await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      customerName: '',
+      expenseItems: expenses,
+      issuerName: currentMeterSettings.receipt.issuerName,
+      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+    })
+  }
+
+  const handleA4ReceiptDownload = async () => {
+    if (!savedCaseRecord) {
+      return
+    }
+
+    await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      customerName: '',
+      issuerName: currentMeterSettings.receipt.issuerName,
+      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+    })
+  }
 
   const displayMetrics = [
     { label: '距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
@@ -496,24 +612,30 @@ export function CasePage() {
               <h2>介助ワンタッチ</h2>
             </div>
             <div className="r9-care-grid">
-              {currentCareOptionMaster.map((item) => (
-                <button
-                  className="r9-care-button"
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    setKeypadTarget({
-                      amountYen: item.defaultAmountYen,
-                      mode: 'care',
-                      name: item.name,
-                      sourceId: item.id,
-                    })
-                  }
-                >
-                  <span>{item.name}</span>
-                  <strong>{formatFareYen(item.defaultAmountYen)}円</strong>
-                </button>
-              ))}
+              {currentCareOptionMaster
+                .filter((item) => item.enabled)
+                .sort(
+                  (firstItem, secondItem) =>
+                    firstItem.sortOrder - secondItem.sortOrder,
+                )
+                .map((item) => (
+                  <button
+                    className="r9-care-button"
+                    key={item.id}
+                    type="button"
+                    onClick={() =>
+                      setKeypadTarget({
+                        amountYen: item.amount,
+                        mode: 'care',
+                        name: item.name,
+                        sourceId: item.id,
+                      })
+                    }
+                  >
+                    <span>{item.name}</span>
+                    <strong>{formatFareYen(item.amount)}円</strong>
+                  </button>
+                ))}
             </div>
 
             <div className="r9-panel-title r9-panel-title--expense">
@@ -564,17 +686,58 @@ export function CasePage() {
 
           <section className="r9-right-panel" aria-label="状態操作">
             <div className="r9-status-stack">
-              {statusControls.map((button) => (
-                <button
-                  className={`r9-status-button r9-status-button--${button.tone}`}
-                  key={button.label}
-                  type="button"
-                  disabled={button.disabled}
-                  onClick={button.onClick}
-                >
-                  {button.label}
-                </button>
-              ))}
+              <button
+                className="r9-status-button r9-status-button--start"
+                type="button"
+                onClick={() => handleStatusChange('空車')}
+              >
+                案件開始
+              </button>
+              <button
+                className="r9-status-button r9-status-button--vacant"
+                type="button"
+                onClick={() => handleStatusChange('空車')}
+              >
+                空車
+              </button>
+              <button
+                className="r9-status-button r9-status-button--driving"
+                type="button"
+                onClick={handleDrivingStart}
+              >
+                実車
+              </button>
+              <button
+                className="r9-status-button r9-status-button--waiting"
+                type="button"
+                onClick={() => handleStatusChange('待機中')}
+              >
+                待機
+              </button>
+              <button
+                className="r9-status-button r9-status-button--accompanying"
+                type="button"
+                onClick={() => handleStatusChange('院内付き添い中')}
+              >
+                付き添い
+              </button>
+              <button
+                className="r9-status-button r9-status-button--settlement"
+                type="button"
+                onClick={handleSettlementStart}
+              >
+                支払
+              </button>
+              <button
+                className="r9-status-button r9-status-button--closed"
+                type="button"
+                disabled={caseSaveState === 'saving'}
+                onClick={() => {
+                  void handleCaseClose()
+                }}
+              >
+                案件終了
+              </button>
             </div>
 
             <div className="r9-side-tools">
@@ -596,6 +759,17 @@ export function CasePage() {
                   totalDistanceKm={gps.totalDistanceKm}
                 />
               </details>
+            </div>
+
+            <div className="r9-address-capture" aria-label="住所取得状態">
+              <p>
+                <span>伺い先</span>
+                <strong>{pickupLocation.address || '住所未取得'}</strong>
+              </p>
+              <p>
+                <span>送り先</span>
+                <strong>{dropoffLocation.address || '住所未取得'}</strong>
+              </p>
             </div>
 
             <SettlementPanel
@@ -725,13 +899,19 @@ export function CasePage() {
 
               <fieldset>
                 <legend>介助料金</legend>
-                {currentCareOptionMaster.map((item) => (
+                {currentCareOptionMaster
+                  .filter((item) => item.enabled)
+                  .sort(
+                    (firstItem, secondItem) =>
+                      firstItem.sortOrder - secondItem.sortOrder,
+                  )
+                  .map((item) => (
                   <label key={item.id}>
                     {item.name}
                     <input
                       min="0"
                       type="number"
-                      value={item.defaultAmountYen}
+                      value={item.amount}
                       onChange={(event) =>
                         updateCareOptionAmount(item.id, event.target.value)
                       }
@@ -771,6 +951,56 @@ export function CasePage() {
                   </div>
                 ))}
               </fieldset>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {savedCaseRecord ? (
+        <div className="receipt-dialog-backdrop" role="presentation">
+          <section
+            aria-labelledby="payment-complete-title"
+            aria-modal="true"
+            className="receipt-dialog payment-complete-dialog"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">Payment Complete</p>
+                <h2 id="payment-complete-title">支払完了</h2>
+              </div>
+            </header>
+            <p>案件を保存しました。印刷方法を選択してください。</p>
+            <div className="payment-complete-total">
+              <span>合計金額</span>
+              <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
+            </div>
+            <div className="receipt-dialog-actions">
+              <button
+                className="receipt-dialog-primary"
+                type="button"
+                onClick={() => {
+                  void handleThermalReceiptPrint()
+                }}
+              >
+                レシート印刷
+              </button>
+              <button
+                className="receipt-dialog-secondary"
+                type="button"
+                onClick={() => {
+                  void handleA4ReceiptDownload()
+                }}
+              >
+                A4領収書
+              </button>
+              <button
+                className="receipt-dialog-secondary"
+                type="button"
+                onClick={() => setSavedCaseRecord(null)}
+              >
+                閉じる
+              </button>
             </div>
           </section>
         </div>

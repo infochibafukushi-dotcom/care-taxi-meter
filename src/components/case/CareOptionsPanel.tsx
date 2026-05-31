@@ -43,7 +43,7 @@ export function CareOptionsPanel({
           </option>
           {careOptionMaster.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.name}（{formatFareYen(item.defaultAmountYen)}円）
+              {item.name}（{formatFareYen(item.amount)}円）
             </option>
           ))}
         </select>

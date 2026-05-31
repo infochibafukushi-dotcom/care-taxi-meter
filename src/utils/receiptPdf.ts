@@ -7,6 +7,7 @@ import { formatCaseDateTime } from './caseRecords'
 export type ReceiptIssueOptions = {
   customerName: string
   issuerName: string
+  receiptNote: string
 }
 
 type ReceiptLine = {
@@ -66,6 +67,25 @@ function drawLine(
 }
 
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
+  const careOptionLines =
+    caseRecord.assistCharges.length > 0
+      ? [
+          ...caseRecord.assistCharges.map((assistCharge) => ({
+            label: `介助料金：${assistCharge.name}`,
+            value: `${formatFareYen(assistCharge.amount)}円`,
+          })),
+          {
+            label: '介助料金合計',
+            value: `${formatFareYen(caseRecord.careOptionFareYen)}円`,
+          },
+        ]
+      : [
+          {
+            label: '介助料金',
+            value: `${formatFareYen(caseRecord.careOptionFareYen)}円`,
+          },
+        ]
+
   return [
     { label: '案件番号', value: caseRecord.caseNumber },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
@@ -73,33 +93,67 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
-    { label: '介助料金', value: `${formatFareYen(caseRecord.careOptionFareYen)}円` },
+    ...careOptionLines,
     { label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` },
     { label: '合計金額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
     { label: '支払方法', value: caseRecord.paymentMethod },
   ]
 }
 
-function drawConfiguredTextLines({
+function drawCompanyInformation({
   context,
   lines,
-  startY,
-  x,
 }: {
   context: CanvasRenderingContext2D
   lines: string[]
-  startY: number
-  x: number
 }) {
   lines
     .filter((line) => line.trim())
     .forEach((line, index) => {
-      drawText(context, line, x, startY + index * 40, {
+      drawText(context, line, 1120, 292 + index * 30, {
         align: 'right',
         color: '#475569',
-        font: index === 0 ? 'bold 28px sans-serif' : '24px sans-serif',
+        font: index === 0 ? 'bold 28px sans-serif' : '22px sans-serif',
       })
     })
+}
+
+function drawReceiptHeader({
+  companyLines,
+  context,
+  customerName,
+}: {
+  companyLines: string[]
+  context: CanvasRenderingContext2D
+  customerName: string
+}) {
+  context.save()
+  context.strokeStyle = '#e2e8f0'
+  context.lineWidth = 2
+  context.roundRect(100, 270, 1040, 210, 18)
+  context.stroke()
+  context.restore()
+
+  drawCompanyInformation({ context, lines: companyLines })
+
+  if (customerName) {
+    drawText(context, `${customerName} 様`, 130, 325, {
+      color: '#0f172a',
+      font: 'bold 38px sans-serif',
+    })
+    drawLine(context, 130, 346, 560, 346, '#94a3b8')
+  } else {
+    drawLine(context, 130, 346, 520, 346, '#94a3b8')
+    drawText(context, '様', 535, 325, {
+      color: '#0f172a',
+      font: 'bold 34px sans-serif',
+    })
+  }
+
+  drawText(context, '下記の通り領収いたしました。', 130, 405, {
+    color: '#334155',
+    font: '30px sans-serif',
+  })
 }
 
 function createReceiptCanvas(
@@ -123,11 +177,15 @@ function createReceiptCanvas(
   const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
+  const receiptNote = issueOptions.receiptNote.trim()
+  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
   const companyLines = [
     companyName,
-    settings.company.address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
     settings.company.email ? `MAIL ${settings.company.email}` : '',
+    settings.company.address,
+    '登録番号',
+    invoiceNumber,
   ]
 
   context.fillStyle = '#ffffff'
@@ -145,49 +203,47 @@ function createReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
 
-  if (customerName) {
-    drawText(context, `${customerName}様`, 120, 285, {
-      color: '#0f172a',
-      font: 'bold 38px sans-serif',
-    })
-    drawLine(context, 120, 306, 520, 306, '#94a3b8')
-  }
-
-  drawText(context, '下記の通り領収いたしました。', 120, 365, {
-    color: '#334155',
-    font: '30px sans-serif',
-  })
-  drawConfiguredTextLines({
+  drawReceiptHeader({
+    companyLines,
     context,
-    lines: companyLines,
-    startY: 310,
-    x: 1120,
+    customerName,
   })
 
   context.save()
   context.fillStyle = '#f0f9ff'
   context.strokeStyle = '#0284c7'
   context.lineWidth = 3
-  context.roundRect(120, 430, 1000, 150, 22)
+  context.roundRect(120, 515, 1000, 145, 22)
   context.fill()
   context.stroke()
   context.restore()
 
-  drawText(context, '合計金額', 170, 490, {
+  drawText(context, '合計金額', 170, 575, {
     color: '#075985',
     font: 'bold 30px sans-serif',
   })
-  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 540, {
+  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 625, {
     align: 'right',
     color: '#0f172a',
     font: 'bold 64px sans-serif',
   })
 
+  if (receiptNote) {
+    drawText(context, '但し書き', 120, 715, {
+      color: '#475569',
+      font: 'bold 26px sans-serif',
+    })
+    drawText(context, receiptNote, 270, 715, {
+      color: '#0f172a',
+      font: '28px sans-serif',
+    })
+  }
+
   const lines = createReceiptLines(caseRecord)
   const tableX = 120
-  const tableTop = 670
+  const tableTop = receiptNote ? 775 : 710
   const labelWidth = 320
-  const rowHeight = 76
+  const rowHeight = 56
   const tableWidth = 1000
 
   lines.forEach((line, index) => {
@@ -201,13 +257,13 @@ function createReceiptCanvas(
 
     drawLine(context, tableX, rowY, tableX + tableWidth, rowY)
     drawLine(context, tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight)
-    drawText(context, line.label, tableX + 32, rowY + 50, {
+    drawText(context, line.label, tableX + 32, rowY + 38, {
       color: '#475569',
-      font: 'bold 28px sans-serif',
+      font: 'bold 22px sans-serif',
     })
-    drawText(context, line.value, tableX + tableWidth - 32, rowY + 50, {
+    drawText(context, line.value, tableX + tableWidth - 32, rowY + 38, {
       align: 'right',
-      font: isTotal ? 'bold 36px sans-serif' : '30px sans-serif',
+      font: isTotal ? 'bold 30px sans-serif' : '24px sans-serif',
     })
   })
 

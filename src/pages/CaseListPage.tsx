@@ -8,6 +8,9 @@ import {
   formatCaseDateTime,
 } from '../utils/caseRecords'
 
+const formatAddress = (address: string) =>
+  address.trim() ? address : '住所未取得'
+
 type CaseRecordsState = {
   caseRecords: StoredCaseRecord[]
   errorMessage: string
@@ -95,7 +98,7 @@ export function CaseListPage() {
         <div className="case-record-list" aria-label="保存済み案件">
           {state.caseRecords.map((caseRecord) => (
             <Link
-              className="case-record-row"
+              className="case-record-row case-record-row--with-addresses"
               key={caseRecord.id}
               to={`/cases/${caseRecord.id}`}
             >
@@ -106,6 +109,14 @@ export function CaseListPage() {
               <span>
                 <small>日時</small>
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
+              </span>
+              <span className="case-record-address">
+                <small>伺い先住所</small>
+                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
+              </span>
+              <span className="case-record-address">
+                <small>送り先住所</small>
+                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
               </span>
               <span>
                 <small>支払方法</small>
@@ -122,6 +133,10 @@ export function CaseListPage() {
             </Link>
           ))}
         </div>
+
+        <p className="osm-attribution">
+          住所データ © OpenStreetMap contributors
+        </p>
       </section>
     </main>
   )
