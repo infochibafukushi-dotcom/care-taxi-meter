@@ -6,7 +6,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import type { StaffMember, Store, Vehicle, WorkSession } from '../types/work'
+import type { StaffMember, Store, WorkSession } from '../types/work'
 import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
@@ -22,24 +22,20 @@ export async function clockInWorkSession({
   location,
   staffMember,
   store,
-  vehicle,
 }: {
   location: WorkLocation
   staffMember: StaffMember
   store: Store
-  vehicle: Vehicle
 }) {
   const clockInAt = new Date().toISOString()
   const workSession: WorkSession = {
     id: createWorkSessionId(),
+    companyId: staffMember.companyId,
     storeId: store.id,
     storeName: store.name,
     staffId: staffMember.id,
     staffName: staffMember.name,
     staffRole: staffMember.role,
-    vehicleId: vehicle.id,
-    vehicleName: vehicle.name,
-    vehicleNumber: vehicle.number,
     clockInAt,
     clockOutAt: null,
     workSeconds: 0,

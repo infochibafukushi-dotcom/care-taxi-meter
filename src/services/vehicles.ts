@@ -12,6 +12,7 @@ import {
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { Vehicle, VehicleFuelType, VehicleStatus } from '../types/work'
+import { defaultCompanyId } from './stores'
 
 const vehiclesCollectionName = 'vehicles'
 const validStatuses: VehicleStatus[] = ['稼働中', '整備中', '休車', '売却済']
@@ -36,10 +37,19 @@ const toVehicle = (snapshot: QueryDocumentSnapshot<DocumentData>): Vehicle => {
 
   return {
     id: toStringValue(data.id) || snapshot.id,
+    companyId: toStringValue(data.companyId) || defaultCompanyId,
+    storeId: toStringValue(data.storeId),
+    storeName: toStringValue(data.storeName),
     name: toStringValue(data.name) || '名称未設定の車両',
     number: toStringValue(data.number),
     status: toStatus(data.status),
     fuelType: toFuelType(data.fuelType),
+    vehicleType: toStringValue(data.vehicleType),
+    wheelchairCapacity: toNumberValue(data.wheelchairCapacity),
+    stretcherSupported: toBooleanValue(data.stretcherSupported, false),
+    inspectionExpiresAt: toStringValue(data.inspectionExpiresAt),
+    insuranceExpiresAt: toStringValue(data.insuranceExpiresAt),
+    memo: toStringValue(data.memo),
     enabled: toBooleanValue(data.enabled),
     sortOrder: toNumberValue(data.sortOrder),
   }

@@ -241,6 +241,10 @@ export function CaseDetailPage() {
                 <strong>{formatOptionalText(caseRecord.storeName)}</strong>
               </div>
               <div>
+                <span>勤務ID</span>
+                <strong>{formatOptionalText(caseRecord.workSessionId)}</strong>
+              </div>
+              <div>
                 <span>運転時間（待機・付き添い除く）</span>
                 <strong>
                   {formatDrivingDuration(

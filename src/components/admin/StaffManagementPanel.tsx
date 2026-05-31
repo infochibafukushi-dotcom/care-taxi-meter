@@ -1,9 +1,10 @@
-import type { StaffMember, StaffRole } from '../../types/work'
+import type { StaffMember, StaffRole, Store } from '../../types/work'
 import { staffRoles } from '../../types/work'
 
 type StaffManagementPanelProps = {
   message: string
   staffMembers: StaffMember[]
+  stores: Store[]
   onAdd: () => void
   onSave: () => void
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
@@ -12,10 +13,19 @@ type StaffManagementPanelProps = {
 export function StaffManagementPanel({
   message,
   staffMembers,
+  stores,
   onAdd,
   onSave,
   onUpdate,
 }: StaffManagementPanelProps) {
+  const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
+    const store = stores.find((item) => item.id === storeId)
+    onUpdate(staffMember.id, {
+      storeId,
+      storeName: store?.name ?? '',
+    })
+  }
+
   return (
     <section className="admin-master-panel" aria-labelledby="staff-management-title">
       <div className="admin-master-panel__header">
@@ -30,56 +40,60 @@ export function StaffManagementPanel({
       </div>
       {message ? <p className="save-note">{message}</p> : null}
       <div className="admin-master-table-wrap">
-        <table className="admin-master-table">
+        <table className="admin-master-table admin-master-table--wide">
           <thead>
             <tr>
               <th>表示</th>
               <th>順</th>
+              <th>会社ID</th>
+              <th>店舗</th>
               <th>スタッフ名</th>
-              <th>ロール</th>
+              <th>ユーザーID</th>
+              <th>パスワード</th>
+              <th>role</th>
+              <th>電話番号</th>
+              <th>メール</th>
+              <th>住所</th>
+              <th>免許番号</th>
+              <th>免許期限</th>
+              <th>事故歴</th>
+              <th>メモ</th>
             </tr>
           </thead>
           <tbody>
             {staffMembers.length > 0 ? (
               staffMembers.map((staffMember) => (
                 <tr key={staffMember.id}>
+                  <td><input type="checkbox" checked={staffMember.enabled} onChange={(event) => onUpdate(staffMember.id, { enabled: event.target.checked })} /></td>
+                  <td><input min="1" type="number" value={staffMember.sortOrder} onChange={(event) => onUpdate(staffMember.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })} /></td>
+                  <td><input value={staffMember.companyId} onChange={(event) => onUpdate(staffMember.id, { companyId: event.target.value })} /></td>
                   <td>
-                    <input
-                      type="checkbox"
-                      checked={staffMember.enabled}
-                      onChange={(event) => onUpdate(staffMember.id, { enabled: event.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      min="1"
-                      type="number"
-                      value={staffMember.sortOrder}
-                      onChange={(event) => onUpdate(staffMember.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={staffMember.name}
-                      onChange={(event) => onUpdate(staffMember.id, { name: event.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <select
-                      value={staffMember.role}
-                      onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}
-                    >
-                      {staffRoles.map((role) => (
-                        <option key={role} value={role}>{role}</option>
-                      ))}
+                    <select value={staffMember.storeId} onChange={(event) => handleStoreChange(staffMember, event.target.value)}>
+                      <option value="">未設定</option>
+                      {stores
+                        .filter((store) => !staffMember.companyId || store.companyId === staffMember.companyId)
+                        .map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                     </select>
                   </td>
+                  <td><input value={staffMember.name} onChange={(event) => onUpdate(staffMember.id, { name: event.target.value })} /></td>
+                  <td><input value={staffMember.userId} onChange={(event) => onUpdate(staffMember.id, { userId: event.target.value })} /></td>
+                  <td><input type="password" value={staffMember.password} onChange={(event) => onUpdate(staffMember.id, { password: event.target.value })} /></td>
+                  <td>
+                    <select value={staffMember.role} onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}>
+                      {staffRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+                    </select>
+                  </td>
+                  <td><input value={staffMember.phoneNumber} onChange={(event) => onUpdate(staffMember.id, { phoneNumber: event.target.value })} /></td>
+                  <td><input value={staffMember.email} onChange={(event) => onUpdate(staffMember.id, { email: event.target.value })} /></td>
+                  <td><input value={staffMember.address} onChange={(event) => onUpdate(staffMember.id, { address: event.target.value })} /></td>
+                  <td><input value={staffMember.licenseNumber} onChange={(event) => onUpdate(staffMember.id, { licenseNumber: event.target.value })} /></td>
+                  <td><input type="date" value={staffMember.licenseExpiresAt} onChange={(event) => onUpdate(staffMember.id, { licenseExpiresAt: event.target.value })} /></td>
+                  <td><input value={staffMember.accidentHistory} onChange={(event) => onUpdate(staffMember.id, { accidentHistory: event.target.value })} /></td>
+                  <td><input value={staffMember.memo} onChange={(event) => onUpdate(staffMember.id, { memo: event.target.value })} /></td>
                 </tr>
               ))
             ) : (
-              <tr>
-                <td colSpan={4}>スタッフが未登録です。</td>
-              </tr>
+              <tr><td colSpan={15}>スタッフが未登録です。</td></tr>
             )}
           </tbody>
         </table>

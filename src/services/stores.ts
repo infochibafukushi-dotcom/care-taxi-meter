@@ -4,6 +4,8 @@ import {
   getDoc,
   getDocs,
   getFirestore,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
@@ -12,18 +14,23 @@ import { getFirebaseApp } from '../lib/firebase'
 import type { Store } from '../types/work'
 
 const storesCollectionName = 'stores'
+export const defaultCompanyId = 'chiba-care-taxi'
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
   typeof value === 'boolean' ? value : fallback
+const toNumberValue = (value: unknown, fallback = 0) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
 
 const toStore = (snapshot: QueryDocumentSnapshot<DocumentData>): Store => {
   const data = snapshot.data()
 
   return {
     id: toStringValue(data.id) || snapshot.id,
+    companyId: toStringValue(data.companyId) || defaultCompanyId,
     name: toStringValue(data.name) || '名称未設定の店舗',
     enabled: toBooleanValue(data.enabled),
+    sortOrder: toNumberValue(data.sortOrder, 1),
   }
 }
 
@@ -34,15 +41,17 @@ function getStoresCollection() {
 
 export const defaultStore: Store = {
   id: 'store_chiba_chuo',
+  companyId: defaultCompanyId,
   name: '千葉中央店',
   enabled: true,
+  sortOrder: 1,
 }
 
-export async function fetchStores() {
-  const snapshots = await getDocs(getStoresCollection())
+export async function fetchStores(companyId?: string) {
+  const snapshots = await getDocs(query(getStoresCollection(), orderBy('sortOrder', 'asc')))
   return snapshots.docs
     .map(toStore)
-    .sort((firstStore, secondStore) => firstStore.name.localeCompare(secondStore.name, 'ja'))
+    .filter((store) => !companyId || store.companyId === companyId)
 }
 
 export async function saveStore(store: Store) {
@@ -59,7 +68,8 @@ export async function saveStore(store: Store) {
   return store
 }
 
-export async function ensureDefaultStore() {
-  await saveStore(defaultStore)
-  return defaultStore
+export async function ensureDefaultStore(companyId = defaultCompanyId) {
+  const store = { ...defaultStore, companyId }
+  await saveStore(store)
+  return store
 }

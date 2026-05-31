@@ -14,7 +14,7 @@ import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/f
 import { getFirebaseApp } from '../lib/firebase'
 import type { FareBreakdown } from './fare'
 import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
-import type { CurrentWorkSession, StaffRole } from '../types/work'
+import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 
 export type CaseRecordInput = {
@@ -27,6 +27,7 @@ export type CaseRecordInput = {
   waitingSeconds?: number
   accompanyingSeconds?: number
   workSession?: CurrentWorkSession | null
+  vehicle?: Vehicle | null
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
   pickupLocation: CapturedAddressLocation
@@ -44,6 +45,7 @@ export type CaseRecordDocument = {
   drivingSeconds: number
   waitingSeconds: number
   accompanyingSeconds: number
+  companyId: string
   staffId: string
   staffName: string
   staffRole: StaffRole | ''
@@ -151,6 +153,7 @@ const toStoredCaseRecord = (
     drivingSeconds: toNumber(data.drivingSeconds),
     waitingSeconds: toNumber(data.waitingSeconds),
     accompanyingSeconds: toNumber(data.accompanyingSeconds),
+    companyId: toString(data.companyId),
     staffId: toString(data.staffId),
     staffName: toString(data.staffName),
     staffRole: toString(data.staffRole) as StaffRole | '',
@@ -195,6 +198,7 @@ export async function saveCaseRecord({
   waitingSeconds = 0,
   accompanyingSeconds = 0,
   workSession = null,
+  vehicle = null,
   fareBreakdown,
   paymentMethod,
   pickupLocation,
@@ -211,12 +215,13 @@ export async function saveCaseRecord({
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
     waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
     accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
+    companyId: workSession?.companyId ?? '',
     staffId: workSession?.staffId ?? '',
     staffName: workSession?.staffName ?? '',
     staffRole: workSession?.staffRole ?? '',
-    vehicleId: workSession?.vehicleId ?? '',
-    vehicleName: workSession?.vehicleName ?? '',
-    vehicleNumber: workSession?.vehicleNumber ?? '',
+    vehicleId: vehicle?.id ?? '',
+    vehicleName: vehicle?.name ?? '',
+    vehicleNumber: vehicle?.number ?? '',
     workSessionId: workSession?.id ?? '',
     storeId: workSession?.storeId ?? '',
     storeName: workSession?.storeName ?? '',

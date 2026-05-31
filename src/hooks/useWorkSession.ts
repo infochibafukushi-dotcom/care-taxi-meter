@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { clockInWorkSession, clockOutWorkSession } from '../services/workSessions'
-import type { StaffMember, Store, Vehicle, WorkSession } from '../types/work'
+import type { StaffMember, Store, WorkSession } from '../types/work'
 import { captureWorkLocation } from '../utils/workLocation'
 
 const workSessionStorageKey = 'careTaxiMeterCurrentWorkSession'
@@ -30,7 +30,7 @@ export function useWorkSession() {
   )
   const [message, setMessage] = useState<WorkSessionStatusMessage>({
     tone: 'idle',
-    text: '出勤すると案件へ店舗・スタッフ・車両が自動紐付けされます。',
+    text: '会社ID・ユーザーID・パスワードを入力して出勤してください。',
   })
 
   const isWorking = Boolean(currentSession)
@@ -38,11 +38,9 @@ export function useWorkSession() {
   const clockIn = async ({
     staffMember,
     store,
-    vehicle,
   }: {
     staffMember: StaffMember
     store: Store
-    vehicle: Vehicle
   }) => {
     setMessage({ tone: 'saving', text: '出勤位置を取得して保存中です。' })
     const location = await captureWorkLocation()
@@ -50,7 +48,6 @@ export function useWorkSession() {
       location,
       staffMember,
       store,
-      vehicle,
     })
 
     localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
@@ -87,11 +84,18 @@ export function useWorkSession() {
     return closedSession
   }
 
+  const logout = () => {
+    localStorage.removeItem(workSessionStorageKey)
+    setCurrentSession(null)
+    setMessage({ tone: 'idle', text: '退勤しました。再度出勤してください。' })
+  }
+
   return {
     clockIn,
     clockOut,
     currentSession,
     isWorking,
+    logout,
     message,
   }
 }

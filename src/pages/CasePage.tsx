@@ -20,8 +20,6 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { saveCaseRecord } from '../services/caseRecords'
-import { fetchStaffMembers } from '../services/staffMembers'
-import { fetchStores } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -35,7 +33,7 @@ import type {
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
-import type { StaffMember, Store, Vehicle } from '../types/work'
+import type { Vehicle } from '../types/work'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
@@ -168,11 +166,7 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
-  const [stores, setStores] = useState<Store[]>([])
-  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [selectedStoreId, setSelectedStoreId] = useState('')
-  const [selectedStaffId, setSelectedStaffId] = useState('')
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
@@ -244,54 +238,33 @@ export function CasePage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchStores(), fetchStaffMembers(), fetchVehicles()])
-      .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
+    fetchVehicles()
+      .then((loadedVehicles) => {
         if (!isMounted) {
           return
         }
 
-        const initialStoreId = loadedStores.find((store) => store.enabled)?.id || ''
-        const initialStaffId = loadedStaffMembers.find(
-          (staffMember) =>
-            staffMember.enabled,
-        )?.id ?? ''
-        const initialVehicleId = loadedVehicles.find(
-          (vehicle) =>
-            vehicle.enabled &&
-            vehicle.status === '稼働中',
-        )?.id ?? ''
-
-        setStores(loadedStores)
-        setStaffMembers(loadedStaffMembers)
         setVehicles(loadedVehicles)
-        setSelectedStoreId(initialStoreId)
-        setSelectedStaffId(initialStaffId)
-        setSelectedVehicleId(initialVehicleId)
+        setSelectedVehicleId(
+          loadedVehicles.find(
+            (vehicle) =>
+              vehicle.enabled &&
+              vehicle.status === '稼働中' &&
+              (!workSession.currentSession ||
+                (vehicle.companyId === workSession.currentSession.companyId &&
+                  vehicle.storeId === workSession.currentSession.storeId)),
+          )?.id ?? '',
+        )
       })
       .catch((error) => {
-        console.error('Failed to load work master data', error)
+        console.error('Failed to load vehicles', error)
       })
 
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [workSession.currentSession])
 
-
-  const handleSelectedStoreChange = (storeId: string) => {
-    setSelectedStoreId(storeId)
-    setSelectedStaffId(
-      staffMembers.find(
-        (staffMember) => staffMember.enabled,
-      )?.id ?? '',
-    )
-    setSelectedVehicleId(
-      vehicles.find(
-        (vehicle) =>
-          vehicle.enabled && vehicle.status === '稼働中',
-      )?.id ?? '',
-    )
-  }
 
 
   const fareBreakdown = calculateFareBreakdown({
@@ -479,6 +452,18 @@ export function CasePage() {
   }
 
   const handleSettlementStart = () => {
+    if (!workSession.currentSession) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('出勤してから案件を保存してください。')
+      return null
+    }
+
+    if (!selectedVehicleId) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('案件車両を選択してください。')
+      return null
+    }
+
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
@@ -588,6 +573,7 @@ export function CasePage() {
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
         workSession: workSession.currentSession,
+        vehicle: vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null,
         fareBreakdown,
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
@@ -605,12 +591,13 @@ export function CasePage() {
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        companyId: workSession.currentSession?.companyId ?? '',
         staffId: workSession.currentSession?.staffId ?? '',
         staffName: workSession.currentSession?.staffName ?? '',
         staffRole: workSession.currentSession?.staffRole ?? '',
-        vehicleId: workSession.currentSession?.vehicleId ?? '',
-        vehicleName: workSession.currentSession?.vehicleName ?? '',
-        vehicleNumber: workSession.currentSession?.vehicleNumber ?? '',
+        vehicleId: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.id ?? '',
+        vehicleName: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.name ?? '',
+        vehicleNumber: vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.number ?? '',
         workSessionId: workSession.currentSession?.id ?? '',
         storeId: workSession.currentSession?.storeId ?? '',
         storeName: workSession.currentSession?.storeName ?? '',
@@ -784,30 +771,50 @@ export function CasePage() {
           </div>
         </header>
 
-        {workSession.currentSession ? (
-          <CurrentWorkSessionPanel
-            isSaving={workSession.message.tone === 'saving'}
-            workSession={workSession.currentSession}
-            onClockOut={handleClockOut}
-          />
-        ) : (
-          <ClockInPanel
-            isSaving={workSession.message.tone === 'saving'}
-            selectedStaffId={selectedStaffId}
-            selectedStoreId={selectedStoreId}
-            selectedVehicleId={selectedVehicleId}
-            staffMembers={staffMembers}
-            stores={stores}
-            vehicles={vehicles}
-            onClockIn={handleClockIn}
-            onStaffChange={setSelectedStaffId}
-            onStoreChange={handleSelectedStoreChange}
-            onVehicleChange={setSelectedVehicleId}
-          />
-        )}
-        <p className={`save-note save-note--${workSession.message.tone}`}>
-          {workSession.message.text}
-        </p>
+
+        <section className="work-session-panel" aria-labelledby="case-vehicle-title">
+          <div className="work-session-panel__header">
+            <div>
+              <span>CASE VEHICLE</span>
+              <h2 id="case-vehicle-title">案件車両選択</h2>
+            </div>
+            <strong>{workSession.currentSession ? workSession.currentSession.staffName : '未出勤'}</strong>
+          </div>
+          {workSession.currentSession ? (
+            <div className="work-session-form">
+              <label>
+                店舗
+                <input readOnly value={workSession.currentSession.storeName} />
+              </label>
+              <label>
+                スタッフ
+                <input readOnly value={workSession.currentSession.staffName} />
+              </label>
+              <label>
+                車両
+                <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)}>
+                  <option value="">車両を選択</option>
+                  {vehicles
+                    .filter(
+                      (vehicle) =>
+                        vehicle.enabled &&
+                        vehicle.status === '稼働中' &&
+                        vehicle.companyId === workSession.currentSession?.companyId &&
+                        vehicle.storeId === workSession.currentSession?.storeId,
+                    )
+                    .map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <p className="empty-note">TOP画面で出勤してから案件を開始してください。</p>
+          )}
+        </section>
+
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
