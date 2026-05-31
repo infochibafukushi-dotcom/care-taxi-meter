@@ -171,7 +171,7 @@ export function CasePage() {
         setCurrentBasicFareSettings(settings.basicFare)
         setCurrentWaitingFareSettings(settings.waitingFare)
         setCurrentEscortFareSettings(settings.escortFare)
-        setCurrentCareOptionMaster(settings.careOptions)
+        setCurrentCareOptionMaster(settings.assistItems)
         setCurrentExpensePresets(settings.expensePresets)
         setSettingsMessage('Firestore設定を反映しています。')
       })
@@ -323,6 +323,7 @@ export function CasePage() {
         distanceKm: gps.totalDistanceKm,
         fareBreakdown,
         paymentMethod,
+        selectedCareOptions,
       })
       setCaseSaveState('saved')
       setCaseSaveMessage('Firestoreへ保存しました。次フェーズで案件一覧に表示します。')
@@ -365,7 +366,7 @@ export function CasePage() {
     setCurrentCareOptionMaster((options) =>
       options.map((option) =>
         option.id === id
-          ? { ...option, defaultAmountYen: toPositiveNumber(value) }
+          ? { ...option, amount: toPositiveNumber(value) }
           : option,
       ),
     )
@@ -496,24 +497,30 @@ export function CasePage() {
               <h2>介助ワンタッチ</h2>
             </div>
             <div className="r9-care-grid">
-              {currentCareOptionMaster.map((item) => (
-                <button
-                  className="r9-care-button"
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    setKeypadTarget({
-                      amountYen: item.defaultAmountYen,
-                      mode: 'care',
-                      name: item.name,
-                      sourceId: item.id,
-                    })
-                  }
-                >
-                  <span>{item.name}</span>
-                  <strong>{formatFareYen(item.defaultAmountYen)}円</strong>
-                </button>
-              ))}
+              {currentCareOptionMaster
+                .filter((item) => item.enabled)
+                .sort(
+                  (firstItem, secondItem) =>
+                    firstItem.sortOrder - secondItem.sortOrder,
+                )
+                .map((item) => (
+                  <button
+                    className="r9-care-button"
+                    key={item.id}
+                    type="button"
+                    onClick={() =>
+                      setKeypadTarget({
+                        amountYen: item.amount,
+                        mode: 'care',
+                        name: item.name,
+                        sourceId: item.id,
+                      })
+                    }
+                  >
+                    <span>{item.name}</span>
+                    <strong>{formatFareYen(item.amount)}円</strong>
+                  </button>
+                ))}
             </div>
 
             <div className="r9-panel-title r9-panel-title--expense">
@@ -725,13 +732,19 @@ export function CasePage() {
 
               <fieldset>
                 <legend>介助料金</legend>
-                {currentCareOptionMaster.map((item) => (
+                {currentCareOptionMaster
+                  .filter((item) => item.enabled)
+                  .sort(
+                    (firstItem, secondItem) =>
+                      firstItem.sortOrder - secondItem.sortOrder,
+                  )
+                  .map((item) => (
                   <label key={item.id}>
                     {item.name}
                     <input
                       min="0"
                       type="number"
-                      value={item.defaultAmountYen}
+                      value={item.amount}
                       onChange={(event) =>
                         updateCareOptionAmount(item.id, event.target.value)
                       }
