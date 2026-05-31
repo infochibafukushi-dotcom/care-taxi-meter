@@ -539,7 +539,8 @@ export function CasePage() {
       return savedCaseRecord
     }
 
-    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
+    const selectedVehicle: Vehicle | null =
+      vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
 
     if (!workSession.currentSession) {
       setCaseSaveState('error')
