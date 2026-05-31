@@ -11,6 +11,9 @@ import {
 const formatAddress = (address: string) =>
   address.trim() ? address : '住所未取得'
 
+const formatOptionalDateTime = (dateTime: string) =>
+  dateTime ? formatCaseDateTime(dateTime) : '―'
+
 type CaseRecordsState = {
   caseRecords: StoredCaseRecord[]
   errorMessage: string
@@ -109,6 +112,14 @@ export function CaseListPage() {
               <span>
                 <small>日時</small>
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
+              </span>
+              <span>
+                <small>開始時刻</small>
+                <strong>{formatOptionalDateTime(caseRecord.startedAt)}</strong>
+              </span>
+              <span>
+                <small>終了時刻</small>
+                <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
               </span>
               <span className="case-record-address">
                 <small>伺い先住所</small>

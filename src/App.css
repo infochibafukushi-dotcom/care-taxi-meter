@@ -1546,10 +1546,266 @@ h1 {
 .r9-status-button--start { background: #15803d; }
 .r9-status-button--vacant { background: #dc2626; }
 .r9-status-button--driving { background: #2563eb; }
+.r9-status-button--assist { background: #7c3aed; }
+.r9-status-button--expense { background: #0f766e; }
 .r9-status-button--waiting { color: #1f2937; background: #facc15; }
 .r9-status-button--accompanying { background: #16a34a; }
 .r9-status-button--settlement { background: #f97316; }
 .r9-status-button--closed { background: #475569; }
+
+.r9-summary-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  background: #111827;
+}
+
+.r9-summary-card--modal {
+  margin-top: 14px;
+  background: #0f172a;
+}
+
+.r9-summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.r9-summary-list p,
+.r9-summary-total {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #e2e8f0;
+  background: #020617;
+  font-weight: 900;
+}
+
+.r9-summary-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.r9-summary-list strong,
+.r9-summary-total strong {
+  color: #fff;
+  white-space: nowrap;
+}
+
+.r9-summary-total {
+  border: 1px solid #38bdf8;
+  color: #bfdbfe;
+}
+
+.r9-operation-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.r9-current-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  background: #111827;
+}
+
+.r9-current-status span,
+.r9-operation-section__header span {
+  color: #cbd5e1;
+  font-weight: 900;
+}
+
+.r9-current-status strong {
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.r9-operation-sections,
+.r9-operation-section {
+  display: grid;
+  gap: 14px;
+}
+
+.r9-operation-section {
+  padding: 14px;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #0f172a;
+}
+
+.r9-operation-section__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.r9-operation-section__header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.25rem;
+}
+
+.r9-operation-section__header strong {
+  color: #facc15;
+  font-size: 1.15rem;
+}
+
+.r9-modal-button-grid,
+.r9-time-toggle-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.r9-modal-button-grid--care {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.r9-modal-button-grid--expense,
+.r9-time-toggle-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.r9-modal-choice,
+.r9-time-toggle,
+.r9-flow-primary {
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 1000;
+}
+
+.r9-modal-choice {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 10px;
+  color: #e0f2fe;
+  background: #1d4ed8;
+  box-shadow: 0 6px 0 rgb(0 0 0 / 45%);
+}
+
+.r9-modal-choice--selected {
+  color: #0f172a;
+  background: #facc15;
+}
+
+.r9-modal-choice--expense {
+  background: #0f766e;
+}
+
+.r9-time-toggle {
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 12px;
+  color: #e2e8f0;
+  background: #334155;
+}
+
+.r9-time-toggle--active {
+  color: #111827;
+  background: #facc15;
+}
+
+.r9-time-toggle span,
+.r9-time-toggle strong,
+.r9-time-toggle em {
+  display: block;
+}
+
+.r9-time-toggle strong {
+  font-family: "Roboto Mono", monospace;
+  font-size: 1.35rem;
+}
+
+.r9-time-toggle em {
+  font-style: normal;
+}
+
+.r9-address-capture--modal {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.r9-settlement-flow .settlement-panel {
+  color: #0f172a;
+}
+
+.r9-settlement-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.r9-settlement-steps span {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  color: #cbd5e1;
+  background: #111827;
+  font-size: 0.86rem;
+  font-weight: 1000;
+  text-align: center;
+}
+
+.r9-settlement-steps__done {
+  color: #052e16 !important;
+  background: #86efac !important;
+}
+
+.r9-flow-primary {
+  min-height: 58px;
+  color: #fff;
+  background: #16a34a;
+  font-size: 1.2rem;
+}
+
+.r9-flow-primary:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.r9-issuance-panel,
+.r9-issue-complete {
+  display: grid;
+  gap: 14px;
+}
+
+.r9-issuance-panel {
+  padding: 16px;
+  border-radius: 16px;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.r9-issue-complete {
+  padding-top: 12px;
+  border-top: 1px solid #cbd5e1;
+}
+
+.r9-issue-complete > strong {
+  color: #15803d;
+  font-size: 1.3rem;
+}
 
 .r9-side-tools {
   display: grid;
@@ -1690,7 +1946,8 @@ h1 {
 
 @media (orientation: portrait) {
   .r9-meter-page {
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .landscape-notice {
@@ -1703,13 +1960,44 @@ h1 {
   }
 
   .r9-meter-shell {
-    min-width: 1100px;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 100dvh;
+    border-radius: 18px;
+  }
+
+  .r9-header-strip,
+  .r9-header-status {
+    display: grid;
+    gap: 8px;
+  }
+
+  .r9-header-strip {
+    padding: 12px 18px;
+  }
+
+  .r9-meter-console {
+    grid-template-columns: 1fr;
+  }
+
+  .r9-metrics-grid,
+  .r9-modal-button-grid--care,
+  .r9-modal-button-grid--expense,
+  .r9-time-toggle-grid,
+  .r9-address-capture--modal,
+  .r9-settlement-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .r9-side-tools {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 1100px) and (orientation: landscape) {
   .r9-meter-console {
-    grid-template-columns: minmax(390px, 1.1fr) minmax(330px, 0.95fr) minmax(215px, 0.58fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(0, 0.58fr);
   }
 
   .r9-left-panel,
@@ -1782,7 +2070,7 @@ h1 {
 
 .case-record-row {
   display: grid;
-  grid-template-columns: 1.5fr 1.35fr 0.9fr 0.8fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 12px;
   align-items: center;
   padding: 14px;
