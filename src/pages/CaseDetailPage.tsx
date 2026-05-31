@@ -6,10 +6,17 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
+import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 
 const formatAddress = (address: string) =>
   address.trim() ? address : '住所未取得'
+
+const formatOptionalDateTime = (dateTime: string) =>
+  dateTime ? formatCaseDateTime(dateTime) : '―'
+
+const formatDrivingDuration = (seconds: number, hasTimeData: boolean) =>
+  hasTimeData ? formatElapsedTime(seconds) : '―'
 
 type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
@@ -201,8 +208,29 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.caseNumber}</strong>
               </div>
               <div>
-                <span>日時</span>
-                <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
+                <span>開始時刻</span>
+                <strong>{formatOptionalDateTime(caseRecord.startedAt)}</strong>
+              </div>
+              <div>
+                <span>終了時刻</span>
+                <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
+              </div>
+              <div>
+                <span>運転時間</span>
+                <strong>
+                  {formatDrivingDuration(
+                    caseRecord.drivingSeconds,
+                    Boolean(caseRecord.startedAt || caseRecord.endedAt),
+                  )}
+                </strong>
+              </div>
+              <div className="case-detail-address">
+                <span>伺い先住所</span>
+                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
+              </div>
+              <div className="case-detail-address">
+                <span>送り先住所</span>
+                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
               </div>
               <div className="case-detail-address">
                 <span>伺い先住所</span>

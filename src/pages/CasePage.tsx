@@ -157,6 +157,8 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
+  const operationStartedAtRef = useRef('')
+  const operationEndedAtRef = useRef('')
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
     emptyCapturedAddressLocation,
   )
@@ -311,6 +313,12 @@ export function CasePage() {
     }
   }
 
+  const markOperationStarted = () => {
+    if (!operationStartedAtRef.current) {
+      operationStartedAtRef.current = new Date().toISOString()
+    }
+  }
+
   const capturePickupLocation = () => {
     const capturePromise = captureCurrentAddressLocation().then((location) => {
       pickupLocationRef.current = location
@@ -346,11 +354,14 @@ export function CasePage() {
   }
 
   const handleDrivingStart = () => {
+    markOperationStarted()
     handleStatusChange('走行中')
     void capturePickupLocation()
   }
 
   const handleSettlementStart = () => {
+    const endedAt = new Date().toISOString()
+    operationEndedAtRef.current = endedAt
     handleStatusChange('精算前')
     void captureDropoffLocation()
   }
@@ -382,6 +393,12 @@ export function CasePage() {
       return
     }
 
+    if (!operationEndedAtRef.current) {
+      const endedAt = new Date().toISOString()
+      operationEndedAtRef.current = endedAt
+    }
+    const finalDrivingSeconds = elapsedTimers.seconds.driving
+
     handleStatusChange('案件終了')
     setCaseSaveState('saving')
     setCaseSaveMessage('Firestoreへ保存中です。')
@@ -403,8 +420,10 @@ export function CasePage() {
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
         closedAt,
+        startedAt: operationStartedAtRef.current,
+        endedAt: operationEndedAtRef.current,
         distanceKm: gps.totalDistanceKm,
-        drivingSeconds: elapsedTimers.seconds.driving,
+        drivingSeconds: finalDrivingSeconds,
         fareBreakdown,
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
@@ -416,8 +435,10 @@ export function CasePage() {
         id: savedRecordRef.id,
         caseNumber,
         closedAt,
+        startedAt: operationStartedAtRef.current,
+        endedAt: operationEndedAtRef.current,
         distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
-        drivingSeconds: elapsedTimers.seconds.driving,
+        drivingSeconds: finalDrivingSeconds,
         basicFareYen: fareBreakdown.basicFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,

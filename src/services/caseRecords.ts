@@ -19,6 +19,8 @@ import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 export type CaseRecordInput = {
   caseNumber: string
   closedAt: string
+  startedAt: string
+  endedAt: string
   distanceKm: number
   drivingSeconds: number
   fareBreakdown: FareBreakdown
@@ -32,6 +34,8 @@ export type CaseRecordInput = {
 export type CaseRecordDocument = {
   caseNumber: string
   closedAt: string
+  startedAt: string
+  endedAt: string
   distanceKm: number
   drivingSeconds: number
   basicFareYen: number
@@ -126,6 +130,8 @@ const toStoredCaseRecord = (
     caseNumber:
       typeof data.caseNumber === 'string' ? data.caseNumber : snapshot.id,
     closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
+    startedAt: toString(data.startedAt),
+    endedAt: toString(data.endedAt),
     distanceKm: toNumber(data.distanceKm),
     drivingSeconds: toNumber(data.drivingSeconds),
     basicFareYen: toNumber(data.basicFareYen),
@@ -156,6 +162,8 @@ function getCaseRecordsCollection() {
 export async function saveCaseRecord({
   caseNumber,
   closedAt,
+  startedAt,
+  endedAt,
   distanceKm,
   drivingSeconds,
   fareBreakdown,
@@ -168,6 +176,8 @@ export async function saveCaseRecord({
   const record: CaseRecordDocument = {
     caseNumber,
     closedAt,
+    startedAt,
+    endedAt,
     distanceKm: Number(distanceKm.toFixed(3)),
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
     basicFareYen: fareBreakdown.basicFareYen,
