@@ -6,7 +6,17 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
+import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
+
+const formatAddress = (address: string) =>
+  address.trim() ? address : '住所未取得'
+
+const formatOptionalDateTime = (dateTime: string) =>
+  dateTime ? formatCaseDateTime(dateTime) : '―'
+
+const formatDrivingDuration = (seconds: number, hasTimeData: boolean) =>
+  hasTimeData ? formatElapsedTime(seconds) : '―'
 
 type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
@@ -19,6 +29,7 @@ type CaseDetailState = {
 type ReceiptDialogState = {
   customerName: string
   issuerName: string
+  receiptNote: string
   isOpen: boolean
 }
 
@@ -34,6 +45,7 @@ export function CaseDetailPage() {
   const [receiptDialog, setReceiptDialog] = useState<ReceiptDialogState>({
     customerName: '',
     issuerName: '',
+    receiptNote: defaultMeterSettings.receipt.defaultReceiptNote,
     isOpen: false,
   })
 
@@ -97,6 +109,9 @@ export function CaseDetailPage() {
           issuerName: currentDialog.isOpen
             ? currentDialog.issuerName
             : meterSettings.receipt.issuerName,
+          receiptNote: currentDialog.isOpen
+            ? currentDialog.receiptNote
+            : meterSettings.receipt.defaultReceiptNote,
         }))
       })
       .catch((error) => {
@@ -119,6 +134,7 @@ export function CaseDetailPage() {
   }, [])
 
   const caseRecord = state.caseRecord
+  const assistCharges = caseRecord?.assistCharges ?? []
   const errorMessage = caseRecordId
     ? state.errorMessage
     : '案件IDが指定されていません。'
@@ -128,6 +144,7 @@ export function CaseDetailPage() {
     setReceiptDialog({
       customerName: '',
       issuerName: state.meterSettings.receipt.issuerName,
+      receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       isOpen: true,
     })
   }
@@ -147,6 +164,7 @@ export function CaseDetailPage() {
     await downloadReceiptPdf(caseRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
+      receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
   }
@@ -190,8 +208,29 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.caseNumber}</strong>
               </div>
               <div>
-                <span>日時</span>
-                <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
+                <span>開始時刻</span>
+                <strong>{formatOptionalDateTime(caseRecord.startedAt)}</strong>
+              </div>
+              <div>
+                <span>終了時刻</span>
+                <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
+              </div>
+              <div>
+                <span>運転時間</span>
+                <strong>
+                  {formatDrivingDuration(
+                    caseRecord.drivingSeconds,
+                    Boolean(caseRecord.startedAt || caseRecord.endedAt),
+                  )}
+                </strong>
+              </div>
+              <div className="case-detail-address">
+                <span>伺い先住所</span>
+                <strong>{formatAddress(caseRecord.pickupAddress)}</strong>
+              </div>
+              <div className="case-detail-address">
+                <span>送り先住所</span>
+                <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
               </div>
               <div>
                 <span>距離</span>
@@ -209,9 +248,24 @@ export function CaseDetailPage() {
                 <span>付き添い料金</span>
                 <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
               </div>
-              <div>
+              <div className="case-detail-assist-charges">
                 <span>介助料金</span>
-                <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                {assistCharges.length > 0 ? (
+                  <div>
+                    {assistCharges.map((assistCharge) => (
+                      <p key={`${assistCharge.id}-${assistCharge.name}`}>
+                        <span>{assistCharge.name}</span>
+                        <strong>{formatFareYen(assistCharge.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                )}
               </div>
               <div>
                 <span>実費</span>
@@ -226,6 +280,9 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.paymentMethod}</strong>
               </div>
             </div>
+            <p className="osm-attribution">
+              住所データ © OpenStreetMap contributors
+            </p>
           </>
         ) : null}
       </section>
@@ -267,6 +324,20 @@ export function CaseDetailPage() {
                   setReceiptDialog((currentDialog) => ({
                     ...currentDialog,
                     issuerName: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              但し書き
+              <textarea
+                placeholder="空欄でも発行できます"
+                value={receiptDialog.receiptNote}
+                onChange={(event) =>
+                  setReceiptDialog((currentDialog) => ({
+                    ...currentDialog,
+                    receiptNote: event.target.value,
                   }))
                 }
               />
