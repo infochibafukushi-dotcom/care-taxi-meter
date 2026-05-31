@@ -19,6 +19,7 @@ type CaseDetailState = {
 type ReceiptDialogState = {
   customerName: string
   issuerName: string
+  receiptNote: string
   isOpen: boolean
 }
 
@@ -34,6 +35,7 @@ export function CaseDetailPage() {
   const [receiptDialog, setReceiptDialog] = useState<ReceiptDialogState>({
     customerName: '',
     issuerName: '',
+    receiptNote: defaultMeterSettings.receipt.defaultReceiptNote,
     isOpen: false,
   })
 
@@ -97,6 +99,9 @@ export function CaseDetailPage() {
           issuerName: currentDialog.isOpen
             ? currentDialog.issuerName
             : meterSettings.receipt.issuerName,
+          receiptNote: currentDialog.isOpen
+            ? currentDialog.receiptNote
+            : meterSettings.receipt.defaultReceiptNote,
         }))
       })
       .catch((error) => {
@@ -119,6 +124,7 @@ export function CaseDetailPage() {
   }, [])
 
   const caseRecord = state.caseRecord
+  const assistCharges = caseRecord?.assistCharges ?? []
   const errorMessage = caseRecordId
     ? state.errorMessage
     : '案件IDが指定されていません。'
@@ -128,6 +134,7 @@ export function CaseDetailPage() {
     setReceiptDialog({
       customerName: '',
       issuerName: state.meterSettings.receipt.issuerName,
+      receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       isOpen: true,
     })
   }
@@ -147,6 +154,7 @@ export function CaseDetailPage() {
     await downloadReceiptPdf(caseRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
+      receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
   }
@@ -209,9 +217,24 @@ export function CaseDetailPage() {
                 <span>付き添い料金</span>
                 <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
               </div>
-              <div>
+              <div className="case-detail-assist-charges">
                 <span>介助料金</span>
-                <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                {assistCharges.length > 0 ? (
+                  <div>
+                    {assistCharges.map((assistCharge) => (
+                      <p key={`${assistCharge.id}-${assistCharge.name}`}>
+                        <span>{assistCharge.name}</span>
+                        <strong>{formatFareYen(assistCharge.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
+                )}
               </div>
               <div>
                 <span>実費</span>
@@ -267,6 +290,20 @@ export function CaseDetailPage() {
                   setReceiptDialog((currentDialog) => ({
                     ...currentDialog,
                     issuerName: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              但し書き
+              <textarea
+                placeholder="空欄でも発行できます"
+                value={receiptDialog.receiptNote}
+                onChange={(event) =>
+                  setReceiptDialog((currentDialog) => ({
+                    ...currentDialog,
+                    receiptNote: event.target.value,
                   }))
                 }
               />

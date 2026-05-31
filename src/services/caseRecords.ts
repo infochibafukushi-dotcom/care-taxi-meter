@@ -13,7 +13,7 @@ import {
 import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { FareBreakdown } from './fare'
-import type { PaymentMethod } from '../types/case'
+import type { PaymentMethod, SelectedCareOption } from '../types/case'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -21,6 +21,7 @@ export type CaseRecordInput = {
   distanceKm: number
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
+  selectedCareOptions: SelectedCareOption[]
 }
 
 export type CaseRecordDocument = {
@@ -34,7 +35,14 @@ export type CaseRecordDocument = {
   expenseFareYen: number
   totalFareYen: number
   paymentMethod: PaymentMethod
+  assistCharges: AssistCharge[]
   savedAt: FieldValue
+}
+
+export type AssistCharge = {
+  id: string
+  name: string
+  amount: number
 }
 
 export type StoredCaseRecord = Omit<CaseRecordDocument, 'savedAt'> & {
@@ -44,6 +52,25 @@ export type StoredCaseRecord = Omit<CaseRecordDocument, 'savedAt'> & {
 const caseRecordsCollectionName = 'caseRecords'
 
 const toNumber = (value: unknown) => (typeof value === 'number' ? value : 0)
+
+const toObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+
+const toAssistCharges = (value: unknown): AssistCharge[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const id = typeof source.id === 'string' ? source.id : ''
+          const name = typeof source.name === 'string' ? source.name : ''
+          const amount = toNumber(source.amount)
+
+          return id && name ? { id, name, amount } : null
+        })
+        .filter((item): item is AssistCharge => Boolean(item))
+    : []
 
 const toPaymentMethod = (value: unknown): PaymentMethod => {
   if (
@@ -76,6 +103,7 @@ const toStoredCaseRecord = (
     expenseFareYen: toNumber(data.expenseFareYen),
     totalFareYen: toNumber(data.totalFareYen),
     paymentMethod: toPaymentMethod(data.paymentMethod),
+    assistCharges: toAssistCharges(data.assistCharges),
   }
 }
 
@@ -90,6 +118,7 @@ export async function saveCaseRecord({
   distanceKm,
   fareBreakdown,
   paymentMethod,
+  selectedCareOptions,
 }: CaseRecordInput) {
   const record: CaseRecordDocument = {
     caseNumber,
@@ -102,6 +131,11 @@ export async function saveCaseRecord({
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
     paymentMethod,
+    assistCharges: selectedCareOptions.map((careOption) => ({
+      id: careOption.masterId,
+      name: careOption.name,
+      amount: careOption.amountYen,
+    })),
     savedAt: serverTimestamp(),
   }
 
