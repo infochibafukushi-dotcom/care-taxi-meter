@@ -7,6 +7,7 @@ import { formatCaseDateTime } from './caseRecords'
 export type ReceiptIssueOptions = {
   customerName: string
   issuerName: string
+  receiptNote: string
 }
 
 type ReceiptLine = {
@@ -123,11 +124,15 @@ function createReceiptCanvas(
   const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
+  const receiptNote = issueOptions.receiptNote.trim()
+  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
   const companyLines = [
     companyName,
     settings.company.address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
     settings.company.email ? `MAIL ${settings.company.email}` : '',
+    '登録番号',
+    invoiceNumber,
   ]
 
   context.fillStyle = '#ffffff'
@@ -183,9 +188,20 @@ function createReceiptCanvas(
     font: 'bold 64px sans-serif',
   })
 
+  if (receiptNote) {
+    drawText(context, '但し書き', 120, 630, {
+      color: '#475569',
+      font: 'bold 26px sans-serif',
+    })
+    drawText(context, receiptNote, 270, 630, {
+      color: '#0f172a',
+      font: '28px sans-serif',
+    })
+  }
+
   const lines = createReceiptLines(caseRecord)
   const tableX = 120
-  const tableTop = 670
+  const tableTop = receiptNote ? 720 : 670
   const labelWidth = 320
   const rowHeight = 76
   const tableWidth = 1000

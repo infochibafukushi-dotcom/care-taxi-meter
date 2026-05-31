@@ -31,6 +31,8 @@ export type ReceiptSettings = {
   issuerName: string
   receiptDefault: string
   statementDefault: string
+  invoiceNumber: string
+  defaultReceiptNote: string
 }
 
 export type MeterSettings = {
@@ -67,6 +69,8 @@ export const defaultMeterSettings: MeterSettings = {
     issuerName: '',
     receiptDefault: '領収書',
     statementDefault: '利用明細書',
+    invoiceNumber: '',
+    defaultReceiptNote: '介護タクシー利用料として',
   },
 }
 
@@ -186,6 +190,11 @@ function sanitizeReceipt(value: unknown): ReceiptSettings {
     statementDefault: toStringValue(
       source.statementDefault,
       defaultMeterSettings.receipt.statementDefault,
+    ),
+    invoiceNumber: toStringValue(source.invoiceNumber),
+    defaultReceiptNote: toStringValue(
+      source.defaultReceiptNote,
+      defaultMeterSettings.receipt.defaultReceiptNote,
     ),
   }
 }

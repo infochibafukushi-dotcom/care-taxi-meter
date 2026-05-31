@@ -2133,7 +2133,8 @@ h1 {
   font-weight: 900;
 }
 
-.receipt-dialog input {
+.receipt-dialog input,
+.receipt-dialog textarea {
   min-height: 48px;
   padding: 0 14px;
   border: 1px solid rgb(15 23 42 / 16%);
@@ -2141,6 +2142,12 @@ h1 {
   color: #0f172a;
   background: #f8fafc;
   font: inherit;
+}
+
+.receipt-dialog textarea {
+  min-height: 88px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
 .receipt-dialog-actions {
