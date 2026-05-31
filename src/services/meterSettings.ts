@@ -31,13 +31,15 @@ export type ReceiptSettings = {
   issuerName: string
   receiptDefault: string
   statementDefault: string
+  invoiceNumber: string
+  defaultReceiptNote: string
 }
 
 export type MeterSettings = {
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
-  careOptions: CareOptionMasterItem[]
+  assistItems: CareOptionMasterItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
   receipt: ReceiptSettings
@@ -55,7 +57,7 @@ export const defaultMeterSettings: MeterSettings = {
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
-  careOptions: careOptionMaster,
+  assistItems: careOptionMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
     address: '',
@@ -67,6 +69,8 @@ export const defaultMeterSettings: MeterSettings = {
     issuerName: '',
     receiptDefault: '領収書',
     statementDefault: '利用明細書',
+    invoiceNumber: '',
+    defaultReceiptNote: '介護タクシー利用料として',
   },
 }
 
@@ -87,6 +91,16 @@ const toObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+
+const legacyAssistItemIds: Record<string, string> = {
+  'basic-care': 'basicAssist',
+  indoor: 'indoorAssist',
+  stairs: 'stairsAssist',
+  wheelchair: 'wheelchairAssist',
+  stretcher: 'stretcherAssist',
+  reclining: 'recliningAssist',
+  'other-care': 'otherAssist',
+}
 
 function getMeterSettingsRef() {
   const db = getFirestore(getFirebaseApp())
@@ -127,23 +141,58 @@ function sanitizeTimeFare(value: unknown, fallback: TimeFareSettings): TimeFareS
   }
 }
 
-function sanitizeCareOptions(value: unknown): CareOptionMasterItem[] {
+function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
   const source = Array.isArray(value) ? value : []
+  const defaultsById = new Map(
+    defaultMeterSettings.assistItems.map((defaultItem) => [
+      defaultItem.id,
+      defaultItem,
+    ]),
+  )
+  const sanitizedItems = source
+    .map((item, index) => {
+      const sourceItem = toObject(item)
+      const sourceId = toStringValue(sourceItem.id).trim()
+      const id = legacyAssistItemIds[sourceId] ?? sourceId
+      const defaultItem = defaultsById.get(id)
+      const name = toStringValue(sourceItem.name, defaultItem?.name ?? '').trim()
 
-  return defaultMeterSettings.careOptions.map((defaultOption) => {
-    const savedOption = source.find(
-      (item) => toObject(item).id === defaultOption.id,
-    )
-    const savedOptionObject = toObject(savedOption)
+      if (!id || !name) {
+        return null
+      }
 
-    return {
-      ...defaultOption,
-      defaultAmountYen: toPositiveNumber(
-        savedOptionObject.defaultAmountYen,
-        defaultOption.defaultAmountYen,
-      ),
-    }
-  })
+      return {
+        id,
+        name,
+        amount: Math.floor(
+          toPositiveNumber(
+            sourceItem.amount ?? sourceItem.defaultAmountYen,
+            defaultItem?.amount ?? 0,
+          ),
+        ),
+        enabled:
+          typeof sourceItem.enabled === 'boolean'
+            ? sourceItem.enabled
+            : defaultItem?.enabled ?? true,
+        sortOrder: Math.floor(
+          toPositiveNumber(sourceItem.sortOrder, defaultItem?.sortOrder ?? index + 1),
+        ),
+      }
+    })
+    .filter((item): item is CareOptionMasterItem => Boolean(item))
+
+  if (sanitizedItems.length === 0) {
+    return defaultMeterSettings.assistItems
+  }
+
+  const sanitizedIds = new Set(sanitizedItems.map((item) => item.id))
+  const missingDefaults = defaultMeterSettings.assistItems.filter(
+    (defaultItem) => !sanitizedIds.has(defaultItem.id),
+  )
+
+  return [...sanitizedItems, ...missingDefaults].sort(
+    (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+  )
 }
 
 function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
@@ -187,6 +236,11 @@ function sanitizeReceipt(value: unknown): ReceiptSettings {
       source.statementDefault,
       defaultMeterSettings.receipt.statementDefault,
     ),
+    invoiceNumber: toStringValue(source.invoiceNumber),
+    defaultReceiptNote: toStringValue(
+      source.defaultReceiptNote,
+      defaultMeterSettings.receipt.defaultReceiptNote,
+    ),
   }
 }
 
@@ -195,7 +249,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
 
   return {
     basicFare: sanitizeBasicFare(source.basicFare),
-    careOptions: sanitizeCareOptions(source.careOptions),
+    assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
     company: sanitizeCompany(source.company),
     escortFare: sanitizeTimeFare(source.escortFare, defaultMeterSettings.escortFare),
     expensePresets: sanitizeExpensePresets(source.expensePresets),

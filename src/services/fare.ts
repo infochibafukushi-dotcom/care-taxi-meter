@@ -10,11 +10,15 @@ export type TimeFareSettings = {
   unitFareYen: number;
 };
 
-export type CareOptionMasterItem = {
+export type AssistItem = {
   id: string;
   name: string;
-  defaultAmountYen: number;
+  amount: number;
+  enabled: boolean;
+  sortOrder: number;
 };
+
+export type CareOptionMasterItem = AssistItem;
 
 export type ExpenseSettings = {
   defaultItems: Array<{
@@ -58,13 +62,13 @@ export const escortFareSettings: TimeFareSettings = {
 };
 
 export const careOptionMaster: CareOptionMasterItem[] = [
-  { id: "basic-care", name: "基本介助", defaultAmountYen: 500 },
-  { id: "indoor", name: "室内介助", defaultAmountYen: 500 },
-  { id: "stairs", name: "階段介助", defaultAmountYen: 1000 },
-  { id: "wheelchair", name: "車椅子介助", defaultAmountYen: 500 },
-  { id: "stretcher", name: "ストレッチャー", defaultAmountYen: 1500 },
-  { id: "reclining", name: "リクライニング", defaultAmountYen: 1000 },
-  { id: "other-care", name: "その他", defaultAmountYen: 500 },
+  { id: "basicAssist", name: "基本介助", amount: 500, enabled: true, sortOrder: 1 },
+  { id: "indoorAssist", name: "室内介助", amount: 500, enabled: true, sortOrder: 2 },
+  { id: "stairsAssist", name: "階段介助", amount: 1000, enabled: true, sortOrder: 3 },
+  { id: "wheelchairAssist", name: "車椅子介助", amount: 500, enabled: true, sortOrder: 4 },
+  { id: "stretcherAssist", name: "ストレッチャー", amount: 1500, enabled: true, sortOrder: 5 },
+  { id: "recliningAssist", name: "リクライニング", amount: 1000, enabled: true, sortOrder: 6 },
+  { id: "otherAssist", name: "その他", amount: 500, enabled: true, sortOrder: 7 },
 ];
 
 export const expenseSettings: ExpenseSettings = {
