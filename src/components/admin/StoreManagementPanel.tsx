@@ -28,7 +28,6 @@ export function StoreManagementPanel({
       <table className="admin-master-table">
         <thead>
           <tr>
-            <th>表示順</th>
             <th>表示</th>
             <th>店舗ID</th>
             <th>店舗名</th>
@@ -38,7 +37,6 @@ export function StoreManagementPanel({
           {stores.length > 0 ? (
             stores.map((store) => (
               <tr key={store.id}>
-                <td>{store.sortOrder}</td>
                 <td>{store.enabled ? 'ON' : 'OFF'}</td>
                 <td>{store.id}</td>
                 <td>{store.name}</td>
@@ -46,7 +44,7 @@ export function StoreManagementPanel({
             ))
           ) : (
             <tr>
-              <td colSpan={4}>店舗が未登録です。</td>
+              <td colSpan={3}>店舗が未登録です。</td>
             </tr>
           )}
         </tbody>

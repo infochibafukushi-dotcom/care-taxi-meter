@@ -1,9 +1,8 @@
-import type { Store, Vehicle, VehicleFuelType, VehicleStatus } from '../../types/work'
+import type { Vehicle, VehicleFuelType, VehicleStatus } from '../../types/work'
 import { vehicleFuelTypes, vehicleStatuses } from '../../types/work'
 
 type VehicleManagementPanelProps = {
   message: string
-  stores: Store[]
   vehicles: Vehicle[]
   onAdd: () => void
   onSave: () => void
@@ -12,22 +11,11 @@ type VehicleManagementPanelProps = {
 
 export function VehicleManagementPanel({
   message,
-  stores,
   vehicles,
   onAdd,
   onSave,
   onUpdate,
 }: VehicleManagementPanelProps) {
-  const handleStoreChange = (vehicle: Vehicle, storeId: string) => {
-    const store = stores.find((item) => item.id === storeId)
-    onUpdate(vehicle.id, {
-      storeId,
-      storeName: store?.name ?? '',
-      tenantId: store?.tenantId ?? '',
-      organizationId: store?.organizationId ?? '',
-    })
-  }
-
   return (
     <section className="admin-master-panel" aria-labelledby="vehicle-management-title">
       <div className="admin-master-panel__header">
@@ -42,7 +30,7 @@ export function VehicleManagementPanel({
       </div>
       {message ? <p className="save-note">{message}</p> : null}
       <div className="admin-master-table-wrap">
-        <table className="admin-master-table admin-master-table--wide">
+        <table className="admin-master-table">
           <thead>
             <tr>
               <th>表示</th>
@@ -51,11 +39,6 @@ export function VehicleManagementPanel({
               <th>ナンバー</th>
               <th>状態</th>
               <th>燃料</th>
-              <th>店舗</th>
-              <th>車検</th>
-              <th>前回整備</th>
-              <th>次回整備</th>
-              <th>メモ</th>
             </tr>
           </thead>
           <tbody>
@@ -109,26 +92,11 @@ export function VehicleManagementPanel({
                       ))}
                     </select>
                   </td>
-                  <td>
-                    <select
-                      value={vehicle.storeId}
-                      onChange={(event) => handleStoreChange(vehicle, event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {stores.map((store) => (
-                        <option key={store.id} value={store.id}>{store.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td><input type="date" value={vehicle.inspectionExpiresAt} onChange={(event) => onUpdate(vehicle.id, { inspectionExpiresAt: event.target.value })} /></td>
-                  <td><input type="date" value={vehicle.lastMaintenanceAt} onChange={(event) => onUpdate(vehicle.id, { lastMaintenanceAt: event.target.value })} /></td>
-                  <td><input type="date" value={vehicle.nextMaintenanceAt} onChange={(event) => onUpdate(vehicle.id, { nextMaintenanceAt: event.target.value })} /></td>
-                  <td><input value={vehicle.memo} onChange={(event) => onUpdate(vehicle.id, { memo: event.target.value })} /></td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={11}>車両が未登録です。</td>
+                <td colSpan={6}>車両が未登録です。</td>
               </tr>
             )}
           </tbody>

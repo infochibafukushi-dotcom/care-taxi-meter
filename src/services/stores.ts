@@ -1,10 +1,9 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
@@ -17,8 +16,6 @@ const storesCollectionName = 'stores'
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
   typeof value === 'boolean' ? value : fallback
-const toNumberValue = (value: unknown, fallback = 0) =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback
 
 const toStore = (snapshot: QueryDocumentSnapshot<DocumentData>): Store => {
   const data = snapshot.data()
@@ -27,9 +24,6 @@ const toStore = (snapshot: QueryDocumentSnapshot<DocumentData>): Store => {
     id: toStringValue(data.id) || snapshot.id,
     name: toStringValue(data.name) || '名称未設定の店舗',
     enabled: toBooleanValue(data.enabled),
-    sortOrder: toNumberValue(data.sortOrder),
-    tenantId: toStringValue(data.tenantId),
-    organizationId: toStringValue(data.organizationId),
   }
 }
 
@@ -42,25 +36,26 @@ export const defaultStore: Store = {
   id: 'store_chiba_chuo',
   name: '千葉中央店',
   enabled: true,
-  sortOrder: 1,
-  tenantId: '',
-  organizationId: '',
 }
 
 export async function fetchStores() {
-  const snapshots = await getDocs(query(getStoresCollection(), orderBy('sortOrder', 'asc')))
-  return snapshots.docs.map(toStore)
+  const snapshots = await getDocs(getStoresCollection())
+  return snapshots.docs
+    .map(toStore)
+    .sort((firstStore, secondStore) => firstStore.name.localeCompare(secondStore.name, 'ja'))
 }
 
 export async function saveStore(store: Store) {
   const db = getFirestore(getFirebaseApp())
+  const storeRef = doc(db, storesCollectionName, store.id)
+  const snapshot = await getDoc(storeRef)
   const document = {
     ...store,
-    createdAt: serverTimestamp(),
+    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(doc(db, storesCollectionName, store.id), document, { merge: true })
+  await setDoc(storeRef, document, { merge: true })
   return store
 }
 

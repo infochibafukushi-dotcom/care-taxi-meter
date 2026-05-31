@@ -1,10 +1,9 @@
-import type { StaffMember, StaffRole, Store } from '../../types/work'
+import type { StaffMember, StaffRole } from '../../types/work'
 import { staffRoles } from '../../types/work'
 
 type StaffManagementPanelProps = {
   message: string
   staffMembers: StaffMember[]
-  stores: Store[]
   onAdd: () => void
   onSave: () => void
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
@@ -13,21 +12,10 @@ type StaffManagementPanelProps = {
 export function StaffManagementPanel({
   message,
   staffMembers,
-  stores,
   onAdd,
   onSave,
   onUpdate,
 }: StaffManagementPanelProps) {
-  const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
-    const store = stores.find((item) => item.id === storeId)
-    onUpdate(staffMember.id, {
-      storeId,
-      storeName: store?.name ?? '',
-      tenantId: store?.tenantId ?? '',
-      organizationId: store?.organizationId ?? '',
-    })
-  }
-
   return (
     <section className="admin-master-panel" aria-labelledby="staff-management-title">
       <div className="admin-master-panel__header">
@@ -49,8 +37,6 @@ export function StaffManagementPanel({
               <th>順</th>
               <th>スタッフ名</th>
               <th>ロール</th>
-              <th>店舗</th>
-              <th>メール</th>
             </tr>
           </thead>
           <tbody>
@@ -88,28 +74,11 @@ export function StaffManagementPanel({
                       ))}
                     </select>
                   </td>
-                  <td>
-                    <select
-                      value={staffMember.storeId}
-                      onChange={(event) => handleStoreChange(staffMember, event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {stores.map((store) => (
-                        <option key={store.id} value={store.id}>{store.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      value={staffMember.email}
-                      onChange={(event) => onUpdate(staffMember.id, { email: event.target.value })}
-                    />
-                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6}>スタッフが未登録です。</td>
+                <td colSpan={4}>スタッフが未登録です。</td>
               </tr>
             )}
           </tbody>

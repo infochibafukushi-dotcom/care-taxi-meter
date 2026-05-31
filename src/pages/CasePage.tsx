@@ -253,13 +253,12 @@ export function CasePage() {
         const initialStoreId = loadedStores.find((store) => store.enabled)?.id || ''
         const initialStaffId = loadedStaffMembers.find(
           (staffMember) =>
-            staffMember.enabled && (!initialStoreId || staffMember.storeId === initialStoreId),
+            staffMember.enabled,
         )?.id ?? ''
         const initialVehicleId = loadedVehicles.find(
           (vehicle) =>
             vehicle.enabled &&
-            vehicle.status === '稼働中' &&
-            (!initialStoreId || vehicle.storeId === initialStoreId),
+            vehicle.status === '稼働中',
         )?.id ?? ''
 
         setStores(loadedStores)
@@ -283,13 +282,13 @@ export function CasePage() {
     setSelectedStoreId(storeId)
     setSelectedStaffId(
       staffMembers.find(
-        (staffMember) => staffMember.enabled && (!storeId || staffMember.storeId === storeId),
+        (staffMember) => staffMember.enabled,
       )?.id ?? '',
     )
     setSelectedVehicleId(
       vehicles.find(
         (vehicle) =>
-          vehicle.enabled && vehicle.status === '稼働中' && (!storeId || vehicle.storeId === storeId),
+          vehicle.enabled && vehicle.status === '稼働中',
       )?.id ?? '',
     )
   }

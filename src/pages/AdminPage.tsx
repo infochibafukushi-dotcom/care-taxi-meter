@@ -5,7 +5,7 @@ import { StoreManagementPanel } from '../components/admin/StoreManagementPanel'
 import { VehicleManagementPanel } from '../components/admin/VehicleManagementPanel'
 import { fetchCaseRecords } from '../services/caseRecords'
 import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
-import { defaultStore, ensureDefaultStore, fetchStores } from '../services/stores'
+import { ensureDefaultStore, fetchStores } from '../services/stores'
 import { fetchVehicles, saveVehicle } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
@@ -326,24 +326,16 @@ export function AdminPage() {
 
 
   const createStaffMember = (): StaffMember => {
-    const primaryStore = stores[0] ?? defaultStore
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
       name: '新しいスタッフ',
       role: 'driver',
       enabled: true,
       sortOrder: staffMembers.length + 1,
-      authUid: '',
-      email: '',
-      storeId: primaryStore.id,
-      storeName: primaryStore.name,
-      tenantId: primaryStore.tenantId,
-      organizationId: primaryStore.organizationId,
     }
   }
 
   const createVehicle = (): Vehicle => {
-    const primaryStore = stores[0] ?? defaultStore
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
       name: '新しい車両',
@@ -352,14 +344,6 @@ export function AdminPage() {
       fuelType: '',
       enabled: true,
       sortOrder: vehicles.length + 1,
-      storeId: primaryStore.id,
-      storeName: primaryStore.name,
-      tenantId: primaryStore.tenantId,
-      organizationId: primaryStore.organizationId,
-      inspectionExpiresAt: '',
-      lastMaintenanceAt: '',
-      nextMaintenanceAt: '',
-      memo: '',
     }
   }
 
@@ -368,8 +352,8 @@ export function AdminPage() {
       const savedStore = await ensureDefaultStore()
       setStores((currentStores) => {
         const otherStores = currentStores.filter((store) => store.id !== savedStore.id)
-        return [savedStore, ...otherStores].sort(
-          (firstStore, secondStore) => firstStore.sortOrder - secondStore.sortOrder,
+        return [savedStore, ...otherStores].sort((firstStore, secondStore) =>
+          firstStore.name.localeCompare(secondStore.name, 'ja'),
         )
       })
       setMasterMessage('初期店舗を保存しました。')
@@ -651,7 +635,6 @@ export function AdminPage() {
             <StaffManagementPanel
               message={masterMessage}
               staffMembers={staffMembers}
-              stores={stores}
               onAdd={() => setStaffMembers((currentStaffMembers) => [...currentStaffMembers, createStaffMember()])}
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
@@ -661,7 +644,6 @@ export function AdminPage() {
           {activeSettingsTab === 'vehicles' ? (
             <VehicleManagementPanel
               message={masterMessage}
-              stores={stores}
               vehicles={vehicles}
               onAdd={() => setVehicles((currentVehicles) => [...currentVehicles, createVehicle()])}
               onSave={handleVehicleSave}

@@ -10,9 +10,6 @@ export type Store = {
   id: string
   name: string
   enabled: boolean
-  sortOrder: number
-  tenantId: string
-  organizationId: string
 }
 
 export type StaffMember = {
@@ -21,12 +18,6 @@ export type StaffMember = {
   role: StaffRole
   enabled: boolean
   sortOrder: number
-  authUid: string
-  email: string
-  storeId: string
-  storeName: string
-  tenantId: string
-  organizationId: string
 }
 
 export type Vehicle = {
@@ -37,36 +28,26 @@ export type Vehicle = {
   fuelType: VehicleFuelType
   enabled: boolean
   sortOrder: number
-  storeId: string
-  storeName: string
-  tenantId: string
-  organizationId: string
-  inspectionExpiresAt: string
-  lastMaintenanceAt: string
-  nextMaintenanceAt: string
-  memo: string
 }
 
 export type WorkSession = {
   id: string
+  storeId: string
+  storeName: string
   staffId: string
   staffName: string
   staffRole: StaffRole
   vehicleId: string
   vehicleName: string
   vehicleNumber: string
-  storeId: string
-  storeName: string
-  tenantId: string
-  organizationId: string
   clockInAt: string
   clockOutAt: string | null
   workSeconds: number
   clockInLatitude: number | null
   clockInLongitude: number | null
+  clockInAccuracy: number | null
   clockOutLatitude: number | null
   clockOutLongitude: number | null
-  clockInAccuracy: number | null
   clockOutAccuracy: number | null
   status: WorkSessionStatus
 }

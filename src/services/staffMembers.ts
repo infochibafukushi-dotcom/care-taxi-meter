@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -36,12 +37,6 @@ const toStaffMember = (
     role: toRole(data.role),
     enabled: toBooleanValue(data.enabled),
     sortOrder: toNumberValue(data.sortOrder),
-    authUid: toStringValue(data.authUid),
-    email: toStringValue(data.email),
-    storeId: toStringValue(data.storeId),
-    storeName: toStringValue(data.storeName),
-    tenantId: toStringValue(data.tenantId),
-    organizationId: toStringValue(data.organizationId),
   }
 }
 
@@ -60,14 +55,14 @@ export async function fetchStaffMembers() {
 
 export async function saveStaffMember(staffMember: StaffMember) {
   const db = getFirestore(getFirebaseApp())
+  const staffMemberRef = doc(db, staffMembersCollectionName, staffMember.id)
+  const snapshot = await getDoc(staffMemberRef)
   const document = {
     ...staffMember,
-    createdAt: serverTimestamp(),
+    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(doc(db, staffMembersCollectionName, staffMember.id), document, {
-    merge: true,
-  })
+  await setDoc(staffMemberRef, document, { merge: true })
   return staffMember
 }

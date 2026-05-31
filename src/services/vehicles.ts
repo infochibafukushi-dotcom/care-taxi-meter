@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -41,14 +42,6 @@ const toVehicle = (snapshot: QueryDocumentSnapshot<DocumentData>): Vehicle => {
     fuelType: toFuelType(data.fuelType),
     enabled: toBooleanValue(data.enabled),
     sortOrder: toNumberValue(data.sortOrder),
-    storeId: toStringValue(data.storeId),
-    storeName: toStringValue(data.storeName),
-    tenantId: toStringValue(data.tenantId),
-    organizationId: toStringValue(data.organizationId),
-    inspectionExpiresAt: toStringValue(data.inspectionExpiresAt),
-    lastMaintenanceAt: toStringValue(data.lastMaintenanceAt),
-    nextMaintenanceAt: toStringValue(data.nextMaintenanceAt),
-    memo: toStringValue(data.memo),
   }
 }
 
@@ -64,14 +57,14 @@ export async function fetchVehicles() {
 
 export async function saveVehicle(vehicle: Vehicle) {
   const db = getFirestore(getFirebaseApp())
+  const vehicleRef = doc(db, vehiclesCollectionName, vehicle.id)
+  const snapshot = await getDoc(vehicleRef)
   const document = {
     ...vehicle,
-    createdAt: serverTimestamp(),
+    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(doc(db, vehiclesCollectionName, vehicle.id), document, {
-    merge: true,
-  })
+  await setDoc(vehicleRef, document, { merge: true })
   return vehicle
 }

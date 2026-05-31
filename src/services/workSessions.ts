@@ -32,24 +32,22 @@ export async function clockInWorkSession({
   const clockInAt = new Date().toISOString()
   const workSession: WorkSession = {
     id: createWorkSessionId(),
+    storeId: store.id,
+    storeName: store.name,
     staffId: staffMember.id,
     staffName: staffMember.name,
     staffRole: staffMember.role,
     vehicleId: vehicle.id,
     vehicleName: vehicle.name,
     vehicleNumber: vehicle.number,
-    storeId: store.id,
-    storeName: store.name,
-    tenantId: store.tenantId,
-    organizationId: store.organizationId,
     clockInAt,
     clockOutAt: null,
     workSeconds: 0,
     clockInLatitude: location.latitude,
     clockInLongitude: location.longitude,
+    clockInAccuracy: location.accuracy,
     clockOutLatitude: null,
     clockOutLongitude: null,
-    clockInAccuracy: location.accuracy,
     clockOutAccuracy: null,
     status: 'working',
   }
@@ -87,10 +85,10 @@ export async function clockOutWorkSession({
 
   await updateDoc(getWorkSessionRef(workSession.id), {
     clockOutAt,
-    workSeconds,
     clockOutLatitude: location.latitude,
     clockOutLongitude: location.longitude,
     clockOutAccuracy: location.accuracy,
+    workSeconds,
     status: 'closed',
     updatedAt: serverTimestamp(),
   })
