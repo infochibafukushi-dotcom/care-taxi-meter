@@ -135,7 +135,7 @@ export function CaseListPage() {
         </div>
 
         <p className="osm-attribution">
-          住所データ © OpenStreetMap contributors
+          住所データ © Google
         </p>
       </section>
     </main>
