@@ -95,10 +95,10 @@ function drawConfiguredTextLines({
   lines
     .filter((line) => line.trim())
     .forEach((line, index) => {
-      drawText(context, line, x, startY + index * 40, {
+      drawText(context, line, x, startY + index * 36, {
         align: 'right',
         color: '#475569',
-        font: index === 0 ? 'bold 28px sans-serif' : '24px sans-serif',
+        font: index === 0 ? 'bold 28px sans-serif' : '23px sans-serif',
       })
     })
 }
@@ -128,11 +128,10 @@ function createReceiptCanvas(
   const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
   const companyLines = [
     companyName,
-    settings.company.address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
     settings.company.email ? `MAIL ${settings.company.email}` : '',
-    '登録番号',
-    invoiceNumber,
+    settings.company.address,
+    `登録番号 ${invoiceNumber}`,
   ]
 
   context.fillStyle = '#ffffff'
@@ -150,22 +149,34 @@ function createReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
 
+  context.save()
+  context.strokeStyle = '#e2e8f0'
+  context.lineWidth = 2
+  context.roundRect(100, 270, 1040, 190, 18)
+  context.stroke()
+  context.restore()
+
   if (customerName) {
-    drawText(context, `${customerName}様`, 120, 285, {
+    drawText(context, `${customerName} 様`, 130, 325, {
       color: '#0f172a',
       font: 'bold 38px sans-serif',
     })
-    drawLine(context, 120, 306, 520, 306, '#94a3b8')
+    drawLine(context, 130, 346, 560, 346, '#94a3b8')
+  } else {
+    drawText(context, '________________________________ 様', 130, 325, {
+      color: '#0f172a',
+      font: 'bold 34px sans-serif',
+    })
   }
 
-  drawText(context, '下記の通り領収いたしました。', 120, 365, {
+  drawText(context, '下記の通り領収いたしました。', 130, 405, {
     color: '#334155',
     font: '30px sans-serif',
   })
   drawConfiguredTextLines({
     context,
     lines: companyLines,
-    startY: 310,
+    startY: 300,
     x: 1120,
   })
 
@@ -173,27 +184,27 @@ function createReceiptCanvas(
   context.fillStyle = '#f0f9ff'
   context.strokeStyle = '#0284c7'
   context.lineWidth = 3
-  context.roundRect(120, 430, 1000, 150, 22)
+  context.roundRect(120, 515, 1000, 145, 22)
   context.fill()
   context.stroke()
   context.restore()
 
-  drawText(context, '合計金額', 170, 490, {
+  drawText(context, '合計金額', 170, 575, {
     color: '#075985',
     font: 'bold 30px sans-serif',
   })
-  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 540, {
+  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 625, {
     align: 'right',
     color: '#0f172a',
     font: 'bold 64px sans-serif',
   })
 
   if (receiptNote) {
-    drawText(context, '但し書き', 120, 630, {
+    drawText(context, '但し書き', 120, 715, {
       color: '#475569',
       font: 'bold 26px sans-serif',
     })
-    drawText(context, receiptNote, 270, 630, {
+    drawText(context, receiptNote, 270, 715, {
       color: '#0f172a',
       font: '28px sans-serif',
     })
@@ -201,9 +212,9 @@ function createReceiptCanvas(
 
   const lines = createReceiptLines(caseRecord)
   const tableX = 120
-  const tableTop = receiptNote ? 720 : 670
+  const tableTop = receiptNote ? 775 : 710
   const labelWidth = 320
-  const rowHeight = 76
+  const rowHeight = 66
   const tableWidth = 1000
 
   lines.forEach((line, index) => {
@@ -217,13 +228,13 @@ function createReceiptCanvas(
 
     drawLine(context, tableX, rowY, tableX + tableWidth, rowY)
     drawLine(context, tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight)
-    drawText(context, line.label, tableX + 32, rowY + 50, {
+    drawText(context, line.label, tableX + 32, rowY + 44, {
       color: '#475569',
-      font: 'bold 28px sans-serif',
+      font: 'bold 26px sans-serif',
     })
-    drawText(context, line.value, tableX + tableWidth - 32, rowY + 50, {
+    drawText(context, line.value, tableX + tableWidth - 32, rowY + 44, {
       align: 'right',
-      font: isTotal ? 'bold 36px sans-serif' : '30px sans-serif',
+      font: isTotal ? 'bold 34px sans-serif' : '28px sans-serif',
     })
   })
 
