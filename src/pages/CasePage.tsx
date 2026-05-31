@@ -17,6 +17,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { saveCaseRecord } from '../services/caseRecords'
+import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
   fetchMeterSettings,
@@ -27,7 +28,9 @@ import type {
   CareOptionMasterItem,
   TimeFareSettings,
 } from '../services/fare'
-import type { ExpensePreset } from '../services/meterSettings'
+import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
+import { downloadReceiptPdf } from '../utils/receiptPdf'
+import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import type {
   ExpenseItem,
   OperationStatus,
@@ -150,6 +153,11 @@ export function CasePage() {
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
     defaultMeterSettings.expensePresets,
   )
+  const [currentMeterSettings, setCurrentMeterSettings] =
+    useState<MeterSettings>(defaultMeterSettings)
+  const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
+    null,
+  )
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
   const waitingFareSeconds = billableTimeStarted.waiting
@@ -168,6 +176,7 @@ export function CasePage() {
           return
         }
 
+        setCurrentMeterSettings(settings)
         setCurrentBasicFareSettings(settings.basicFare)
         setCurrentWaitingFareSettings(settings.waitingFare)
         setCurrentEscortFareSettings(settings.escortFare)
@@ -317,16 +326,35 @@ export function CasePage() {
     setCaseSaveMessage('Firestoreへ保存中です。')
 
     try {
-      await saveCaseRecord({
+      const closedAt = new Date().toISOString()
+      const savedRecordRef = await saveCaseRecord({
         caseNumber,
-        closedAt: new Date().toISOString(),
+        closedAt,
         distanceKm: gps.totalDistanceKm,
         fareBreakdown,
         paymentMethod,
         selectedCareOptions,
       })
+      setSavedCaseRecord({
+        id: savedRecordRef.id,
+        caseNumber,
+        closedAt,
+        distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
+        basicFareYen: fareBreakdown.basicFareYen,
+        waitingFareYen: fareBreakdown.waitingFareYen,
+        escortFareYen: fareBreakdown.escortFareYen,
+        careOptionFareYen: fareBreakdown.careOptionFareYen,
+        expenseFareYen: fareBreakdown.expenseFareYen,
+        totalFareYen: fareBreakdown.totalFareYen,
+        paymentMethod,
+        assistCharges: selectedCareOptions.map((careOption) => ({
+          id: careOption.masterId,
+          name: careOption.name,
+          amount: careOption.amountYen,
+        })),
+      })
       setCaseSaveState('saved')
-      setCaseSaveMessage('Firestoreへ保存しました。次フェーズで案件一覧に表示します。')
+      setCaseSaveMessage('Firestoreへ保存しました。レシートまたは領収書を発行できます。')
     } catch (error) {
       console.error('Failed to save case record to Firestore', error)
       setCaseSaveState('error')
@@ -387,6 +415,31 @@ export function CasePage() {
           : preset,
       ),
     )
+  }
+
+  const handleThermalReceiptPrint = async () => {
+    if (!savedCaseRecord) {
+      return
+    }
+
+    await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      customerName: '',
+      expenseItems: expenses,
+      issuerName: currentMeterSettings.receipt.issuerName,
+      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+    })
+  }
+
+  const handleA4ReceiptDownload = async () => {
+    if (!savedCaseRecord) {
+      return
+    }
+
+    await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      customerName: '',
+      issuerName: currentMeterSettings.receipt.issuerName,
+      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+    })
   }
 
   const statusControls: StatusControlButton[] = [
@@ -784,6 +837,56 @@ export function CasePage() {
                   </div>
                 ))}
               </fieldset>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {savedCaseRecord ? (
+        <div className="receipt-dialog-backdrop" role="presentation">
+          <section
+            aria-labelledby="payment-complete-title"
+            aria-modal="true"
+            className="receipt-dialog payment-complete-dialog"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">Payment Complete</p>
+                <h2 id="payment-complete-title">支払完了</h2>
+              </div>
+            </header>
+            <p>案件を保存しました。印刷方法を選択してください。</p>
+            <div className="payment-complete-total">
+              <span>合計金額</span>
+              <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
+            </div>
+            <div className="receipt-dialog-actions">
+              <button
+                className="receipt-dialog-primary"
+                type="button"
+                onClick={() => {
+                  void handleThermalReceiptPrint()
+                }}
+              >
+                レシート印刷
+              </button>
+              <button
+                className="receipt-dialog-secondary"
+                type="button"
+                onClick={() => {
+                  void handleA4ReceiptDownload()
+                }}
+              >
+                A4領収書
+              </button>
+              <button
+                className="receipt-dialog-secondary"
+                type="button"
+                onClick={() => setSavedCaseRecord(null)}
+              >
+                閉じる
+              </button>
             </div>
           </section>
         </div>

@@ -2284,3 +2284,37 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.payment-complete-dialog > p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.payment-complete-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgb(14 165 233 / 24%);
+  border-radius: 16px;
+  background: #f0f9ff;
+}
+
+.payment-complete-total span {
+  color: #075985;
+  font-weight: 900;
+}
+
+.payment-complete-total strong {
+  color: #0f172a;
+  font-size: clamp(1.8rem, 7vw, 3rem);
+  line-height: 1;
+}
+
+@media (max-width: 560px) {
+  .payment-complete-dialog .receipt-dialog-actions {
+    flex-direction: column;
+  }
+}
