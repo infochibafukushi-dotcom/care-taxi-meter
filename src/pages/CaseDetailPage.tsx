@@ -15,6 +15,9 @@ const formatAddress = (address: string) =>
 const formatOptionalDateTime = (dateTime: string) =>
   dateTime ? formatCaseDateTime(dateTime) : '―'
 
+const formatOptionalText = (value: string) =>
+  value.trim() ? value : '未設定'
+
 const formatDrivingDuration = (seconds: number, hasTimeData: boolean) =>
   hasTimeData ? formatElapsedTime(seconds) : '―'
 
@@ -222,6 +225,26 @@ export function CaseDetailPage() {
                 <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
               </div>
               <div>
+                <span>担当スタッフ</span>
+                <strong>{formatOptionalText(caseRecord.staffName)}</strong>
+              </div>
+              <div>
+                <span>使用車両</span>
+                <strong>{formatOptionalText(caseRecord.vehicleName)}</strong>
+              </div>
+              <div>
+                <span>車両ナンバー</span>
+                <strong>{formatOptionalText(caseRecord.vehicleNumber)}</strong>
+              </div>
+              <div>
+                <span>店舗</span>
+                <strong>{formatOptionalText(caseRecord.storeName)}</strong>
+              </div>
+              <div>
+                <span>勤務ID</span>
+                <strong>{formatOptionalText(caseRecord.workSessionId)}</strong>
+              </div>
+              <div>
                 <span>運転時間（待機・付き添い除く）</span>
                 <strong>
                   {formatDrivingDuration(
@@ -249,8 +272,16 @@ export function CaseDetailPage() {
                 <strong>{formatFareYen(caseRecord.waitingFareYen)}円</strong>
               </div>
               <div>
+                <span>待機時間</span>
+                <strong>{formatDrivingDuration(caseRecord.waitingSeconds, true)}</strong>
+              </div>
+              <div>
                 <span>付き添い料金</span>
                 <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
+              </div>
+              <div>
+                <span>付き添い時間</span>
+                <strong>{formatDrivingDuration(caseRecord.accompanyingSeconds, true)}</strong>
               </div>
               <div className="case-detail-assist-charges">
                 <span>介助料金</span>

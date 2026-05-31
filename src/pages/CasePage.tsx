@@ -7,6 +7,7 @@ import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
+import { useWorkSession } from '../hooks/useWorkSession'
 import {
   basicFareSettings,
   calculateFareBreakdown,
@@ -17,6 +18,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { saveCaseRecord } from '../services/caseRecords'
+import { fetchVehicles } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
@@ -29,6 +31,7 @@ import type {
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
+import type { Vehicle } from '../types/work'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
@@ -161,6 +164,8 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
   const operationStartedAtRef = useRef('')
@@ -185,6 +190,7 @@ export function CasePage() {
   )
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
+  const workSession = useWorkSession()
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
     : 0
@@ -225,6 +231,39 @@ export function CasePage() {
       isMounted = false
     }
   }, [])
+
+
+  useEffect(() => {
+    let isMounted = true
+
+    fetchVehicles()
+      .then((loadedVehicles) => {
+        if (!isMounted) {
+          return
+        }
+
+        setVehicles(loadedVehicles)
+        setSelectedVehicleId(
+          loadedVehicles.find(
+            (vehicle) =>
+              vehicle.enabled &&
+              vehicle.status === '稼働中' &&
+              (!workSession.currentSession ||
+                (vehicle.companyId === workSession.currentSession.companyId &&
+                  vehicle.storeId === workSession.currentSession.storeId)),
+          )?.id ?? '',
+        )
+      })
+      .catch((error) => {
+        console.error('Failed to load vehicles', error)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [workSession.currentSession])
+
+
 
   const fareBreakdown = calculateFareBreakdown({
     distanceKm: gps.totalDistanceKm,
@@ -411,6 +450,18 @@ export function CasePage() {
   }
 
   const handleSettlementStart = () => {
+    if (!workSession.currentSession) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('出勤してから案件を保存してください。')
+      return null
+    }
+
+    if (!selectedVehicleId) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('案件車両を選択してください。')
+      return null
+    }
+
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
@@ -455,6 +506,20 @@ export function CasePage() {
       return savedCaseRecord
     }
 
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null
+
+    if (!workSession.currentSession) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('TOP画面で出勤してから案件を保存してください。')
+      return null
+    }
+
+    if (!selectedVehicle) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('案件車両を選択してください。')
+      return null
+    }
+
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
@@ -486,6 +551,10 @@ export function CasePage() {
         endedAt: operationEndedAtRef.current,
         distanceKm: gps.totalDistanceKm,
         drivingSeconds: finalDrivingSeconds,
+        waitingSeconds: elapsedTimers.seconds.waiting,
+        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        workSession: workSession.currentSession,
+        vehicle: selectedVehicle,
         fareBreakdown,
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
@@ -501,6 +570,18 @@ export function CasePage() {
         endedAt: operationEndedAtRef.current,
         distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
         drivingSeconds: finalDrivingSeconds,
+        waitingSeconds: elapsedTimers.seconds.waiting,
+        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        companyId: workSession.currentSession?.companyId ?? '',
+        staffId: workSession.currentSession?.staffId ?? '',
+        staffName: workSession.currentSession?.staffName ?? '',
+        staffRole: workSession.currentSession?.staffRole ?? '',
+        vehicleId: selectedVehicle.id,
+        vehicleName: selectedVehicle.name,
+        vehicleNumber: selectedVehicle.number,
+        workSessionId: workSession.currentSession?.id ?? '',
+        storeId: workSession.currentSession?.storeId ?? '',
+        storeName: workSession.currentSession?.storeName ?? '',
         basicFareYen: fareBreakdown.basicFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
@@ -670,6 +751,51 @@ export function CasePage() {
             </strong>
           </div>
         </header>
+
+
+        <section className="work-session-panel" aria-labelledby="case-vehicle-title">
+          <div className="work-session-panel__header">
+            <div>
+              <span>CASE VEHICLE</span>
+              <h2 id="case-vehicle-title">案件車両選択</h2>
+            </div>
+            <strong>{workSession.currentSession ? workSession.currentSession.staffName : '未出勤'}</strong>
+          </div>
+          {workSession.currentSession ? (
+            <div className="work-session-form">
+              <label>
+                店舗
+                <input readOnly value={workSession.currentSession.storeName} />
+              </label>
+              <label>
+                スタッフ
+                <input readOnly value={workSession.currentSession.staffName} />
+              </label>
+              <label>
+                車両
+                <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)}>
+                  <option value="">車両を選択</option>
+                  {vehicles
+                    .filter(
+                      (vehicle) =>
+                        vehicle.enabled &&
+                        vehicle.status === '稼働中' &&
+                        vehicle.companyId === workSession.currentSession?.companyId &&
+                        vehicle.storeId === workSession.currentSession?.storeId,
+                    )
+                    .map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <p className="empty-note">TOP画面で出勤してから案件を開始してください。</p>
+          )}
+        </section>
+
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
