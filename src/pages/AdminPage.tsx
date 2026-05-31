@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchCaseRecordsInClosedAtRange } from '../services/caseRecords'
+import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { BasicFareSettings, CareOptionMasterItem } from '../services/fare'
@@ -17,15 +17,13 @@ import type {
   ReceiptSettings,
 } from '../services/meterSettings'
 import {
-  calculateCaseSummary,
-  getMonthRangeInJapan,
-  getTodayRangeInJapan,
+  calculateSalesSummary,
 } from '../utils/caseRecords'
 
 type AdminSummaryState = {
   errorMessage: string
   isLoading: boolean
-  monthlyCaseRecords: StoredCaseRecord[]
+  caseRecords: StoredCaseRecord[]
 }
 
 type SettingsTab = 'company' | 'fare' | 'receipt'
@@ -41,17 +39,28 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+const toNonNegativeInteger = (value: string) =>
+  Math.max(Math.floor(Number(value) || 0), 0)
+
 const createExpensePreset = (): ExpensePreset => ({
   defaultAmountYen: 0,
   id: `expense-${Date.now()}-${crypto.randomUUID()}`,
   name: '',
 })
 
+const createAssistItem = (sortOrder: number): CareOptionMasterItem => ({
+  amount: 0,
+  enabled: true,
+  id: `assist-${Date.now()}-${crypto.randomUUID()}`,
+  name: '新しい介助項目',
+  sortOrder,
+})
+
 export function AdminPage() {
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: '',
     isLoading: true,
-    monthlyCaseRecords: [],
+    caseRecords: [],
   })
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('fare')
   const [settings, setSettings] = useState<MeterSettings>(defaultMeterSettings)
@@ -63,10 +72,9 @@ export function AdminPage() {
 
   useEffect(() => {
     let isMounted = true
-    const monthRange = getMonthRangeInJapan()
 
-    fetchCaseRecordsInClosedAtRange(monthRange)
-      .then((monthlyCaseRecords) => {
+    fetchCaseRecords()
+      .then((caseRecords) => {
         if (!isMounted) {
           return
         }
@@ -74,7 +82,7 @@ export function AdminPage() {
         setSummaryState({
           errorMessage: '',
           isLoading: false,
-          monthlyCaseRecords,
+          caseRecords,
         })
       })
       .catch((error) => {
@@ -88,7 +96,7 @@ export function AdminPage() {
               ? error.message
               : '管理画面の集計取得に失敗しました。',
           isLoading: false,
-          monthlyCaseRecords: [],
+          caseRecords: [],
         })
       })
 
@@ -127,15 +135,7 @@ export function AdminPage() {
     }
   }, [])
 
-  const todayRange = getTodayRangeInJapan()
-  const todaySummary = calculateCaseSummary(
-    summaryState.monthlyCaseRecords.filter(
-      (caseRecord) =>
-        caseRecord.closedAt >= todayRange.startIso &&
-        caseRecord.closedAt < todayRange.endIso,
-    ),
-  )
-  const monthSummary = calculateCaseSummary(summaryState.monthlyCaseRecords)
+  const salesSummary = calculateSalesSummary(summaryState.caseRecords)
 
   const updateBasicFare = (key: keyof BasicFareSettings, value: string) => {
     setSettings((currentSettings) => ({
@@ -170,19 +170,61 @@ export function AdminPage() {
     }))
   }
 
-  const updateCareOption = (
+  const updateAssistItem = (
     id: string,
-    key: keyof Pick<CareOptionMasterItem, 'defaultAmountYen'>,
-    value: string,
+    key: keyof Pick<CareOptionMasterItem, 'amount' | 'enabled' | 'name'>,
+    value: string | boolean,
   ) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
-      careOptions: currentSettings.careOptions.map((careOption) =>
-        careOption.id === id
-          ? { ...careOption, [key]: toPositiveNumber(value) }
-          : careOption,
+      assistItems: currentSettings.assistItems.map((assistItem) =>
+        assistItem.id === id
+          ? {
+              ...assistItem,
+              [key]: key === 'amount' ? toNonNegativeInteger(String(value)) : value,
+            }
+          : assistItem,
       ),
     }))
+  }
+
+  const addAssistItem = () => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      assistItems: [
+        ...currentSettings.assistItems,
+        createAssistItem(currentSettings.assistItems.length + 1),
+      ],
+    }))
+  }
+
+  const disableAssistItem = (id: string) => {
+    updateAssistItem(id, 'enabled', false)
+  }
+
+  const moveAssistItem = (id: string, direction: -1 | 1) => {
+    setSettings((currentSettings) => {
+      const items = [...currentSettings.assistItems].sort(
+        (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+      )
+      const currentIndex = items.findIndex((item) => item.id === id)
+      const nextIndex = currentIndex + direction
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= items.length) {
+        return currentSettings
+      }
+
+      const [movedItem] = items.splice(currentIndex, 1)
+      items.splice(nextIndex, 0, movedItem)
+
+      return {
+        ...currentSettings,
+        assistItems: items.map((item, index) => ({
+          ...item,
+          sortOrder: index + 1,
+        })),
+      }
+    })
   }
 
   const updateExpensePreset = (
@@ -237,6 +279,16 @@ export function AdminPage() {
   }
 
   const handleSettingsSave = async () => {
+    const hasEmptyAssistItemName = settings.assistItems.some(
+      (assistItem) => !assistItem.name.trim(),
+    )
+
+    if (hasEmptyAssistItemName) {
+      setSettingsSaveState('error')
+      setSettingsMessage('介助項目の名称は空欄にできません。')
+      return
+    }
+
     setSettingsSaveState('saving')
     setSettingsMessage('Firestoreへ設定を保存中です。')
 
@@ -269,7 +321,7 @@ export function AdminPage() {
         </div>
 
         <p className="lead admin-lead">
-          Firestoreの保存済み案件から本日・今月の売上と件数を集計し、
+          Firestoreの保存済み案件から売上状況を集計し、
           料金・会社・領収書設定を保存します。
         </p>
 
@@ -286,20 +338,103 @@ export function AdminPage() {
         <div className="admin-summary-grid" aria-label="管理集計">
           <div>
             <span>本日売上</span>
-            <strong>{formatFareYen(todaySummary.salesYen)}円</strong>
+            <strong>{formatFareYen(salesSummary.todaySalesYen)}円</strong>
           </div>
           <div>
             <span>本日件数</span>
-            <strong>{todaySummary.count}件</strong>
+            <strong>{salesSummary.todayCount}件</strong>
           </div>
           <div>
             <span>今月売上</span>
-            <strong>{formatFareYen(monthSummary.salesYen)}円</strong>
+            <strong>{formatFareYen(salesSummary.thisMonthSalesYen)}円</strong>
           </div>
           <div>
             <span>今月件数</span>
-            <strong>{monthSummary.count}件</strong>
+            <strong>{salesSummary.thisMonthCount}件</strong>
           </div>
+          <div>
+            <span>累計売上</span>
+            <strong>{formatFareYen(salesSummary.totalSalesYen)}円</strong>
+          </div>
+          <div>
+            <span>累計件数</span>
+            <strong>{salesSummary.totalCount}件</strong>
+          </div>
+          <div>
+            <span>本日平均単価</span>
+            <strong>{formatFareYen(salesSummary.todayAverageYen)}円</strong>
+          </div>
+          <div>
+            <span>今月平均単価</span>
+            <strong>{formatFareYen(salesSummary.thisMonthAverageYen)}円</strong>
+          </div>
+          <div>
+            <span>最高売上日</span>
+            {salesSummary.bestSalesDay ? (
+              <strong>
+                {salesSummary.bestSalesDay.dateLabel}
+                <small>{formatFareYen(salesSummary.bestSalesDay.salesYen)}円</small>
+              </strong>
+            ) : (
+              <strong>データなし</strong>
+            )}
+          </div>
+        </div>
+
+        <div className="admin-analysis-grid" aria-label="売上分析">
+          <section>
+            <h2>支払方法別集計</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>支払方法</th>
+                  <th>件数</th>
+                  <th>売上</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesSummary.paymentMethodSummary.length > 0 ? (
+                  salesSummary.paymentMethodSummary.map((paymentSummary) => (
+                    <tr key={paymentSummary.paymentMethod}>
+                      <td>{paymentSummary.paymentMethod}</td>
+                      <td>{paymentSummary.count}件</td>
+                      <td>{formatFareYen(paymentSummary.salesYen)}円</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>未設定</td>
+                    <td>0件</td>
+                    <td>0円</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section>
+            <h2>月別売上</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>年月</th>
+                  <th>売上</th>
+                  <th>件数</th>
+                  <th>平均単価</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesSummary.monthlySummary.map((monthSummary) => (
+                  <tr key={monthSummary.monthLabel}>
+                    <td>{monthSummary.monthLabel}</td>
+                    <td>{formatFareYen(monthSummary.salesYen)}円</td>
+                    <td>{monthSummary.count}件</td>
+                    <td>{formatFareYen(monthSummary.averageYen)}円</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
         </div>
 
         <section className="admin-settings-card" aria-labelledby="settings-heading">
@@ -423,25 +558,90 @@ export function AdminPage() {
                 </label>
               </fieldset>
 
-              <fieldset>
-                <legend>介助料金</legend>
-                {settings.careOptions.map((careOption) => (
-                  <label key={careOption.id}>
-                    {careOption.name}
-                    <input
-                      min="0"
-                      type="number"
-                      value={careOption.defaultAmountYen}
-                      onChange={(event) =>
-                        updateCareOption(
-                          careOption.id,
-                          'defaultAmountYen',
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </label>
-                ))}
+              <fieldset className="admin-settings-wide">
+                <legend>介助項目設定</legend>
+                <p className="admin-settings-note">
+                  名称・金額・表示状態を編集できます。非表示にしても過去案件の介助明細は保持されます。
+                </p>
+                <div className="assist-item-list">
+                  {[...settings.assistItems]
+                    .sort(
+                      (firstItem, secondItem) =>
+                        firstItem.sortOrder - secondItem.sortOrder,
+                    )
+                    .map((assistItem, index, assistItems) => (
+                      <div className="assist-item-row" key={assistItem.id}>
+                        <label>
+                          項目名
+                          <input
+                            value={assistItem.name}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'name',
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          金額(円)
+                          <input
+                            min="0"
+                            step="1"
+                            type="number"
+                            value={assistItem.amount}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'amount',
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="assist-item-toggle">
+                          表示
+                          <input
+                            type="checkbox"
+                            checked={assistItem.enabled}
+                            onChange={(event) =>
+                              updateAssistItem(
+                                assistItem.id,
+                                'enabled',
+                                event.target.checked,
+                              )
+                            }
+                          />
+                        </label>
+                        <div className="assist-item-actions">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => moveAssistItem(assistItem.id, -1)}
+                          >
+                            上へ
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === assistItems.length - 1}
+                            onClick={() => moveAssistItem(assistItem.id, 1)}
+                          >
+                            下へ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => disableAssistItem(assistItem.id)}
+                          >
+                            非表示
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <button type="button" onClick={addAssistItem}>
+                  介助項目を追加
+                </button>
               </fieldset>
 
               <fieldset className="admin-settings-wide">
@@ -568,8 +768,27 @@ export function AdminPage() {
                     }
                   />
                 </label>
+                <label>
+                  適格請求書発行事業者登録番号
+                  <input
+                    placeholder="T1234567890123"
+                    value={settings.receipt.invoiceNumber}
+                    onChange={(event) =>
+                      updateReceipt('invoiceNumber', event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  但し書きデフォルト
+                  <textarea
+                    value={settings.receipt.defaultReceiptNote}
+                    onChange={(event) =>
+                      updateReceipt('defaultReceiptNote', event.target.value)
+                    }
+                  />
+                </label>
                 <p className="admin-settings-note">
-                  領収書の宛名は空欄でも発行できます。宛名入力欄はこのフェーズでは作成していません。
+                  領収書の宛名・但し書き・登録番号は空欄でも保存できます。登録番号が未設定の場合、PDFには「未登録」と表示します。
                 </p>
               </fieldset>
             </div>
