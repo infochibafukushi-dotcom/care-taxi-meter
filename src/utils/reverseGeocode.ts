@@ -31,12 +31,47 @@ type GoogleAddressDescriptor = {
 type GoogleGeocodeResponse = {
   address_descriptor?: unknown
   results?: unknown
-  status?: unknown
 }
 
-const GOOGLE_GEOCODING_REVERSE_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
+type GoogleMapsGeocoderRequest = {
+  extraComputations?: string[]
+  language?: string
+  location: {
+    lat: number
+    lng: number
+  }
+  region?: string
+}
+
+type GoogleMapsGeocoder = {
+  geocode: (
+    request: GoogleMapsGeocoderRequest,
+  ) => Promise<GoogleGeocodeResponse>
+}
+
+type GoogleMapsGeocoderConstructor = new () => GoogleMapsGeocoder
+
+type GoogleMapsGeocodingLibrary = {
+  Geocoder?: GoogleMapsGeocoderConstructor
+}
+
+type GoogleMapsNamespace = {
+  importLibrary?: (libraryName: 'geocoding') => Promise<GoogleMapsGeocodingLibrary>
+}
+
+type GoogleMapsLoaderWindow = Window & {
+  __careTaxiGoogleMapsReady?: () => void
+  google?: {
+    maps?: GoogleMapsNamespace
+  }
+}
+
+const GOOGLE_MAPS_SCRIPT_URL = 'https://maps.googleapis.com/maps/api/js'
+const GOOGLE_MAPS_SCRIPT_ID = 'google-maps-javascript-api'
+const GOOGLE_MAPS_CALLBACK_NAME = '__careTaxiGoogleMapsReady'
 const GOOGLE_GEOCODING_REQUEST_INTERVAL_MS = 100
 const JAPAN_COUNTRY_CODE = 'JP'
+const JAPANESE_LANGUAGE_CODE = 'ja'
 
 export const emptyCapturedAddressLocation: CapturedAddressLocation = {
   address: '',
@@ -47,6 +82,8 @@ export const emptyCapturedAddressLocation: CapturedAddressLocation = {
 
 let lastGoogleGeocodingRequestAt = 0
 let googleGeocodingRequestQueue: Promise<void> = Promise.resolve()
+let googleMapsScriptPromise: Promise<void> | null = null
+let googleGeocoderPromise: Promise<GoogleMapsGeocoder> | null = null
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -84,8 +121,10 @@ const toAddressDescriptorLandmarks = (
 const toAddressDescriptor = (value: unknown): GoogleAddressDescriptor =>
   toRecord(value) as GoogleAddressDescriptor
 
-const isSuccessfulGeocodeStatus = (value: unknown) =>
-  value === 'OK' || value === 'ZERO_RESULTS'
+const getGoogleMapsLoaderWindow = () => window as GoogleMapsLoaderWindow
+
+const hasGoogleMapsImportLibrary = () =>
+  typeof getGoogleMapsLoaderWindow().google?.maps?.importLibrary === 'function'
 
 function joinUniqueAddressParts(parts: string[]) {
   return parts.reduce<string[]>((uniqueParts, part) => {
@@ -279,6 +318,77 @@ function formatCapturedAddress(
   return [facilityName, address].filter(Boolean).join('\n')
 }
 
+function loadGoogleMapsScript(apiKey: string) {
+  if (hasGoogleMapsImportLibrary()) {
+    return Promise.resolve()
+  }
+
+  if (googleMapsScriptPromise) {
+    return googleMapsScriptPromise
+  }
+
+  googleMapsScriptPromise = new Promise<void>((resolve, reject) => {
+    const loaderWindow = getGoogleMapsLoaderWindow()
+    const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID)
+
+    loaderWindow[GOOGLE_MAPS_CALLBACK_NAME] = () => {
+      resolve()
+      delete loaderWindow[GOOGLE_MAPS_CALLBACK_NAME]
+    }
+
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(), { once: true })
+      existingScript.addEventListener('error', () => reject(), { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    const url = new URL(GOOGLE_MAPS_SCRIPT_URL)
+    url.searchParams.set('key', apiKey)
+    url.searchParams.set('language', JAPANESE_LANGUAGE_CODE)
+    url.searchParams.set('region', JAPAN_COUNTRY_CODE)
+    url.searchParams.set('v', 'weekly')
+    url.searchParams.set('loading', 'async')
+    url.searchParams.set('callback', GOOGLE_MAPS_CALLBACK_NAME)
+
+    script.id = GOOGLE_MAPS_SCRIPT_ID
+    script.async = true
+    script.defer = true
+    script.src = url.toString()
+    script.onerror = () => {
+      delete loaderWindow[GOOGLE_MAPS_CALLBACK_NAME]
+      googleMapsScriptPromise = null
+      reject()
+    }
+
+    document.head.appendChild(script)
+  })
+
+  return googleMapsScriptPromise
+}
+
+async function getGoogleGeocoder(apiKey: string) {
+  if (googleGeocoderPromise) {
+    return googleGeocoderPromise
+  }
+
+  googleGeocoderPromise = (async () => {
+    await loadGoogleMapsScript(apiKey)
+
+    const maps = getGoogleMapsLoaderWindow().google?.maps
+    const geocodingLibrary = await maps?.importLibrary?.('geocoding')
+    const Geocoder = geocodingLibrary?.Geocoder
+
+    if (!Geocoder) {
+      throw new Error('Google Maps Geocoder is unavailable')
+    }
+
+    return new Geocoder()
+  })()
+
+  return googleGeocoderPromise
+}
+
 function enqueueGoogleGeocodingRequest<T>(task: () => Promise<T>) {
   const nextRequest = googleGeocodingRequestQueue.then(async () => {
     const elapsedMilliseconds = Date.now() - lastGoogleGeocodingRequestAt
@@ -334,29 +444,16 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
   }
 
   return enqueueGoogleGeocodingRequest(async () => {
-    const url = new URL(GOOGLE_GEOCODING_REVERSE_URL)
-    url.searchParams.set('latlng', `${latitude},${longitude}`)
-    url.searchParams.set('language', 'ja')
-    url.searchParams.set('region', JAPAN_COUNTRY_CODE.toLowerCase())
-    url.searchParams.append('extra_computations', 'ADDRESS_DESCRIPTORS')
-    url.searchParams.set('key', apiKey)
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        Accept: 'application/json',
+    const geocoder = await getGoogleGeocoder(apiKey)
+    const data = await geocoder.geocode({
+      extraComputations: ['ADDRESS_DESCRIPTORS'],
+      language: JAPANESE_LANGUAGE_CODE,
+      location: {
+        lat: latitude,
+        lng: longitude,
       },
+      region: JAPAN_COUNTRY_CODE,
     })
-
-    if (!response.ok) {
-      return ''
-    }
-
-    const data = (await response.json()) as GoogleGeocodeResponse
-
-    if (!isSuccessfulGeocodeStatus(data.status)) {
-      return ''
-    }
-
     const results = toGeocodeResults(data.results)
     const addressResult = selectBestAddressResult(results)
 
