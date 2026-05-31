@@ -100,21 +100,17 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   ]
 }
 
-function drawConfiguredTextLines({
+function drawCompanyInformation({
   context,
   lines,
-  startY,
-  x,
 }: {
   context: CanvasRenderingContext2D
   lines: string[]
-  startY: number
-  x: number
 }) {
   lines
     .filter((line) => line.trim())
     .forEach((line, index) => {
-      drawText(context, line, x, startY + index * 30, {
+      drawText(context, line, 1120, 292 + index * 30, {
         align: 'right',
         color: '#475569',
         font: index === 0 ? 'bold 28px sans-serif' : '22px sans-serif',
@@ -138,6 +134,8 @@ function drawReceiptHeader({
   context.stroke()
   context.restore()
 
+  drawCompanyInformation({ context, lines: companyLines })
+
   if (customerName) {
     drawText(context, `${customerName} 様`, 130, 325, {
       color: '#0f172a',
@@ -145,7 +143,8 @@ function drawReceiptHeader({
     })
     drawLine(context, 130, 346, 560, 346, '#94a3b8')
   } else {
-    drawText(context, '________________________________ 様', 130, 325, {
+    drawLine(context, 130, 346, 520, 346, '#94a3b8')
+    drawText(context, '様', 535, 325, {
       color: '#0f172a',
       font: 'bold 34px sans-serif',
     })
@@ -154,12 +153,6 @@ function drawReceiptHeader({
   drawText(context, '下記の通り領収いたしました。', 130, 405, {
     color: '#334155',
     font: '30px sans-serif',
-  })
-  drawConfiguredTextLines({
-    context,
-    lines: companyLines,
-    startY: 292,
-    x: 1120,
   })
 }
 
