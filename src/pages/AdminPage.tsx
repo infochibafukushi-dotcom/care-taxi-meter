@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchCaseRecordsInClosedAtRange } from '../services/caseRecords'
+import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { BasicFareSettings, CareOptionMasterItem } from '../services/fare'
@@ -17,15 +17,13 @@ import type {
   ReceiptSettings,
 } from '../services/meterSettings'
 import {
-  calculateCaseSummary,
-  getMonthRangeInJapan,
-  getTodayRangeInJapan,
+  calculateSalesSummary,
 } from '../utils/caseRecords'
 
 type AdminSummaryState = {
   errorMessage: string
   isLoading: boolean
-  monthlyCaseRecords: StoredCaseRecord[]
+  caseRecords: StoredCaseRecord[]
 }
 
 type SettingsTab = 'company' | 'fare' | 'receipt'
@@ -62,7 +60,7 @@ export function AdminPage() {
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: '',
     isLoading: true,
-    monthlyCaseRecords: [],
+    caseRecords: [],
   })
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('fare')
   const [settings, setSettings] = useState<MeterSettings>(defaultMeterSettings)
@@ -74,10 +72,9 @@ export function AdminPage() {
 
   useEffect(() => {
     let isMounted = true
-    const monthRange = getMonthRangeInJapan()
 
-    fetchCaseRecordsInClosedAtRange(monthRange)
-      .then((monthlyCaseRecords) => {
+    fetchCaseRecords()
+      .then((caseRecords) => {
         if (!isMounted) {
           return
         }
@@ -85,7 +82,7 @@ export function AdminPage() {
         setSummaryState({
           errorMessage: '',
           isLoading: false,
-          monthlyCaseRecords,
+          caseRecords,
         })
       })
       .catch((error) => {
@@ -99,7 +96,7 @@ export function AdminPage() {
               ? error.message
               : '管理画面の集計取得に失敗しました。',
           isLoading: false,
-          monthlyCaseRecords: [],
+          caseRecords: [],
         })
       })
 
@@ -138,15 +135,7 @@ export function AdminPage() {
     }
   }, [])
 
-  const todayRange = getTodayRangeInJapan()
-  const todaySummary = calculateCaseSummary(
-    summaryState.monthlyCaseRecords.filter(
-      (caseRecord) =>
-        caseRecord.closedAt >= todayRange.startIso &&
-        caseRecord.closedAt < todayRange.endIso,
-    ),
-  )
-  const monthSummary = calculateCaseSummary(summaryState.monthlyCaseRecords)
+  const salesSummary = calculateSalesSummary(summaryState.caseRecords)
 
   const updateBasicFare = (key: keyof BasicFareSettings, value: string) => {
     setSettings((currentSettings) => ({
@@ -332,7 +321,7 @@ export function AdminPage() {
         </div>
 
         <p className="lead admin-lead">
-          Firestoreの保存済み案件から本日・今月の売上と件数を集計し、
+          Firestoreの保存済み案件から売上状況を集計し、
           料金・会社・領収書設定を保存します。
         </p>
 
@@ -349,20 +338,103 @@ export function AdminPage() {
         <div className="admin-summary-grid" aria-label="管理集計">
           <div>
             <span>本日売上</span>
-            <strong>{formatFareYen(todaySummary.salesYen)}円</strong>
+            <strong>{formatFareYen(salesSummary.todaySalesYen)}円</strong>
           </div>
           <div>
             <span>本日件数</span>
-            <strong>{todaySummary.count}件</strong>
+            <strong>{salesSummary.todayCount}件</strong>
           </div>
           <div>
             <span>今月売上</span>
-            <strong>{formatFareYen(monthSummary.salesYen)}円</strong>
+            <strong>{formatFareYen(salesSummary.thisMonthSalesYen)}円</strong>
           </div>
           <div>
             <span>今月件数</span>
-            <strong>{monthSummary.count}件</strong>
+            <strong>{salesSummary.thisMonthCount}件</strong>
           </div>
+          <div>
+            <span>累計売上</span>
+            <strong>{formatFareYen(salesSummary.totalSalesYen)}円</strong>
+          </div>
+          <div>
+            <span>累計件数</span>
+            <strong>{salesSummary.totalCount}件</strong>
+          </div>
+          <div>
+            <span>本日平均単価</span>
+            <strong>{formatFareYen(salesSummary.todayAverageYen)}円</strong>
+          </div>
+          <div>
+            <span>今月平均単価</span>
+            <strong>{formatFareYen(salesSummary.thisMonthAverageYen)}円</strong>
+          </div>
+          <div>
+            <span>最高売上日</span>
+            {salesSummary.bestSalesDay ? (
+              <strong>
+                {salesSummary.bestSalesDay.dateLabel}
+                <small>{formatFareYen(salesSummary.bestSalesDay.salesYen)}円</small>
+              </strong>
+            ) : (
+              <strong>データなし</strong>
+            )}
+          </div>
+        </div>
+
+        <div className="admin-analysis-grid" aria-label="売上分析">
+          <section>
+            <h2>支払方法別集計</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>支払方法</th>
+                  <th>件数</th>
+                  <th>売上</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesSummary.paymentMethodSummary.length > 0 ? (
+                  salesSummary.paymentMethodSummary.map((paymentSummary) => (
+                    <tr key={paymentSummary.paymentMethod}>
+                      <td>{paymentSummary.paymentMethod}</td>
+                      <td>{paymentSummary.count}件</td>
+                      <td>{formatFareYen(paymentSummary.salesYen)}円</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>未設定</td>
+                    <td>0件</td>
+                    <td>0円</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section>
+            <h2>月別売上</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>年月</th>
+                  <th>売上</th>
+                  <th>件数</th>
+                  <th>平均単価</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesSummary.monthlySummary.map((monthSummary) => (
+                  <tr key={monthSummary.monthLabel}>
+                    <td>{monthSummary.monthLabel}</td>
+                    <td>{formatFareYen(monthSummary.salesYen)}円</td>
+                    <td>{monthSummary.count}件</td>
+                    <td>{formatFareYen(monthSummary.averageYen)}円</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
         </div>
 
         <section className="admin-settings-card" aria-labelledby="settings-heading">

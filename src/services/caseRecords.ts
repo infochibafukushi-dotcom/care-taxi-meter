@@ -34,7 +34,7 @@ export type CaseRecordDocument = {
   careOptionFareYen: number
   expenseFareYen: number
   totalFareYen: number
-  paymentMethod: PaymentMethod
+  paymentMethod: string
   assistCharges: AssistCharge[]
   savedAt: FieldValue
 }
@@ -72,18 +72,8 @@ const toAssistCharges = (value: unknown): AssistCharge[] =>
         .filter((item): item is AssistCharge => Boolean(item))
     : []
 
-const toPaymentMethod = (value: unknown): PaymentMethod => {
-  if (
-    value === '現金' ||
-    value === 'クレジット' ||
-    value === 'QR決済' ||
-    value === 'その他'
-  ) {
-    return value
-  }
-
-  return 'その他'
-}
+const toPaymentMethod = (value: unknown) =>
+  typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
 const toStoredCaseRecord = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
