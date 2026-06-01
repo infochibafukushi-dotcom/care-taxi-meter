@@ -5,6 +5,8 @@ import { AdminPage } from './pages/AdminPage'
 import { CaseDetailPage } from './pages/CaseDetailPage'
 import { CaseListPage } from './pages/CaseListPage'
 import { CasePage } from './pages/CasePage'
+import { CaseStartPage } from './pages/CaseStartPage'
+import { HeadquartersPage } from './pages/HeadquartersPage'
 import { HomePage } from './pages/HomePage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 
@@ -21,6 +23,10 @@ const router = createBrowserRouter([
       {
         index: true,
         element: <HomePage />,
+      },
+      {
+        path: 'case/start',
+        element: <CaseStartPage />,
       },
       {
         path: 'case',
@@ -41,6 +47,10 @@ const router = createBrowserRouter([
       {
         path: 'admin/analytics',
         element: <SalesAnalyticsPage />,
+      },
+      {
+        path: 'hq',
+        element: <HeadquartersPage />,
       },
     ],
   },

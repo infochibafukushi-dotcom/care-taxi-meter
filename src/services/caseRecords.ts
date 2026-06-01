@@ -14,6 +14,7 @@ import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/f
 import { getFirebaseApp } from '../lib/firebase'
 import type { FareBreakdown } from './fare'
 import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
+import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 
 export type CaseRecordInput = {
@@ -23,6 +24,10 @@ export type CaseRecordInput = {
   endedAt: string
   distanceKm: number
   drivingSeconds: number
+  waitingSeconds?: number
+  accompanyingSeconds?: number
+  workSession?: CurrentWorkSession | null
+  vehicle?: Vehicle | null
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
   pickupLocation: CapturedAddressLocation
@@ -38,6 +43,19 @@ export type CaseRecordDocument = {
   endedAt: string
   distanceKm: number
   drivingSeconds: number
+  waitingSeconds: number
+  accompanyingSeconds: number
+  companyId: string
+  companyName: string
+  staffId: string
+  staffName: string
+  staffRole: StaffRole | ''
+  vehicleId: string
+  vehicleName: string
+  vehicleNumber: string
+  workSessionId: string
+  storeId: string
+  storeName: string
   basicFareYen: number
   waitingFareYen: number
   escortFareYen: number
@@ -134,6 +152,19 @@ const toStoredCaseRecord = (
     endedAt: toString(data.endedAt),
     distanceKm: toNumber(data.distanceKm),
     drivingSeconds: toNumber(data.drivingSeconds),
+    waitingSeconds: toNumber(data.waitingSeconds),
+    accompanyingSeconds: toNumber(data.accompanyingSeconds),
+    companyId: toString(data.companyId),
+    companyName: toString(data.companyName),
+    staffId: toString(data.staffId),
+    staffName: toString(data.staffName),
+    staffRole: toString(data.staffRole) as StaffRole | '',
+    vehicleId: toString(data.vehicleId),
+    vehicleName: toString(data.vehicleName),
+    vehicleNumber: toString(data.vehicleNumber),
+    workSessionId: toString(data.workSessionId),
+    storeId: toString(data.storeId),
+    storeName: toString(data.storeName),
     basicFareYen: toNumber(data.basicFareYen),
     waitingFareYen: toNumber(data.waitingFareYen),
     escortFareYen: toNumber(data.escortFareYen),
@@ -166,6 +197,10 @@ export async function saveCaseRecord({
   endedAt,
   distanceKm,
   drivingSeconds,
+  waitingSeconds = 0,
+  accompanyingSeconds = 0,
+  workSession = null,
+  vehicle = null,
   fareBreakdown,
   paymentMethod,
   pickupLocation,
@@ -180,6 +215,19 @@ export async function saveCaseRecord({
     endedAt,
     distanceKm: Number(distanceKm.toFixed(3)),
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
+    waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
+    accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
+    companyId: workSession?.companyId ?? '',
+    companyName: workSession?.companyName ?? '',
+    staffId: workSession?.staffId ?? '',
+    staffName: workSession?.staffName ?? '',
+    staffRole: workSession?.staffRole ?? '',
+    vehicleId: vehicle?.id ?? '',
+    vehicleName: vehicle?.name ?? '',
+    vehicleNumber: vehicle?.number ?? '',
+    workSessionId: workSession?.id ?? '',
+    storeId: workSession?.storeId ?? '',
+    storeName: workSession?.storeName ?? '',
     basicFareYen: fareBreakdown.basicFareYen,
     waitingFareYen: fareBreakdown.waitingFareYen,
     escortFareYen: fareBreakdown.escortFareYen,
