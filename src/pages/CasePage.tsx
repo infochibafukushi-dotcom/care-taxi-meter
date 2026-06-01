@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
-import { ClockInPanel } from '../components/work/ClockInPanel'
-import { CurrentWorkSessionPanel } from '../components/work/CurrentWorkSessionPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
@@ -513,36 +511,6 @@ export function CasePage() {
     }
   }
 
-
-  const handleClockIn = async () => {
-    const selectedStore = stores.find((store) => store.id === selectedStoreId)
-    const selectedStaffMember = staffMembers.find(
-      (staffMember) => staffMember.id === selectedStaffId,
-    )
-    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId)
-
-    if (!selectedStore || !selectedStaffMember || !selectedVehicle) {
-      return
-    }
-
-    try {
-      await workSession.clockIn({
-        staffMember: selectedStaffMember,
-        store: selectedStore,
-        vehicle: selectedVehicle,
-      })
-    } catch (error) {
-      console.error('Failed to clock in', error)
-    }
-  }
-
-  const handleClockOut = async () => {
-    try {
-      await workSession.clockOut()
-    } catch (error) {
-      console.error('Failed to clock out', error)
-    }
-  }
 
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
