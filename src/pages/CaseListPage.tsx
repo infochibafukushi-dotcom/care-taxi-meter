@@ -133,6 +133,10 @@ export function CaseListPage() {
                 <strong>{formatAddress(caseRecord.dropoffAddress)}</strong>
               </span>
               <span>
+                <small>会社</small>
+                <strong>{formatOptionalText(caseRecord.companyName)}</strong>
+              </span>
+              <span>
                 <small>担当スタッフ</small>
                 <strong>{formatOptionalText(caseRecord.staffName)}</strong>
               </span>

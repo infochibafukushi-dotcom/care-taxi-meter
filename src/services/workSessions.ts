@@ -21,8 +21,10 @@ function getWorkSessionRef(workSessionId: string) {
 export async function clockInWorkSession({
   location,
   staffMember,
+  companyName = '',
   store,
 }: {
+  companyName?: string
   location: WorkLocation
   staffMember: StaffMember
   store: Store
@@ -31,6 +33,7 @@ export async function clockInWorkSession({
   const workSession: WorkSession = {
     id: createWorkSessionId(),
     companyId: staffMember.companyId,
+    companyName,
     storeId: store.id,
     storeName: store.name,
     staffId: staffMember.id,

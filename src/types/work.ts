@@ -1,10 +1,24 @@
 export type StaffRole = 'superAdmin' | 'owner' | 'manager' | 'driver'
 
+export type CompanyStatus = 'active' | 'suspended'
+
 export type VehicleStatus = '稼働中' | '整備中' | '休車' | '売却済'
 
 export type VehicleFuelType = 'ガソリン' | '軽油' | 'EV' | ''
 
 export type WorkSessionStatus = 'working' | 'closed'
+
+export type Company = {
+  id: string
+  name: string
+  enabled: boolean
+  sortOrder: number
+  ownerName: string
+  phoneNumber: string
+  email: string
+  address: string
+  memo: string
+}
 
 export type Store = {
   id: string
@@ -56,6 +70,7 @@ export type Vehicle = {
 export type WorkSession = {
   id: string
   companyId: string
+  companyName: string
   storeId: string
   storeName: string
   staffId: string

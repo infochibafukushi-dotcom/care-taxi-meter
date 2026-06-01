@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { ClockInPanel } from '../components/work/ClockInPanel'
@@ -123,6 +124,8 @@ const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
 export function CasePage() {
+  const [searchParams] = useSearchParams()
+  const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const caseNumber = useMemo(() => createCaseNumber(), [])
   const [status, setStatus] = useState<OperationStatus>('空車')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
@@ -245,16 +248,24 @@ export function CasePage() {
         }
 
         setVehicles(loadedVehicles)
-        setSelectedVehicleId(
-          loadedVehicles.find(
-            (vehicle) =>
-              vehicle.enabled &&
-              vehicle.status === '稼働中' &&
-              (!workSession.currentSession ||
-                (vehicle.companyId === workSession.currentSession.companyId &&
-                  vehicle.storeId === workSession.currentSession.storeId)),
-          )?.id ?? '',
+        const matchedVehicle = loadedVehicles.find(
+          (vehicle) =>
+            vehicle.enabled &&
+            vehicle.status === '稼働中' &&
+            vehicle.id === vehicleIdFromQuery &&
+            (!workSession.currentSession ||
+              (vehicle.companyId === workSession.currentSession.companyId &&
+                vehicle.storeId === workSession.currentSession.storeId)),
         )
+        const fallbackVehicle = loadedVehicles.find(
+          (vehicle) =>
+            vehicle.enabled &&
+            vehicle.status === '稼働中' &&
+            (!workSession.currentSession ||
+              (vehicle.companyId === workSession.currentSession.companyId &&
+                vehicle.storeId === workSession.currentSession.storeId)),
+        )
+        setSelectedVehicleId(matchedVehicle?.id ?? fallbackVehicle?.id ?? '')
       })
       .catch((error) => {
         console.error('Failed to load vehicles', error)
@@ -263,7 +274,7 @@ export function CasePage() {
     return () => {
       isMounted = false
     }
-  }, [workSession.currentSession])
+  }, [vehicleIdFromQuery, workSession.currentSession])
 
 
 
@@ -607,6 +618,7 @@ export function CasePage() {
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
         companyId: workSession.currentSession?.companyId ?? '',
+        companyName: workSession.currentSession?.companyName ?? '',
         staffId: workSession.currentSession?.staffId ?? '',
         staffName: workSession.currentSession?.staffName ?? '',
         staffRole: workSession.currentSession?.staffRole ?? '',

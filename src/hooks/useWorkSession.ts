@@ -18,7 +18,14 @@ const loadStoredWorkSession = () => {
     }
 
     const parsedValue = JSON.parse(storedValue) as WorkSession
-    return parsedValue.status === 'working' ? parsedValue : null
+    if (parsedValue.status !== 'working') {
+      return null
+    }
+
+    return {
+      ...parsedValue,
+      companyName: parsedValue.companyName ?? '',
+    }
   } catch {
     return null
   }
@@ -36,15 +43,18 @@ export function useWorkSession() {
   const isWorking = Boolean(currentSession)
 
   const clockIn = async ({
+    companyName = '',
     staffMember,
     store,
   }: {
+    companyName?: string
     staffMember: StaffMember
     store: Store
   }) => {
     setMessage({ tone: 'saving', text: '出勤位置を取得して保存中です。' })
     const location = await captureWorkLocation()
     const workSession = await clockInWorkSession({
+      companyName,
       location,
       staffMember,
       store,

@@ -46,6 +46,7 @@ export type CaseRecordDocument = {
   waitingSeconds: number
   accompanyingSeconds: number
   companyId: string
+  companyName: string
   staffId: string
   staffName: string
   staffRole: StaffRole | ''
@@ -154,6 +155,7 @@ const toStoredCaseRecord = (
     waitingSeconds: toNumber(data.waitingSeconds),
     accompanyingSeconds: toNumber(data.accompanyingSeconds),
     companyId: toString(data.companyId),
+    companyName: toString(data.companyName),
     staffId: toString(data.staffId),
     staffName: toString(data.staffName),
     staffRole: toString(data.staffRole) as StaffRole | '',
@@ -216,6 +218,7 @@ export async function saveCaseRecord({
     waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
     accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
     companyId: workSession?.companyId ?? '',
+    companyName: workSession?.companyName ?? '',
     staffId: workSession?.staffId ?? '',
     staffName: workSession?.staffName ?? '',
     staffRole: workSession?.staffRole ?? '',

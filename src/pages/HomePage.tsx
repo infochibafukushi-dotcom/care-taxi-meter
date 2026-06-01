@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { authenticateStaff } from '../services/staffMembers'
+import { defaultCompany, fetchCompanies } from '../services/companies'
 import { defaultCompanyId, fetchStores } from '../services/stores'
 import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
@@ -9,7 +10,7 @@ import { formatFareYen } from '../services/fare'
 import { formatElapsedTime } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
 
-const defaultCompanyName = 'ちばケアタクシー'
+const defaultCompanyName = defaultCompany.name
 
 type LoginForm = {
   companyId: string
@@ -128,6 +129,8 @@ export function HomePage() {
         return
       }
 
+      const companies = await fetchCompanies()
+      const company = companies.find((item) => item.id === staffMember.companyId) ?? null
       const stores = await fetchStores(staffMember.companyId)
       const store = stores.find((item) => item.id === staffMember.storeId) ?? stores[0]
       if (!store) {
@@ -135,7 +138,11 @@ export function HomePage() {
         return
       }
 
-      await workSession.clockIn({ staffMember, store })
+      await workSession.clockIn({
+        companyName: company?.name ?? defaultCompanyName,
+        staffMember,
+        store,
+      })
       setLoginMessage('出勤しました。')
     } catch (error) {
       setLoginMessage(
@@ -202,7 +209,7 @@ export function HomePage() {
         <p className="eyebrow">Dashboard</p>
         <h1 id="home-title">TOP</h1>
         <div className="work-dashboard-grid">
-          <div><span>会社</span><strong>{defaultCompanyName}</strong></div>
+          <div><span>会社</span><strong>{workSession.currentSession.companyName || defaultCompanyName}</strong></div>
           <div><span>店舗</span><strong>{workSession.currentSession.storeName}</strong></div>
           <div><span>担当</span><strong>{workSession.currentSession.staffName}</strong></div>
           <div><span>出勤</span><strong>{formatCaseDateTime(workSession.currentSession.clockInAt)}</strong></div>
@@ -210,10 +217,13 @@ export function HomePage() {
           <div><span>出勤状態</span><strong>● 出勤中</strong></div>
         </div>
         <nav className="home-actions" aria-label="主要メニュー">
-          <Link className="primary-action" to="/case">案件開始</Link>
+          <Link className="primary-action" to="/case/start">案件開始</Link>
           <Link className="secondary-action" to="/cases">案件一覧</Link>
           <Link className="secondary-action" to="/admin">管理画面</Link>
           <Link className="secondary-action" to="/admin/analytics">売上分析</Link>
+          {workSession.currentSession.staffRole === 'superAdmin' ? (
+            <Link className="secondary-action" to="/hq">FC本部管理</Link>
+          ) : null}
           <button className="secondary-action home-button" type="button" onClick={openClockOutSummary}>退勤</button>
         </nav>
       </section>

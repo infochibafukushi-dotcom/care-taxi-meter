@@ -225,6 +225,10 @@ export function CaseDetailPage() {
                 <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
               </div>
               <div>
+                <span>会社</span>
+                <strong>{formatOptionalText(caseRecord.companyName)}</strong>
+              </div>
+              <div>
                 <span>担当スタッフ</span>
                 <strong>{formatOptionalText(caseRecord.staffName)}</strong>
               </div>
