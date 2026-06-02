@@ -36,6 +36,7 @@ import type { Vehicle } from '../types/work'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
+  captureAddressLocationFromCoordinates,
   captureCurrentAddressLocation,
   emptyCapturedAddressLocation,
 } from '../utils/reverseGeocode'
@@ -44,6 +45,7 @@ import type {
   ExpenseItem,
   OperationStatus,
   PaymentMethod,
+  GpsPosition,
   SelectedCareOption,
   StatusTone,
   TimerKey,
@@ -414,6 +416,28 @@ export function CasePage() {
     }
   }
 
+  const captureAddressWithLatestGps = (position: GpsPosition | null) => {
+    if (!position) {
+      console.warn(
+        '[住所取得診断] 取得済みGPS座標がないため、現在位置を再取得して住所取得します。',
+      )
+      return captureCurrentAddressLocation()
+    }
+
+    console.log('[住所取得診断] 取得済みGPS座標から住所取得します。', {
+      accuracy: position.accuracy,
+      capturedAt: new Date(position.updatedAt).toISOString(),
+      latitude: position.latitude,
+      longitude: position.longitude,
+    })
+
+    return captureAddressLocationFromCoordinates({
+      capturedAt: new Date(position.updatedAt).toISOString(),
+      latitude: position.latitude,
+      longitude: position.longitude,
+    })
+  }
+
   const markOperationStarted = () => {
     if (!operationStartedAtRef.current) {
       operationStartedAtRef.current = new Date().toISOString()
@@ -421,7 +445,12 @@ export function CasePage() {
   }
 
   const capturePickupLocation = () => {
-    const capturePromise = captureCurrentAddressLocation().then((location) => {
+    console.log('[住所取得診断] 伺い先住所取得を開始します。')
+    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+      console.log('[住所取得診断] 伺い先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       pickupLocationRef.current = location
       setPickupLocation(location)
       return location
@@ -438,7 +467,12 @@ export function CasePage() {
   }
 
   const captureDropoffLocation = () => {
-    const capturePromise = captureCurrentAddressLocation().then((location) => {
+    console.log('[住所取得診断] 送り先住所取得を開始します。')
+    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+      console.log('[住所取得診断] 送り先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       dropoffLocationRef.current = location
       setDropoffLocation(location)
       return location
@@ -479,7 +513,10 @@ export function CasePage() {
     }
     handleStatusChange('精算前')
 
-    if (!dropoffLocationRef.current.capturedAt && !dropoffCapturePromiseRef.current) {
+    if (
+      (!dropoffLocationRef.current.capturedAt || !dropoffLocationRef.current.address) &&
+      !dropoffCapturePromiseRef.current
+    ) {
       void captureDropoffLocation()
     }
   }
@@ -548,11 +585,15 @@ export function CasePage() {
         await pickupCapturePromiseRef.current
       }
 
+      if (!pickupLocationRef.current.capturedAt || !pickupLocationRef.current.address) {
+        await capturePickupLocation()
+      }
+
       if (dropoffCapturePromiseRef.current) {
         await dropoffCapturePromiseRef.current
       }
 
-      if (!dropoffLocationRef.current.capturedAt) {
+      if (!dropoffLocationRef.current.capturedAt || !dropoffLocationRef.current.address) {
         await captureDropoffLocation()
       }
 
