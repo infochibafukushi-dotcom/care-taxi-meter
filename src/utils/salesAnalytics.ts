@@ -50,6 +50,17 @@ export type AnalyticsCsvRow = {
   waitingFareYen: number
 }
 
+export type StaffAnalyticsItem = {
+  activeDayCount: number
+  averageYen: number
+  count: number
+  distanceKm: number
+  drivingSeconds: number
+  staffId: string
+  staffName: string
+  salesYen: number
+}
+
 export type SalesAnalyticsSummary = {
   activeDayCount: number
   assistItemSummary: AnalyticsBreakdownItem[]
@@ -61,6 +72,7 @@ export type SalesAnalyticsSummary = {
   paymentMethodSummary: PaymentAnalyticsItem[]
   revenueBreakdown: AnalyticsBreakdownItem[]
   salesComposition: AnalyticsBreakdownItem[]
+  staffSummary: StaffAnalyticsItem[]
   topCases: TopCaseAnalyticsItem[]
   totalCount: number
   totalDistanceKm: number
@@ -84,6 +96,8 @@ const monthInputFormatter = new Intl.DateTimeFormat('sv-SE', {
 
 const toFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0
+
+const staffUnknownId = '__staff_unknown__'
 
 const toPaymentMethodLabel = (paymentMethod: unknown) =>
   typeof paymentMethod === 'string' && paymentMethod.trim()
@@ -112,6 +126,15 @@ const toMonthKey = (closedAt: string) => {
 }
 
 const toMonthLabel = (monthKey: string) => monthKey.replace('-', '/')
+
+const toStaffName = (caseRecord: StoredCaseRecord) =>
+  caseRecord.staffName.trim() || 'スタッフ未設定'
+
+export const toStaffAnalyticsId = (caseRecord: StoredCaseRecord) =>
+  caseRecord.staffId.trim() ||
+  (caseRecord.staffName.trim()
+    ? `staff-name:${caseRecord.staffName.trim()}`
+    : staffUnknownId)
 
 const parseMonthValue = (monthValue: string) => {
   const match = /^(\d{4})-(\d{2})$/.exec(monthValue)
@@ -182,6 +205,63 @@ function toBreakdownItem(label: string, salesYen: number, totalSalesYen: number)
   }
 }
 
+function calculateStaffSummary(
+  caseRecords: StoredCaseRecord[],
+): StaffAnalyticsItem[] {
+  const staffMap = new Map<
+    string,
+    {
+      activeDayKeys: Set<string>
+      count: number
+      distanceKm: number
+      drivingSeconds: number
+      staffId: string
+      staffName: string
+      salesYen: number
+    }
+  >()
+
+  caseRecords.forEach((caseRecord) => {
+    const staffId = toStaffAnalyticsId(caseRecord)
+    const current = staffMap.get(staffId) ?? {
+      activeDayKeys: new Set<string>(),
+      count: 0,
+      distanceKm: 0,
+      drivingSeconds: 0,
+      staffId,
+      staffName: toStaffName(caseRecord),
+      salesYen: 0,
+    }
+    const dateLabel = toDateLabel(caseRecord.closedAt)
+
+    if (dateLabel !== '日付未設定') {
+      current.activeDayKeys.add(dateLabel)
+    }
+
+    current.count += 1
+    current.distanceKm += toFiniteNumber(caseRecord.distanceKm)
+    current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
+    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    staffMap.set(staffId, current)
+  })
+
+  return Array.from(staffMap.values())
+    .map((staffSummary) => ({
+      activeDayCount: staffSummary.activeDayKeys.size,
+      averageYen: toAverageYen(staffSummary.salesYen, staffSummary.count),
+      count: staffSummary.count,
+      distanceKm: staffSummary.distanceKm,
+      drivingSeconds: staffSummary.drivingSeconds,
+      staffId: staffSummary.staffId,
+      staffName: staffSummary.staffName,
+      salesYen: staffSummary.salesYen,
+    }))
+    .sort((firstStaff, secondStaff) =>
+      secondStaff.salesYen - firstStaff.salesYen ||
+      firstStaff.staffName.localeCompare(secondStaff.staffName, 'ja'),
+    )
+}
+
 export function getDefaultAnalyticsPeriod(date = new Date()): AnalyticsPeriod {
   const currentMonth = monthInputFormatter.format(date)
   const year = currentMonth.slice(0, 4)
@@ -203,6 +283,7 @@ export function formatAnalyticsDuration(totalSeconds: number) {
 export function calculateSalesAnalyticsSummary(
   caseRecords: StoredCaseRecord[],
   period: AnalyticsPeriod,
+  staffId = 'all',
 ): SalesAnalyticsSummary {
   const sortedPeriod = getSortedPeriod(period)
   const startIso = createJapanStartOfMonthIso(sortedPeriod.startMonth)
@@ -219,10 +300,14 @@ export function calculateSalesAnalyticsSummary(
       },
     ]),
   )
-  const filteredRecords = caseRecords.filter((caseRecord) => {
+  const periodRecords = caseRecords.filter((caseRecord) => {
     const closedDate = toValidDate(caseRecord.closedAt)
     return closedDate && caseRecord.closedAt >= startIso && caseRecord.closedAt < endIso
   })
+  const staffSummary = calculateStaffSummary(periodRecords)
+  const filteredRecords = staffId === 'all'
+    ? periodRecords
+    : periodRecords.filter((caseRecord) => toStaffAnalyticsId(caseRecord) === staffId)
   const totalSalesYen = filteredRecords.reduce(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
     0,
@@ -365,6 +450,7 @@ export function calculateSalesAnalyticsSummary(
     })).sort((firstItem, secondItem) => secondItem.salesYen - firstItem.salesYen),
     revenueBreakdown,
     salesComposition: revenueBreakdown,
+    staffSummary,
     topCases: [...filteredRecords]
       .sort((firstRecord, secondRecord) => {
         const salesDifference =

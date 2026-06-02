@@ -12,6 +12,7 @@ import type {
   AnalyticsBreakdownItem,
   AnalyticsPeriod,
   PaymentAnalyticsItem,
+  StaffAnalyticsItem,
 } from '../utils/salesAnalytics'
 
 const pieColors = [
@@ -33,6 +34,9 @@ const escapeCsv = (value: string | number) => {
 
   return `"${stringValue.replaceAll('"', '""')}"`
 }
+
+const sanitizeFileNamePart = (value: string) =>
+  value.replace(/[\\/:*?"<>|]/g, '-').trim() || 'staff'
 
 const toPieGradient = (items: Array<{ label: string; value: number }>) => {
   const total = items.reduce((sum, item) => sum + item.value, 0)
@@ -177,10 +181,52 @@ function PaymentTable({ rows }: { rows: PaymentAnalyticsItem[] }) {
   )
 }
 
+function StaffSummaryTable({ rows }: { rows: StaffAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel analytics-panel--wide">
+      <h2>スタッフ別集計</h2>
+      <table className="analytics-table analytics-table--staff">
+        <thead>
+          <tr>
+            <th>スタッフ名</th>
+            <th>売上</th>
+            <th>件数</th>
+            <th>平均単価</th>
+            <th>稼働日数</th>
+            <th>総距離</th>
+            <th>総運転時間</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <tr key={row.staffId}>
+                <td>{row.staffName}</td>
+                <td>{formatFareYen(row.salesYen)}円</td>
+                <td>{row.count}件</td>
+                <td>{formatFareYen(row.averageYen)}円</td>
+                <td>{row.activeDayCount}日</td>
+                <td>{row.distanceKm.toFixed(3)}km</td>
+                <td>{formatAnalyticsDuration(row.drivingSeconds)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={7}>スタッフ別データがありません。</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+
 export function SalesAnalyticsPage() {
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [period, setPeriod] = useState<AnalyticsPeriod>(defaultPeriod)
+  const [selectedStaffId, setSelectedStaffId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -217,9 +263,14 @@ export function SalesAnalyticsPage() {
   }, [])
 
   const analyticsSummary = useMemo(
-    () => calculateSalesAnalyticsSummary(caseRecords, period),
-    [caseRecords, period],
+    () => calculateSalesAnalyticsSummary(caseRecords, period, selectedStaffId),
+    [caseRecords, period, selectedStaffId],
   )
+  const selectedStaffName =
+    selectedStaffId === 'all'
+      ? '全スタッフ'
+      : analyticsSummary.staffSummary.find((staff) => staff.staffId === selectedStaffId)?.staffName ??
+        '選択スタッフ'
 
   const handleCsvDownload = () => {
     const header = [
@@ -255,7 +306,10 @@ export function SalesAnalyticsPage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `sales-analytics-${period.startMonth}-${period.endMonth}.csv`
+    const staffFileSuffix = selectedStaffId === 'all'
+      ? 'all-staff'
+      : sanitizeFileNamePart(selectedStaffName)
+    link.download = `sales-analytics-${period.startMonth}-${period.endMonth}-${staffFileSuffix}.csv`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -302,7 +356,7 @@ export function SalesAnalyticsPage() {
           Firestoreの保存済み案件を対象に、指定した月範囲の売上・介助・実費・支払方法・月別推移を集計します。
         </p>
 
-        <section className="analytics-period-panel" aria-label="期間選択">
+        <section className="analytics-period-panel" aria-label="期間・スタッフ選択">
           <label>
             開始年月
             <input
@@ -329,6 +383,20 @@ export function SalesAnalyticsPage() {
               }
             />
           </label>
+          <label>
+            スタッフ
+            <select
+              value={selectedStaffId}
+              onChange={(event) => setSelectedStaffId(event.target.value)}
+            >
+              <option value="all">全スタッフ</option>
+              {analyticsSummary.staffSummary.map((staff) => (
+                <option key={staff.staffId} value={staff.staffId}>
+                  {staff.staffName}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="admin-save-button" type="button" onClick={handleCsvDownload}>
             CSV出力
           </button>
@@ -343,6 +411,10 @@ export function SalesAnalyticsPage() {
             {errorMessage}
           </p>
         ) : null}
+
+        <p className="analytics-filter-note">
+          表示対象: {selectedStaffName} / {analyticsSummary.totalCount}件
+        </p>
 
         <section className="analytics-kpi-grid" aria-label="基本集計">
           <div>
@@ -371,7 +443,7 @@ export function SalesAnalyticsPage() {
           </div>
         </section>
 
-        <div className="analytics-grid analytics-grid--two">
+        <div className="analytics-grid analytics-grid--three">
           <BreakdownTable
             emptyMessage="売上内訳データがありません。"
             rows={analyticsSummary.revenueBreakdown}
@@ -383,9 +455,12 @@ export function SalesAnalyticsPage() {
             title="売上構成比"
             valueSuffix="円"
           />
+          <PaymentTable rows={analyticsSummary.paymentMethodSummary} />
         </div>
 
-        <div className="analytics-grid analytics-grid--two">
+        <StaffSummaryTable rows={analyticsSummary.staffSummary} />
+
+        <div className="analytics-grid analytics-grid--three">
           <BreakdownTable
             emptyMessage="介助項目データがありません。"
             rows={analyticsSummary.assistItemSummary}
@@ -396,17 +471,6 @@ export function SalesAnalyticsPage() {
             rows={analyticsSummary.expenseSummary}
             title="実費分析"
           />
-        </div>
-
-        <PaymentTable rows={analyticsSummary.paymentMethodSummary} />
-
-        <div className="analytics-grid analytics-grid--two">
-          <AnalyticsPieChart
-            emptyLabel="支払方法の件数データがありません。"
-            items={paymentCountItems}
-            title="支払方法 件数割合"
-            valueSuffix="件"
-          />
           <AnalyticsPieChart
             emptyLabel="支払方法の売上データがありません。"
             items={paymentSalesItems}
@@ -415,78 +479,89 @@ export function SalesAnalyticsPage() {
           />
         </div>
 
-        <section className="analytics-panel">
-          <h2>月別推移</h2>
-          <div className="analytics-bar-chart" aria-label="月別売上棒グラフ">
-            {analyticsSummary.monthlySummary.map((month) => (
-              <div key={month.monthKey}>
-                <span>{month.monthLabel}</span>
-                <strong
-                  style={{
-                    height: `${maxMonthlySales > 0 ? Math.max((month.salesYen / maxMonthlySales) * 100, 4) : 4}%`,
-                  }}
-                />
-                <em>{formatFareYen(month.salesYen)}円</em>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="analytics-panel">
-          <h2>月別一覧表</h2>
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>年月</th>
-                <th>売上</th>
-                <th>件数</th>
-                <th>平均単価</th>
-                <th>距離</th>
-                <th>運転時間</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="analytics-grid analytics-grid--two analytics-grid--wide-main">
+          <section className="analytics-panel analytics-panel--wide">
+            <h2>月別推移</h2>
+            <div className="analytics-bar-chart" aria-label="月別売上棒グラフ">
               {analyticsSummary.monthlySummary.map((month) => (
-                <tr key={month.monthKey}>
-                  <td>{month.monthLabel}</td>
-                  <td>{formatFareYen(month.salesYen)}円</td>
-                  <td>{month.count}件</td>
-                  <td>{formatFareYen(month.averageYen)}円</td>
-                  <td>{month.distanceKm.toFixed(3)}km</td>
-                  <td>{formatAnalyticsDuration(month.drivingSeconds)}</td>
-                </tr>
+                <div key={month.monthKey}>
+                  <span>{month.monthLabel}</span>
+                  <strong
+                    style={{
+                      height: `${maxMonthlySales > 0 ? Math.max((month.salesYen / maxMonthlySales) * 100, 4) : 4}%`,
+                    }}
+                  />
+                  <em>{formatFareYen(month.salesYen)}円</em>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </section>
+            </div>
+          </section>
 
-        <section className="analytics-panel">
-          <h2>売上TOP10案件</h2>
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>日付</th>
-                <th>案件番号</th>
-                <th>売上</th>
-              </tr>
-            </thead>
-            <tbody>
-              {analyticsSummary.topCases.length > 0 ? (
-                analyticsSummary.topCases.map((caseRecord) => (
-                  <tr key={caseRecord.caseNumber}>
-                    <td>{caseRecord.dateLabel}</td>
-                    <td>{caseRecord.caseNumber}</td>
-                    <td>{formatFareYen(caseRecord.salesYen)}円</td>
-                  </tr>
-                ))
-              ) : (
+          <AnalyticsPieChart
+            emptyLabel="支払方法の件数データがありません。"
+            items={paymentCountItems}
+            title="支払方法 件数割合"
+            valueSuffix="件"
+          />
+        </div>
+
+        <div className="analytics-grid analytics-grid--two">
+          <section className="analytics-panel">
+            <h2>月別一覧表</h2>
+            <table className="analytics-table">
+              <thead>
                 <tr>
-                  <td colSpan={3}>ランキング対象の案件がありません。</td>
+                  <th>年月</th>
+                  <th>売上</th>
+                  <th>件数</th>
+                  <th>平均単価</th>
+                  <th>距離</th>
+                  <th>運転時間</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+              </thead>
+              <tbody>
+                {analyticsSummary.monthlySummary.map((month) => (
+                  <tr key={month.monthKey}>
+                    <td>{month.monthLabel}</td>
+                    <td>{formatFareYen(month.salesYen)}円</td>
+                    <td>{month.count}件</td>
+                    <td>{formatFareYen(month.averageYen)}円</td>
+                    <td>{month.distanceKm.toFixed(3)}km</td>
+                    <td>{formatAnalyticsDuration(month.drivingSeconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="analytics-panel">
+            <h2>売上TOP10案件</h2>
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>案件番号</th>
+                  <th>売上</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analyticsSummary.topCases.length > 0 ? (
+                  analyticsSummary.topCases.map((caseRecord) => (
+                    <tr key={caseRecord.caseNumber}>
+                      <td>{caseRecord.dateLabel}</td>
+                      <td>{caseRecord.caseNumber}</td>
+                      <td>{formatFareYen(caseRecord.salesYen)}円</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>ランキング対象の案件がありません。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        </div>
       </section>
     </main>
   )
