@@ -290,7 +290,7 @@ export function SalesAnalyticsPage() {
           </div>
           <div className="admin-header-actions">
             <Link className="text-link" to="/admin">
-              管理画面へ戻る
+              管理センターへ戻る
             </Link>
             <Link className="text-link" to="/">
               ホームへ戻る
