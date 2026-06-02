@@ -421,7 +421,12 @@ export function CasePage() {
   }
 
   const capturePickupLocation = () => {
+    console.log('[住所取得診断] 伺い先住所取得を開始します。')
     const capturePromise = captureCurrentAddressLocation().then((location) => {
+      console.log('[住所取得診断] 伺い先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       pickupLocationRef.current = location
       setPickupLocation(location)
       return location
@@ -438,7 +443,12 @@ export function CasePage() {
   }
 
   const captureDropoffLocation = () => {
+    console.log('[住所取得診断] 送り先住所取得を開始します。')
     const capturePromise = captureCurrentAddressLocation().then((location) => {
+      console.log('[住所取得診断] 送り先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       dropoffLocationRef.current = location
       setDropoffLocation(location)
       return location
