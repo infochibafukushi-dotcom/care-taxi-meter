@@ -175,7 +175,7 @@ const getReverseGeocodeCauseLabel = ({
   }
 
   if (diagnostic.geocodingExecutionState === 'タイムアウト') {
-    return 'H: geocoder.geocode() Promiseタイムアウト'
+    return 'H: geocoder.geocode() callbackタイムアウト'
   }
 
   if (diagnostic.geocodingExecutionState === '失敗') {
@@ -1142,8 +1142,8 @@ export function CasePage() {
                   <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
                 </div>
                 <div>
-                  <dt>geocode() Promise</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodePromiseState}</dd>
+                  <dt>geocode() callback</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
                 </div>
                 <div>
                   <dt>取得緯度</dt>

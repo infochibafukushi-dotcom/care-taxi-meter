@@ -12,7 +12,7 @@ export type ReverseGeocodeDiagnosticState = {
   errorMessage: string
   formattedAddress: string
   geocodeCalled: boolean
-  geocodePromiseState: '未開始' | '開始' | '完了' | '失敗' | 'タイムアウト'
+  geocodeCallbackState: '未開始' | '開始' | '完了' | '失敗' | 'タイムアウト'
   geocoderState: '未確認' | '生成中' | '生成成功' | '生成失敗'
   geocodingExecutionState: '未実行' | '実行中' | '成功' | '失敗' | '0件' | '住所空' | 'タイムアウト'
   googleMapsApiLoadState: '未確認' | 'ロード中' | '成功' | '失敗'
@@ -66,9 +66,25 @@ type GoogleMapsGeocoderRequest = {
   region?: string
 }
 
+type GoogleMapsGeocoderStatus =
+  | 'OK'
+  | 'ZERO_RESULTS'
+  | 'OVER_QUERY_LIMIT'
+  | 'REQUEST_DENIED'
+  | 'INVALID_REQUEST'
+  | 'UNKNOWN_ERROR'
+  | 'ERROR'
+  | string
+
+type GoogleMapsGeocoderCallback = (
+  results: GoogleGeocodeResult[] | null | undefined,
+  status: GoogleMapsGeocoderStatus,
+) => void
+
 type GoogleMapsGeocoder = {
   geocode: (
     request: GoogleMapsGeocoderRequest,
+    callback?: GoogleMapsGeocoderCallback,
   ) => Promise<GoogleGeocodeResponse>
 }
 
@@ -94,7 +110,7 @@ const GOOGLE_MAPS_SCRIPT_ID = 'google-maps-javascript-api'
 const GOOGLE_MAPS_CALLBACK_NAME = '__careTaxiGoogleMapsReady'
 const GOOGLE_GEOCODING_REQUEST_INTERVAL_MS = 100
 const GOOGLE_MAPS_SCRIPT_LOAD_TIMEOUT_MS = 15000
-const GOOGLE_GEOCODING_TIMEOUT_MS = 5000
+const GOOGLE_GEOCODING_CALLBACK_TIMEOUT_MS = 5000
 const DIAGNOSTIC_LOG_PREFIX = '[住所取得診断]'
 const JAPAN_COUNTRY_CODE = 'JP'
 const JAPANESE_LANGUAGE_CODE = 'ja'
@@ -118,7 +134,7 @@ const initialReverseGeocodeDiagnosticState: ReverseGeocodeDiagnosticState = {
   errorMessage: '',
   formattedAddress: '',
   geocodeCalled: false,
-  geocodePromiseState: '未開始',
+  geocodeCallbackState: '未開始',
   geocoderState: '未確認',
   geocodingExecutionState: '未実行',
   googleMapsApiLoadState: '未確認',
@@ -626,13 +642,13 @@ function getCurrentPositionOnce() {
   })
 }
 
-async function runGoogleGeocodeWithTimeout(
+function runGoogleGeocodeWithCallbackTimeout(
   geocoder: GoogleMapsGeocoder,
   request: GoogleMapsGeocoderRequest,
 ) {
-  logReverseGeocodeInfo('Google Geocoding promise started.', request)
+  logReverseGeocodeInfo('Google Geocoding callback request started.', request)
   updateReverseGeocodeDiagnostic({
-    geocodePromiseState: '開始',
+    geocodeCallbackState: '開始',
     geocodingExecutionState: '実行中',
   })
 
@@ -648,76 +664,78 @@ async function runGoogleGeocodeWithTimeout(
 
       finish()
       const error = new Error(
-        `Google Geocoding promise timed out after ${GOOGLE_GEOCODING_TIMEOUT_MS}ms.`,
+        `Google Geocoding callback timed out after ${GOOGLE_GEOCODING_CALLBACK_TIMEOUT_MS}ms.`,
       )
 
       updateReverseGeocodeDiagnostic({
-        emptyAddressReason: 'geocoder.geocode(): Promiseが5秒以内に完了せずタイムアウト',
+        emptyAddressReason: 'geocoder.geocode(): callbackが5秒以内に呼ばれずタイムアウト',
         errorMessage: error.message,
-        geocodePromiseState: 'タイムアウト',
+        geocodeCallbackState: 'タイムアウト',
         geocodingExecutionState: 'タイムアウト',
       })
-      logReverseGeocodeError('Google Geocoding promise timed out.', {
+      logReverseGeocodeError('Google Geocoding callback timed out.', {
         message: error.message,
         request,
       })
       reject(error)
-    }, GOOGLE_GEOCODING_TIMEOUT_MS)
+    }, GOOGLE_GEOCODING_CALLBACK_TIMEOUT_MS)
 
-    let geocodePromise: Promise<GoogleGeocodeResponse>
+    const callback: GoogleMapsGeocoderCallback = (results, status) => {
+      if (isSettled) {
+        return
+      }
+
+      window.clearTimeout(timeoutId)
+      finish()
+      const normalizedResults = toGeocodeResults(results)
+
+      logReverseGeocodeInfo('Google Geocoding callback completed.', {
+        resultCount: normalizedResults.length,
+        status,
+      })
+
+      if (status !== 'OK' && status !== 'ZERO_RESULTS') {
+        const error = new Error(`Google Geocoding callback failed with status: ${status}`)
+
+        updateReverseGeocodeDiagnostic({
+          errorMessage: error.message,
+          geocodeCallbackState: '失敗',
+          geocodingExecutionState: '失敗',
+          googleResponseJson: toDiagnosticJson({ results: normalizedResults, status }),
+          responseCount: normalizedResults.length,
+        })
+        logReverseGeocodeError('Google Geocoding callback failed.', {
+          resultCount: normalizedResults.length,
+          status,
+        })
+        reject(error)
+        return
+      }
+
+      updateReverseGeocodeDiagnostic({
+        geocodeCallbackState: '完了',
+        googleResponseJson: toDiagnosticJson({ results: normalizedResults, status }),
+        responseCount: normalizedResults.length,
+      })
+      resolve({ results: normalizedResults })
+    }
 
     try {
-      geocodePromise = geocoder.geocode(request)
+      void geocoder.geocode(request, callback)
     } catch (error) {
       window.clearTimeout(timeoutId)
       finish()
       updateReverseGeocodeDiagnostic({
         errorMessage: toErrorMessage(error),
-        geocodePromiseState: '失敗',
+        geocodeCallbackState: '失敗',
         geocodingExecutionState: '失敗',
       })
-      logReverseGeocodeError('Google Geocoding call threw before returning a promise.', {
+      logReverseGeocodeError('Google Geocoding callback call threw.', {
         message: toErrorMessage(error),
         rawError: error,
       })
       reject(error)
-      return
     }
-
-    geocodePromise
-      .then((data) => {
-        if (isSettled) {
-          return
-        }
-
-        window.clearTimeout(timeoutId)
-        finish()
-        updateReverseGeocodeDiagnostic({
-          geocodePromiseState: '完了',
-        })
-        logReverseGeocodeInfo('Google Geocoding promise resolved.', {
-          resultCount: toGeocodeResults(data.results).length,
-        })
-        resolve(data)
-      })
-      .catch((error: unknown) => {
-        if (isSettled) {
-          return
-        }
-
-        window.clearTimeout(timeoutId)
-        finish()
-        updateReverseGeocodeDiagnostic({
-          errorMessage: toErrorMessage(error),
-          geocodePromiseState: '失敗',
-          geocodingExecutionState: '失敗',
-        })
-        logReverseGeocodeError('Google Geocoding promise rejected.', {
-          message: toErrorMessage(error),
-          rawError: error,
-        })
-        reject(error)
-      })
   })
 }
 
@@ -730,7 +748,7 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
     errorMessage: '',
     formattedAddress: '',
     geocodeCalled: false,
-    geocodePromiseState: '未開始',
+    geocodeCallbackState: '未開始',
     geocodingExecutionState: '未実行',
     latitude,
     longitude,
@@ -776,7 +794,7 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
       })
       logReverseGeocodeInfo('Google Geocoding request started.', request)
 
-      const data = await runGoogleGeocodeWithTimeout(geocoder, request)
+      const data = await runGoogleGeocodeWithCallbackTimeout(geocoder, request)
       const results = toGeocodeResults(data.results)
       const addressResult = selectBestAddressResult(results)
 
@@ -902,6 +920,22 @@ export async function captureAddressLocationFromCoordinates({
     })
     return location
   }
+}
+
+export async function captureCurrentAddressLocation() {
+  const location = await getCurrentPositionOnce()
+  const { latitude, longitude } = location
+
+  if (latitude === null || longitude === null) {
+    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
+    return location
+  }
+
+  return captureAddressLocationFromCoordinates({
+    capturedAt: location.capturedAt,
+    latitude,
+    longitude,
+  })
 }
 
 export async function captureCurrentAddressLocation() {
