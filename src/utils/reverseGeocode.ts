@@ -873,6 +873,36 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
       throw error
     }
   })
+
+  try {
+    const address = await reverseGeocodeWithGoogle(latitude, longitude)
+    const capturedLocation = {
+      ...location,
+      address,
+    }
+
+    logReverseGeocodeInfo('Address capture completed.', {
+      hasAddress: Boolean(address),
+      location: capturedLocation,
+    })
+
+    if (!address) {
+      updateReverseGeocodeDiagnostic({
+        emptyAddressReason:
+          reverseGeocodeDiagnosticState.emptyAddressReason ||
+          'captureAddressLocationFromCoordinates(): 逆ジオコーディング結果が空文字',
+      })
+      logReverseGeocodeWarning('Address capture completed with an empty address.', capturedLocation)
+    }
+
+    return capturedLocation
+  } catch (error) {
+    logReverseGeocodeError('Address capture failed; returning GPS-only location.', {
+      location,
+      message: toErrorMessage(error),
+    })
+    return location
+  }
 }
 
 export async function captureAddressLocationFromCoordinates({
