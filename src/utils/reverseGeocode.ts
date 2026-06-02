@@ -57,7 +57,6 @@ type GoogleGeocodeResponse = {
 }
 
 type GoogleMapsGeocoderRequest = {
-  extraComputations?: string[]
   language?: string
   location: {
     lat: number
@@ -664,7 +663,6 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
     try {
       const geocoder = await getGoogleGeocoder(apiKey)
       const request = {
-        extraComputations: ['ADDRESS_DESCRIPTORS'],
         language: JAPANESE_LANGUAGE_CODE,
         location: {
           lat: latitude,
