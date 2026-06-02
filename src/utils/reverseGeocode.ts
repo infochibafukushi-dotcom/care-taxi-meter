@@ -210,6 +210,7 @@ export function formatJapaneseAddressFromGoogleGeocodeResult(
   )
 
   return (
+    formattedAddress ||
     joinUniqueAddressParts([
       administrativeAreaLevel1,
       locality,
@@ -220,7 +221,7 @@ export function formatJapaneseAddressFromGoogleGeocodeResult(
       route,
       premise,
       streetNumber,
-    ]) || formattedAddress
+    ])
   )
 }
 
@@ -600,20 +601,30 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
   })
 }
 
-export async function captureCurrentAddressLocation() {
-  const location = await getCurrentPositionOnce()
-
-  if (location.latitude === null || location.longitude === null) {
-    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
-    return location
+export async function captureAddressLocationFromCoordinates({
+  capturedAt = new Date().toISOString(),
+  latitude,
+  longitude,
+}: {
+  capturedAt?: string | null
+  latitude: number
+  longitude: number
+}) {
+  const location: CapturedAddressLocation = {
+    address: '',
+    capturedAt,
+    latitude,
+    longitude,
   }
 
-  try {
-    const address = await reverseGeocodeWithGoogle(
-      location.latitude,
-      location.longitude,
-    )
+  logReverseGeocodeInfo('Reverse geocoding started from provided GPS coordinates.', {
+    capturedAt: location.capturedAt,
+    latitude: location.latitude,
+    longitude: location.longitude,
+  })
 
+  try {
+    const address = await reverseGeocodeWithGoogle(latitude, longitude)
     const capturedLocation = {
       ...location,
       address,
@@ -624,6 +635,10 @@ export async function captureCurrentAddressLocation() {
       location: capturedLocation,
     })
 
+    if (!address) {
+      logReverseGeocodeWarning('Address capture completed with an empty address.', capturedLocation)
+    }
+
     return capturedLocation
   } catch (error) {
     logReverseGeocodeError('Address capture failed; returning GPS-only location.', {
@@ -632,4 +647,19 @@ export async function captureCurrentAddressLocation() {
     })
     return location
   }
+}
+
+export async function captureCurrentAddressLocation() {
+  const location = await getCurrentPositionOnce()
+
+  if (location.latitude === null || location.longitude === null) {
+    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
+    return location
+  }
+
+  return captureAddressLocationFromCoordinates({
+    capturedAt: location.capturedAt,
+    latitude: location.latitude,
+    longitude: location.longitude,
+  })
 }
