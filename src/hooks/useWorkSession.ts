@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import { clockInWorkSession, clockOutWorkSession } from '../services/workSessions'
+import {
+  clockInWorkSession,
+  clockOutWorkSession,
+  fetchOpenWorkingWorkSession,
+} from '../services/workSessions'
 import type { StaffMember, Store, WorkSession } from '../types/work'
 import { captureWorkLocation } from '../utils/workLocation'
 
@@ -71,6 +75,27 @@ export function useWorkSession() {
     return workSession
   }
 
+  const restoreWorkingSession = async (staffMember: StaffMember) => {
+    setMessage({ tone: 'saving', text: '勤務中状態を確認しています。' })
+    const restoredSession = await fetchOpenWorkingWorkSession({
+      companyId: staffMember.companyId,
+      staffId: staffMember.id,
+    })
+
+    if (!restoredSession) {
+      setMessage({ tone: 'idle', text: '出勤ボタンで勤務を開始してください。' })
+      return null
+    }
+
+    localStorage.setItem(workSessionStorageKey, JSON.stringify(restoredSession))
+    setCurrentSession(restoredSession)
+    setMessage({
+      tone: 'saved',
+      text: '勤務中状態を復元しました。',
+    })
+    return restoredSession
+  }
+
   const clockOut = async () => {
     if (!currentSession) {
       return null
@@ -107,5 +132,6 @@ export function useWorkSession() {
     isWorking,
     logout,
     message,
+    restoreWorkingSession,
   }
 }
