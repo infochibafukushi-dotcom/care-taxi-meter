@@ -63,21 +63,53 @@ React Router を導入し、以下の仮画面を用意しています。
 
 ## Google Geocoding API設定
 
-- 住所取得は Google Geocoding API の逆ジオコーディングを利用します。
-- `VITE_GOOGLE_MAPS_API_KEY` に Google Maps Platform の API キーを設定してください。
+- 住所取得は Google Maps Platform の Geocoding API で逆ジオコーディングを行います。
+- ブラウザでは Google Maps JavaScript API をロードし、その `Geocoder` から Geocoding を実行します。
+- 必須の環境変数名は `VITE_GOOGLE_MAPS_API_KEY` です。
 - GitHub Pages で利用する場合、API キーには公開URLの HTTP referrer 制限と Maps JavaScript API / Geocoding API の API 制限を設定してください。
+
+### GitHub Actions / GitHub Pagesでの取得設計
+
+- GitHub Pages のビルドは `.github/workflows/deploy-github-pages.yml` の `Build` step で実行されます。
+- `VITE_GOOGLE_MAPS_API_KEY` は `secrets.VITE_GOOGLE_MAPS_API_KEY || vars.VITE_GOOGLE_MAPS_API_KEY` から読み込まれ、`npm run build:pages` に渡されます。
+- `VITE_` で始まる値は Vite の仕様上、ビルド後のブラウザ用JavaScriptへ埋め込まれます。そのため **秘匿値として守るのではなく、HTTP referrer 制限と API 制限で保護する公開前提のキー** として扱ってください。
+- 推奨設定場所は **Repository variable** です。
+  - GitHub: `Settings` → `Secrets and variables` → `Actions` → `Variables` → `Repository variables`
+  - キー名: `VITE_GOOGLE_MAPS_API_KEY`
+- Repository secret でも workflow は同じキー名で読み込めますが、最終的にフロントエンド成果物へ埋め込まれるため、Repository variable を推奨します。
+- `github-pages` Environment の variables にだけ設定しても、この workflow の `build` job では読み込まれません。必ず Repository variable、または Repository secret に設定してください。
+
+### 必要なGoogle API
+
+1. Maps JavaScript API
+   - ブラウザで `https://maps.googleapis.com/maps/api/js` をロードし、`google.maps.importLibrary('geocoding')` と `Geocoder` を利用するために必要です。
+2. Geocoding API
+   - 緯度経度から住所へ変換する逆ジオコーディングに必要です。
+
+### Google Cloud ConsoleでのAPIキー設定
+
+1. Google Cloud Console で API キーを作成します。
+2. APIキーの「API の制限」で以下の2つを許可します。
+   - Maps JavaScript API
+   - Geocoding API
+3. APIキーの「アプリケーションの制限」は `HTTP リファラー（ウェブサイト）` にします。
+4. GitHub Pages の公開URLを HTTP referrer として登録します。
+   - 例: `https://<owner>.github.io/care-taxi-meter/*`
+   - カスタムドメインを使う場合は、その公開URLも追加します。
 
 ### GitHub Pages運用での設定手順
 
-1. Google Cloud Console で Geocoding API を有効化し、API キーを作成します。
-2. API キーの「アプリケーションの制限」は HTTP リファラーにし、GitHub Pages の公開URLを登録します。
-   - 例: `https://<owner>.github.io/care-taxi-meter/*`
-3. API キーの「API の制限」は Maps JavaScript API と Geocoding API のみにします。
-4. GitHub リポジトリの `Settings` → `Secrets and variables` → `Actions` → `Variables` に移動します。
-5. Repository variable として `VITE_GOOGLE_MAPS_API_KEY` を追加し、Google Maps Platform の API キーを設定します。
-   - `VITE_` 環境変数はビルド後のブラウザ用JavaScriptに含まれるため、秘匿値ではありません。HTTP リファラー制限と API 制限で保護してください。
-   - Repository secret として設定した場合も、GitHub Actions のビルドでは同じ名前で読み込めます。
-6. `main` または `work` ブランチへ push するか、`Deploy GitHub Pages` workflow を手動実行して再デプロイします。
+1. GitHub リポジトリの `Settings` → `Secrets and variables` → `Actions` → `Variables` に移動します。
+2. Repository variable として `VITE_GOOGLE_MAPS_API_KEY` を追加し、Google Maps Platform の API キーを設定します。
+3. `main` または `work` ブランチへ push するか、`Deploy GitHub Pages` workflow を手動実行して再デプロイします。
+4. GitHub Actions の `Deploy GitHub Pages` workflow が成功したことを確認します。
+5. スマホ実機で案件画面を開き、`住所取得診断` パネルで以下を確認します。
+   - `Google Maps APIロード状態`: `成功`
+   - `Geocoder生成状態`: `生成成功`
+   - `Geocoding実行状態`: `成功`
+   - `Googleレスポンス件数`: `1` 以上
+   - `formatted_address`: 住所文字列が表示される
+   - `取得住所`: 住所文字列が表示される
 
 ## PWA設定
 
