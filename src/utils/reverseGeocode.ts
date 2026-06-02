@@ -805,25 +805,20 @@ export async function captureAddressLocationFromCoordinates({
     })
     return location
   }
-
-  return captureAddressLocationFromCoordinates({
-    capturedAt: location.capturedAt,
-    latitude: location.latitude,
-    longitude: location.longitude,
-  })
 }
 
 export async function captureCurrentAddressLocation() {
   const location = await getCurrentPositionOnce()
+  const { latitude, longitude } = location
 
-  if (location.latitude === null || location.longitude === null) {
+  if (latitude === null || longitude === null) {
     logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
     return location
   }
 
   return captureAddressLocationFromCoordinates({
     capturedAt: location.capturedAt,
-    latitude: location.latitude,
-    longitude: location.longitude,
+    latitude,
+    longitude,
   })
 }
