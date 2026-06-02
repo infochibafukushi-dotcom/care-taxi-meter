@@ -174,6 +174,10 @@ const getReverseGeocodeCauseLabel = ({
     return 'F: Googleレスポンス0件'
   }
 
+  if (diagnostic.geocodingExecutionState === 'タイムアウト') {
+    return 'H: geocoder.geocode() Promiseタイムアウト'
+  }
+
   if (diagnostic.geocodingExecutionState === '失敗') {
     if (/not authorized|REQUEST_DENIED|Geocoding/i.test(diagnostic.errorMessage)) {
       return 'D: Geocoding API無効'
@@ -1136,6 +1140,10 @@ export function CasePage() {
                 <div>
                   <dt>geocode()</dt>
                   <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                </div>
+                <div>
+                  <dt>geocode() Promise</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocodePromiseState}</dd>
                 </div>
                 <div>
                   <dt>取得緯度</dt>
