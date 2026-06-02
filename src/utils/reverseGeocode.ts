@@ -70,6 +70,8 @@ const GOOGLE_MAPS_SCRIPT_URL = 'https://maps.googleapis.com/maps/api/js'
 const GOOGLE_MAPS_SCRIPT_ID = 'google-maps-javascript-api'
 const GOOGLE_MAPS_CALLBACK_NAME = '__careTaxiGoogleMapsReady'
 const GOOGLE_GEOCODING_REQUEST_INTERVAL_MS = 100
+const GOOGLE_MAPS_SCRIPT_LOAD_TIMEOUT_MS = 15000
+const DIAGNOSTIC_LOG_PREFIX = '[住所取得診断]'
 const JAPAN_COUNTRY_CODE = 'JP'
 const JAPANESE_LANGUAGE_CODE = 'ja'
 
@@ -87,6 +89,21 @@ let googleGeocoderPromise: Promise<GoogleMapsGeocoder> | null = null
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+
+const logReverseGeocodeInfo = (message: string, details?: unknown) => {
+  console.log(`${DIAGNOSTIC_LOG_PREFIX} ${message}`, details ?? '')
+}
+
+const logReverseGeocodeWarning = (message: string, details?: unknown) => {
+  console.warn(`${DIAGNOSTIC_LOG_PREFIX} ${message}`, details ?? '')
+}
+
+const logReverseGeocodeError = (message: string, details?: unknown) => {
+  console.error(`${DIAGNOSTIC_LOG_PREFIX} ${message}`, details ?? '')
+}
+
+const toErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error)
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -320,25 +337,72 @@ function formatCapturedAddress(
 
 function loadGoogleMapsScript(apiKey: string) {
   if (hasGoogleMapsImportLibrary()) {
+    logReverseGeocodeInfo('Google Maps JavaScript API is already loaded.')
     return Promise.resolve()
   }
 
   if (googleMapsScriptPromise) {
+    logReverseGeocodeInfo('Google Maps JavaScript API load is already in progress.')
     return googleMapsScriptPromise
   }
+
+  logReverseGeocodeInfo('Google Maps JavaScript API load started.', {
+    hasApiKey: Boolean(apiKey),
+    scriptId: GOOGLE_MAPS_SCRIPT_ID,
+  })
 
   googleMapsScriptPromise = new Promise<void>((resolve, reject) => {
     const loaderWindow = getGoogleMapsLoaderWindow()
     const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID)
+    let timeoutId: number | null = null
 
-    loaderWindow[GOOGLE_MAPS_CALLBACK_NAME] = () => {
-      resolve()
+    const finish = () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+
       delete loaderWindow[GOOGLE_MAPS_CALLBACK_NAME]
     }
 
+    const resolveLoad = (source: string) => {
+      logReverseGeocodeInfo('Google Maps JavaScript API load succeeded.', {
+        hasImportLibrary: hasGoogleMapsImportLibrary(),
+        source,
+      })
+      finish()
+      resolve()
+    }
+
+    const rejectLoad = (error: Error) => {
+      logReverseGeocodeError('Google Maps JavaScript API load failed.', {
+        hasImportLibrary: hasGoogleMapsImportLibrary(),
+        message: error.message,
+      })
+      finish()
+      googleMapsScriptPromise = null
+      reject(error)
+    }
+
+    timeoutId = window.setTimeout(() => {
+      rejectLoad(
+        new Error(
+          'Google Maps JavaScript API load timed out. API key / referrer restriction / Maps JavaScript API setting may be invalid.',
+        ),
+      )
+    }, GOOGLE_MAPS_SCRIPT_LOAD_TIMEOUT_MS)
+
+    loaderWindow[GOOGLE_MAPS_CALLBACK_NAME] = () => {
+      resolveLoad('callback')
+    }
+
     if (existingScript) {
-      existingScript.addEventListener('load', () => resolve(), { once: true })
-      existingScript.addEventListener('error', () => reject(), { once: true })
+      logReverseGeocodeInfo('Google Maps JavaScript API script tag already exists.')
+      existingScript.addEventListener('load', () => resolveLoad('existing-script-load'), { once: true })
+      existingScript.addEventListener(
+        'error',
+        () => rejectLoad(new Error('Existing Google Maps JavaScript API script failed to load.')),
+        { once: true },
+      )
       return
     }
 
@@ -356,9 +420,7 @@ function loadGoogleMapsScript(apiKey: string) {
     script.defer = true
     script.src = url.toString()
     script.onerror = () => {
-      delete loaderWindow[GOOGLE_MAPS_CALLBACK_NAME]
-      googleMapsScriptPromise = null
-      reject()
+      rejectLoad(new Error('Google Maps JavaScript API script network/error event occurred.'))
     }
 
     document.head.appendChild(script)
@@ -369,6 +431,7 @@ function loadGoogleMapsScript(apiKey: string) {
 
 async function getGoogleGeocoder(apiKey: string) {
   if (googleGeocoderPromise) {
+    logReverseGeocodeInfo('Google Maps Geocoder instance is already being prepared/reused.')
     return googleGeocoderPromise
   }
 
@@ -376,15 +439,26 @@ async function getGoogleGeocoder(apiKey: string) {
     await loadGoogleMapsScript(apiKey)
 
     const maps = getGoogleMapsLoaderWindow().google?.maps
+    logReverseGeocodeInfo('Google Maps namespace checked.', {
+      hasImportLibrary: typeof maps?.importLibrary === 'function',
+    })
+
     const geocodingLibrary = await maps?.importLibrary?.('geocoding')
     const Geocoder = geocodingLibrary?.Geocoder
+
+    logReverseGeocodeInfo('Google Maps geocoding library checked.', {
+      hasGeocoder: Boolean(Geocoder),
+    })
 
     if (!Geocoder) {
       throw new Error('Google Maps Geocoder is unavailable')
     }
 
     return new Geocoder()
-  })()
+  })().catch((error: unknown) => {
+    googleGeocoderPromise = null
+    throw error
+  })
 
   return googleGeocoderPromise
 }
@@ -411,20 +485,34 @@ function enqueueGoogleGeocodingRequest<T>(task: () => Promise<T>) {
 
 function getCurrentPositionOnce() {
   if (!('geolocation' in navigator)) {
+    logReverseGeocodeWarning('Geolocation API is unavailable in this browser.')
     return Promise.resolve<CapturedAddressLocation>(emptyCapturedAddressLocation)
   }
+
+  logReverseGeocodeInfo('GPS acquisition started for reverse geocoding.')
 
   return new Promise<CapturedAddressLocation>((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        resolve({
+        const location = {
           address: '',
           capturedAt: new Date(position.timestamp).toISOString(),
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
+        }
+        logReverseGeocodeInfo('GPS acquisition succeeded for reverse geocoding.', {
+          accuracy: position.coords.accuracy,
+          capturedAt: location.capturedAt,
+          latitude: location.latitude,
+          longitude: location.longitude,
         })
+        resolve(location)
       },
-      () => {
+      (error) => {
+        logReverseGeocodeError('GPS acquisition failed for reverse geocoding.', {
+          code: error.code,
+          message: error.message,
+        })
         resolve(emptyCapturedAddressLocation)
       },
       {
@@ -439,33 +527,76 @@ function getCurrentPositionOnce() {
 async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
 
+  logReverseGeocodeInfo('reverseGeocodeWithGoogle called.', {
+    hasApiKey: Boolean(apiKey),
+    latitude,
+    longitude,
+  })
+
   if (!apiKey) {
+    logReverseGeocodeWarning(
+      'VITE_GOOGLE_MAPS_API_KEY is not set. Reverse geocoding will be skipped.',
+    )
     return ''
   }
 
   return enqueueGoogleGeocodingRequest(async () => {
-    const geocoder = await getGoogleGeocoder(apiKey)
-    const data = await geocoder.geocode({
-      extraComputations: ['ADDRESS_DESCRIPTORS'],
-      language: JAPANESE_LANGUAGE_CODE,
-      location: {
-        lat: latitude,
-        lng: longitude,
-      },
-      region: JAPAN_COUNTRY_CODE,
-    })
-    const results = toGeocodeResults(data.results)
-    const addressResult = selectBestAddressResult(results)
+    try {
+      const geocoder = await getGoogleGeocoder(apiKey)
+      const request = {
+        extraComputations: ['ADDRESS_DESCRIPTORS'],
+        language: JAPANESE_LANGUAGE_CODE,
+        location: {
+          lat: latitude,
+          lng: longitude,
+        },
+        region: JAPAN_COUNTRY_CODE,
+      }
 
-    if (!addressResult) {
-      return ''
+      logReverseGeocodeInfo('Google Geocoding request started.', request)
+
+      const data = await geocoder.geocode(request)
+      const results = toGeocodeResults(data.results)
+      const addressResult = selectBestAddressResult(results)
+
+      logReverseGeocodeInfo('Google Geocoding response received.', {
+        hasAddressDescriptor: Boolean(data.address_descriptor),
+        resultCount: results.length,
+        selectedFormattedAddress: toStringValue(addressResult?.formatted_address),
+        selectedTypes: toStringArray(addressResult?.types),
+      })
+
+      if (!addressResult) {
+        logReverseGeocodeWarning('Google Geocoding returned no address results.', data)
+        return ''
+      }
+
+      const address = formatCapturedAddress(
+        addressResult,
+        results,
+        toAddressDescriptor(data.address_descriptor),
+      )
+
+      if (!address) {
+        logReverseGeocodeWarning('Google Geocoding result formatting produced an empty address.', {
+          formattedAddress: addressResult.formatted_address,
+          resultTypes: addressResult.types,
+        })
+        return ''
+      }
+
+      logReverseGeocodeInfo('Address formatted from Google Geocoding response.', {
+        address,
+      })
+
+      return address
+    } catch (error) {
+      logReverseGeocodeError('Google Geocoding failed.', {
+        message: toErrorMessage(error),
+        rawError: error,
+      })
+      throw error
     }
-
-    return formatCapturedAddress(
-      addressResult,
-      results,
-      toAddressDescriptor(data.address_descriptor),
-    )
   })
 }
 
@@ -473,6 +604,7 @@ export async function captureCurrentAddressLocation() {
   const location = await getCurrentPositionOnce()
 
   if (location.latitude === null || location.longitude === null) {
+    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
     return location
   }
 
@@ -482,11 +614,22 @@ export async function captureCurrentAddressLocation() {
       location.longitude,
     )
 
-    return {
+    const capturedLocation = {
       ...location,
       address,
     }
-  } catch {
+
+    logReverseGeocodeInfo('Address capture completed.', {
+      hasAddress: Boolean(address),
+      location: capturedLocation,
+    })
+
+    return capturedLocation
+  } catch (error) {
+    logReverseGeocodeError('Address capture failed; returning GPS-only location.', {
+      location,
+      message: toErrorMessage(error),
+    })
     return location
   }
 }
