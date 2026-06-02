@@ -681,6 +681,12 @@ function runGoogleGeocodeWithCallbackTimeout(
     }, GOOGLE_GEOCODING_CALLBACK_TIMEOUT_MS)
 
     const callback: GoogleMapsGeocoderCallback = (results, status) => {
+      console.log(`${DIAGNOSTIC_LOG_PREFIX} Google Geocoding callback invoked.`, {
+        isSettled,
+        resultCount: toGeocodeResults(results).length,
+        status,
+      })
+
       if (isSettled) {
         return
       }
@@ -867,6 +873,36 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
       throw error
     }
   })
+
+  try {
+    const address = await reverseGeocodeWithGoogle(latitude, longitude)
+    const capturedLocation = {
+      ...location,
+      address,
+    }
+
+    logReverseGeocodeInfo('Address capture completed.', {
+      hasAddress: Boolean(address),
+      location: capturedLocation,
+    })
+
+    if (!address) {
+      updateReverseGeocodeDiagnostic({
+        emptyAddressReason:
+          reverseGeocodeDiagnosticState.emptyAddressReason ||
+          'captureAddressLocationFromCoordinates(): 逆ジオコーディング結果が空文字',
+      })
+      logReverseGeocodeWarning('Address capture completed with an empty address.', capturedLocation)
+    }
+
+    return capturedLocation
+  } catch (error) {
+    logReverseGeocodeError('Address capture failed; returning GPS-only location.', {
+      location,
+      message: toErrorMessage(error),
+    })
+    return location
+  }
 }
 
 export async function captureAddressLocationFromCoordinates({
@@ -920,22 +956,6 @@ export async function captureAddressLocationFromCoordinates({
     })
     return location
   }
-}
-
-export async function captureCurrentAddressLocation() {
-  const location = await getCurrentPositionOnce()
-  const { latitude, longitude } = location
-
-  if (latitude === null || longitude === null) {
-    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
-    return location
-  }
-
-  return captureAddressLocationFromCoordinates({
-    capturedAt: location.capturedAt,
-    latitude,
-    longitude,
-  })
 }
 
 export async function captureCurrentAddressLocation() {
