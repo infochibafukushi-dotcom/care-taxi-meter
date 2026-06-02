@@ -1,21 +1,104 @@
 import {
+  collection,
   doc,
+  getDocs,
   getFirestore,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import type { StaffMember, Store, WorkSession } from '../types/work'
+import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
+import { defaultCompanyId } from './stores'
 import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
 
 const createWorkSessionId = () => `work-${Date.now()}-${crypto.randomUUID()}`
 
+const validStaffRoles: StaffRole[] = ['superAdmin', 'owner', 'manager', 'driver']
+
+const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
+const toNullableNumber = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+const toStaffRole = (value: unknown): StaffRole =>
+  typeof value === 'string' && validStaffRoles.includes(value as StaffRole)
+    ? (value as StaffRole)
+    : 'driver'
+
+const isOpenWorkingSession = (workSession: WorkSession) =>
+  workSession.status === 'working' && !workSession.clockOutAt
+
+const toWorkSession = (snapshot: {
+  id: string
+  data: () => Record<string, unknown>
+}): WorkSession => {
+  const data = snapshot.data()
+
+  return {
+    id: toStringValue(data.id) || snapshot.id,
+    companyId: toStringValue(data.companyId) || defaultCompanyId,
+    companyName: toStringValue(data.companyName),
+    storeId: toStringValue(data.storeId),
+    storeName: toStringValue(data.storeName),
+    staffId: toStringValue(data.staffId),
+    staffName: toStringValue(data.staffName),
+    staffRole: toStaffRole(data.staffRole),
+    clockInAt: toStringValue(data.clockInAt),
+    clockOutAt: toStringValue(data.clockOutAt) || null,
+    workSeconds: typeof data.workSeconds === 'number' ? data.workSeconds : 0,
+    clockInLatitude: toNullableNumber(data.clockInLatitude),
+    clockInLongitude: toNullableNumber(data.clockInLongitude),
+    clockInAccuracy: toNullableNumber(data.clockInAccuracy),
+    clockOutLatitude: toNullableNumber(data.clockOutLatitude),
+    clockOutLongitude: toNullableNumber(data.clockOutLongitude),
+    clockOutAccuracy: toNullableNumber(data.clockOutAccuracy),
+    status: data.status === 'closed' ? 'closed' : 'working',
+  }
+}
+
 function getWorkSessionRef(workSessionId: string) {
   const db = getFirestore(getFirebaseApp())
   return doc(db, workSessionsCollectionName, workSessionId)
+}
+
+function getWorkSessionsCollection() {
+  const db = getFirestore(getFirebaseApp())
+  return collection(db, workSessionsCollectionName)
+}
+
+export async function fetchWorkingWorkSessionCount() {
+  const snapshots = await getDocs(
+    query(getWorkSessionsCollection(), where('status', '==', 'working')),
+  )
+
+  return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).length
+}
+
+export async function fetchOpenWorkingWorkSession({
+  companyId,
+  staffId,
+}: {
+  companyId: string
+  staffId: string
+}) {
+  const snapshots = await getDocs(
+    query(getWorkSessionsCollection(), where('status', '==', 'working')),
+  )
+
+  return snapshots.docs
+    .map(toWorkSession)
+    .filter(
+      (workSession) =>
+        workSession.companyId === companyId &&
+        workSession.staffId === staffId &&
+        isOpenWorkingSession(workSession),
+    )
+    .sort((firstSession, secondSession) =>
+      secondSession.clockInAt.localeCompare(firstSession.clockInAt),
+    )[0] ?? null
 }
 
 export async function clockInWorkSession({

@@ -230,7 +230,13 @@ export function HomePage() {
         staffMember,
         store,
       })
-      setLoginMessage('ログインしました。出勤ボタンで勤務を開始してください。')
+
+      const restoredSession = await workSession.restoreWorkingSession(staffMember)
+      setLoginMessage(
+        restoredSession
+          ? 'ログインしました。勤務中状態を復元しました。'
+          : 'ログインしました。出勤ボタンで勤務を開始してください。',
+      )
     } catch (error) {
       setLoginMessage(
         error instanceof Error ? `ログインできませんでした。${error.message}` : 'ログインできませんでした。',
