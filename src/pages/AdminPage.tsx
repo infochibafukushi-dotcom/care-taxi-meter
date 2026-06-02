@@ -1,200 +1,284 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { StaffManagementPanel } from '../components/admin/StaffManagementPanel'
-import { StoreManagementPanel } from '../components/admin/StoreManagementPanel'
-import { VehicleManagementPanel } from '../components/admin/VehicleManagementPanel'
-import { fetchCaseRecords } from '../services/caseRecords'
-import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
-import { defaultCompanyId, ensureDefaultStore, fetchStores } from '../services/stores'
-import { fetchVehicles, saveVehicle } from '../services/vehicles'
-import type { StoredCaseRecord } from '../services/caseRecords'
-import { formatFareYen } from '../services/fare'
-import type { BasicFareSettings, CareOptionMasterItem } from '../services/fare'
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
+import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
+import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
+import { fetchCaseRecords } from "../services/caseRecords";
+import { fetchStaffMembers, saveStaffMember } from "../services/staffMembers";
+import {
+  defaultCompanyId,
+  ensureDefaultStore,
+  fetchStores,
+} from "../services/stores";
+import { fetchVehicles, saveVehicle } from "../services/vehicles";
+import { fetchWorkingWorkSessionCount } from "../services/workSessions";
+import type { StoredCaseRecord } from "../services/caseRecords";
+import { formatFareYen } from "../services/fare";
+import type { BasicFareSettings, CareOptionMasterItem } from "../services/fare";
 import {
   defaultMeterSettings,
   fetchMeterSettings,
   fixedTimeFareUnitSeconds,
   saveMeterSettings,
-} from '../services/meterSettings'
+} from "../services/meterSettings";
 import type {
   CompanySettings,
   ExpensePreset,
   MeterSettings,
   ReceiptSettings,
-} from '../services/meterSettings'
-import type { StaffMember, Store, Vehicle } from '../types/work'
-import {
-  calculateSalesSummary,
-} from '../utils/caseRecords'
+} from "../services/meterSettings";
+import type { StaffMember, Store, Vehicle } from "../types/work";
+import { calculateSalesSummary } from "../utils/caseRecords";
 
 type AdminSummaryState = {
-  errorMessage: string
-  isLoading: boolean
-  caseRecords: StoredCaseRecord[]
-}
+  errorMessage: string;
+  isLoading: boolean;
+  caseRecords: StoredCaseRecord[];
+};
 
-type SettingsTab = 'company' | 'fare' | 'receipt' | 'staff' | 'stores' | 'vehicles'
+type AdminCenterSection =
+  | "company"
+  | "fare"
+  | "receipt"
+  | "staff"
+  | "stores"
+  | "vehicles"
+  | "analytics"
+  | "system";
 
-type SettingsSaveState = 'error' | 'idle' | 'saved' | 'saving'
+type SettingsSaveState = "error" | "idle" | "saved" | "saving";
 
-const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
-  { id: 'fare', label: '料金設定' },
-  { id: 'company', label: '会社情報' },
-  { id: 'receipt', label: '領収書設定' },
-  { id: 'stores', label: '店舗管理' },
-  { id: 'staff', label: 'スタッフ管理' },
-  { id: 'vehicles', label: '車両管理' },
-]
+const adminCenterCards: Array<{
+  description: string;
+  id: AdminCenterSection;
+  label: string;
+}> = [
+  {
+    id: "staff",
+    label: "スタッフ管理",
+    description: "スタッフの登録・編集・権限管理",
+  },
+  {
+    id: "vehicles",
+    label: "車両管理",
+    description: "車両登録および稼働管理",
+  },
+  {
+    id: "stores",
+    label: "店舗管理",
+    description: "営業所情報管理",
+  },
+  {
+    id: "company",
+    label: "会社情報",
+    description: "会社基本情報設定",
+  },
+  {
+    id: "fare",
+    label: "料金設定",
+    description: "運賃および各種料金設定",
+  },
+  {
+    id: "receipt",
+    label: "帳票設定",
+    description: "領収書および利用明細書設定",
+  },
+  {
+    id: "analytics",
+    label: "売上分析",
+    description: "売上および業務分析",
+  },
+  {
+    id: "system",
+    label: "システム設定",
+    description: "システム管理者向け設定",
+  },
+];
 
 const toPositiveNumber = (value: string, minimum = 0) =>
-  Math.max(Number(value) || minimum, minimum)
+  Math.max(Number(value) || minimum, minimum);
 
 const toNonNegativeInteger = (value: string) =>
-  Math.max(Math.floor(Number(value) || 0), 0)
+  Math.max(Math.floor(Number(value) || 0), 0);
 
 const createExpensePreset = (): ExpensePreset => ({
   defaultAmountYen: 0,
   id: `expense-${Date.now()}-${crypto.randomUUID()}`,
-  name: '',
-})
+  name: "",
+});
 
 const createAssistItem = (sortOrder: number): CareOptionMasterItem => ({
   amount: 0,
   enabled: true,
   id: `assist-${Date.now()}-${crypto.randomUUID()}`,
-  name: '新しい介助項目',
+  name: "新しい介助項目",
   sortOrder,
-})
+});
 
 export function AdminPage() {
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
-    errorMessage: '',
+    errorMessage: "",
     isLoading: true,
     caseRecords: [],
-  })
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('fare')
-  const [settings, setSettings] = useState<MeterSettings>(defaultMeterSettings)
+  });
+  const [activeAdminSection, setActiveAdminSection] =
+    useState<AdminCenterSection>("staff");
+  const [settings, setSettings] = useState<MeterSettings>(defaultMeterSettings);
   const [settingsSaveState, setSettingsSaveState] =
-    useState<SettingsSaveState>('idle')
+    useState<SettingsSaveState>("idle");
   const [settingsMessage, setSettingsMessage] = useState(
-    'Firestoreから設定を読み込み中です。',
-  )
-  const [stores, setStores] = useState<Store[]>([])
-  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
-  const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [masterMessage, setMasterMessage] = useState('店舗・スタッフ・車両情報を読み込み中です。')
+    "Firestoreから設定を読み込み中です。",
+  );
+  const [stores, setStores] = useState<Store[]>([]);
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [workingStaffCount, setWorkingStaffCount] = useState(0);
+  const [workSummaryMessage, setWorkSummaryMessage] =
+    useState("出勤状況を読み込み中です。");
+  const [masterMessage, setMasterMessage] = useState(
+    "店舗・スタッフ・車両情報を読み込み中です。",
+  );
 
   useEffect(() => {
-    let isMounted = true
+    let isMounted = true;
 
     fetchCaseRecords()
       .then((caseRecords) => {
         if (!isMounted) {
-          return
+          return;
         }
 
         setSummaryState({
-          errorMessage: '',
+          errorMessage: "",
           isLoading: false,
           caseRecords,
-        })
+        });
       })
       .catch((error) => {
         if (!isMounted) {
-          return
+          return;
         }
 
         setSummaryState({
           errorMessage:
             error instanceof Error
               ? error.message
-              : '管理画面の集計取得に失敗しました。',
+              : "管理画面の集計取得に失敗しました。",
           isLoading: false,
           caseRecords: [],
-        })
-      })
+        });
+      });
 
     return () => {
-      isMounted = false
-    }
-  }, [])
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
-    let isMounted = true
+    let isMounted = true;
 
     fetchMeterSettings()
       .then((loadedSettings) => {
         if (!isMounted) {
-          return
+          return;
         }
 
-        setSettings(loadedSettings)
-        setSettingsMessage('Firestore設定を読み込みました。')
+        setSettings(loadedSettings);
+        setSettingsMessage("Firestore設定を読み込みました。");
       })
       .catch((error) => {
         if (!isMounted) {
-          return
+          return;
         }
 
         setSettingsMessage(
           error instanceof Error
             ? `Firestore設定を読み込めませんでした。${error.message}`
-            : 'Firestore設定を読み込めませんでした。',
-        )
-        setSettingsSaveState('error')
-      })
+            : "Firestore設定を読み込めませんでした。",
+        );
+        setSettingsSaveState("error");
+      });
 
     return () => {
-      isMounted = false
-    }
-  }, [])
-
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
-    let isMounted = true
+    let isMounted = true;
 
     Promise.all([fetchStores(), fetchStaffMembers(), fetchVehicles()])
       .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
-          return
+          return;
         }
 
-        setStores(loadedStores)
-        setStaffMembers(loadedStaffMembers)
-        setVehicles(loadedVehicles)
-        setMasterMessage('店舗・スタッフ・車両情報を読み込みました。')
+        setStores(loadedStores);
+        setStaffMembers(loadedStaffMembers);
+        setVehicles(loadedVehicles);
+        setMasterMessage("店舗・スタッフ・車両情報を読み込みました。");
       })
       .catch((error) => {
         if (!isMounted) {
-          return
+          return;
         }
 
         setMasterMessage(
           error instanceof Error
             ? `店舗・スタッフ・車両情報を読み込めませんでした。${error.message}`
-            : '店舗・スタッフ・車両情報を読み込めませんでした。',
-        )
-      })
+            : "店舗・スタッフ・車両情報を読み込めませんでした。",
+        );
+      });
 
     return () => {
-      isMounted = false
-    }
-  }, [])
+      isMounted = false;
+    };
+  }, []);
 
-  const salesSummary = calculateSalesSummary(summaryState.caseRecords)
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchWorkingWorkSessionCount()
+      .then((count) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setWorkingStaffCount(count);
+        setWorkSummaryMessage("出勤状況を読み込みました。");
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setWorkingStaffCount(0);
+        setWorkSummaryMessage(
+          error instanceof Error
+            ? `出勤状況を読み込めませんでした。${error.message}`
+            : "出勤状況を読み込めませんでした。",
+        );
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const salesSummary = calculateSalesSummary(summaryState.caseRecords);
+  const activeVehicleCount = vehicles.filter(
+    (vehicle) => vehicle.enabled && vehicle.status === "稼働中",
+  ).length;
 
   const updateBasicFare = (key: keyof BasicFareSettings, value: string) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
       basicFare: {
         ...currentSettings.basicFare,
-        [key]: toPositiveNumber(
-          value,
-          key.includes('Distance') ? 0.001 : 0,
-        ),
+        [key]: toPositiveNumber(value, key.includes("Distance") ? 0.001 : 0),
       },
-    }))
-  }
+    }));
+  };
 
   const updateWaitingFare = (value: string) => {
     setSettings((currentSettings) => ({
@@ -203,8 +287,8 @@ export function AdminPage() {
         unitFareYen: toPositiveNumber(value),
         unitSeconds: fixedTimeFareUnitSeconds,
       },
-    }))
-  }
+    }));
+  };
 
   const updateEscortFare = (value: string) => {
     setSettings((currentSettings) => ({
@@ -213,12 +297,12 @@ export function AdminPage() {
         unitFareYen: toPositiveNumber(value),
         unitSeconds: fixedTimeFareUnitSeconds,
       },
-    }))
-  }
+    }));
+  };
 
   const updateAssistItem = (
     id: string,
-    key: keyof Pick<CareOptionMasterItem, 'amount' | 'enabled' | 'name'>,
+    key: keyof Pick<CareOptionMasterItem, "amount" | "enabled" | "name">,
     value: string | boolean,
   ) => {
     setSettings((currentSettings) => ({
@@ -227,12 +311,13 @@ export function AdminPage() {
         assistItem.id === id
           ? {
               ...assistItem,
-              [key]: key === 'amount' ? toNonNegativeInteger(String(value)) : value,
+              [key]:
+                key === "amount" ? toNonNegativeInteger(String(value)) : value,
             }
           : assistItem,
       ),
-    }))
-  }
+    }));
+  };
 
   const addAssistItem = () => {
     setSettings((currentSettings) => ({
@@ -241,27 +326,27 @@ export function AdminPage() {
         ...currentSettings.assistItems,
         createAssistItem(currentSettings.assistItems.length + 1),
       ],
-    }))
-  }
+    }));
+  };
 
   const disableAssistItem = (id: string) => {
-    updateAssistItem(id, 'enabled', false)
-  }
+    updateAssistItem(id, "enabled", false);
+  };
 
   const moveAssistItem = (id: string, direction: -1 | 1) => {
     setSettings((currentSettings) => {
       const items = [...currentSettings.assistItems].sort(
         (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
-      )
-      const currentIndex = items.findIndex((item) => item.id === id)
-      const nextIndex = currentIndex + direction
+      );
+      const currentIndex = items.findIndex((item) => item.id === id);
+      const nextIndex = currentIndex + direction;
 
       if (currentIndex < 0 || nextIndex < 0 || nextIndex >= items.length) {
-        return currentSettings
+        return currentSettings;
       }
 
-      const [movedItem] = items.splice(currentIndex, 1)
-      items.splice(nextIndex, 0, movedItem)
+      const [movedItem] = items.splice(currentIndex, 1);
+      items.splice(nextIndex, 0, movedItem);
 
       return {
         ...currentSettings,
@@ -269,13 +354,13 @@ export function AdminPage() {
           ...item,
           sortOrder: index + 1,
         })),
-      }
-    })
-  }
+      };
+    });
+  };
 
   const updateExpensePreset = (
     id: string,
-    key: keyof Pick<ExpensePreset, 'defaultAmountYen' | 'name'>,
+    key: keyof Pick<ExpensePreset, "defaultAmountYen" | "name">,
     value: string,
   ) => {
     setSettings((currentSettings) => ({
@@ -284,12 +369,12 @@ export function AdminPage() {
         expensePreset.id === id
           ? {
               ...expensePreset,
-              [key]: key === 'name' ? value : toPositiveNumber(value),
+              [key]: key === "name" ? value : toPositiveNumber(value),
             }
           : expensePreset,
       ),
-    }))
-  }
+    }));
+  };
 
   const addExpensePreset = () => {
     setSettings((currentSettings) => ({
@@ -298,8 +383,8 @@ export function AdminPage() {
         ...currentSettings.expensePresets,
         createExpensePreset(),
       ],
-    }))
-  }
+    }));
+  };
 
   const removeExpensePreset = (id: string) => {
     setSettings((currentSettings) => ({
@@ -307,183 +392,189 @@ export function AdminPage() {
       expensePresets: currentSettings.expensePresets.filter(
         (expensePreset) => expensePreset.id !== id,
       ),
-    }))
-  }
+    }));
+  };
 
   const updateCompany = (key: keyof CompanySettings, value: string) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
       company: { ...currentSettings.company, [key]: value },
-    }))
-  }
+    }));
+  };
 
   const updateReceipt = (key: keyof ReceiptSettings, value: string) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
       receipt: { ...currentSettings.receipt, [key]: value },
-    }))
-  }
-
+    }));
+  };
 
   const createStaffMember = (): StaffMember => {
-    const primaryStore = stores[0]
+    const primaryStore = stores[0];
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.companyId ?? defaultCompanyId,
-      storeId: primaryStore?.id ?? '',
-      storeName: primaryStore?.name ?? '',
-      userId: '',
-      password: '',
-      name: '新しいスタッフ',
-      role: 'driver',
-      phoneNumber: '',
-      email: '',
-      address: '',
-      licenseNumber: '',
-      licenseExpiresAt: '',
-      accidentHistory: '',
-      memo: '',
+      storeId: primaryStore?.id ?? "",
+      storeName: primaryStore?.name ?? "",
+      userId: "",
+      password: "",
+      name: "新しいスタッフ",
+      role: "driver",
+      phoneNumber: "",
+      email: "",
+      address: "",
+      licenseNumber: "",
+      licenseExpiresAt: "",
+      accidentHistory: "",
+      memo: "",
       enabled: true,
       sortOrder: staffMembers.length + 1,
-    }
-  }
+    };
+  };
 
   const createVehicle = (): Vehicle => {
-    const primaryStore = stores[0]
+    const primaryStore = stores[0];
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.companyId ?? defaultCompanyId,
-      storeId: primaryStore?.id ?? '',
-      storeName: primaryStore?.name ?? '',
-      name: '新しい車両',
-      number: '',
-      status: '稼働中',
-      fuelType: '',
-      vehicleType: '',
+      storeId: primaryStore?.id ?? "",
+      storeName: primaryStore?.name ?? "",
+      name: "新しい車両",
+      number: "",
+      status: "稼働中",
+      fuelType: "",
+      vehicleType: "",
       wheelchairCapacity: 0,
       stretcherSupported: false,
-      inspectionExpiresAt: '',
-      insuranceExpiresAt: '',
-      memo: '',
+      inspectionExpiresAt: "",
+      insuranceExpiresAt: "",
+      memo: "",
       enabled: true,
       sortOrder: vehicles.length + 1,
-    }
-  }
+    };
+  };
 
   const handleDefaultStoreSave = async () => {
     try {
-      const savedStore = await ensureDefaultStore()
+      const savedStore = await ensureDefaultStore();
       setStores((currentStores) => {
-        const otherStores = currentStores.filter((store) => store.id !== savedStore.id)
+        const otherStores = currentStores.filter(
+          (store) => store.id !== savedStore.id,
+        );
         return [savedStore, ...otherStores].sort((firstStore, secondStore) =>
-          firstStore.name.localeCompare(secondStore.name, 'ja'),
-        )
-      })
-      setMasterMessage('初期店舗を保存しました。')
+          firstStore.name.localeCompare(secondStore.name, "ja"),
+        );
+      });
+      setMasterMessage("初期店舗を保存しました。");
     } catch (error) {
       setMasterMessage(
         error instanceof Error
           ? `初期店舗を保存できませんでした。${error.message}`
-          : '初期店舗を保存できませんでした。',
-      )
+          : "初期店舗を保存できませんでした。",
+      );
     }
-  }
+  };
 
   const updateStaffMember = (id: string, updates: Partial<StaffMember>) => {
     setStaffMembers((currentStaffMembers) =>
       currentStaffMembers.map((staffMember) =>
         staffMember.id === id ? { ...staffMember, ...updates } : staffMember,
       ),
-    )
-  }
+    );
+  };
 
   const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
     setVehicles((currentVehicles) =>
       currentVehicles.map((vehicle) =>
         vehicle.id === id ? { ...vehicle, ...updates } : vehicle,
       ),
-    )
-  }
+    );
+  };
 
   const handleStaffSave = async () => {
-    const hasEmptyName = staffMembers.some((staffMember) => !staffMember.name.trim())
+    const hasEmptyName = staffMembers.some(
+      (staffMember) => !staffMember.name.trim(),
+    );
 
     if (hasEmptyName) {
-      setMasterMessage('スタッフ名は空欄にできません。')
-      return
+      setMasterMessage("スタッフ名は空欄にできません。");
+      return;
     }
 
     try {
-      await Promise.all(staffMembers.map(saveStaffMember))
-      setMasterMessage('スタッフ情報を保存しました。')
+      await Promise.all(staffMembers.map(saveStaffMember));
+      setMasterMessage("スタッフ情報を保存しました。");
     } catch (error) {
       setMasterMessage(
         error instanceof Error
           ? `スタッフ情報を保存できませんでした。${error.message}`
-          : 'スタッフ情報を保存できませんでした。',
-      )
+          : "スタッフ情報を保存できませんでした。",
+      );
     }
-  }
+  };
 
   const handleVehicleSave = async () => {
-    const hasEmptyName = vehicles.some((vehicle) => !vehicle.name.trim())
+    const hasEmptyName = vehicles.some((vehicle) => !vehicle.name.trim());
 
     if (hasEmptyName) {
-      setMasterMessage('車両名は空欄にできません。')
-      return
+      setMasterMessage("車両名は空欄にできません。");
+      return;
     }
 
     try {
-      await Promise.all(vehicles.map(saveVehicle))
-      setMasterMessage('車両情報を保存しました。')
+      await Promise.all(vehicles.map(saveVehicle));
+      setMasterMessage("車両情報を保存しました。");
     } catch (error) {
       setMasterMessage(
         error instanceof Error
           ? `車両情報を保存できませんでした。${error.message}`
-          : '車両情報を保存できませんでした。',
-      )
+          : "車両情報を保存できませんでした。",
+      );
     }
-  }
+  };
 
   const handleSettingsSave = async () => {
     const hasEmptyAssistItemName = settings.assistItems.some(
       (assistItem) => !assistItem.name.trim(),
-    )
+    );
 
     if (hasEmptyAssistItemName) {
-      setSettingsSaveState('error')
-      setSettingsMessage('介助項目の名称は空欄にできません。')
-      return
+      setSettingsSaveState("error");
+      setSettingsMessage("介助項目の名称は空欄にできません。");
+      return;
     }
 
-    setSettingsSaveState('saving')
-    setSettingsMessage('Firestoreへ設定を保存中です。')
+    setSettingsSaveState("saving");
+    setSettingsMessage("Firestoreへ設定を保存中です。");
 
     try {
-      const savedSettings = await saveMeterSettings(settings)
-      setSettings(savedSettings)
-      setSettingsSaveState('saved')
-      setSettingsMessage('Firestoreへ設定を保存しました。')
+      const savedSettings = await saveMeterSettings(settings);
+      setSettings(savedSettings);
+      setSettingsSaveState("saved");
+      setSettingsMessage("Firestoreへ設定を保存しました。");
     } catch (error) {
-      setSettingsSaveState('error')
+      setSettingsSaveState("error");
       setSettingsMessage(
         error instanceof Error
           ? `設定保存に失敗しました。${error.message}`
-          : '設定保存に失敗しました。',
-      )
+          : "設定保存に失敗しました。",
+      );
     }
-  }
+  };
 
   return (
     <main className="page admin-page" aria-labelledby="admin-title">
       <section className="content-card admin-card">
         <div className="case-list-header">
           <div>
-            <p className="eyebrow">Admin</p>
-            <h1 id="admin-title">管理画面</h1>
+            <p className="eyebrow">Admin Center</p>
+            <h1 id="admin-title">管理センター</h1>
           </div>
           <div className="admin-header-actions">
-            <Link className="primary-action admin-analytics-link" to="/admin/analytics">
+            <Link
+              className="primary-action admin-analytics-link"
+              to="/admin/analytics"
+            >
               売上分析
             </Link>
             <Link className="text-link" to="/">
@@ -494,7 +585,7 @@ export function AdminPage() {
 
         <p className="lead admin-lead">
           Firestoreの保存済み案件から売上状況を集計し、
-          料金・会社・領収書設定を保存します。
+          管理メニューから各業務設定を選択して編集・保存します。
         </p>
 
         {summaryState.isLoading ? (
@@ -507,7 +598,16 @@ export function AdminPage() {
           </p>
         ) : null}
 
-        <div className="admin-summary-grid" aria-label="管理集計">
+        {workSummaryMessage.includes("読み込めませんでした") ? (
+          <p className="case-error" role="alert">
+            {workSummaryMessage}
+          </p>
+        ) : null}
+
+        <div
+          className="admin-summary-grid admin-summary-grid--center"
+          aria-label="業務サマリー"
+        >
           <div>
             <span>本日売上</span>
             <strong>{formatFareYen(salesSummary.todaySalesYen)}円</strong>
@@ -517,136 +617,78 @@ export function AdminPage() {
             <strong>{salesSummary.todayCount}件</strong>
           </div>
           <div>
-            <span>今月売上</span>
-            <strong>{formatFareYen(salesSummary.thisMonthSalesYen)}円</strong>
+            <span>出勤中人数</span>
+            <strong>{workingStaffCount}人</strong>
           </div>
           <div>
-            <span>今月件数</span>
-            <strong>{salesSummary.thisMonthCount}件</strong>
-          </div>
-          <div>
-            <span>累計売上</span>
-            <strong>{formatFareYen(salesSummary.totalSalesYen)}円</strong>
-          </div>
-          <div>
-            <span>累計件数</span>
-            <strong>{salesSummary.totalCount}件</strong>
-          </div>
-          <div>
-            <span>本日平均単価</span>
-            <strong>{formatFareYen(salesSummary.todayAverageYen)}円</strong>
-          </div>
-          <div>
-            <span>今月平均単価</span>
-            <strong>{formatFareYen(salesSummary.thisMonthAverageYen)}円</strong>
-          </div>
-          <div>
-            <span>最高売上日</span>
-            {salesSummary.bestSalesDay ? (
-              <strong>
-                {salesSummary.bestSalesDay.dateLabel}
-                <small>{formatFareYen(salesSummary.bestSalesDay.salesYen)}円</small>
-              </strong>
-            ) : (
-              <strong>データなし</strong>
-            )}
+            <span>稼働車両数</span>
+            <strong>{activeVehicleCount}台</strong>
           </div>
         </div>
 
-        <div className="admin-analysis-grid" aria-label="売上分析">
-          <section>
-            <h2>支払方法別集計</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>支払方法</th>
-                  <th>件数</th>
-                  <th>売上</th>
-                </tr>
-              </thead>
-              <tbody>
-                {salesSummary.paymentMethodSummary.length > 0 ? (
-                  salesSummary.paymentMethodSummary.map((paymentSummary) => (
-                    <tr key={paymentSummary.paymentMethod}>
-                      <td>{paymentSummary.paymentMethod}</td>
-                      <td>{paymentSummary.count}件</td>
-                      <td>{formatFareYen(paymentSummary.salesYen)}円</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td>未設定</td>
-                    <td>0件</td>
-                    <td>0円</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-
-          <section>
-            <h2>月別売上</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>年月</th>
-                  <th>売上</th>
-                  <th>件数</th>
-                  <th>平均単価</th>
-                </tr>
-              </thead>
-              <tbody>
-                {salesSummary.monthlySummary.map((monthSummary) => (
-                  <tr key={monthSummary.monthLabel}>
-                    <td>{monthSummary.monthLabel}</td>
-                    <td>{formatFareYen(monthSummary.salesYen)}円</td>
-                    <td>{monthSummary.count}件</td>
-                    <td>{formatFareYen(monthSummary.averageYen)}円</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        </div>
-
-        <section className="admin-settings-card" aria-labelledby="settings-heading">
-          <div className="admin-settings-header">
-            <div>
-              <p className="eyebrow">Settings</p>
-              <h2 id="settings-heading">設定</h2>
-            </div>
-            <button
-              className="admin-save-button"
-              type="button"
-              disabled={settingsSaveState === 'saving'}
-              onClick={() => {
-                void handleSettingsSave()
-              }}
-            >
-              Firestoreへ保存
-            </button>
+        <section
+          className="admin-center-menu"
+          aria-labelledby="admin-center-menu-title"
+        >
+          <div className="admin-section-title">
+            <p className="eyebrow">Menu</p>
+            <h2 id="admin-center-menu-title">管理メニュー</h2>
           </div>
-
-          <p className={`save-note save-note--${settingsSaveState}`}>
-            {settingsMessage}
-          </p>
-
-          <div className="settings-tabs" role="tablist" aria-label="設定タブ">
-            {settingsTabs.map((tab) => (
+          <div className="admin-center-card-grid">
+            {adminCenterCards.map((card) => (
               <button
-                key={tab.id}
-                role="tab"
+                key={card.id}
                 type="button"
-                aria-selected={activeSettingsTab === tab.id}
-                className={activeSettingsTab === tab.id ? 'is-active' : undefined}
-                onClick={() => setActiveSettingsTab(tab.id)}
+                className={
+                  activeAdminSection === card.id
+                    ? "admin-center-card is-active"
+                    : "admin-center-card"
+                }
+                onClick={() => setActiveAdminSection(card.id)}
               >
-                {tab.label}
+                <span>{card.label}</span>
+                <small>{card.description}</small>
               </button>
             ))}
           </div>
+        </section>
 
-          {activeSettingsTab === 'stores' ? (
+        <section
+          className="admin-settings-card admin-center-detail"
+          aria-labelledby="settings-heading"
+        >
+          <div className="admin-settings-header">
+            <div>
+              <p className="eyebrow">Workspace</p>
+              <h2 id="settings-heading">
+                {
+                  adminCenterCards.find(
+                    (card) => card.id === activeAdminSection,
+                  )?.label
+                }
+              </h2>
+            </div>
+            {["company", "fare", "receipt"].includes(activeAdminSection) ? (
+              <button
+                className="admin-save-button"
+                type="button"
+                disabled={settingsSaveState === "saving"}
+                onClick={() => {
+                  void handleSettingsSave();
+                }}
+              >
+                Firestoreへ保存
+              </button>
+            ) : null}
+          </div>
+
+          {["company", "fare", "receipt"].includes(activeAdminSection) ? (
+            <p className={`save-note save-note--${settingsSaveState}`}>
+              {settingsMessage}
+            </p>
+          ) : null}
+
+          {activeAdminSection === "stores" ? (
             <StoreManagementPanel
               message={masterMessage}
               stores={stores}
@@ -654,29 +696,39 @@ export function AdminPage() {
             />
           ) : null}
 
-          {activeSettingsTab === 'staff' ? (
+          {activeAdminSection === "staff" ? (
             <StaffManagementPanel
               message={masterMessage}
               staffMembers={staffMembers}
               stores={stores}
-              onAdd={() => setStaffMembers((currentStaffMembers) => [...currentStaffMembers, createStaffMember()])}
+              onAdd={() =>
+                setStaffMembers((currentStaffMembers) => [
+                  ...currentStaffMembers,
+                  createStaffMember(),
+                ])
+              }
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
             />
           ) : null}
 
-          {activeSettingsTab === 'vehicles' ? (
+          {activeAdminSection === "vehicles" ? (
             <VehicleManagementPanel
               message={masterMessage}
               stores={stores}
               vehicles={vehicles}
-              onAdd={() => setVehicles((currentVehicles) => [...currentVehicles, createVehicle()])}
+              onAdd={() =>
+                setVehicles((currentVehicles) => [
+                  ...currentVehicles,
+                  createVehicle(),
+                ])
+              }
               onSave={handleVehicleSave}
               onUpdate={updateVehicle}
             />
           ) : null}
 
-          {activeSettingsTab === 'fare' ? (
+          {activeAdminSection === "fare" ? (
             <div className="admin-settings-grid">
               <fieldset>
                 <legend>料金設定</legend>
@@ -688,7 +740,7 @@ export function AdminPage() {
                     type="number"
                     value={settings.basicFare.initialDistanceKm}
                     onChange={(event) =>
-                      updateBasicFare('initialDistanceKm', event.target.value)
+                      updateBasicFare("initialDistanceKm", event.target.value)
                     }
                   />
                 </label>
@@ -699,7 +751,7 @@ export function AdminPage() {
                     type="number"
                     value={settings.basicFare.initialFareYen}
                     onChange={(event) =>
-                      updateBasicFare('initialFareYen', event.target.value)
+                      updateBasicFare("initialFareYen", event.target.value)
                     }
                   />
                 </label>
@@ -711,7 +763,10 @@ export function AdminPage() {
                     type="number"
                     value={settings.basicFare.additionalDistanceKm}
                     onChange={(event) =>
-                      updateBasicFare('additionalDistanceKm', event.target.value)
+                      updateBasicFare(
+                        "additionalDistanceKm",
+                        event.target.value,
+                      )
                     }
                   />
                 </label>
@@ -722,7 +777,7 @@ export function AdminPage() {
                     type="number"
                     value={settings.basicFare.additionalFareYen}
                     onChange={(event) =>
-                      updateBasicFare('additionalFareYen', event.target.value)
+                      updateBasicFare("additionalFareYen", event.target.value)
                     }
                   />
                 </label>
@@ -780,7 +835,7 @@ export function AdminPage() {
                             onChange={(event) =>
                               updateAssistItem(
                                 assistItem.id,
-                                'name',
+                                "name",
                                 event.target.value,
                               )
                             }
@@ -796,7 +851,7 @@ export function AdminPage() {
                             onChange={(event) =>
                               updateAssistItem(
                                 assistItem.id,
-                                'amount',
+                                "amount",
                                 event.target.value,
                               )
                             }
@@ -810,7 +865,7 @@ export function AdminPage() {
                             onChange={(event) =>
                               updateAssistItem(
                                 assistItem.id,
-                                'enabled',
+                                "enabled",
                                 event.target.checked,
                               )
                             }
@@ -861,7 +916,7 @@ export function AdminPage() {
                           onChange={(event) =>
                             updateExpensePreset(
                               expensePreset.id,
-                              'name',
+                              "name",
                               event.target.value,
                             )
                           }
@@ -876,7 +931,7 @@ export function AdminPage() {
                           onChange={(event) =>
                             updateExpensePreset(
                               expensePreset.id,
-                              'defaultAmountYen',
+                              "defaultAmountYen",
                               event.target.value,
                             )
                           }
@@ -898,7 +953,7 @@ export function AdminPage() {
             </div>
           ) : null}
 
-          {activeSettingsTab === 'company' ? (
+          {activeAdminSection === "company" ? (
             <div className="admin-settings-grid">
               <fieldset className="admin-settings-wide">
                 <legend>会社情報</legend>
@@ -907,7 +962,7 @@ export function AdminPage() {
                   <input
                     value={settings.company.companyName}
                     onChange={(event) =>
-                      updateCompany('companyName', event.target.value)
+                      updateCompany("companyName", event.target.value)
                     }
                   />
                 </label>
@@ -916,7 +971,7 @@ export function AdminPage() {
                   <input
                     value={settings.company.phoneNumber}
                     onChange={(event) =>
-                      updateCompany('phoneNumber', event.target.value)
+                      updateCompany("phoneNumber", event.target.value)
                     }
                   />
                 </label>
@@ -925,30 +980,34 @@ export function AdminPage() {
                   <input
                     type="email"
                     value={settings.company.email}
-                    onChange={(event) => updateCompany('email', event.target.value)}
+                    onChange={(event) =>
+                      updateCompany("email", event.target.value)
+                    }
                   />
                 </label>
                 <label>
                   住所
                   <textarea
                     value={settings.company.address}
-                    onChange={(event) => updateCompany('address', event.target.value)}
+                    onChange={(event) =>
+                      updateCompany("address", event.target.value)
+                    }
                   />
                 </label>
               </fieldset>
             </div>
           ) : null}
 
-          {activeSettingsTab === 'receipt' ? (
+          {activeAdminSection === "receipt" ? (
             <div className="admin-settings-grid">
               <fieldset className="admin-settings-wide">
-                <legend>領収書設定</legend>
+                <legend>帳票設定</legend>
                 <label>
                   発行担当者
                   <input
                     value={settings.receipt.issuerName}
                     onChange={(event) =>
-                      updateReceipt('issuerName', event.target.value)
+                      updateReceipt("issuerName", event.target.value)
                     }
                   />
                 </label>
@@ -957,7 +1016,7 @@ export function AdminPage() {
                   <input
                     value={settings.receipt.receiptDefault}
                     onChange={(event) =>
-                      updateReceipt('receiptDefault', event.target.value)
+                      updateReceipt("receiptDefault", event.target.value)
                     }
                   />
                 </label>
@@ -966,7 +1025,7 @@ export function AdminPage() {
                   <input
                     value={settings.receipt.statementDefault}
                     onChange={(event) =>
-                      updateReceipt('statementDefault', event.target.value)
+                      updateReceipt("statementDefault", event.target.value)
                     }
                   />
                 </label>
@@ -976,7 +1035,7 @@ export function AdminPage() {
                     placeholder="T1234567890123"
                     value={settings.receipt.invoiceNumber}
                     onChange={(event) =>
-                      updateReceipt('invoiceNumber', event.target.value)
+                      updateReceipt("invoiceNumber", event.target.value)
                     }
                   />
                 </label>
@@ -985,7 +1044,7 @@ export function AdminPage() {
                   <textarea
                     value={settings.receipt.defaultReceiptNote}
                     onChange={(event) =>
-                      updateReceipt('defaultReceiptNote', event.target.value)
+                      updateReceipt("defaultReceiptNote", event.target.value)
                     }
                   />
                 </label>
@@ -995,6 +1054,101 @@ export function AdminPage() {
               </fieldset>
             </div>
           ) : null}
+
+          {activeAdminSection === "analytics" ? (
+            <div className="admin-center-analytics-panel">
+              <div className="admin-analysis-grid" aria-label="売上分析">
+                <section>
+                  <h2>支払方法別集計</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>支払方法</th>
+                        <th>件数</th>
+                        <th>売上</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {salesSummary.paymentMethodSummary.length > 0 ? (
+                        salesSummary.paymentMethodSummary.map(
+                          (paymentSummary) => (
+                            <tr key={paymentSummary.paymentMethod}>
+                              <td>{paymentSummary.paymentMethod}</td>
+                              <td>{paymentSummary.count}件</td>
+                              <td>
+                                {formatFareYen(paymentSummary.salesYen)}円
+                              </td>
+                            </tr>
+                          ),
+                        )
+                      ) : (
+                        <tr>
+                          <td>未設定</td>
+                          <td>0件</td>
+                          <td>0円</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </section>
+
+                <section>
+                  <h2>月別売上</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>年月</th>
+                        <th>売上</th>
+                        <th>件数</th>
+                        <th>平均単価</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {salesSummary.monthlySummary.map((monthSummary) => (
+                        <tr key={monthSummary.monthLabel}>
+                          <td>{monthSummary.monthLabel}</td>
+                          <td>{formatFareYen(monthSummary.salesYen)}円</td>
+                          <td>{monthSummary.count}件</td>
+                          <td>{formatFareYen(monthSummary.averageYen)}円</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              </div>
+              <Link
+                className="primary-action admin-detail-action"
+                to="/admin/analytics"
+              >
+                詳細な売上分析を開く
+              </Link>
+            </div>
+          ) : null}
+
+          {activeAdminSection === "system" ? (
+            <div className="admin-system-panel">
+              <section>
+                <h3>データバックアップ</h3>
+                <p>
+                  Phase1では既存データ構造を維持し、バックアップ機能の新規実装は行いません。
+                </p>
+              </section>
+              <section>
+                <h3>バージョン情報</h3>
+                <p>管理センター Phase1</p>
+              </section>
+              <section>
+                <h3>権限管理</h3>
+                <p>スタッフ管理の role 設定を引き続き利用します。</p>
+              </section>
+              <section>
+                <h3>システム設定</h3>
+                <p>
+                  既存機能を保持したまま、今後の管理者向け設定の入口として利用します。
+                </p>
+              </section>
+            </div>
+          ) : null}
         </section>
 
         <Link className="text-link" to="/cases">
@@ -1002,5 +1156,5 @@ export function AdminPage() {
         </Link>
       </section>
     </main>
-  )
+  );
 }
