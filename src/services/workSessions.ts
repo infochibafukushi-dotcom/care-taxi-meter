@@ -1,9 +1,13 @@
 import {
+  collection,
   doc,
+  getDocs,
   getFirestore,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, Store, WorkSession } from '../types/work'
@@ -16,6 +20,19 @@ const createWorkSessionId = () => `work-${Date.now()}-${crypto.randomUUID()}`
 function getWorkSessionRef(workSessionId: string) {
   const db = getFirestore(getFirebaseApp())
   return doc(db, workSessionsCollectionName, workSessionId)
+}
+
+function getWorkSessionsCollection() {
+  const db = getFirestore(getFirebaseApp())
+  return collection(db, workSessionsCollectionName)
+}
+
+export async function fetchWorkingWorkSessionCount() {
+  const snapshots = await getDocs(
+    query(getWorkSessionsCollection(), where('status', '==', 'working')),
+  )
+
+  return snapshots.size
 }
 
 export async function clockInWorkSession({
