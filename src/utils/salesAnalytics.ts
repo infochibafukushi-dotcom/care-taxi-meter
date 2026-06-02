@@ -36,6 +36,39 @@ export type TopCaseAnalyticsItem = {
   salesYen: number
 }
 
+export type AreaDirectionalAnalyticsItem = {
+  areaName: string
+  averageDistanceKm: number
+  averageYen: number
+  count: number
+  distanceKm: number
+  salesYen: number
+}
+
+export type AreaAnalyticsItem = {
+  areaName: string
+  averageDistanceKm: number
+  averageYen: number
+  distanceKm: number
+  dropoffCount: number
+  pickupCount: number
+  salesYen: number
+}
+
+export type DistanceRangeAnalyticsItem = {
+  count: number
+  label: string
+  percent: number
+  salesYen: number
+}
+
+export type DistanceAnalyticsSummary = {
+  averageDistanceKm: number
+  maxDistanceKm: number
+  minDistanceKm: number
+  totalDistanceKm: number
+}
+
 export type AnalyticsCsvRow = {
   basicFareYen: number
   careOptionFareYen: number
@@ -50,17 +83,37 @@ export type AnalyticsCsvRow = {
   waitingFareYen: number
 }
 
+export type StaffAnalyticsItem = {
+  activeDayCount: number
+  averageYen: number
+  count: number
+  distanceKm: number
+  drivingSeconds: number
+  staffId: string
+  staffName: string
+  salesYen: number
+}
+
 export type SalesAnalyticsSummary = {
   activeDayCount: number
+  areaSummary: AreaAnalyticsItem[]
   assistItemSummary: AnalyticsBreakdownItem[]
+  averageDistanceKm: number
   averageYen: number
   csvRows: AnalyticsCsvRow[]
+  distanceRangeSummary: DistanceRangeAnalyticsItem[]
+  distanceSummary: DistanceAnalyticsSummary
+  dropoffAreaCountTop: AreaDirectionalAnalyticsItem[]
+  dropoffAreaSalesTop: AreaDirectionalAnalyticsItem[]
   expenseSummary: AnalyticsBreakdownItem[]
   filteredCount: number
   monthlySummary: MonthlyAnalyticsItem[]
   paymentMethodSummary: PaymentAnalyticsItem[]
+  pickupAreaCountTop: AreaDirectionalAnalyticsItem[]
+  pickupAreaSalesTop: AreaDirectionalAnalyticsItem[]
   revenueBreakdown: AnalyticsBreakdownItem[]
   salesComposition: AnalyticsBreakdownItem[]
+  staffSummary: StaffAnalyticsItem[]
   topCases: TopCaseAnalyticsItem[]
   totalCount: number
   totalDistanceKm: number
@@ -84,6 +137,8 @@ const monthInputFormatter = new Intl.DateTimeFormat('sv-SE', {
 
 const toFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0
+
+const staffUnknownId = '__staff_unknown__'
 
 const toPaymentMethodLabel = (paymentMethod: unknown) =>
   typeof paymentMethod === 'string' && paymentMethod.trim()
@@ -112,6 +167,39 @@ const toMonthKey = (closedAt: string) => {
 }
 
 const toMonthLabel = (monthKey: string) => monthKey.replace('-', '/')
+
+const toStaffName = (caseRecord: StoredCaseRecord) =>
+  caseRecord.staffName.trim() || 'スタッフ未設定'
+
+export const toStaffAnalyticsId = (caseRecord: StoredCaseRecord) =>
+  caseRecord.staffId.trim() ||
+  (caseRecord.staffName.trim()
+    ? `staff-name:${caseRecord.staffName.trim()}`
+    : staffUnknownId)
+
+const japanesePrefectures =
+  '北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県'
+
+const extractAreaName = (address: string) => {
+  const normalizedAddress = address
+    .replace(/〒?\d{3}-?\d{4}/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+
+  if (!normalizedAddress) {
+    return '住所未設定'
+  }
+
+  const prefectureMatch = new RegExp(`^(${japanesePrefectures})(.+?[市区町村])?`).exec(
+    normalizedAddress,
+  )
+  if (prefectureMatch) {
+    return `${prefectureMatch[1]}${prefectureMatch[2] ?? ''}`
+  }
+
+  const municipalityMatch = /^(.+?[市区町村])/.exec(normalizedAddress)
+  return municipalityMatch?.[1] ?? normalizedAddress.slice(0, 12)
+}
 
 const parseMonthValue = (monthValue: string) => {
   const match = /^(\d{4})-(\d{2})$/.exec(monthValue)
@@ -182,6 +270,211 @@ function toBreakdownItem(label: string, salesYen: number, totalSalesYen: number)
   }
 }
 
+function calculateStaffSummary(
+  caseRecords: StoredCaseRecord[],
+): StaffAnalyticsItem[] {
+  const staffMap = new Map<
+    string,
+    {
+      activeDayKeys: Set<string>
+      count: number
+      distanceKm: number
+      drivingSeconds: number
+      staffId: string
+      staffName: string
+      salesYen: number
+    }
+  >()
+
+  caseRecords.forEach((caseRecord) => {
+    const staffId = toStaffAnalyticsId(caseRecord)
+    const current = staffMap.get(staffId) ?? {
+      activeDayKeys: new Set<string>(),
+      count: 0,
+      distanceKm: 0,
+      drivingSeconds: 0,
+      staffId,
+      staffName: toStaffName(caseRecord),
+      salesYen: 0,
+    }
+    const dateLabel = toDateLabel(caseRecord.closedAt)
+
+    if (dateLabel !== '日付未設定') {
+      current.activeDayKeys.add(dateLabel)
+    }
+
+    current.count += 1
+    current.distanceKm += toFiniteNumber(caseRecord.distanceKm)
+    current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
+    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    staffMap.set(staffId, current)
+  })
+
+  return Array.from(staffMap.values())
+    .map((staffSummary) => ({
+      activeDayCount: staffSummary.activeDayKeys.size,
+      averageYen: toAverageYen(staffSummary.salesYen, staffSummary.count),
+      count: staffSummary.count,
+      distanceKm: staffSummary.distanceKm,
+      drivingSeconds: staffSummary.drivingSeconds,
+      staffId: staffSummary.staffId,
+      staffName: staffSummary.staffName,
+      salesYen: staffSummary.salesYen,
+    }))
+    .sort((firstStaff, secondStaff) =>
+      secondStaff.salesYen - firstStaff.salesYen ||
+      firstStaff.staffName.localeCompare(secondStaff.staffName, 'ja'),
+    )
+}
+
+
+const distanceRanges = [
+  { label: '5km未満', minKm: 0, maxKm: 5 },
+  { label: '5km〜10km', minKm: 5, maxKm: 10 },
+  { label: '10km〜20km', minKm: 10, maxKm: 20 },
+  { label: '20km以上', minKm: 20, maxKm: Number.POSITIVE_INFINITY },
+]
+
+function addDirectionalArea(
+  map: Map<string, { count: number; distanceKm: number; salesYen: number }>,
+  areaName: string,
+  salesYen: number,
+  distanceKm: number,
+) {
+  const current = map.get(areaName) ?? { count: 0, distanceKm: 0, salesYen: 0 }
+  map.set(areaName, {
+    count: current.count + 1,
+    distanceKm: current.distanceKm + distanceKm,
+    salesYen: current.salesYen + salesYen,
+  })
+}
+
+function toDirectionalAreaItems(
+  map: Map<string, { count: number; distanceKm: number; salesYen: number }>,
+) {
+  return Array.from(map, ([areaName, item]) => ({
+    areaName,
+    averageDistanceKm: item.count > 0 ? item.distanceKm / item.count : 0,
+    averageYen: toAverageYen(item.salesYen, item.count),
+    count: item.count,
+    distanceKm: item.distanceKm,
+    salesYen: item.salesYen,
+  }))
+}
+
+function calculateAreaAnalytics(caseRecords: StoredCaseRecord[]) {
+  const pickupMap = new Map<string, { count: number; distanceKm: number; salesYen: number }>()
+  const dropoffMap = new Map<string, { count: number; distanceKm: number; salesYen: number }>()
+  const areaMap = new Map<
+    string,
+    {
+      associatedCaseIds: Set<string>
+      distanceKm: number
+      dropoffCount: number
+      pickupCount: number
+      salesYen: number
+    }
+  >()
+
+  caseRecords.forEach((caseRecord) => {
+    const pickupArea = extractAreaName(caseRecord.pickupAddress)
+    const dropoffArea = extractAreaName(caseRecord.dropoffAddress)
+    const salesYen = toFiniteNumber(caseRecord.totalFareYen)
+    const distanceKm = toFiniteNumber(caseRecord.distanceKm)
+
+    addDirectionalArea(pickupMap, pickupArea, salesYen, distanceKm)
+    addDirectionalArea(dropoffMap, dropoffArea, salesYen, distanceKm)
+
+    const touchedAreas = new Set([pickupArea, dropoffArea])
+    touchedAreas.forEach((areaName) => {
+      const current = areaMap.get(areaName) ?? {
+        associatedCaseIds: new Set<string>(),
+        distanceKm: 0,
+        dropoffCount: 0,
+        pickupCount: 0,
+        salesYen: 0,
+      }
+
+      current.associatedCaseIds.add(caseRecord.id)
+      current.distanceKm += distanceKm
+      current.salesYen += salesYen
+      if (areaName === pickupArea) {
+        current.pickupCount += 1
+      }
+      if (areaName === dropoffArea) {
+        current.dropoffCount += 1
+      }
+      areaMap.set(areaName, current)
+    })
+  })
+
+  const areaSummary = Array.from(areaMap, ([areaName, item]) => {
+    const associatedCount = item.associatedCaseIds.size
+
+    return {
+      areaName,
+      averageDistanceKm: associatedCount > 0 ? item.distanceKm / associatedCount : 0,
+      averageYen: toAverageYen(item.salesYen, associatedCount),
+      distanceKm: item.distanceKm,
+      dropoffCount: item.dropoffCount,
+      pickupCount: item.pickupCount,
+      salesYen: item.salesYen,
+    }
+  }).sort((firstArea, secondArea) => secondArea.salesYen - firstArea.salesYen)
+
+  const pickupAreaItems = toDirectionalAreaItems(pickupMap)
+  const dropoffAreaItems = toDirectionalAreaItems(dropoffMap)
+
+  return {
+    areaSummary,
+    dropoffAreaCountTop: [...dropoffAreaItems]
+      .sort((firstArea, secondArea) => secondArea.count - firstArea.count)
+      .slice(0, 10),
+    dropoffAreaSalesTop: [...dropoffAreaItems]
+      .sort((firstArea, secondArea) => secondArea.salesYen - firstArea.salesYen)
+      .slice(0, 10),
+    pickupAreaCountTop: [...pickupAreaItems]
+      .sort((firstArea, secondArea) => secondArea.count - firstArea.count)
+      .slice(0, 10),
+    pickupAreaSalesTop: [...pickupAreaItems]
+      .sort((firstArea, secondArea) => secondArea.salesYen - firstArea.salesYen)
+      .slice(0, 10),
+  }
+}
+
+function calculateDistanceRangeSummary(caseRecords: StoredCaseRecord[]) {
+  const totalCount = caseRecords.length
+
+  return distanceRanges.map((range) => {
+    const rangeRecords = caseRecords.filter((caseRecord) => {
+      const distanceKm = toFiniteNumber(caseRecord.distanceKm)
+      return distanceKm >= range.minKm && distanceKm < range.maxKm
+    })
+
+    return {
+      count: rangeRecords.length,
+      label: range.label,
+      percent: toPercent(rangeRecords.length, totalCount),
+      salesYen: rangeRecords.reduce(
+        (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+        0,
+      ),
+    }
+  })
+}
+
+function calculateDistanceSummary(caseRecords: StoredCaseRecord[]): DistanceAnalyticsSummary {
+  const distances = caseRecords.map((caseRecord) => toFiniteNumber(caseRecord.distanceKm))
+  const totalDistanceKm = distances.reduce((total, distanceKm) => total + distanceKm, 0)
+
+  return {
+    averageDistanceKm: distances.length > 0 ? totalDistanceKm / distances.length : 0,
+    maxDistanceKm: distances.length > 0 ? Math.max(...distances) : 0,
+    minDistanceKm: distances.length > 0 ? Math.min(...distances) : 0,
+    totalDistanceKm,
+  }
+}
+
 export function getDefaultAnalyticsPeriod(date = new Date()): AnalyticsPeriod {
   const currentMonth = monthInputFormatter.format(date)
   const year = currentMonth.slice(0, 4)
@@ -203,6 +496,7 @@ export function formatAnalyticsDuration(totalSeconds: number) {
 export function calculateSalesAnalyticsSummary(
   caseRecords: StoredCaseRecord[],
   period: AnalyticsPeriod,
+  staffId = 'all',
 ): SalesAnalyticsSummary {
   const sortedPeriod = getSortedPeriod(period)
   const startIso = createJapanStartOfMonthIso(sortedPeriod.startMonth)
@@ -219,10 +513,17 @@ export function calculateSalesAnalyticsSummary(
       },
     ]),
   )
-  const filteredRecords = caseRecords.filter((caseRecord) => {
+  const periodRecords = caseRecords.filter((caseRecord) => {
     const closedDate = toValidDate(caseRecord.closedAt)
     return closedDate && caseRecord.closedAt >= startIso && caseRecord.closedAt < endIso
   })
+  const staffSummary = calculateStaffSummary(periodRecords)
+  const filteredRecords = staffId === 'all'
+    ? periodRecords
+    : periodRecords.filter((caseRecord) => toStaffAnalyticsId(caseRecord) === staffId)
+  const areaAnalytics = calculateAreaAnalytics(filteredRecords)
+  const distanceRangeSummary = calculateDistanceRangeSummary(filteredRecords)
+  const distanceSummary = calculateDistanceSummary(filteredRecords)
   const totalSalesYen = filteredRecords.reduce(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
     0,
@@ -311,12 +612,14 @@ export function calculateSalesAnalyticsSummary(
 
   return {
     activeDayCount: activeDayKeys.size,
+    areaSummary: areaAnalytics.areaSummary,
     assistItemSummary: Array.from(assistItemMap, ([label, item]) => ({
       count: item.count,
       label,
       percent: toPercent(item.salesYen, totalSalesYen),
       salesYen: item.salesYen,
     })).sort((firstItem, secondItem) => secondItem.salesYen - firstItem.salesYen),
+    averageDistanceKm: distanceSummary.averageDistanceKm,
     averageYen: toAverageYen(totalSalesYen, filteredRecords.length),
     csvRows: filteredRecords.map((caseRecord) => ({
       basicFareYen: toFiniteNumber(caseRecord.basicFareYen),
@@ -331,6 +634,10 @@ export function calculateSalesAnalyticsSummary(
       totalFareYen: toFiniteNumber(caseRecord.totalFareYen),
       waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
     })),
+    distanceRangeSummary,
+    distanceSummary,
+    dropoffAreaCountTop: areaAnalytics.dropoffAreaCountTop,
+    dropoffAreaSalesTop: areaAnalytics.dropoffAreaSalesTop,
     expenseSummary: Array.from(expenseMap, ([label, item]) => ({
       count: item.count,
       label,
@@ -363,8 +670,11 @@ export function calculateSalesAnalyticsSummary(
       salesPercent: toPercent(item.salesYen, totalSalesYen),
       salesYen: item.salesYen,
     })).sort((firstItem, secondItem) => secondItem.salesYen - firstItem.salesYen),
+    pickupAreaCountTop: areaAnalytics.pickupAreaCountTop,
+    pickupAreaSalesTop: areaAnalytics.pickupAreaSalesTop,
     revenueBreakdown,
     salesComposition: revenueBreakdown,
+    staffSummary,
     topCases: [...filteredRecords]
       .sort((firstRecord, secondRecord) => {
         const salesDifference =
