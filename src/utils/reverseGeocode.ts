@@ -937,3 +937,19 @@ export async function captureCurrentAddressLocation() {
     longitude,
   })
 }
+
+export async function captureCurrentAddressLocation() {
+  const location = await getCurrentPositionOnce()
+  const { latitude, longitude } = location
+
+  if (latitude === null || longitude === null) {
+    logReverseGeocodeWarning('Reverse geocoding skipped because latitude/longitude is empty.', location)
+    return location
+  }
+
+  return captureAddressLocationFromCoordinates({
+    capturedAt: location.capturedAt,
+    latitude,
+    longitude,
+  })
+}
