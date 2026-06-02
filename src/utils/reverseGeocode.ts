@@ -5,6 +5,29 @@ export type CapturedAddressLocation = {
   longitude: number | null
 }
 
+
+export type ReverseGeocodeDiagnosticState = {
+  address: string
+  emptyAddressReason: string
+  errorMessage: string
+  formattedAddress: string
+  geocodeCalled: boolean
+  geocoderState: '未確認' | '生成中' | '生成成功' | '生成失敗'
+  geocodingExecutionState: '未実行' | '実行中' | '成功' | '失敗' | '0件' | '住所空'
+  googleMapsApiLoadState: '未確認' | 'ロード中' | '成功' | '失敗'
+  googleResponseJson: string
+  lastUpdatedAt: string | null
+  latitude: number | null
+  longitude: number | null
+  responseCount: number | null
+  reverseGeocodeCalled: boolean
+  selectedFormattedAddress: string
+}
+
+type ReverseGeocodeDiagnosticListener = (
+  state: ReverseGeocodeDiagnosticState,
+) => void
+
 type GoogleAddressComponent = {
   long_name?: unknown
   short_name?: unknown
@@ -87,6 +110,56 @@ let googleGeocodingRequestQueue: Promise<void> = Promise.resolve()
 let googleMapsScriptPromise: Promise<void> | null = null
 let googleGeocoderPromise: Promise<GoogleMapsGeocoder> | null = null
 
+
+const initialReverseGeocodeDiagnosticState: ReverseGeocodeDiagnosticState = {
+  address: '',
+  emptyAddressReason: '',
+  errorMessage: '',
+  formattedAddress: '',
+  geocodeCalled: false,
+  geocoderState: '未確認',
+  geocodingExecutionState: '未実行',
+  googleMapsApiLoadState: '未確認',
+  googleResponseJson: '',
+  lastUpdatedAt: null,
+  latitude: null,
+  longitude: null,
+  responseCount: null,
+  reverseGeocodeCalled: false,
+  selectedFormattedAddress: '',
+}
+
+let reverseGeocodeDiagnosticState = initialReverseGeocodeDiagnosticState
+const reverseGeocodeDiagnosticListeners = new Set<ReverseGeocodeDiagnosticListener>()
+
+export function getReverseGeocodeDiagnosticState() {
+  return reverseGeocodeDiagnosticState
+}
+
+export function subscribeReverseGeocodeDiagnostic(
+  listener: ReverseGeocodeDiagnosticListener,
+) {
+  reverseGeocodeDiagnosticListeners.add(listener)
+  listener(reverseGeocodeDiagnosticState)
+
+  return () => {
+    reverseGeocodeDiagnosticListeners.delete(listener)
+  }
+}
+
+function updateReverseGeocodeDiagnostic(
+  nextState: Partial<ReverseGeocodeDiagnosticState>,
+) {
+  reverseGeocodeDiagnosticState = {
+    ...reverseGeocodeDiagnosticState,
+    ...nextState,
+    lastUpdatedAt: new Date().toISOString(),
+  }
+  reverseGeocodeDiagnosticListeners.forEach((listener) => {
+    listener(reverseGeocodeDiagnosticState)
+  })
+}
+
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 
@@ -104,6 +177,14 @@ const logReverseGeocodeError = (message: string, details?: unknown) => {
 
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
+
+const toDiagnosticJson = (value: unknown) => {
+  try {
+    return JSON.stringify(value, null, 2).slice(0, 3000)
+  } catch {
+    return String(value)
+  }
+}
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -338,6 +419,7 @@ function formatCapturedAddress(
 
 function loadGoogleMapsScript(apiKey: string) {
   if (hasGoogleMapsImportLibrary()) {
+    updateReverseGeocodeDiagnostic({ googleMapsApiLoadState: '成功' })
     logReverseGeocodeInfo('Google Maps JavaScript API is already loaded.')
     return Promise.resolve()
   }
@@ -347,6 +429,7 @@ function loadGoogleMapsScript(apiKey: string) {
     return googleMapsScriptPromise
   }
 
+  updateReverseGeocodeDiagnostic({ googleMapsApiLoadState: 'ロード中' })
   logReverseGeocodeInfo('Google Maps JavaScript API load started.', {
     hasApiKey: Boolean(apiKey),
     scriptId: GOOGLE_MAPS_SCRIPT_ID,
@@ -366,6 +449,7 @@ function loadGoogleMapsScript(apiKey: string) {
     }
 
     const resolveLoad = (source: string) => {
+      updateReverseGeocodeDiagnostic({ googleMapsApiLoadState: '成功' })
       logReverseGeocodeInfo('Google Maps JavaScript API load succeeded.', {
         hasImportLibrary: hasGoogleMapsImportLibrary(),
         source,
@@ -375,6 +459,10 @@ function loadGoogleMapsScript(apiKey: string) {
     }
 
     const rejectLoad = (error: Error) => {
+      updateReverseGeocodeDiagnostic({
+        errorMessage: error.message,
+        googleMapsApiLoadState: '失敗',
+      })
       logReverseGeocodeError('Google Maps JavaScript API load failed.', {
         hasImportLibrary: hasGoogleMapsImportLibrary(),
         message: error.message,
@@ -436,6 +524,8 @@ async function getGoogleGeocoder(apiKey: string) {
     return googleGeocoderPromise
   }
 
+  updateReverseGeocodeDiagnostic({ geocoderState: '生成中' })
+
   googleGeocoderPromise = (async () => {
     await loadGoogleMapsScript(apiKey)
 
@@ -452,11 +542,20 @@ async function getGoogleGeocoder(apiKey: string) {
     })
 
     if (!Geocoder) {
+      updateReverseGeocodeDiagnostic({
+        errorMessage: 'Google Maps Geocoder is unavailable',
+        geocoderState: '生成失敗',
+      })
       throw new Error('Google Maps Geocoder is unavailable')
     }
 
+    updateReverseGeocodeDiagnostic({ geocoderState: '生成成功' })
     return new Geocoder()
   })().catch((error: unknown) => {
+    updateReverseGeocodeDiagnostic({
+      errorMessage: toErrorMessage(error),
+      geocoderState: '生成失敗',
+    })
     googleGeocoderPromise = null
     throw error
   })
@@ -528,6 +627,21 @@ function getCurrentPositionOnce() {
 async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
 
+  updateReverseGeocodeDiagnostic({
+    address: '',
+    emptyAddressReason: '',
+    errorMessage: '',
+    formattedAddress: '',
+    geocodeCalled: false,
+    geocodingExecutionState: '未実行',
+    latitude,
+    longitude,
+    googleResponseJson: '',
+    responseCount: null,
+    reverseGeocodeCalled: true,
+    selectedFormattedAddress: '',
+  })
+
   logReverseGeocodeInfo('reverseGeocodeWithGoogle called.', {
     hasApiKey: Boolean(apiKey),
     latitude,
@@ -535,6 +649,11 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
   })
 
   if (!apiKey) {
+    updateReverseGeocodeDiagnostic({
+      emptyAddressReason: 'reverseGeocodeWithGoogle(): APIキー未設定のため空文字を返却',
+      errorMessage: 'VITE_GOOGLE_MAPS_API_KEY is not set.',
+      geocodingExecutionState: '失敗',
+    })
     logReverseGeocodeWarning(
       'VITE_GOOGLE_MAPS_API_KEY is not set. Reverse geocoding will be skipped.',
     )
@@ -554,20 +673,38 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
         region: JAPAN_COUNTRY_CODE,
       }
 
+      updateReverseGeocodeDiagnostic({
+        geocodeCalled: true,
+        geocodingExecutionState: '実行中',
+      })
       logReverseGeocodeInfo('Google Geocoding request started.', request)
 
       const data = await geocoder.geocode(request)
       const results = toGeocodeResults(data.results)
       const addressResult = selectBestAddressResult(results)
 
+      const selectedFormattedAddress = toStringValue(addressResult?.formatted_address)
+
+      updateReverseGeocodeDiagnostic({
+        formattedAddress: selectedFormattedAddress,
+        googleResponseJson: toDiagnosticJson(data),
+        responseCount: results.length,
+        selectedFormattedAddress,
+      })
+
       logReverseGeocodeInfo('Google Geocoding response received.', {
         hasAddressDescriptor: Boolean(data.address_descriptor),
         resultCount: results.length,
-        selectedFormattedAddress: toStringValue(addressResult?.formatted_address),
+        selectedFormattedAddress,
         selectedTypes: toStringArray(addressResult?.types),
       })
 
       if (!addressResult) {
+        updateReverseGeocodeDiagnostic({
+          emptyAddressReason: 'reverseGeocodeWithGoogle(): Googleレスポンス0件のため空文字を返却',
+          errorMessage: 'Google Geocoding returned no address results.',
+          geocodingExecutionState: '0件',
+        })
         logReverseGeocodeWarning('Google Geocoding returned no address results.', data)
         return ''
       }
@@ -579,6 +716,11 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
       )
 
       if (!address) {
+        updateReverseGeocodeDiagnostic({
+          emptyAddressReason: 'reverseGeocodeWithGoogle(): formatCapturedAddress() が空文字を返却',
+          errorMessage: 'Google Geocoding result formatting produced an empty address.',
+          geocodingExecutionState: '住所空',
+        })
         logReverseGeocodeWarning('Google Geocoding result formatting produced an empty address.', {
           formattedAddress: addressResult.formatted_address,
           resultTypes: addressResult.types,
@@ -586,12 +728,23 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
         return ''
       }
 
+      updateReverseGeocodeDiagnostic({
+        address,
+        emptyAddressReason: '',
+        geocodingExecutionState: '成功',
+      })
+
       logReverseGeocodeInfo('Address formatted from Google Geocoding response.', {
         address,
       })
 
       return address
     } catch (error) {
+      updateReverseGeocodeDiagnostic({
+        emptyAddressReason: 'reverseGeocodeWithGoogle(): Geocoding例外発生のため住所未取得',
+        errorMessage: toErrorMessage(error),
+        geocodingExecutionState: '失敗',
+      })
       logReverseGeocodeError('Google Geocoding failed.', {
         message: toErrorMessage(error),
         rawError: error,
@@ -636,6 +789,11 @@ export async function captureAddressLocationFromCoordinates({
     })
 
     if (!address) {
+      updateReverseGeocodeDiagnostic({
+        emptyAddressReason:
+          reverseGeocodeDiagnosticState.emptyAddressReason ||
+          'captureAddressLocationFromCoordinates(): 逆ジオコーディング結果が空文字',
+      })
       logReverseGeocodeWarning('Address capture completed with an empty address.', capturedLocation)
     }
 
@@ -647,6 +805,12 @@ export async function captureAddressLocationFromCoordinates({
     })
     return location
   }
+
+  return captureAddressLocationFromCoordinates({
+    capturedAt: location.capturedAt,
+    latitude: location.latitude,
+    longitude: location.longitude,
+  })
 }
 
 export async function captureCurrentAddressLocation() {
