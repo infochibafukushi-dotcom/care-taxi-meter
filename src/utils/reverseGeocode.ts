@@ -876,6 +876,7 @@ async function reverseGeocodeWithGoogle(
       throw error
     }
   })
+}
 
 export async function captureAddressLocationFromCoordinates({
   capturedAt = new Date().toISOString(),
@@ -892,7 +893,6 @@ export async function captureAddressLocationFromCoordinates({
     latitude,
     longitude,
   }
-}
 
   logReverseGeocodeInfo('Reverse geocoding started from provided GPS coordinates.', {
     capturedAt: location.capturedAt,
