@@ -174,12 +174,15 @@ const getReverseGeocodeCauseLabel = ({
     return 'F: Googleレスポンス0件'
   }
 
-  if (diagnostic.geocodingExecutionState === 'タイムアウト') {
-    return 'H: geocoder.geocode() callbackタイムアウト'
+  if (
+    diagnostic.geocodingExecutionState === 'タイムアウト' ||
+    /timed out/i.test(diagnostic.errorMessage)
+  ) {
+    return 'H: geocoder.geocode() callback/Promiseタイムアウト'
   }
 
   if (diagnostic.geocodingExecutionState === '失敗') {
-    if (/not authorized|REQUEST_DENIED|Geocoding/i.test(diagnostic.errorMessage)) {
+    if (/not authorized|REQUEST_DENIED|API project is not authorized/i.test(diagnostic.errorMessage)) {
       return 'D: Geocoding API無効'
     }
 
