@@ -805,6 +805,12 @@ export async function captureAddressLocationFromCoordinates({
     })
     return location
   }
+
+  return captureAddressLocationFromCoordinates({
+    capturedAt: location.capturedAt,
+    latitude: location.latitude,
+    longitude: location.longitude,
+  })
 }
 
 export async function captureCurrentAddressLocation() {
