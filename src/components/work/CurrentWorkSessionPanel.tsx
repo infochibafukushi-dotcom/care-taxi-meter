@@ -34,14 +34,6 @@ export function CurrentWorkSessionPanel({
           <strong>{workSession.storeName || '未設定'}</strong>
         </div>
         <div>
-          <span>車両</span>
-          <strong>{workSession.vehicleName}</strong>
-        </div>
-        <div>
-          <span>ナンバー</span>
-          <strong>{workSession.vehicleNumber || '未設定'}</strong>
-        </div>
-        <div>
           <span>出勤時刻</span>
           <strong>{formatOptionalDateTime(workSession.clockInAt)}</strong>
         </div>

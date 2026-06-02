@@ -12,10 +12,15 @@ import {
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
-import { defaultCompanyId } from './stores'
+import { ensureDefaultCompany } from './companies'
+import { defaultCompanyId, ensureDefaultStore } from './stores'
 
 const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['superAdmin', 'owner', 'manager', 'driver']
+
+export const defaultAdminStaffMemberId = 'staff_admin'
+export const defaultAdminStaffUserId = 'admin'
+export const defaultAdminStaffPassword = 'admin123'
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
@@ -58,6 +63,11 @@ function getStaffMembersCollection() {
   return collection(db, staffMembersCollectionName)
 }
 
+function getStaffMemberRef(staffMemberId: string) {
+  const db = getFirestore(getFirebaseApp())
+  return doc(db, staffMembersCollectionName, staffMemberId)
+}
+
 export async function fetchStaffMembers() {
   const snapshots = await getDocs(
     query(getStaffMembersCollection(), orderBy('sortOrder', 'asc')),
@@ -67,8 +77,7 @@ export async function fetchStaffMembers() {
 }
 
 export async function saveStaffMember(staffMember: StaffMember) {
-  const db = getFirestore(getFirebaseApp())
-  const staffMemberRef = doc(db, staffMembersCollectionName, staffMember.id)
+  const staffMemberRef = getStaffMemberRef(staffMember.id)
   const snapshot = await getDoc(staffMemberRef)
   const document = {
     ...staffMember,
@@ -77,6 +86,44 @@ export async function saveStaffMember(staffMember: StaffMember) {
   }
 
   await setDoc(staffMemberRef, document, { merge: true })
+  return staffMember
+}
+
+export async function ensureDefaultAdminStaffMember() {
+  await ensureDefaultCompany()
+  const defaultStore = await ensureDefaultStore(defaultCompanyId)
+  const staffMemberRef = getStaffMemberRef(defaultAdminStaffMemberId)
+  const snapshot = await getDoc(staffMemberRef)
+
+  if (snapshot.exists()) {
+    return toStaffMember(snapshot)
+  }
+
+  const staffMember: StaffMember = {
+    id: defaultAdminStaffMemberId,
+    companyId: defaultCompanyId,
+    storeId: defaultStore.id,
+    storeName: defaultStore.name,
+    userId: defaultAdminStaffUserId,
+    password: defaultAdminStaffPassword,
+    name: '初期管理者',
+    role: 'owner',
+    phoneNumber: '',
+    email: '',
+    address: '',
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: '初回起動時に自動作成される管理者アカウント',
+    enabled: true,
+    sortOrder: 1,
+  }
+
+  await setDoc(staffMemberRef, {
+    ...staffMember,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
   return staffMember
 }
 
@@ -89,6 +136,7 @@ export async function authenticateStaff({
   password: string
   userId: string
 }) {
+  await ensureDefaultAdminStaffMember()
   const staffMembers = await fetchStaffMembers()
   return staffMembers.find(
     (staffMember) =>
