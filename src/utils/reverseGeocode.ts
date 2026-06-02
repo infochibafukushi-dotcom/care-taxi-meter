@@ -745,7 +745,10 @@ function runGoogleGeocodeWithCallbackTimeout(
   })
 }
 
-async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
+async function reverseGeocodeWithGoogle(
+  latitude: number,
+  longitude: number,
+): Promise<string> {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
 
   updateReverseGeocodeDiagnostic({
@@ -874,37 +877,6 @@ async function reverseGeocodeWithGoogle(latitude: number, longitude: number) {
     }
   })
 
-  try {
-    const address = await reverseGeocodeWithGoogle(latitude, longitude)
-    const capturedLocation = {
-      ...location,
-      address,
-    }
-
-    logReverseGeocodeInfo('Address capture completed.', {
-      hasAddress: Boolean(address),
-      location: capturedLocation,
-    })
-
-    if (!address) {
-      updateReverseGeocodeDiagnostic({
-        emptyAddressReason:
-          reverseGeocodeDiagnosticState.emptyAddressReason ||
-          'captureAddressLocationFromCoordinates(): 逆ジオコーディング結果が空文字',
-      })
-      logReverseGeocodeWarning('Address capture completed with an empty address.', capturedLocation)
-    }
-
-    return capturedLocation
-  } catch (error) {
-    logReverseGeocodeError('Address capture failed; returning GPS-only location.', {
-      location,
-      message: toErrorMessage(error),
-    })
-    return location
-  }
-}
-
 export async function captureAddressLocationFromCoordinates({
   capturedAt = new Date().toISOString(),
   latitude,
@@ -913,13 +885,14 @@ export async function captureAddressLocationFromCoordinates({
   capturedAt?: string | null
   latitude: number
   longitude: number
-}) {
+}): Promise<CapturedAddressLocation> {
   const location: CapturedAddressLocation = {
     address: '',
     capturedAt,
     latitude,
     longitude,
   }
+}
 
   logReverseGeocodeInfo('Reverse geocoding started from provided GPS coordinates.', {
     capturedAt: location.capturedAt,
@@ -928,8 +901,8 @@ export async function captureAddressLocationFromCoordinates({
   })
 
   try {
-    const address = await reverseGeocodeWithGoogle(latitude, longitude)
-    const capturedLocation = {
+    const address: string = await reverseGeocodeWithGoogle(latitude, longitude)
+    const capturedLocation: CapturedAddressLocation = {
       ...location,
       address,
     }
