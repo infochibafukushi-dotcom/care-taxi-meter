@@ -36,14 +36,21 @@ import type { Vehicle } from '../types/work'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
+  captureAddressLocationFromCoordinates,
   captureCurrentAddressLocation,
   emptyCapturedAddressLocation,
+  getReverseGeocodeDiagnosticState,
+  subscribeReverseGeocodeDiagnostic,
 } from '../utils/reverseGeocode'
-import type { CapturedAddressLocation } from '../utils/reverseGeocode'
+import type {
+  CapturedAddressLocation,
+  ReverseGeocodeDiagnosticState,
+} from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
   OperationStatus,
   PaymentMethod,
+  GpsPosition,
   SelectedCareOption,
   StatusTone,
   TimerKey,
@@ -121,6 +128,83 @@ const createCaseNumber = () => {
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+
+const getReverseGeocodeCauseLabel = ({
+  diagnostic,
+  dropoffLocation,
+  pickupLocation,
+}: {
+  diagnostic: ReverseGeocodeDiagnosticState
+  dropoffLocation: CapturedAddressLocation
+  pickupLocation: CapturedAddressLocation
+}) => {
+  if (!diagnostic.reverseGeocodeCalled) {
+    return 'E: reverseGeocodeWithGoogle() 未実行'
+  }
+
+  if (diagnostic.errorMessage.includes('VITE_GOOGLE_MAPS_API_KEY')) {
+    return 'A: APIキー未設定'
+  }
+
+  if (
+    /RefererNotAllowedMapError|InvalidKeyMapError|ApiTargetBlockedMapError/.test(
+      diagnostic.errorMessage,
+    )
+  ) {
+    return 'B: APIキー制限'
+  }
+
+  if (/ApiNotActivatedMapError/.test(diagnostic.errorMessage)) {
+    return 'C: Maps JavaScript API無効'
+  }
+
+  if (diagnostic.googleMapsApiLoadState === '失敗') {
+    return 'H: Google Maps APIロード失敗（エラー詳細確認）'
+  }
+
+  if (diagnostic.geocoderState === '生成失敗') {
+    return 'C: Maps JavaScript API / Geocoder生成失敗'
+  }
+
+  if (!diagnostic.geocodeCalled) {
+    return 'E: geocode() 未実行'
+  }
+
+  if (diagnostic.geocodingExecutionState === '0件') {
+    return 'F: Googleレスポンス0件'
+  }
+
+  if (diagnostic.geocodingExecutionState === 'タイムアウト') {
+    return 'H: geocoder.geocode() callbackタイムアウト'
+  }
+
+  if (diagnostic.geocodingExecutionState === '失敗') {
+    if (/not authorized|REQUEST_DENIED|Geocoding/i.test(diagnostic.errorMessage)) {
+      return 'D: Geocoding API無効'
+    }
+
+    return 'H: Geocoding失敗（エラー詳細確認）'
+  }
+
+  if (diagnostic.geocodingExecutionState === '住所空') {
+    return 'H: Google結果の住所整形で空文字'
+  }
+
+  if (
+    diagnostic.address &&
+    !pickupLocation.address &&
+    !dropoffLocation.address
+  ) {
+    return 'G: 取得後に画面反映失敗'
+  }
+
+  if (diagnostic.address) {
+    return '住所取得成功'
+  }
+
+  return '未確定: 操作後の診断ログ待ち'
+}
+
 export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
@@ -191,6 +275,8 @@ export function CasePage() {
   const dropoffCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
     null,
   )
+  const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
+    useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
   const workSession = useWorkSession()
@@ -274,6 +360,14 @@ export function CasePage() {
     }
   }, [vehicleIdFromQuery, workSession.currentSession])
 
+
+  useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])
+
+  const reverseGeocodeCauseLabel = getReverseGeocodeCauseLabel({
+    diagnostic: reverseGeocodeDiagnostic,
+    dropoffLocation,
+    pickupLocation,
+  })
 
 
   const fareBreakdown = calculateFareBreakdown({
@@ -414,6 +508,28 @@ export function CasePage() {
     }
   }
 
+  const captureAddressWithLatestGps = (position: GpsPosition | null) => {
+    if (!position) {
+      console.warn(
+        '[住所取得診断] 取得済みGPS座標がないため、現在位置を再取得して住所取得します。',
+      )
+      return captureCurrentAddressLocation()
+    }
+
+    console.log('[住所取得診断] 取得済みGPS座標から住所取得します。', {
+      accuracy: position.accuracy,
+      capturedAt: new Date(position.updatedAt).toISOString(),
+      latitude: position.latitude,
+      longitude: position.longitude,
+    })
+
+    return captureAddressLocationFromCoordinates({
+      capturedAt: new Date(position.updatedAt).toISOString(),
+      latitude: position.latitude,
+      longitude: position.longitude,
+    })
+  }
+
   const markOperationStarted = () => {
     if (!operationStartedAtRef.current) {
       operationStartedAtRef.current = new Date().toISOString()
@@ -421,7 +537,12 @@ export function CasePage() {
   }
 
   const capturePickupLocation = () => {
-    const capturePromise = captureCurrentAddressLocation().then((location) => {
+    console.log('[住所取得診断] 伺い先住所取得を開始します。')
+    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+      console.log('[住所取得診断] 伺い先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       pickupLocationRef.current = location
       setPickupLocation(location)
       return location
@@ -438,7 +559,12 @@ export function CasePage() {
   }
 
   const captureDropoffLocation = () => {
-    const capturePromise = captureCurrentAddressLocation().then((location) => {
+    console.log('[住所取得診断] 送り先住所取得を開始します。')
+    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+      console.log('[住所取得診断] 送り先住所取得結果を案件画面へ反映します。', {
+        hasAddress: Boolean(location.address),
+        location,
+      })
       dropoffLocationRef.current = location
       setDropoffLocation(location)
       return location
@@ -479,7 +605,10 @@ export function CasePage() {
     }
     handleStatusChange('精算前')
 
-    if (!dropoffLocationRef.current.capturedAt && !dropoffCapturePromiseRef.current) {
+    if (
+      (!dropoffLocationRef.current.capturedAt || !dropoffLocationRef.current.address) &&
+      !dropoffCapturePromiseRef.current
+    ) {
       void captureDropoffLocation()
     }
   }
@@ -548,11 +677,15 @@ export function CasePage() {
         await pickupCapturePromiseRef.current
       }
 
+      if (!pickupLocationRef.current.capturedAt || !pickupLocationRef.current.address) {
+        await capturePickupLocation()
+      }
+
       if (dropoffCapturePromiseRef.current) {
         await dropoffCapturePromiseRef.current
       }
 
-      if (!dropoffLocationRef.current.capturedAt) {
+      if (!dropoffLocationRef.current.capturedAt || !dropoffLocationRef.current.address) {
         await captureDropoffLocation()
       }
 
@@ -980,6 +1113,76 @@ export function CasePage() {
                 <strong>{dropoffLocation.address || '住所未取得'}</strong>
               </p>
             </div>
+
+            <details className="r9-address-debug-panel" open>
+              <summary>住所取得診断</summary>
+              <dl>
+                <div>
+                  <dt>原因判定</dt>
+                  <dd>{reverseGeocodeCauseLabel}</dd>
+                </div>
+                <div>
+                  <dt>Google Maps APIロード状態</dt>
+                  <dd>{reverseGeocodeDiagnostic.googleMapsApiLoadState}</dd>
+                </div>
+                <div>
+                  <dt>Geocoder生成状態</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocoderState}</dd>
+                </div>
+                <div>
+                  <dt>Geocoding実行状態</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocodingExecutionState}</dd>
+                </div>
+                <div>
+                  <dt>reverseGeocodeWithGoogle</dt>
+                  <dd>{reverseGeocodeDiagnostic.reverseGeocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                </div>
+                <div>
+                  <dt>geocode()</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                </div>
+                <div>
+                  <dt>geocode() callback</dt>
+                  <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
+                </div>
+                <div>
+                  <dt>取得緯度</dt>
+                  <dd>{reverseGeocodeDiagnostic.latitude ?? '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>取得経度</dt>
+                  <dd>{reverseGeocodeDiagnostic.longitude ?? '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>Googleレスポンス件数</dt>
+                  <dd>{reverseGeocodeDiagnostic.responseCount ?? '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>Googleレスポンス内容</dt>
+                  <dd>{reverseGeocodeDiagnostic.googleResponseJson || '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>formatted_address</dt>
+                  <dd>{reverseGeocodeDiagnostic.formattedAddress || '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>取得住所</dt>
+                  <dd>{reverseGeocodeDiagnostic.address || '未取得'}</dd>
+                </div>
+                <div>
+                  <dt>エラーメッセージ</dt>
+                  <dd>{reverseGeocodeDiagnostic.errorMessage || 'なし'}</dd>
+                </div>
+                <div>
+                  <dt>空文字発生箇所</dt>
+                  <dd>{reverseGeocodeDiagnostic.emptyAddressReason || 'なし'}</dd>
+                </div>
+                <div>
+                  <dt>最終更新</dt>
+                  <dd>{reverseGeocodeDiagnostic.lastUpdatedAt || '未更新'}</dd>
+                </div>
+              </dl>
+            </details>
 
             <SettlementPanel
               breakdown={fareBreakdown}
