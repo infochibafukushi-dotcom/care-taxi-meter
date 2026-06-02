@@ -11,6 +11,9 @@ import {
 import type {
   AnalyticsBreakdownItem,
   AnalyticsPeriod,
+  AreaAnalyticsItem,
+  AreaDirectionalAnalyticsItem,
+  DistanceRangeAnalyticsItem,
   PaymentAnalyticsItem,
   StaffAnalyticsItem,
 } from '../utils/salesAnalytics'
@@ -173,6 +176,116 @@ function PaymentTable({ rows }: { rows: PaymentAnalyticsItem[] }) {
           ) : (
             <tr>
               <td colSpan={5}>支払方法データがありません。</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function AreaRankingTable({
+  rows,
+  title,
+}: {
+  rows: AreaDirectionalAnalyticsItem[]
+  title: string
+}) {
+  return (
+    <section className="analytics-panel">
+      <h2>{title}</h2>
+      <table className="analytics-table analytics-table--compact">
+        <thead>
+          <tr>
+            <th>エリア</th>
+            <th>件数</th>
+            <th>売上</th>
+            <th>平均単価</th>
+            <th>平均距離</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <tr key={row.areaName}>
+                <td>{row.areaName}</td>
+                <td>{row.count}件</td>
+                <td>{formatFareYen(row.salesYen)}円</td>
+                <td>{formatFareYen(row.averageYen)}円</td>
+                <td>{row.averageDistanceKm.toFixed(2)}km</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={5}>エリアデータがありません。</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function DistanceRangeTable({ rows }: { rows: DistanceRangeAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel">
+      <h2>距離帯分析</h2>
+      <table className="analytics-table analytics-table--compact">
+        <thead>
+          <tr>
+            <th>距離帯</th>
+            <th>件数</th>
+            <th>売上</th>
+            <th>割合</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td>{row.count}件</td>
+              <td>{formatFareYen(row.salesYen)}円</td>
+              <td>{row.percent.toFixed(1)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function AreaSummaryTable({ rows }: { rows: AreaAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel analytics-panel--wide">
+      <h2>エリア別集計表</h2>
+      <table className="analytics-table analytics-table--area">
+        <thead>
+          <tr>
+            <th>エリア名</th>
+            <th>乗車件数</th>
+            <th>降車件数</th>
+            <th>売上</th>
+            <th>距離合計</th>
+            <th>平均距離</th>
+            <th>平均単価</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <tr key={row.areaName}>
+                <td>{row.areaName}</td>
+                <td>{row.pickupCount}件</td>
+                <td>{row.dropoffCount}件</td>
+                <td>{formatFareYen(row.salesYen)}円</td>
+                <td>{row.distanceKm.toFixed(3)}km</td>
+                <td>{row.averageDistanceKm.toFixed(2)}km</td>
+                <td>{formatFareYen(row.averageYen)}円</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={7}>エリア別データがありません。</td>
             </tr>
           )}
         </tbody>
@@ -438,10 +551,33 @@ export function SalesAnalyticsPage() {
             <strong>{analyticsSummary.totalDistanceKm.toFixed(3)}km</strong>
           </div>
           <div>
+            <span>平均距離</span>
+            <strong>{analyticsSummary.averageDistanceKm.toFixed(2)}km</strong>
+          </div>
+          <div>
             <span>総運転時間</span>
             <strong>{formatAnalyticsDuration(analyticsSummary.totalDrivingSeconds)}</strong>
           </div>
         </section>
+
+        <div className="analytics-distance-summary" aria-label="距離サマリー">
+          <div>
+            <span>総距離</span>
+            <strong>{analyticsSummary.distanceSummary.totalDistanceKm.toFixed(3)}km</strong>
+          </div>
+          <div>
+            <span>平均距離</span>
+            <strong>{analyticsSummary.distanceSummary.averageDistanceKm.toFixed(2)}km</strong>
+          </div>
+          <div>
+            <span>最長距離</span>
+            <strong>{analyticsSummary.distanceSummary.maxDistanceKm.toFixed(3)}km</strong>
+          </div>
+          <div>
+            <span>最短距離</span>
+            <strong>{analyticsSummary.distanceSummary.minDistanceKm.toFixed(3)}km</strong>
+          </div>
+        </div>
 
         <div className="analytics-grid analytics-grid--three">
           <BreakdownTable
@@ -459,6 +595,31 @@ export function SalesAnalyticsPage() {
         </div>
 
         <StaffSummaryTable rows={analyticsSummary.staffSummary} />
+
+        <div className="analytics-grid analytics-grid--three">
+          <AreaRankingTable
+            rows={analyticsSummary.pickupAreaSalesTop}
+            title="乗車エリア 売上TOP10"
+          />
+          <AreaRankingTable
+            rows={analyticsSummary.dropoffAreaSalesTop}
+            title="降車エリア 売上TOP10"
+          />
+          <DistanceRangeTable rows={analyticsSummary.distanceRangeSummary} />
+        </div>
+
+        <div className="analytics-grid analytics-grid--two">
+          <AreaRankingTable
+            rows={analyticsSummary.pickupAreaCountTop}
+            title="乗車エリア 件数TOP10"
+          />
+          <AreaRankingTable
+            rows={analyticsSummary.dropoffAreaCountTop}
+            title="降車エリア 件数TOP10"
+          />
+        </div>
+
+        <AreaSummaryTable rows={analyticsSummary.areaSummary} />
 
         <div className="analytics-grid analytics-grid--three">
           <BreakdownTable
