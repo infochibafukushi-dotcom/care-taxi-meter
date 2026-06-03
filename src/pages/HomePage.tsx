@@ -112,7 +112,8 @@ export function HomePage() {
     password: '',
   })
   const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(null)
-  const [loginMessage, setLoginMessage] = useState('会社ID・スタッフID・パスワードでログインしてください。')
+  const [loginMessage, setLoginMessage] = useState('会社ID・スタッフID・パスワードでログインすると出勤します。')
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [dashboardRecordsState, setDashboardRecordsState] = useState<CaseRecordState>({
     errorMessage: '',
@@ -208,6 +209,11 @@ export function HomePage() {
   }
 
   const handleLogin = async () => {
+    if (isLoginSubmitting) {
+      return
+    }
+
+    setIsLoginSubmitting(true)
     setLoginMessage('認証中です。')
     try {
       const staffMember = await authenticateStaff(loginForm)
@@ -225,22 +231,28 @@ export function HomePage() {
         return
       }
 
-      setLoggedInUser({
+      const nextLoggedInUser = {
         companyName: company?.name ?? defaultCompanyName,
         staffMember,
         store,
-      })
+      }
+      setLoggedInUser(nextLoggedInUser)
 
       const restoredSession = await workSession.restoreWorkingSession(staffMember)
-      setLoginMessage(
-        restoredSession
-          ? 'ログインしました。勤務中状態を復元しました。'
-          : 'ログインしました。出勤ボタンで勤務を開始してください。',
-      )
+      if (restoredSession) {
+        setLoginMessage('ログインしました。勤務中状態を復元しました。')
+        return
+      }
+
+      setLoginMessage('ログインしました。出勤位置を取得して勤務を開始しています。')
+      await workSession.clockIn(nextLoggedInUser)
+      setLoginMessage('ログインしました。出勤しました。')
     } catch (error) {
       setLoginMessage(
-        error instanceof Error ? `ログインできませんでした。${error.message}` : 'ログインできませんでした。',
+        error instanceof Error ? `ログインまたは出勤できませんでした。${error.message}` : 'ログインまたは出勤できませんでした。',
       )
+    } finally {
+      setIsLoginSubmitting(false)
     }
   }
 
@@ -299,7 +311,7 @@ export function HomePage() {
         <section className="hero-card login-card">
           <p className="eyebrow">Login</p>
           <h1 id="home-title">ログイン</h1>
-          <p className="lead">会社ID・スタッフID・パスワードでログインしてください。</p>
+          <p className="lead">会社ID・スタッフID・パスワードでスタッフを特定し、ログインと同時に出勤します。</p>
           <div className="login-form">
             <label>
               会社ID
@@ -313,8 +325,8 @@ export function HomePage() {
               パスワード
               <input type="password" value={loginForm.password} onChange={(event) => handleLoginChange('password', event.target.value)} />
             </label>
-            <button className="primary-action login-submit" type="button" onClick={handleLogin}>
-              ログイン
+            <button className="primary-action login-submit" type="button" disabled={isLoginSubmitting} onClick={handleLogin}>
+              {isLoginSubmitting ? '処理中' : 'ログインして出勤'}
             </button>
           </div>
           <p className="save-note">{loginMessage}</p>

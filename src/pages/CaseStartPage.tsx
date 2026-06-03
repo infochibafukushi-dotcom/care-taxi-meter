@@ -64,7 +64,7 @@ export function CaseStartPage() {
         <section className="hero-card">
           <p className="eyebrow">Case Start</p>
           <h1 id="case-start-title">案件開始</h1>
-          <p className="case-error">案件開始前にTOP画面で出勤してください。</p>
+          <p className="save-note" role="status">未出勤です。案件開始前にTOP画面でログインして出勤してください。</p>
           <Link className="primary-action" to="/">TOPへ戻る</Link>
         </section>
       </main>
