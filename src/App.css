@@ -2757,7 +2757,7 @@ h1 {
 
 .analytics-period-panel {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
   gap: 12px;
   align-items: end;
   margin: 18px 0;
@@ -2795,7 +2795,7 @@ h1 {
 
 .analytics-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin: 18px 0;
 }
@@ -2837,6 +2837,23 @@ h1 {
   margin: 0 0 18px;
 }
 
+.analytics-section-title {
+  margin: 28px 0 10px;
+  color: #0f172a;
+  font-size: 1.35rem;
+}
+
+.analytics-details {
+  margin-top: 18px;
+}
+
+.analytics-details summary {
+  cursor: pointer;
+  color: #0369a1;
+  font-size: 1.2rem;
+  font-weight: 1000;
+}
+
 .analytics-grid {
   display: grid;
   gap: 12px;
@@ -2856,7 +2873,7 @@ h1 {
 }
 
 .analytics-panel {
-  overflow-x: visible;
+  overflow-x: auto;
   margin-top: 12px;
   padding: 14px;
 }

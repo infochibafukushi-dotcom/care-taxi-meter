@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { fetchStaffMembers } from '../services/staffMembers'
-import type { StaffMember } from '../types/work'
+import { fetchVehicles } from '../services/vehicles'
+import type { StaffMember, Vehicle } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import {
   calculateSalesAnalyticsSummary,
@@ -15,9 +16,13 @@ import type {
   AnalyticsPeriod,
   AreaAnalyticsItem,
   AreaDirectionalAnalyticsItem,
-  DistanceRangeAnalyticsItem,
   PaymentAnalyticsItem,
+  RangeAnalyticsItem,
   StaffAnalyticsItem,
+  TimeRangeAnalyticsItem,
+  TopCaseAnalyticsItem,
+  VehicleAnalyticsItem,
+  WeekdayAnalyticsItem,
 } from '../utils/salesAnalytics'
 
 const pieColors = [
@@ -228,17 +233,26 @@ function AreaRankingTable({
   )
 }
 
-function DistanceRangeTable({ rows }: { rows: DistanceRangeAnalyticsItem[] }) {
+function RangeTable({
+  averageColumn,
+  rows,
+  title,
+}: {
+  averageColumn: 'averageDistance' | 'averageYen'
+  rows: RangeAnalyticsItem[]
+  title: string
+}) {
   return (
     <section className="analytics-panel">
-      <h2>距離帯分析</h2>
+      <h2>{title}</h2>
       <table className="analytics-table analytics-table--compact">
         <thead>
           <tr>
-            <th>距離帯</th>
+            <th>区分</th>
             <th>件数</th>
             <th>売上</th>
             <th>割合</th>
+            <th>{averageColumn === 'averageYen' ? '平均単価' : '平均距離'}</th>
           </tr>
         </thead>
         <tbody>
@@ -248,6 +262,11 @@ function DistanceRangeTable({ rows }: { rows: DistanceRangeAnalyticsItem[] }) {
               <td>{row.count}件</td>
               <td>{formatFareYen(row.salesYen)}円</td>
               <td>{row.percent.toFixed(1)}%</td>
+              <td>
+                {averageColumn === 'averageYen'
+                  ? `${formatFareYen(row.averageYen)}円`
+                  : `${row.averageDistanceKm.toFixed(2)}km`}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -337,26 +356,182 @@ function StaffSummaryTable({ rows }: { rows: StaffAnalyticsItem[] }) {
 }
 
 
+function VehicleSummaryTable({ rows }: { rows: VehicleAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel analytics-panel--wide">
+      <h2>車両別集計</h2>
+      <table className="analytics-table analytics-table--staff">
+        <thead>
+          <tr>
+            <th>車両名</th>
+            <th>売上</th>
+            <th>件数</th>
+            <th>平均単価</th>
+            <th>稼働日数</th>
+            <th>総距離</th>
+            <th>総運転時間</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <tr key={row.vehicleId}>
+                <td>{row.vehicleName}</td>
+                <td>{formatFareYen(row.salesYen)}円</td>
+                <td>{row.count}件</td>
+                <td>{formatFareYen(row.averageYen)}円</td>
+                <td>{row.activeDayCount}日</td>
+                <td>{row.distanceKm.toFixed(3)}km</td>
+                <td>{formatAnalyticsDuration(row.drivingSeconds)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={7}>車両別データがありません。</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function WeekdayTable({ rows }: { rows: WeekdayAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel">
+      <h2>曜日別分析</h2>
+      <table className="analytics-table analytics-table--compact">
+        <thead>
+          <tr>
+            <th>曜日</th>
+            <th>件数</th>
+            <th>売上</th>
+            <th>平均単価</th>
+            <th>総運転時間</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.dayIndex}>
+              <td>{row.label}</td>
+              <td>{row.count}件</td>
+              <td>{formatFareYen(row.salesYen)}円</td>
+              <td>{formatFareYen(row.averageYen)}円</td>
+              <td>{formatAnalyticsDuration(row.drivingSeconds)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function TimeRangeTable({ rows }: { rows: TimeRangeAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel">
+      <h2>時間帯別分析</h2>
+      <table className="analytics-table analytics-table--compact">
+        <thead>
+          <tr>
+            <th>時間帯</th>
+            <th>件数</th>
+            <th>売上</th>
+            <th>平均単価</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td>{row.count}件</td>
+              <td>{formatFareYen(row.salesYen)}円</td>
+              <td>{formatFareYen(row.averageYen)}円</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
+  return (
+    <section className="analytics-panel analytics-panel--wide">
+      <h2>売上TOP10案件</h2>
+      <table className="analytics-table analytics-table--area">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>案件番号</th>
+            <th>乗車エリア</th>
+            <th>降車エリア</th>
+            <th>距離</th>
+            <th>運転時間</th>
+            <th>基本運賃</th>
+            <th>待機料金</th>
+            <th>付き添い料金</th>
+            <th>介助料金</th>
+            <th>実費</th>
+            <th>合計売上</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((caseRecord) => (
+              <tr key={caseRecord.id}>
+                <td>{caseRecord.dateLabel}</td>
+                <td>
+                  <Link className="text-link" to={`/cases/${caseRecord.id}`}>
+                    {caseRecord.caseNumber}
+                  </Link>
+                </td>
+                <td>{caseRecord.pickupAreaName}</td>
+                <td>{caseRecord.dropoffAreaName}</td>
+                <td>{caseRecord.distanceKm.toFixed(3)}km</td>
+                <td>{formatAnalyticsDuration(caseRecord.drivingSeconds)}</td>
+                <td>{formatFareYen(caseRecord.basicFareYen)}円</td>
+                <td>{formatFareYen(caseRecord.waitingFareYen)}円</td>
+                <td>{formatFareYen(caseRecord.escortFareYen)}円</td>
+                <td>{formatFareYen(caseRecord.careOptionFareYen)}円</td>
+                <td>{formatFareYen(caseRecord.expenseFareYen)}円</td>
+                <td>{formatFareYen(caseRecord.salesYen)}円</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={12}>ランキング対象の案件がありません。</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+
 export function SalesAnalyticsPage() {
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [period, setPeriod] = useState<AnalyticsPeriod>(defaultPeriod)
   const [selectedStaffId, setSelectedStaffId] = useState('all')
+  const [selectedVehicleId, setSelectedVehicleId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords(), fetchStaffMembers()])
-      .then(([records, loadedStaffMembers]) => {
+    Promise.all([fetchCaseRecords(), fetchStaffMembers(), fetchVehicles()])
+      .then(([records, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return
         }
 
         setCaseRecords(records)
         setStaffMembers(loadedStaffMembers)
+        setVehicles(loadedVehicles)
         setErrorMessage('')
         setIsLoading(false)
       })
@@ -367,6 +542,7 @@ export function SalesAnalyticsPage() {
 
         setCaseRecords([])
         setStaffMembers([])
+        setVehicles([])
         setErrorMessage(
           error instanceof Error
             ? `売上分析データを取得できませんでした。${error.message}`
@@ -381,8 +557,16 @@ export function SalesAnalyticsPage() {
   }, [])
 
   const analyticsSummary = useMemo(
-    () => calculateSalesAnalyticsSummary(caseRecords, period, selectedStaffId, staffMembers),
-    [caseRecords, period, selectedStaffId, staffMembers],
+    () =>
+      calculateSalesAnalyticsSummary(
+        caseRecords,
+        period,
+        selectedStaffId,
+        staffMembers,
+        selectedVehicleId,
+        vehicles,
+      ),
+    [caseRecords, period, selectedStaffId, selectedVehicleId, staffMembers, vehicles],
   )
   const selectedStaffName =
     selectedStaffId === 'all'
@@ -390,11 +574,33 @@ export function SalesAnalyticsPage() {
       : staffMembers.find((staff) => staff.id === selectedStaffId)?.name ??
         analyticsSummary.staffSummary.find((staff) => staff.staffId === selectedStaffId)?.staffName ??
         '選択スタッフ'
+  const selectedVehicleName =
+    selectedVehicleId === 'all'
+      ? '全車両'
+      : vehicles.find((vehicle) => vehicle.id === selectedVehicleId)?.name ??
+        analyticsSummary.vehicleSummary.find((vehicle) => vehicle.vehicleId === selectedVehicleId)?.vehicleName ??
+        '選択車両'
+  const vehicleFilterOptions = [
+    ...vehicles.map((vehicle) => ({ id: vehicle.id, name: vehicle.name })),
+    ...analyticsSummary.vehicleSummary
+      .filter(
+        (vehicleSummary) =>
+          !vehicles.some((vehicle) => vehicle.id === vehicleSummary.vehicleId),
+      )
+      .map((vehicleSummary) => ({
+        id: vehicleSummary.vehicleId,
+        name: vehicleSummary.vehicleName,
+      })),
+  ]
 
   const handleCsvDownload = () => {
     const header = [
+      '日付',
       '案件番号',
-      '利用日',
+      'スタッフ名',
+      '車両名',
+      '乗車エリア',
+      '降車エリア',
       '距離',
       '運転時間',
       '基本運賃',
@@ -402,12 +608,16 @@ export function SalesAnalyticsPage() {
       '付き添い料金',
       '介助料金',
       '実費',
-      '合計金額',
+      '合計売上',
       '支払方法',
     ]
     const body = analyticsSummary.csvRows.map((row) => [
-      row.caseNumber,
       row.dateLabel,
+      row.caseNumber,
+      row.staffName,
+      row.vehicleName,
+      row.pickupAreaName,
+      row.dropoffAreaName,
       row.distanceKm.toFixed(3),
       formatAnalyticsDuration(row.drivingSeconds),
       row.basicFareYen,
@@ -428,7 +638,10 @@ export function SalesAnalyticsPage() {
     const staffFileSuffix = selectedStaffId === 'all'
       ? 'all-staff'
       : sanitizeFileNamePart(selectedStaffName)
-    link.download = `sales-analytics-${period.startDate}-${period.endDate}-${staffFileSuffix}.csv`
+    const vehicleFileSuffix = selectedVehicleId === 'all'
+      ? 'all-vehicles'
+      : sanitizeFileNamePart(selectedVehicleName)
+    link.download = `sales-analytics-${period.startDate}-${period.endDate}-${staffFileSuffix}-${vehicleFileSuffix}.csv`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -472,10 +685,10 @@ export function SalesAnalyticsPage() {
         </div>
 
         <p className="lead admin-lead">
-          Firestoreの保存済み案件を対象に、指定した日付範囲の売上・介助・実費・支払方法・月別推移を集計します。
+          Firestoreの保存済み案件を対象に、日付範囲・スタッフ・車両で絞り込んだ売上分析を表示します。
         </p>
 
-        <section className="analytics-period-panel" aria-label="期間・スタッフ選択">
+        <section className="analytics-period-panel" aria-label="期間・スタッフ・車両選択">
           <label>
             開始日
             <input
@@ -516,6 +729,20 @@ export function SalesAnalyticsPage() {
               ))}
             </select>
           </label>
+          <label>
+            車両
+            <select
+              value={selectedVehicleId}
+              onChange={(event) => setSelectedVehicleId(event.target.value)}
+            >
+              <option value="all">全車両</option>
+              {vehicleFilterOptions.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="admin-save-button" type="button" onClick={handleCsvDownload}>
             CSV出力
           </button>
@@ -532,7 +759,7 @@ export function SalesAnalyticsPage() {
         ) : null}
 
         <p className="analytics-filter-note">
-          表示対象: {selectedStaffName} / {analyticsSummary.totalCount}件
+          表示対象: {selectedStaffName} / {selectedVehicleName} / {analyticsSummary.totalCount}件
         </p>
 
         <section className="analytics-kpi-grid" aria-label="基本集計">
@@ -553,100 +780,22 @@ export function SalesAnalyticsPage() {
             <strong>{analyticsSummary.activeDayCount}日</strong>
           </div>
           <div>
-            <span>総距離</span>
-            <strong>{analyticsSummary.totalDistanceKm.toFixed(3)}km</strong>
-          </div>
-          <div>
-            <span>平均距離</span>
-            <strong>{analyticsSummary.averageDistanceKm.toFixed(2)}km</strong>
-          </div>
-          <div>
             <span>総運転時間</span>
             <strong>{formatAnalyticsDuration(analyticsSummary.totalDrivingSeconds)}</strong>
           </div>
-        </section>
-
-        <div className="analytics-distance-summary" aria-label="距離サマリー">
           <div>
             <span>総距離</span>
-            <strong>{analyticsSummary.distanceSummary.totalDistanceKm.toFixed(3)}km</strong>
+            <strong>{analyticsSummary.totalDistanceKm.toFixed(3)}km</strong>
           </div>
-          <div>
-            <span>平均距離</span>
-            <strong>{analyticsSummary.distanceSummary.averageDistanceKm.toFixed(2)}km</strong>
-          </div>
-          <div>
-            <span>最長距離</span>
-            <strong>{analyticsSummary.distanceSummary.maxDistanceKm.toFixed(3)}km</strong>
-          </div>
-          <div>
-            <span>最短距離</span>
-            <strong>{analyticsSummary.distanceSummary.minDistanceKm.toFixed(3)}km</strong>
-          </div>
-        </div>
+        </section>
 
+        <h2 className="analytics-section-title">メイン分析</h2>
         <div className="analytics-grid analytics-grid--three">
           <BreakdownTable
             emptyMessage="売上内訳データがありません。"
             rows={analyticsSummary.revenueBreakdown}
             title="売上内訳"
           />
-          <AnalyticsPieChart
-            emptyLabel="売上構成データがありません。"
-            items={salesCompositionItems}
-            title="売上構成比"
-            valueSuffix="円"
-          />
-          <PaymentTable rows={analyticsSummary.paymentMethodSummary} />
-        </div>
-
-        <StaffSummaryTable rows={analyticsSummary.staffSummary} />
-
-        <div className="analytics-grid analytics-grid--three">
-          <AreaRankingTable
-            rows={analyticsSummary.pickupAreaSalesTop}
-            title="乗車エリア 売上TOP10"
-          />
-          <AreaRankingTable
-            rows={analyticsSummary.dropoffAreaSalesTop}
-            title="降車エリア 売上TOP10"
-          />
-          <DistanceRangeTable rows={analyticsSummary.distanceRangeSummary} />
-        </div>
-
-        <div className="analytics-grid analytics-grid--two">
-          <AreaRankingTable
-            rows={analyticsSummary.pickupAreaCountTop}
-            title="乗車エリア 件数TOP10"
-          />
-          <AreaRankingTable
-            rows={analyticsSummary.dropoffAreaCountTop}
-            title="降車エリア 件数TOP10"
-          />
-        </div>
-
-        <AreaSummaryTable rows={analyticsSummary.areaSummary} />
-
-        <div className="analytics-grid analytics-grid--three">
-          <BreakdownTable
-            emptyMessage="介助項目データがありません。"
-            rows={analyticsSummary.assistItemSummary}
-            title="介助項目分析"
-          />
-          <BreakdownTable
-            emptyMessage="実費データがありません。"
-            rows={analyticsSummary.expenseSummary}
-            title="実費分析"
-          />
-          <AnalyticsPieChart
-            emptyLabel="支払方法の売上データがありません。"
-            items={paymentSalesItems}
-            title="支払方法 売上割合"
-            valueSuffix="円"
-          />
-        </div>
-
-        <div className="analytics-grid analytics-grid--two analytics-grid--wide-main">
           <section className="analytics-panel analytics-panel--wide">
             <h2>月別推移</h2>
             <div className="analytics-bar-chart" aria-label="月別売上棒グラフ">
@@ -663,16 +812,99 @@ export function SalesAnalyticsPage() {
               ))}
             </div>
           </section>
+          <PaymentTable rows={analyticsSummary.paymentMethodSummary} />
+        </div>
+        <StaffSummaryTable rows={analyticsSummary.staffSummary} />
+        <VehicleSummaryTable rows={analyticsSummary.vehicleSummary} />
 
-          <AnalyticsPieChart
-            emptyLabel="支払方法の件数データがありません。"
-            items={paymentCountItems}
-            title="支払方法 件数割合"
-            valueSuffix="件"
+        <h2 className="analytics-section-title">実務分析</h2>
+        <div className="analytics-grid analytics-grid--three">
+          <WeekdayTable rows={analyticsSummary.weekdaySummary} />
+          <TimeRangeTable rows={analyticsSummary.timeRangeSummary} />
+          <RangeTable
+            averageColumn="averageDistance"
+            rows={analyticsSummary.salesRangeSummary}
+            title="売上帯分析"
+          />
+        </div>
+        <div className="analytics-grid analytics-grid--three">
+          <RangeTable
+            averageColumn="averageYen"
+            rows={analyticsSummary.distanceRangeSummary}
+            title="距離帯分析"
+          />
+          <BreakdownTable
+            emptyMessage="介助項目データがありません。"
+            rows={analyticsSummary.assistItemSummary}
+            title="介助項目分析"
+          />
+          <BreakdownTable
+            emptyMessage="実費データがありません。"
+            rows={analyticsSummary.expenseSummary}
+            title="実費分析"
           />
         </div>
 
+        <h2 className="analytics-section-title">エリア分析</h2>
         <div className="analytics-grid analytics-grid--two">
+          <AreaRankingTable
+            rows={analyticsSummary.pickupAreaSalesTop}
+            title="乗車エリア 売上TOP10"
+          />
+          <AreaRankingTable
+            rows={analyticsSummary.dropoffAreaSalesTop}
+            title="降車エリア 売上TOP10"
+          />
+        </div>
+        <AreaSummaryTable rows={analyticsSummary.areaSummary} />
+
+        <details className="analytics-details" open>
+          <summary>詳細分析</summary>
+          <TopCasesTable rows={analyticsSummary.topCases} />
+          <div className="analytics-grid analytics-grid--two">
+            <AreaRankingTable
+              rows={analyticsSummary.pickupAreaCountTop}
+              title="乗車エリア 件数TOP10"
+            />
+            <AreaRankingTable
+              rows={analyticsSummary.dropoffAreaCountTop}
+              title="降車エリア 件数TOP10"
+            />
+          </div>
+          <div className="analytics-distance-summary" aria-label="距離サマリー">
+            <div>
+              <span>平均距離</span>
+              <strong>{analyticsSummary.distanceSummary.averageDistanceKm.toFixed(2)}km</strong>
+            </div>
+            <div>
+              <span>最長距離</span>
+              <strong>{analyticsSummary.distanceSummary.maxDistanceKm.toFixed(3)}km</strong>
+            </div>
+            <div>
+              <span>最短距離</span>
+              <strong>{analyticsSummary.distanceSummary.minDistanceKm.toFixed(3)}km</strong>
+            </div>
+          </div>
+          <div className="analytics-grid analytics-grid--three">
+            <AnalyticsPieChart
+              emptyLabel="売上構成データがありません。"
+              items={salesCompositionItems}
+              title="売上構成比"
+              valueSuffix="円"
+            />
+            <AnalyticsPieChart
+              emptyLabel="支払方法の売上データがありません。"
+              items={paymentSalesItems}
+              title="支払方法 売上割合"
+              valueSuffix="円"
+            />
+            <AnalyticsPieChart
+              emptyLabel="支払方法の件数データがありません。"
+              items={paymentCountItems}
+              title="支払方法 件数割合"
+              valueSuffix="件"
+            />
+          </div>
           <section className="analytics-panel">
             <h2>月別一覧表</h2>
             <table className="analytics-table">
@@ -700,35 +932,7 @@ export function SalesAnalyticsPage() {
               </tbody>
             </table>
           </section>
-
-          <section className="analytics-panel">
-            <h2>売上TOP10案件</h2>
-            <table className="analytics-table">
-              <thead>
-                <tr>
-                  <th>日付</th>
-                  <th>案件番号</th>
-                  <th>売上</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analyticsSummary.topCases.length > 0 ? (
-                  analyticsSummary.topCases.map((caseRecord) => (
-                    <tr key={caseRecord.caseNumber}>
-                      <td>{caseRecord.dateLabel}</td>
-                      <td>{caseRecord.caseNumber}</td>
-                      <td>{formatFareYen(caseRecord.salesYen)}円</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={3}>ランキング対象の案件がありません。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-        </div>
+        </details>
       </section>
     </main>
   )
