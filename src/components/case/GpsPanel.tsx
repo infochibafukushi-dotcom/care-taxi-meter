@@ -1,10 +1,12 @@
 import type { GpsPosition } from '../../types/case'
+import type { SpeedSource } from '../../services/gpsSpeed'
 
 type GpsPanelProps = {
   errorMessage: string | null
   gpsLogCount: number
   isActive: boolean
   position: GpsPosition | null
+  speedSource: SpeedSource
   status: 'idle' | 'locating' | 'ready' | 'error' | 'unsupported'
   totalDistanceKm: number
 }
@@ -23,6 +25,7 @@ export function GpsPanel({
   gpsLogCount,
   isActive,
   position,
+  speedSource,
   status,
   totalDistanceKm,
 }: GpsPanelProps) {
@@ -58,6 +61,10 @@ export function GpsPanel({
         <div>
           <span>速度</span>
           <strong>{formatSpeed(position?.speed)}</strong>
+        </div>
+        <div>
+          <span>速度取得方式</span>
+          <strong>{speedSource === 'gps' ? 'GPS speed' : speedSource === 'fallback' ? '距離÷時間' : '未取得'}</strong>
         </div>
         <div>
           <span>GPSログ件数</span>

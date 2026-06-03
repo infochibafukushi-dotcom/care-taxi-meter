@@ -24,6 +24,8 @@ export type GpsPosition = {
   updatedAt: number
 }
 
+export type MeterMovementState = 'normal' | 'low-speed' | 'unknown'
+
 export type GpsLogEntry = {
   capturedAt: number
   latitude: number
