@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
-import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
@@ -91,6 +90,8 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
   待機中: 'waiting',
   院内付き添い中: 'accompanying',
 }
+
+const isDevelopmentMode = import.meta.env.DEV
 
 const loadInputHistory = () => {
   try {
@@ -418,7 +419,7 @@ export function CasePage() {
     Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
   )
   const currentSpeedLabel =
-    gps.currentSpeedKmh == null ? '速度未取得' : `${gps.currentSpeedKmh.toFixed(1)}km/h`
+    gps.currentSpeedKmh == null ? '取得中...' : `${gps.currentSpeedKmh.toFixed(1)}km/h`
   const movementStateLabel =
     gps.movementState === 'low-speed'
       ? '低速走行中'
@@ -533,17 +534,6 @@ export function CasePage() {
     setKeypadTarget(null)
   }
 
-  const handleHistorySelect = (history: InputHistory) => {
-    if (history.mode === 'care') {
-      addCareOption({
-        amountYen: history.amountYen,
-        masterId: 'history-care',
-        name: history.name,
-      })
-    } else {
-      addExpense({ amountYen: history.amountYen, name: history.name })
-    }
-  }
 
   const captureAddressWithLatestGps = (position: GpsPosition | null) => {
     if (!position) {
@@ -938,50 +928,6 @@ export function CasePage() {
         </header>
 
 
-        <section className="work-session-panel" aria-labelledby="case-vehicle-title">
-          <div className="work-session-panel__header">
-            <div>
-              <span>CASE VEHICLE</span>
-              <h2 id="case-vehicle-title">案件車両選択</h2>
-            </div>
-            <strong>{workSession.currentSession ? workSession.currentSession.staffName : '未出勤'}</strong>
-          </div>
-          {workSession.currentSession ? (
-            <div className="work-session-form">
-              <label>
-                店舗
-                <input readOnly value={workSession.currentSession.storeName} />
-              </label>
-              <label>
-                スタッフ
-                <input readOnly value={workSession.currentSession.staffName} />
-              </label>
-              <label>
-                車両
-                <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)}>
-                  <option value="">車両を選択</option>
-                  {vehicles
-                    .filter(
-                      (vehicle) =>
-                        vehicle.enabled &&
-                        vehicle.status === '稼働中' &&
-                        vehicle.companyId === workSession.currentSession?.companyId &&
-                        vehicle.storeId === workSession.currentSession?.storeId,
-                    )
-                    .map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            </div>
-          ) : (
-            <p className="empty-note">TOP画面で出勤してから案件を開始してください。</p>
-          )}
-        </section>
-
-
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
             <div className="r9-fare-screen">
@@ -1033,8 +979,6 @@ export function CasePage() {
                 <strong>{movementStateLabel}</strong>
               </div>
             </div>
-
-            <FareBreakdownPanel breakdown={fareBreakdown} />
 
             <div className="r9-metrics-grid" aria-label="運行情報">
               {displayMetrics.map((item) => (
@@ -1092,26 +1036,6 @@ export function CasePage() {
                 <strong>{formatFareYen(expenseTotalYen)}円</strong>
               </div>
             </div>
-
-            <div className="r9-history-panel">
-              <h2>過去入力履歴</h2>
-              {inputHistory.length === 0 ? (
-                <p>履歴はまだありません。</p>
-              ) : null}
-              <div>
-                {inputHistory.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleHistorySelect(item)}
-                  >
-                    <span>{item.mode === 'care' ? '介助' : '実費'}</span>
-                    <strong>{item.name}</strong>
-                    <em>{formatFareYen(item.amountYen)}円</em>
-                  </button>
-                ))}
-              </div>
-            </div>
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
@@ -1147,108 +1071,107 @@ export function CasePage() {
               </button>
             </div>
 
-            <div className="r9-side-tools">
-              <button type="button" onClick={() => setIsSettingsOpen(true)}>
-                設定
-              </button>
-              <details
-                className="r9-gps-debug"
-                open={isGpsPanelOpen}
-                onToggle={(event) => setIsGpsPanelOpen(event.currentTarget.open)}
-              >
-                <summary>GPS非表示</summary>
-                <GpsPanel
-                  errorMessage={gps.errorMessage}
-                  gpsLogCount={gps.gpsLogCount}
-                  isActive={gps.isActive}
-                  position={gps.position}
-                  status={gps.status}
-                  speedSource={gps.speedSource}
-                  totalDistanceKm={gps.totalDistanceKm}
-                />
-              </details>
-            </div>
+            {isDevelopmentMode ? (
+              <div className="r9-side-tools">
+                <button type="button" onClick={() => setIsSettingsOpen(true)}>
+                  開発用設定
+                </button>
+                <details
+                  className="r9-gps-debug"
+                  open={isGpsPanelOpen}
+                  onToggle={(event) => setIsGpsPanelOpen(event.currentTarget.open)}
+                >
+                  <summary>GPS診断</summary>
+                  <GpsPanel
+                    errorMessage={gps.errorMessage}
+                    gpsLogCount={gps.gpsLogCount}
+                    isActive={gps.isActive}
+                    position={gps.position}
+                    status={gps.status}
+                    speedSource={gps.speedSource}
+                    totalDistanceKm={gps.totalDistanceKm}
+                  />
+                </details>
 
-            <div className="r9-address-capture" aria-label="住所取得状態">
-              <p>
-                <span>伺い先</span>
-                <strong>{pickupLocation.address || '住所未取得'}</strong>
-              </p>
-              <p>
-                <span>送り先</span>
-                <strong>{dropoffLocation.address || '住所未取得'}</strong>
-              </p>
-            </div>
-
-            <details className="r9-address-debug-panel" open>
-              <summary>住所取得診断</summary>
-              <dl>
-                <div>
-                  <dt>原因判定</dt>
-                  <dd>{reverseGeocodeCauseLabel}</dd>
-                </div>
-                <div>
-                  <dt>Google Maps APIロード状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.googleMapsApiLoadState}</dd>
-                </div>
-                <div>
-                  <dt>Geocoder生成状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocoderState}</dd>
-                </div>
-                <div>
-                  <dt>Geocoding実行状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodingExecutionState}</dd>
-                </div>
-                <div>
-                  <dt>reverseGeocodeWithGoogle</dt>
-                  <dd>{reverseGeocodeDiagnostic.reverseGeocodeCalled ? '呼び出し済み' : '未実行'}</dd>
-                </div>
-                <div>
-                  <dt>geocode()</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
-                </div>
-                <div>
-                  <dt>geocode() 応答</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
-                </div>
-                <div>
-                  <dt>取得緯度</dt>
-                  <dd>{reverseGeocodeDiagnostic.latitude ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>取得経度</dt>
-                  <dd>{reverseGeocodeDiagnostic.longitude ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>Googleレスポンス件数</dt>
-                  <dd>{reverseGeocodeDiagnostic.responseCount ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>Googleレスポンス内容</dt>
-                  <dd>{reverseGeocodeDiagnostic.googleResponseJson || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>formatted_address</dt>
-                  <dd>{reverseGeocodeDiagnostic.formattedAddress || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>取得住所</dt>
-                  <dd>{reverseGeocodeDiagnostic.address || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>エラーメッセージ</dt>
-                  <dd>{reverseGeocodeDiagnostic.errorMessage || 'なし'}</dd>
-                </div>
-                <div>
-                  <dt>空文字発生箇所</dt>
-                  <dd>{reverseGeocodeDiagnostic.emptyAddressReason || 'なし'}</dd>
-                </div>
-                <div>
-                  <dt>最終更新</dt>
-                  <dd>{reverseGeocodeDiagnostic.lastUpdatedAt || '未更新'}</dd>
-                </div>
-              </dl>
-            </details>
+                <details className="r9-address-debug-panel">
+                  <summary>住所取得診断</summary>
+                  <dl>
+                    <div>
+                      <dt>原因判定</dt>
+                      <dd>{reverseGeocodeCauseLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>伺い先</dt>
+                      <dd>{pickupLocation.address || '住所未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>送り先</dt>
+                      <dd>{dropoffLocation.address || '住所未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Google Maps APIロード状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.googleMapsApiLoadState}</dd>
+                    </div>
+                    <div>
+                      <dt>Geocoder生成状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocoderState}</dd>
+                    </div>
+                    <div>
+                      <dt>Geocoding実行状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodingExecutionState}</dd>
+                    </div>
+                    <div>
+                      <dt>reverseGeocodeWithGoogle</dt>
+                      <dd>{reverseGeocodeDiagnostic.reverseGeocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                    </div>
+                    <div>
+                      <dt>geocode()</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                    </div>
+                    <div>
+                      <dt>geocode() 応答</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
+                    </div>
+                    <div>
+                      <dt>取得緯度</dt>
+                      <dd>{reverseGeocodeDiagnostic.latitude ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>取得経度</dt>
+                      <dd>{reverseGeocodeDiagnostic.longitude ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Googleレスポンス件数</dt>
+                      <dd>{reverseGeocodeDiagnostic.responseCount ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Googleレスポンス内容</dt>
+                      <dd>{reverseGeocodeDiagnostic.googleResponseJson || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>formatted_address</dt>
+                      <dd>{reverseGeocodeDiagnostic.formattedAddress || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>取得住所</dt>
+                      <dd>{reverseGeocodeDiagnostic.address || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>エラーメッセージ</dt>
+                      <dd>{reverseGeocodeDiagnostic.errorMessage || 'なし'}</dd>
+                    </div>
+                    <div>
+                      <dt>空文字発生箇所</dt>
+                      <dd>{reverseGeocodeDiagnostic.emptyAddressReason || 'なし'}</dd>
+                    </div>
+                    <div>
+                      <dt>最終更新</dt>
+                      <dd>{reverseGeocodeDiagnostic.lastUpdatedAt || '未更新'}</dd>
+                    </div>
+                  </dl>
+                </details>
+              </div>
+            ) : null}
 
             <SettlementPanel
               breakdown={fareBreakdown}
