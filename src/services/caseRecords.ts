@@ -32,6 +32,8 @@ export type CaseRecordInput = {
   paymentMethod: PaymentMethod
   pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
+  selectedDispatchCharges?: SelectedCareOption[]
+  selectedSpecialVehicleCharges?: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
   dropoffLocation: CapturedAddressLocation
 }
@@ -57,6 +59,8 @@ export type CaseRecordDocument = {
   workSessionId: string
   storeId: string
   storeName: string
+  dispatchFareYen: number
+  specialVehicleFareYen: number
   basicFareYen: number
   waitingFareYen: number
   escortFareYen: number
@@ -73,6 +77,8 @@ export type CaseRecordDocument = {
   dropoffAddress: string
   dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
+  dispatchCharges: AssistCharge[]
+  specialVehicleCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
   createdAt?: FieldValue
   savedAt: FieldValue
@@ -195,6 +201,8 @@ const toStoredCaseRecord = (
     workSessionId: toString(data.workSessionId),
     storeId: toString(data.storeId),
     storeName: toString(data.storeName),
+    dispatchFareYen: toNumber(data.dispatchFareYen),
+    specialVehicleFareYen: toNumber(data.specialVehicleFareYen),
     basicFareYen: toNumber(data.basicFareYen),
     waitingFareYen: toNumber(data.waitingFareYen),
     escortFareYen: toNumber(data.escortFareYen),
@@ -211,6 +219,8 @@ const toStoredCaseRecord = (
     dropoffAddress: toString(data.dropoffAddress),
     dropoffCapturedAt: toString(data.dropoffCapturedAt) || null,
     assistCharges: toAssistCharges(data.assistCharges),
+    dispatchCharges: toAssistCharges(data.dispatchCharges),
+    specialVehicleCharges: toAssistCharges(data.specialVehicleCharges),
     expenseCharges: toExpenseCharges(data.expenseCharges),
   }
 }
@@ -235,6 +245,8 @@ export async function saveCaseRecord({
   paymentMethod,
   pickupLocation,
   selectedCareOptions,
+  selectedDispatchCharges = [],
+  selectedSpecialVehicleCharges = [],
   selectedExpenses,
   dropoffLocation,
 }: CaseRecordInput) {
@@ -259,6 +271,8 @@ export async function saveCaseRecord({
     workSessionId: workSession?.id ?? '',
     storeId: workSession?.storeId ?? '',
     storeName: workSession?.storeName ?? '',
+    dispatchFareYen: fareBreakdown.dispatchFareYen,
+    specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
     basicFareYen: fareBreakdown.basicFareYen,
     waitingFareYen: fareBreakdown.waitingFareYen,
     escortFareYen: fareBreakdown.escortFareYen,
@@ -278,6 +292,16 @@ export async function saveCaseRecord({
       id: careOption.masterId,
       name: careOption.name,
       amount: careOption.amountYen,
+    })),
+    dispatchCharges: selectedDispatchCharges.map((dispatchCharge) => ({
+      id: dispatchCharge.masterId,
+      name: dispatchCharge.name,
+      amount: dispatchCharge.amountYen,
+    })),
+    specialVehicleCharges: selectedSpecialVehicleCharges.map((specialVehicleCharge) => ({
+      id: specialVehicleCharge.masterId,
+      name: specialVehicleCharge.name,
+      amount: specialVehicleCharge.amountYen,
     })),
     expenseCharges: selectedExpenses.map((expense) => ({
       id: expense.id,
