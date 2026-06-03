@@ -1,4 +1,4 @@
-import { doc, getDoc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import {
@@ -6,11 +6,13 @@ import {
   careOptionMaster,
   escortFareSettings,
   expenseSettings,
+  meterTimeFareSettings,
   waitingFareSettings,
 } from './fare'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
+  MeterTimeFareSettings,
   TimeFareSettings,
 } from './fare'
 
@@ -39,6 +41,7 @@ export type MeterSettings = {
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
+  meterTimeFare: MeterTimeFareSettings
   assistItems: CareOptionMasterItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
@@ -57,6 +60,7 @@ export const defaultMeterSettings: MeterSettings = {
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+  meterTimeFare: meterTimeFareSettings,
   assistItems: careOptionMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
@@ -132,12 +136,36 @@ function sanitizeBasicFare(value: unknown): BasicFareSettings {
   }
 }
 
-function sanitizeTimeFare(value: unknown, fallback: TimeFareSettings): TimeFareSettings {
+function sanitizeFixedTimeFare(value: unknown, fallback: TimeFareSettings): TimeFareSettings {
   const source = toObject(value)
 
   return {
     unitFareYen: toPositiveNumber(source.unitFareYen, fallback.unitFareYen),
     unitSeconds: fixedTimeFareUnitSeconds,
+  }
+}
+
+function sanitizeMeterTimeFare(value: unknown): MeterTimeFareSettings {
+  const source = toObject(value)
+
+  return {
+    lowSpeedThresholdKmh: toPositiveNumber(
+      source.lowSpeedThresholdKmh,
+      defaultMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+      0,
+    ),
+    unitFareYen: toPositiveNumber(
+      source.unitFareYen,
+      defaultMeterSettings.meterTimeFare.unitFareYen,
+    ),
+    unitSeconds: Math.max(
+      Math.floor(toPositiveNumber(
+        source.unitSeconds,
+        defaultMeterSettings.meterTimeFare.unitSeconds,
+        1,
+      )),
+      1,
+    ),
   }
 }
 
@@ -251,10 +279,11 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     basicFare: sanitizeBasicFare(source.basicFare),
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
     company: sanitizeCompany(source.company),
-    escortFare: sanitizeTimeFare(source.escortFare, defaultMeterSettings.escortFare),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),
     expensePresets: sanitizeExpensePresets(source.expensePresets),
+    meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare),
     receipt: sanitizeReceipt(source.receipt),
-    waitingFare: sanitizeTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
   }
 }
 
@@ -266,6 +295,21 @@ export async function fetchMeterSettings() {
   }
 
   return sanitizeMeterSettings(snapshot.data())
+}
+
+export function subscribeMeterSettings(
+  onUpdate: (settings: MeterSettings) => void,
+  onError?: (error: Error) => void,
+) {
+  return onSnapshot(
+    getMeterSettingsRef(),
+    (snapshot) => {
+      onUpdate(snapshot.exists() ? sanitizeMeterSettings(snapshot.data()) : defaultMeterSettings)
+    },
+    (error) => {
+      onError?.(error)
+    },
+  )
 }
 
 export async function saveMeterSettings(settings: MeterSettings) {

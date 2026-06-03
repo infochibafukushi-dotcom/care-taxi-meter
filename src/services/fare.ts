@@ -10,6 +10,10 @@ export type TimeFareSettings = {
   unitFareYen: number;
 };
 
+export type MeterTimeFareSettings = TimeFareSettings & {
+  lowSpeedThresholdKmh: number;
+};
+
 export type AssistItem = {
   id: string;
   name: string;
@@ -37,6 +41,7 @@ export type FareLineItem = {
 export type FareBreakdown = {
   basicFareYen: number;
   waitingFareYen: number;
+  meterTimeFareYen: number;
   escortFareYen: number;
   careOptionFareYen: number;
   expenseFareYen: number;
@@ -59,6 +64,12 @@ export const waitingFareSettings: TimeFareSettings = {
 export const escortFareSettings: TimeFareSettings = {
   unitSeconds: 1800,
   unitFareYen: 300,
+};
+
+export const meterTimeFareSettings: MeterTimeFareSettings = {
+  lowSpeedThresholdKmh: 5,
+  unitSeconds: 90,
+  unitFareYen: 90,
 };
 
 export const careOptionMaster: CareOptionMasterItem[] = [
@@ -85,6 +96,7 @@ export const expenseSettings: ExpenseSettings = {
 export const DEFAULT_BASIC_FARE_SETTINGS = basicFareSettings;
 export const DEFAULT_WAITING_FARE_SETTINGS = waitingFareSettings;
 export const DEFAULT_ACCOMPANIMENT_FARE_SETTINGS = escortFareSettings;
+export const DEFAULT_METER_TIME_FARE_SETTINGS = meterTimeFareSettings;
 
 export function calculateBasicFareYen(
   distanceKm: number,
@@ -117,6 +129,17 @@ export function calculateTimeFareYen(
   );
 }
 
+export function calculateMeterTimeFareYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+) {
+  if (elapsedSeconds < settings.unitSeconds) {
+    return 0;
+  }
+
+  return Math.floor(elapsedSeconds / settings.unitSeconds) * settings.unitFareYen;
+}
+
 export function calculateWaitingFareYen(elapsedSeconds: number) {
   return calculateTimeFareYen(elapsedSeconds, waitingFareSettings);
 }
@@ -141,6 +164,7 @@ export function calculateFareBreakdown({
   distanceKm,
   waitingSeconds,
   escortSeconds,
+  meterTimeSeconds = 0,
   careOptions,
   expenses,
   settings = {},
@@ -148,11 +172,13 @@ export function calculateFareBreakdown({
   distanceKm: number;
   waitingSeconds: number;
   escortSeconds: number;
+  meterTimeSeconds?: number;
   careOptions: Array<{ amountYen: number }>;
   expenses: Array<{ amountYen: number }>;
   settings?: {
     basicFare?: BasicFareSettings;
     escortFare?: TimeFareSettings;
+    meterTimeFare?: TimeFareSettings;
     waitingFare?: TimeFareSettings;
   };
 }): FareBreakdown {
@@ -164,6 +190,10 @@ export function calculateFareBreakdown({
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
   );
+  const meterTimeFareYen = calculateMeterTimeFareYen(
+    meterTimeSeconds,
+    settings.meterTimeFare ?? meterTimeFareSettings,
+  );
   const escortFareYen = calculateTimeFareYen(
     escortSeconds,
     settings.escortFare ?? escortFareSettings,
@@ -173,6 +203,7 @@ export function calculateFareBreakdown({
   const totalFareYen =
     basicFareYen +
     waitingFareYen +
+    meterTimeFareYen +
     escortFareYen +
     careOptionFareYen +
     expenseFareYen;
@@ -180,12 +211,14 @@ export function calculateFareBreakdown({
   return {
     basicFareYen,
     waitingFareYen,
+    meterTimeFareYen,
     escortFareYen,
     careOptionFareYen,
     expenseFareYen,
     totalFareYen,
     lineItems: [
       { label: "基本運賃", amountYen: basicFareYen },
+      { label: "時間加算料金", amountYen: meterTimeFareYen },
       { label: "待機料金", amountYen: waitingFareYen },
       { label: "院内付き添い料金", amountYen: escortFareYen },
       { label: "介助料金", amountYen: careOptionFareYen },
@@ -227,6 +260,31 @@ export function calculateFareIncreaseProgress(
     ),
     remainingDistanceKm,
     nextIncreaseYen: settings.additionalFareYen,
+  };
+}
+
+export function calculateTimeFareIncreaseProgress(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+) {
+  if (elapsedSeconds <= 0) {
+    return {
+      progressRate: 0,
+      remainingSeconds: settings.unitSeconds,
+      nextIncreaseYen: settings.unitFareYen,
+    };
+  }
+
+  const secondsIntoCurrentUnit = elapsedSeconds % settings.unitSeconds;
+  const remainingSeconds =
+    secondsIntoCurrentUnit === 0
+      ? settings.unitSeconds
+      : settings.unitSeconds - secondsIntoCurrentUnit;
+
+  return {
+    progressRate: Math.min(secondsIntoCurrentUnit / settings.unitSeconds, 1),
+    remainingSeconds,
+    nextIncreaseYen: settings.unitFareYen,
   };
 }
 

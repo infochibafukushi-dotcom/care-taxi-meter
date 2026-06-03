@@ -13,6 +13,7 @@ import {
   basicFareSettings,
   calculateFareBreakdown,
   calculateFareIncreaseProgress,
+  calculateTimeFareIncreaseProgress,
   careOptionMaster,
   escortFareSettings,
   formatFareYen,
@@ -23,8 +24,8 @@ import { fetchVehicles } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
-  fetchMeterSettings,
   fixedTimeFareUnitSeconds,
+  subscribeMeterSettings,
 } from '../services/meterSettings'
 import type {
   BasicFareSettings,
@@ -281,7 +282,10 @@ export function CasePage() {
   const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
     useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
   const elapsedTimers = useOperationTimers(activeTimer)
-  const gps = useCurrentPosition(isGpsActive)
+  const gps = useCurrentPosition(
+    isGpsActive,
+    currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+  )
   const workSession = useWorkSession()
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
@@ -293,8 +297,8 @@ export function CasePage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchMeterSettings()
-      .then((settings) => {
+    const unsubscribe = subscribeMeterSettings(
+      (settings) => {
         if (!isMounted) {
           return
         }
@@ -305,9 +309,9 @@ export function CasePage() {
         setCurrentEscortFareSettings(settings.escortFare)
         setCurrentCareOptionMaster(settings.assistItems)
         setCurrentExpensePresets(settings.expensePresets)
-        setSettingsMessage('Firestore設定を反映しています。')
-      })
-      .catch((error) => {
+        setSettingsMessage('Firestore設定をリアルタイム反映しています。')
+      },
+      (error) => {
         if (!isMounted) {
           return
         }
@@ -317,10 +321,12 @@ export function CasePage() {
             ? `Firestore設定を読み込めませんでした。${error.message}`
             : 'Firestore設定を読み込めませんでした。',
         )
-      })
+      },
+    )
 
     return () => {
       isMounted = false
+      unsubscribe()
     }
   }, [])
 
@@ -374,23 +380,51 @@ export function CasePage() {
 
 
   const fareBreakdown = calculateFareBreakdown({
-    distanceKm: gps.totalDistanceKm,
+    distanceKm: gps.chargeableDistanceKm,
     waitingSeconds: waitingFareSeconds,
     escortSeconds: escortFareSeconds,
+    meterTimeSeconds: gps.lowSpeedSeconds,
     careOptions: selectedCareOptions,
     expenses,
     settings: {
       basicFare: currentBasicFareSettings,
       escortFare: currentEscortFareSettings,
+      meterTimeFare: currentMeterSettings.meterTimeFare,
       waitingFare: currentWaitingFareSettings,
     },
   })
 
   const fareIncrease = calculateFareIncreaseProgress(
-    gps.totalDistanceKm,
+    gps.chargeableDistanceKm,
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
+  const distanceFareUnitKm =
+    gps.chargeableDistanceKm < currentBasicFareSettings.initialDistanceKm
+      ? currentBasicFareSettings.initialDistanceKm
+      : currentBasicFareSettings.additionalDistanceKm
+  const distanceFareElapsedMeters = Math.max(
+    0,
+    Math.round((distanceFareUnitKm - fareIncrease.remainingDistanceKm) * 1000),
+  )
+  const distanceFareUnitMeters = Math.round(distanceFareUnitKm * 1000)
+  const timeFareIncrease = calculateTimeFareIncreaseProgress(
+    gps.lowSpeedSeconds,
+    currentMeterSettings.meterTimeFare,
+  )
+  const timeFareIncreasePercent = Math.round(timeFareIncrease.progressRate * 100)
+  const timeFareElapsedSeconds = Math.max(
+    0,
+    Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
+  )
+  const currentSpeedLabel =
+    gps.currentSpeedKmh == null ? '速度未取得' : `${gps.currentSpeedKmh.toFixed(1)}km/h`
+  const movementStateLabel =
+    gps.movementState === 'low-speed'
+      ? '低速走行中'
+      : gps.movementState === 'normal'
+        ? '通常走行中'
+        : '速度判定待ち'
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -867,7 +901,8 @@ export function CasePage() {
   }
 
   const displayMetrics = [
-    { label: '距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
+    { label: '課金距離', value: `${gps.chargeableDistanceKm.toFixed(3)} km` },
+    { label: '実走行距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
     { label: '運行時間', value: elapsedTimers.driving },
     { label: '待機時間', value: elapsedTimers.waiting },
     { label: '付き添い', value: elapsedTimers.accompanying },
@@ -958,18 +993,45 @@ export function CasePage() {
               <span className="r9-fare-unit">円</span>
             </div>
 
-            <div className="fare-increase-panel">
-              <div className="fare-increase-panel__label">
-                <span>運賃上昇予告</span>
-                <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
+            <div className="fare-increase-stack" aria-label="加算インジケーター">
+              <div className={`fare-increase-panel ${gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
+                <div className="fare-increase-panel__label">
+                  <span>距離加算まで</span>
+                  <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
+                </div>
+                <div className="fare-increase-track">
+                  <span style={{ width: `${fareIncreasePercent}%` }} />
+                  <i />
+                </div>
+                <small>
+                  {distanceFareElapsedMeters}m / {distanceFareUnitMeters}m
+                </small>
               </div>
-              <div className="fare-increase-track">
-                <span style={{ width: `${fareIncreasePercent}%` }} />
-                <i />
+
+              <div className={`fare-increase-panel fare-increase-panel--time ${gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
+                <div className="fare-increase-panel__label">
+                  <span>時間加算まで</span>
+                  <strong>次回 +{formatFareYen(timeFareIncrease.nextIncreaseYen)}円</strong>
+                </div>
+                <div className="fare-increase-track">
+                  <span style={{ width: `${timeFareIncreasePercent}%` }} />
+                  <i />
+                </div>
+                <small>
+                  {timeFareElapsedSeconds}秒 / {currentMeterSettings.meterTimeFare.unitSeconds}秒
+                </small>
               </div>
-              <small>
-                次回加算まで 約{fareIncrease.remainingDistanceKm.toFixed(3)}km
-              </small>
+            </div>
+
+            <div className="meter-state-panel" aria-label="速度判定">
+              <div>
+                <span>現在速度</span>
+                <strong>{currentSpeedLabel}</strong>
+              </div>
+              <div>
+                <span>現在状態</span>
+                <strong>{movementStateLabel}</strong>
+              </div>
             </div>
 
             <FareBreakdownPanel breakdown={fareBreakdown} />
@@ -1101,6 +1163,7 @@ export function CasePage() {
                   isActive={gps.isActive}
                   position={gps.position}
                   status={gps.status}
+                  speedSource={gps.speedSource}
                   totalDistanceKm={gps.totalDistanceKm}
                 />
               </details>
