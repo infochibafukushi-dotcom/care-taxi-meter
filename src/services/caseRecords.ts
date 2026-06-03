@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -9,6 +10,7 @@ import {
   query,
   where,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore'
 import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
@@ -36,6 +38,15 @@ export type CaseRecordInput = {
   selectedSpecialVehicleCharges?: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
   dropoffLocation: CapturedAddressLocation
+}
+
+export type CaseRecordStatus = 'completed' | 'canceled'
+
+export type CaseRecordChangeEntry = {
+  changedAt: string
+  fieldLabel: string
+  previousValue: string
+  nextValue: string
 }
 
 export type CaseRecordDocument = {
@@ -68,6 +79,11 @@ export type CaseRecordDocument = {
   expenseFareYen: number
   totalFareYen: number
   paymentMethod: string
+  customerName: string
+  remarks: string
+  status: CaseRecordStatus
+  canceledAt: string
+  changeHistory: CaseRecordChangeEntry[]
   pickupLatitude: number | null
   pickupLongitude: number | null
   pickupAddress: string
@@ -99,6 +115,14 @@ export type ExpenseCharge = {
 export type StoredCaseRecord = Omit<CaseRecordDocument, 'createdAt' | 'savedAt'> & {
   createdAt?: string
   id: string
+}
+
+export type CaseRecordEditableValues = {
+  careOptionFareYen: number
+  dispatchFareYen: number
+  expenseFareYen: number
+  paymentMethod: string
+  remarks: string
 }
 
 const caseRecordsCollectionName = 'caseRecords'
@@ -164,6 +188,27 @@ const toExpenseCharges = (value: unknown): ExpenseCharge[] =>
         .filter((item): item is ExpenseCharge => Boolean(item))
     : []
 
+
+const toChangeHistory = (value: unknown): CaseRecordChangeEntry[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const changedAt = toString(source.changedAt)
+          const fieldLabel = toString(source.fieldLabel)
+          const previousValue = toString(source.previousValue)
+          const nextValue = toString(source.nextValue)
+
+          return changedAt && fieldLabel
+            ? { changedAt, fieldLabel, previousValue, nextValue }
+            : null
+        })
+        .filter((item): item is CaseRecordChangeEntry => Boolean(item))
+    : []
+
+const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
+  value === 'canceled' ? 'canceled' : 'completed'
+
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
@@ -210,6 +255,11 @@ const toStoredCaseRecord = (
     expenseFareYen: toNumber(data.expenseFareYen),
     totalFareYen: toNumber(data.totalFareYen),
     paymentMethod: toPaymentMethod(data.paymentMethod),
+    customerName: toString(data.customerName),
+    remarks: toString(data.remarks),
+    status: toCaseRecordStatus(data.status),
+    canceledAt: toString(data.canceledAt),
+    changeHistory: toChangeHistory(data.changeHistory),
     pickupLatitude: toNullableNumber(data.pickupLatitude),
     pickupLongitude: toNullableNumber(data.pickupLongitude),
     pickupAddress: toString(data.pickupAddress),
@@ -280,6 +330,11 @@ export async function saveCaseRecord({
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
     paymentMethod,
+    customerName: '',
+    remarks: '',
+    status: 'completed',
+    canceledAt: '',
+    changeHistory: [],
     pickupLatitude: pickupLocation.latitude,
     pickupLongitude: pickupLocation.longitude,
     pickupAddress: pickupLocation.address,
@@ -354,3 +409,123 @@ export async function fetchCaseRecord(caseRecordId: string) {
 
   return toStoredCaseRecord(snapshot)
 }
+
+const formatYenForHistory = (value: number) => `${Math.round(value).toLocaleString('ja-JP')}円`
+
+const editableFieldDefinitions: Array<{
+  key: keyof CaseRecordEditableValues
+  label: string
+  format: (value: string | number) => string
+}> = [
+  { key: 'careOptionFareYen', label: '介助料金', format: (value) => formatYenForHistory(Number(value)) },
+  { key: 'dispatchFareYen', label: '予約迎車料金', format: (value) => formatYenForHistory(Number(value)) },
+  { key: 'expenseFareYen', label: '実費', format: (value) => formatYenForHistory(Number(value)) },
+  { key: 'paymentMethod', label: '支払方法', format: (value) => String(value || '未設定') },
+  { key: 'remarks', label: '備考', format: (value) => String(value || '未設定') },
+]
+
+const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValues => ({
+  careOptionFareYen: caseRecord.careOptionFareYen,
+  dispatchFareYen: caseRecord.dispatchFareYen,
+  expenseFareYen: caseRecord.expenseFareYen,
+  paymentMethod: caseRecord.paymentMethod,
+  remarks: caseRecord.remarks,
+})
+
+const normalizeEditableValues = (values: CaseRecordEditableValues): CaseRecordEditableValues => ({
+  careOptionFareYen: Math.max(Math.round(values.careOptionFareYen), 0),
+  dispatchFareYen: Math.max(Math.round(values.dispatchFareYen), 0),
+  expenseFareYen: Math.max(Math.round(values.expenseFareYen), 0),
+  paymentMethod: values.paymentMethod.trim() || '未設定',
+  remarks: values.remarks.trim(),
+})
+
+const calculateEditableFareYen = (values: Pick<
+  CaseRecordEditableValues,
+  'careOptionFareYen' | 'dispatchFareYen' | 'expenseFareYen'
+>) => values.careOptionFareYen + values.dispatchFareYen + values.expenseFareYen
+
+const calculateTotalFareYen = (
+  caseRecord: StoredCaseRecord,
+  values: CaseRecordEditableValues,
+) => {
+  const currentEditableFareYen = calculateEditableFareYen(toEditableValues(caseRecord))
+  const fixedFareYen = Math.max(caseRecord.totalFareYen - currentEditableFareYen, 0)
+  return fixedFareYen + calculateEditableFareYen(values)
+}
+
+export async function updateCaseRecordEditableValues(
+  caseRecord: StoredCaseRecord,
+  values: CaseRecordEditableValues,
+) {
+  const normalizedValues = normalizeEditableValues(values)
+  const previousValues = toEditableValues(caseRecord)
+  const changedAt = new Date().toISOString()
+  const changeEntries = editableFieldDefinitions.flatMap((field) => {
+    const previousValue = previousValues[field.key]
+    const nextValue = normalizedValues[field.key]
+
+    if (previousValue === nextValue) {
+      return []
+    }
+
+    return [{
+      changedAt,
+      fieldLabel: field.label,
+      previousValue: field.format(previousValue),
+      nextValue: field.format(nextValue),
+    }]
+  })
+
+  if (changeEntries.length === 0) {
+    return caseRecord
+  }
+
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    ...normalizedValues,
+    totalFareYen: calculateTotalFareYen(caseRecord, normalizedValues),
+    changeHistory: [...(caseRecord.changeHistory ?? []), ...changeEntries],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    ...normalizedValues,
+    totalFareYen: updatedRecord.totalFareYen,
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  return updatedRecord
+}
+
+export async function cancelCaseRecord(caseRecord: StoredCaseRecord) {
+  const canceledAt = new Date().toISOString()
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    canceledAt,
+    status: 'canceled',
+    changeHistory: [
+      ...(caseRecord.changeHistory ?? []),
+      {
+        changedAt: canceledAt,
+        fieldLabel: 'ステータス',
+        previousValue: caseRecord.status === 'canceled' ? 'キャンセル済' : '通常',
+        nextValue: 'キャンセル済',
+      },
+    ],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    canceledAt,
+    status: 'canceled',
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  return updatedRecord
+}
+
+export async function deleteCaseRecordPermanently(caseRecordId: string) {
+  await deleteDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecordId))
+}
+

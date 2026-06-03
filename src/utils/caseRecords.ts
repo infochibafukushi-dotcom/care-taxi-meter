@@ -1,5 +1,11 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 
+export const isCanceledCaseRecord = (caseRecord: StoredCaseRecord) =>
+  caseRecord.status === 'canceled'
+
+export const getBillableCaseRecords = (caseRecords: StoredCaseRecord[]) =>
+  caseRecords.filter((caseRecord) => !isCanceledCaseRecord(caseRecord))
+
 const japaneseDateTimeFormatter = new Intl.DateTimeFormat('ja-JP', {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -34,7 +40,7 @@ export function isTodayInJapan(closedAt: string) {
 }
 
 export function calculateTodayCaseSummary(caseRecords: StoredCaseRecord[]) {
-  const todaysCaseRecords = caseRecords.filter((caseRecord) =>
+  const todaysCaseRecords = getBillableCaseRecords(caseRecords).filter((caseRecord) =>
     isTodayInJapan(caseRecord.closedAt),
   )
 
@@ -85,9 +91,11 @@ export function getMonthRangeInJapan(date = new Date()) {
 }
 
 export function calculateCaseSummary(caseRecords: StoredCaseRecord[]) {
+  const billableCaseRecords = getBillableCaseRecords(caseRecords)
+
   return {
-    count: caseRecords.length,
-    salesYen: caseRecords.reduce(
+    count: billableCaseRecords.length,
+    salesYen: billableCaseRecords.reduce(
       (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
       0,
     ),
@@ -96,7 +104,7 @@ export function calculateCaseSummary(caseRecords: StoredCaseRecord[]) {
 
 export function calculateMonthCaseSummary(caseRecords: StoredCaseRecord[]) {
   const { endIso, startIso } = getMonthRangeInJapan()
-  const monthlyCaseRecords = caseRecords.filter(
+  const monthlyCaseRecords = getBillableCaseRecords(caseRecords).filter(
     (caseRecord) =>
       caseRecord.closedAt >= startIso && caseRecord.closedAt < endIso,
   )
@@ -181,7 +189,8 @@ export function calculateSalesSummary(
 ): SalesSummary {
   const todayRange = getTodayRangeInJapan(date)
   const monthRange = getMonthRangeInJapan(date)
-  const todayRecords = caseRecords.filter((caseRecord) => {
+  const billableCaseRecords = getBillableCaseRecords(caseRecords)
+  const todayRecords = billableCaseRecords.filter((caseRecord) => {
     const closedDate = toValidClosedDate(caseRecord.closedAt)
     return (
       closedDate &&
@@ -189,7 +198,7 @@ export function calculateSalesSummary(
       caseRecord.closedAt < todayRange.endIso
     )
   })
-  const thisMonthRecords = caseRecords.filter((caseRecord) => {
+  const thisMonthRecords = billableCaseRecords.filter((caseRecord) => {
     const closedDate = toValidClosedDate(caseRecord.closedAt)
     return (
       closedDate &&
@@ -197,7 +206,7 @@ export function calculateSalesSummary(
       caseRecord.closedAt < monthRange.endIso
     )
   })
-  const totalSalesYen = caseRecords.reduce(
+  const totalSalesYen = billableCaseRecords.reduce(
     (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
     0,
   )
@@ -213,7 +222,7 @@ export function calculateSalesSummary(
   const dailySalesMap = new Map<string, number>()
   const monthlySalesMap = new Map<string, { count: number; salesYen: number }>()
 
-  caseRecords.forEach((caseRecord) => {
+  billableCaseRecords.forEach((caseRecord) => {
     const paymentMethod = toPaymentMethodLabel(caseRecord.paymentMethod)
     const currentPaymentSummary = paymentMethodMap.get(paymentMethod) ?? {
       count: 0,
@@ -304,7 +313,7 @@ export function calculateSalesSummary(
     todayAverageYen: calculateAverageYen(todaySalesYen, todayRecords.length),
     todayCount: todayRecords.length,
     todaySalesYen,
-    totalCount: caseRecords.length,
+    totalCount: billableCaseRecords.length,
     totalSalesYen,
   }
 }

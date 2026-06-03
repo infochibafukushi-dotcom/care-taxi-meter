@@ -145,6 +145,10 @@ export function CaseListPage() {
                 <strong>{formatOptionalText(caseRecord.vehicleName)}</strong>
               </span>
               <span>
+                <small>ステータス</small>
+                <strong>{caseRecord.status === 'canceled' ? 'キャンセル済' : '通常'}</strong>
+              </span>
+              <span>
                 <small>支払方法</small>
                 <strong>{caseRecord.paymentMethod}</strong>
               </span>
