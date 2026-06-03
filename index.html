@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0ea5e9" />
     <meta
@@ -10,6 +10,27 @@
       content="介護タクシー専用メーターアプリの初期プロジェクト"
     />
     <title>介護タクシー専用メーター</title>
+
+    <script>
+      ;(() => {
+        const basePath = '%BASE_URL%'
+        const params = new URLSearchParams(window.location.search)
+        const redirectPath = params.get('redirect')
+
+        if (!redirectPath) return
+
+        params.delete('redirect')
+        const remainingQuery = params.toString()
+        const [pathAndSearch, hash = ''] = redirectPath.split('#')
+        const [path, embeddedQuery = ''] = pathAndSearch.split('?')
+        const queryParts = [embeddedQuery, remainingQuery].filter(Boolean)
+        const query = queryParts.length ? `?${queryParts.join('&')}` : ''
+        const normalizedPath = path.replace(/^\/+/, '')
+        const target = `${basePath}${normalizedPath}${query}${hash ? `#${hash}` : ''}`
+
+        window.history.replaceState(null, '', target)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
