@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
+import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
@@ -1014,7 +1015,7 @@ export function CasePage() {
           </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
-            <FareBreakdownPanel
+            <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
               paymentMethod={paymentMethod}
             />
