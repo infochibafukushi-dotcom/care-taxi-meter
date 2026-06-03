@@ -43,8 +43,8 @@ jobs:
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY || vars.VITE_GOOGLE_MAPS_API_KEY }}
         run: npm run build:pages
 
-      - name: Add SPA fallback
-        run: cp dist/index.html dist/404.html
+      - name: Verify SPA fallback
+        run: test -f dist/404.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
