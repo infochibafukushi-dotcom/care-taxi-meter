@@ -3717,3 +3717,140 @@ h1 {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
+.case-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.case-detail-secondary-button,
+.case-detail-danger-button {
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.case-detail-secondary-button {
+  color: #075985;
+  background: #e0f2fe;
+}
+
+.case-detail-danger-button {
+  color: #fff;
+  background: #dc2626;
+}
+
+.case-detail-danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.case-detail-danger-button--delete {
+  background: #7f1d1d;
+}
+
+.case-status-badge {
+  display: inline-flex;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  color: #991b1b;
+  background: #fee2e2;
+  font-weight: 900;
+}
+
+.case-edit-panel,
+.case-change-history {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 22px;
+  padding: 18px;
+  border: 1px solid rgb(14 165 233 / 22%);
+  border-radius: 20px;
+  background: #f8fafc;
+}
+
+.case-edit-panel h2,
+.case-change-history h2 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.case-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.case-edit-grid label {
+  display: grid;
+  gap: 8px;
+  color: #475569;
+  font-weight: 900;
+}
+
+.case-edit-grid input,
+.case-edit-grid select,
+.case-edit-grid textarea {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgb(15 23 42 / 16%);
+  border-radius: 12px;
+  color: #0f172a;
+  background: #fff;
+  font: inherit;
+}
+
+.case-edit-grid textarea {
+  min-height: 90px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
+.case-edit-wide {
+  grid-column: 1 / -1;
+}
+
+.case-change-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.case-change-history article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.case-change-history time {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.case-change-history p {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.receipt-dialog-actions--wrap {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .case-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}

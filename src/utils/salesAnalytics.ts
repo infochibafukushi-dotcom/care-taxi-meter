@@ -1,4 +1,5 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
+import { getBillableCaseRecords } from './caseRecords'
 import type { StaffMember, Vehicle } from '../types/work'
 
 export type AnalyticsPeriod = {
@@ -811,6 +812,7 @@ export function calculateSalesAnalyticsSummary(
   const startTime = toValidDate(startIso)?.getTime() ?? 0
   const endTime = toValidDate(endIso)?.getTime() ?? 0
   const monthKeys = getMonthKeysInPeriod(sortedPeriod)
+  const billableCaseRecords = getBillableCaseRecords(caseRecords)
   const monthlyMap = new Map(
     monthKeys.map((monthKey) => [
       monthKey,
@@ -822,7 +824,7 @@ export function calculateSalesAnalyticsSummary(
       },
     ]),
   )
-  const periodRecords = caseRecords.filter((caseRecord) => {
+  const periodRecords = billableCaseRecords.filter((caseRecord) => {
     const caseDateValue = getCaseRecordDateValue(caseRecord)
     const caseDate = toValidDate(caseDateValue)
     const caseTime = caseDate?.getTime() ?? Number.NaN

@@ -1,19 +1,27 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { fetchCaseRecord } from '../services/caseRecords'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  cancelCaseRecord,
+  deleteCaseRecordPermanently,
+  fetchCaseRecord,
+  updateCaseRecordEditableValues,
+} from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
-import type { StoredCaseRecord } from '../services/caseRecords'
+import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
+import type { PaymentMethod } from '../types/case'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
+import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import { useWorkSession } from '../hooks/useWorkSession'
+
+const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
 
 const formatAddress = (address: string) =>
   address.trim() ? address : '住所未取得'
 
-const formatOptionalDateTime = (dateTime: string) =>
-  dateTime ? formatCaseDateTime(dateTime) : '―'
 
 const formatOptionalText = (value: string) =>
   value.trim() ? value : '未設定'
@@ -21,12 +29,28 @@ const formatOptionalText = (value: string) =>
 const formatDrivingDuration = (seconds: number, hasTimeData: boolean) =>
   hasTimeData ? formatElapsedTime(seconds) : '―'
 
+const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValues => ({
+  careOptionFareYen: caseRecord.careOptionFareYen,
+  dispatchFareYen: caseRecord.dispatchFareYen,
+  expenseFareYen: caseRecord.expenseFareYen,
+  paymentMethod: caseRecord.paymentMethod,
+  remarks: caseRecord.remarks,
+})
+
+const toNumberInputValue = (value: number) => String(Math.max(Math.round(value), 0))
+
+const formatChangeDateTime = (changedAt: string) => {
+  const date = new Date(changedAt)
+  return Number.isNaN(date.getTime()) ? '日時未記録' : formatCaseDateTime(changedAt)
+}
+
 type CaseDetailState = {
   caseRecord: StoredCaseRecord | null
   errorMessage: string
   isLoading: boolean
   meterSettings: MeterSettings
   settingsMessage: string
+  statusMessage: string
 }
 
 type ReceiptDialogState = {
@@ -38,18 +62,32 @@ type ReceiptDialogState = {
 
 export function CaseDetailPage() {
   const { caseRecordId } = useParams()
+  const navigate = useNavigate()
+  const workSession = useWorkSession()
+  const isAdmin = ['superAdmin', 'owner', 'manager'].includes(
+    workSession.currentSession?.staffRole ?? '',
+  )
   const [state, setState] = useState<CaseDetailState>({
     caseRecord: null,
     errorMessage: '',
     isLoading: true,
     meterSettings: defaultMeterSettings,
     settingsMessage: '領収書設定を確認中です。',
+    statusMessage: '',
   })
   const [receiptDialog, setReceiptDialog] = useState<ReceiptDialogState>({
     customerName: '',
     issuerName: '',
     receiptNote: defaultMeterSettings.receipt.defaultReceiptNote,
     isOpen: false,
+  })
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValues, setEditValues] = useState<CaseRecordEditableValues>({
+    careOptionFareYen: 0,
+    dispatchFareYen: 0,
+    expenseFareYen: 0,
+    paymentMethod: '未設定',
+    remarks: '',
   })
 
   useEffect(() => {
@@ -71,6 +109,9 @@ export function CaseDetailPage() {
           errorMessage: caseRecord ? '' : '案件が見つかりませんでした。',
           isLoading: false,
         }))
+        if (caseRecord) {
+          setEditValues(toEditableValues(caseRecord))
+        }
       })
       .catch((error) => {
         if (!isMounted) {
@@ -138,10 +179,12 @@ export function CaseDetailPage() {
 
   const caseRecord = state.caseRecord
   const assistCharges = caseRecord?.assistCharges ?? []
+  const dispatchCharges = caseRecord?.dispatchCharges ?? []
+  const expenseCharges = caseRecord?.expenseCharges ?? []
   const caseAddressItems = caseRecord
     ? [
-        { label: '伺い先住所', value: caseRecord.pickupAddress },
-        { label: '送り先住所', value: caseRecord.dropoffAddress },
+        { label: '出発地', value: caseRecord.pickupAddress },
+        { label: '到着地', value: caseRecord.dropoffAddress },
       ]
     : []
   const errorMessage = caseRecordId
@@ -151,7 +194,7 @@ export function CaseDetailPage() {
 
   const openReceiptDialog = () => {
     setReceiptDialog({
-      customerName: '',
+      customerName: caseRecord?.customerName ?? '',
       issuerName: state.meterSettings.receipt.issuerName,
       receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       isOpen: true,
@@ -178,6 +221,94 @@ export function CaseDetailPage() {
     closeReceiptDialog()
   }
 
+  const handleStatementDownload = async () => {
+    if (!caseRecord) {
+      return
+    }
+
+    await openThermalReceiptPdf(caseRecord, state.meterSettings, {
+      customerName: receiptDialog.customerName,
+      expenseItems: caseRecord.expenseCharges.map((expenseCharge) => ({
+        id: expenseCharge.id,
+        name: expenseCharge.name,
+        amountYen: expenseCharge.amount,
+      })),
+      issuerName: receiptDialog.issuerName,
+      receiptNote: receiptDialog.receiptNote,
+    })
+    closeReceiptDialog()
+  }
+
+  const updateNumberEditValue = (
+    key: 'careOptionFareYen' | 'dispatchFareYen' | 'expenseFareYen',
+    value: string,
+  ) => {
+    setEditValues((currentValues) => ({
+      ...currentValues,
+      [key]: Math.max(Number(value) || 0, 0),
+    }))
+  }
+
+  const handleSave = async () => {
+    if (!caseRecord) {
+      return
+    }
+
+    setState((currentState) => ({ ...currentState, statusMessage: '変更を保存中です。' }))
+    try {
+      const updatedRecord = await updateCaseRecordEditableValues(caseRecord, editValues)
+      setState((currentState) => ({
+        ...currentState,
+        caseRecord: updatedRecord,
+        errorMessage: '',
+        statusMessage: '変更を保存しました。売上分析へ反映されます。',
+      }))
+      setEditValues(toEditableValues(updatedRecord))
+      setIsEditing(false)
+    } catch (error) {
+      setState((currentState) => ({
+        ...currentState,
+        statusMessage: '',
+        errorMessage:
+          error instanceof Error ? error.message : '案件の保存に失敗しました。',
+      }))
+    }
+  }
+
+  const handleCancelCase = async () => {
+    if (!caseRecord || caseRecord.status === 'canceled') {
+      return
+    }
+
+    if (!window.confirm('この案件をキャンセル済に変更しますか。売上集計から除外されます。')) {
+      return
+    }
+
+    const updatedRecord = await cancelCaseRecord(caseRecord)
+    setState((currentState) => ({
+      ...currentState,
+      caseRecord: updatedRecord,
+      statusMessage: '案件をキャンセル済にしました。',
+    }))
+  }
+
+  const handlePermanentDelete = async () => {
+    if (!caseRecord || !isAdmin) {
+      return
+    }
+
+    if (!window.confirm('この案件を完全削除しますか')) {
+      return
+    }
+
+    if (!window.confirm('削除すると履歴・変更履歴も復元できません。本当に完全削除しますか。')) {
+      return
+    }
+
+    await deleteCaseRecordPermanently(caseRecord.id)
+    navigate('/cases')
+  }
+
   return (
     <main className="page case-detail-page" aria-labelledby="case-detail-title">
       <section className="content-card case-detail-card">
@@ -201,61 +332,98 @@ export function CaseDetailPage() {
           </p>
         ) : null}
 
+        {state.statusMessage ? (
+          <p className="save-note" role="status">{state.statusMessage}</p>
+        ) : null}
+
         {caseRecord ? (
           <>
             <p className="empty-note">{state.settingsMessage}</p>
-            <button
-              className="receipt-download-button"
-              type="button"
-              onClick={openReceiptDialog}
-            >
-              領収書発行
-            </button>
+            <div className="case-detail-actions">
+              <button className="receipt-download-button" type="button" onClick={openReceiptDialog}>
+                領収書再発行 / 利用明細再発行
+              </button>
+              <button className="case-detail-secondary-button" type="button" onClick={() => {
+                setEditValues(toEditableValues(caseRecord))
+                setIsEditing((current) => !current)
+              }}>
+                {isEditing ? '編集を閉じる' : '編集'}
+              </button>
+              <button
+                className="case-detail-danger-button"
+                type="button"
+                disabled={caseRecord.status === 'canceled'}
+                onClick={() => { void handleCancelCase() }}
+              >
+                キャンセル
+              </button>
+              {isAdmin ? (
+                <button className="case-detail-danger-button case-detail-danger-button--delete" type="button" onClick={() => { void handlePermanentDelete() }}>
+                  完全削除
+                </button>
+              ) : null}
+            </div>
+
+            {caseRecord.status === 'canceled' ? (
+              <p className="case-status-badge">キャンセル済（売上集計対象外）</p>
+            ) : null}
+
+            {isEditing ? (
+              <section className="case-edit-panel" aria-labelledby="case-edit-title">
+                <h2 id="case-edit-title">案件修正</h2>
+                <div className="case-edit-grid">
+                  <label>
+                    介助料金
+                    <input type="number" min="0" value={toNumberInputValue(editValues.careOptionFareYen)} onChange={(event) => updateNumberEditValue('careOptionFareYen', event.target.value)} />
+                  </label>
+                  <label>
+                    予約迎車料金
+                    <input type="number" min="0" value={toNumberInputValue(editValues.dispatchFareYen)} onChange={(event) => updateNumberEditValue('dispatchFareYen', event.target.value)} />
+                  </label>
+                  <label>
+                    実費
+                    <input type="number" min="0" value={toNumberInputValue(editValues.expenseFareYen)} onChange={(event) => updateNumberEditValue('expenseFareYen', event.target.value)} />
+                  </label>
+                  <label>
+                    支払方法
+                    <select value={editValues.paymentMethod} onChange={(event) => setEditValues((currentValues) => ({ ...currentValues, paymentMethod: event.target.value }))}>
+                      <option value="未設定">未設定</option>
+                      {paymentMethodOptions.map((paymentMethod) => (
+                        <option key={paymentMethod} value={paymentMethod}>{paymentMethod}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="case-edit-wide">
+                    備考
+                    <textarea value={editValues.remarks} onChange={(event) => setEditValues((currentValues) => ({ ...currentValues, remarks: event.target.value }))} />
+                  </label>
+                </div>
+                <div className="receipt-dialog-actions">
+                  <button className="receipt-dialog-secondary" type="button" onClick={() => {
+                    setEditValues(toEditableValues(caseRecord))
+                    setIsEditing(false)
+                  }}>
+                    取り消し
+                  </button>
+                  <button className="receipt-dialog-primary" type="button" onClick={() => { void handleSave() }}>
+                    保存
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             <div className="case-detail-grid" aria-label="案件詳細">
               <div>
                 <span>案件番号</span>
                 <strong>{caseRecord.caseNumber}</strong>
               </div>
               <div>
-                <span>送迎開始時刻</span>
-                <strong>{formatOptionalDateTime(caseRecord.startedAt)}</strong>
+                <span>日時</span>
+                <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
               </div>
               <div>
-                <span>送迎終了時刻</span>
-                <strong>{formatOptionalDateTime(caseRecord.endedAt)}</strong>
-              </div>
-              <div>
-                <span>会社</span>
-                <strong>{formatOptionalText(caseRecord.companyName)}</strong>
-              </div>
-              <div>
-                <span>担当スタッフ</span>
-                <strong>{formatOptionalText(caseRecord.staffName)}</strong>
-              </div>
-              <div>
-                <span>使用車両</span>
-                <strong>{formatOptionalText(caseRecord.vehicleName)}</strong>
-              </div>
-              <div>
-                <span>車両ナンバー</span>
-                <strong>{formatOptionalText(caseRecord.vehicleNumber)}</strong>
-              </div>
-              <div>
-                <span>店舗</span>
-                <strong>{formatOptionalText(caseRecord.storeName)}</strong>
-              </div>
-              <div>
-                <span>勤務ID</span>
-                <strong>{formatOptionalText(caseRecord.workSessionId)}</strong>
-              </div>
-              <div>
-                <span>運転時間（待機・付き添い除く）</span>
-                <strong>
-                  {formatDrivingDuration(
-                    caseRecord.drivingSeconds,
-                    Boolean(caseRecord.startedAt || caseRecord.endedAt),
-                  )}
-                </strong>
+                <span>顧客名</span>
+                <strong>{formatOptionalText(caseRecord.customerName)}</strong>
               </div>
               {caseAddressItems.map((addressItem) => (
                 <div className="case-detail-address" key={addressItem.label}>
@@ -268,24 +436,16 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
               </div>
               <div>
+                <span>運行時間</span>
+                <strong>{formatDrivingDuration(caseRecord.drivingSeconds, Boolean(caseRecord.startedAt || caseRecord.endedAt))}</strong>
+              </div>
+              <div>
                 <span>基本運賃</span>
                 <strong>{formatFareYen(caseRecord.basicFareYen)}円</strong>
               </div>
               <div>
-                <span>待機料金</span>
-                <strong>{formatFareYen(caseRecord.waitingFareYen)}円</strong>
-              </div>
-              <div>
-                <span>待機時間</span>
-                <strong>{formatDrivingDuration(caseRecord.waitingSeconds, true)}</strong>
-              </div>
-              <div>
-                <span>付き添い料金</span>
-                <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
-              </div>
-              <div>
-                <span>付き添い時間</span>
-                <strong>{formatDrivingDuration(caseRecord.accompanyingSeconds, true)}</strong>
+                <span>時間加算</span>
+                <strong>{formatFareYen(caseRecord.waitingFareYen + caseRecord.escortFareYen)}円</strong>
               </div>
               <div className="case-detail-assist-charges">
                 <span>介助料金</span>
@@ -306,99 +466,109 @@ export function CaseDetailPage() {
                   <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
                 )}
               </div>
-              <div>
-                <span>実費</span>
-                <strong>{formatFareYen(caseRecord.expenseFareYen)}円</strong>
+              <div className="case-detail-assist-charges">
+                <span>予約迎車料金</span>
+                {dispatchCharges.length > 0 ? (
+                  <div>
+                    {dispatchCharges.map((dispatchCharge) => (
+                      <p key={`${dispatchCharge.id}-${dispatchCharge.name}`}>
+                        <span>{dispatchCharge.name}</span>
+                        <strong>{formatFareYen(dispatchCharge.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.dispatchFareYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>{formatFareYen(caseRecord.dispatchFareYen)}円</strong>
+                )}
               </div>
-              <div>
-                <span>合計金額</span>
-                <strong>{formatFareYen(caseRecord.totalFareYen)}円</strong>
+              <div className="case-detail-assist-charges">
+                <span>実費</span>
+                {expenseCharges.length > 0 ? (
+                  <div>
+                    {expenseCharges.map((expenseCharge) => (
+                      <p key={`${expenseCharge.id}-${expenseCharge.name}`}>
+                        <span>{expenseCharge.name}</span>
+                        <strong>{formatFareYen(expenseCharge.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.expenseFareYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>{formatFareYen(caseRecord.expenseFareYen)}円</strong>
+                )}
               </div>
               <div>
                 <span>支払方法</span>
                 <strong>{caseRecord.paymentMethod}</strong>
               </div>
+              <div>
+                <span>合計金額</span>
+                <strong>{formatFareYen(caseRecord.totalFareYen)}円</strong>
+              </div>
+              <div className="case-detail-address">
+                <span>備考</span>
+                <strong>{formatOptionalText(caseRecord.remarks)}</strong>
+              </div>
             </div>
-            <p className="osm-attribution">
-              住所データ © Google
-            </p>
+
+            <section className="case-change-history" aria-labelledby="case-change-history-title">
+              <h2 id="case-change-history-title">変更履歴</h2>
+              {caseRecord.changeHistory.length > 0 ? (
+                <div className="case-change-history-list">
+                  {caseRecord.changeHistory.map((changeEntry, index) => (
+                    <article key={`${changeEntry.changedAt}-${changeEntry.fieldLabel}-${index}`}>
+                      <time>{formatChangeDateTime(changeEntry.changedAt)}</time>
+                      <strong>{changeEntry.fieldLabel}</strong>
+                      <p>{changeEntry.previousValue}→{changeEntry.nextValue}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-note">変更履歴はありません。</p>
+              )}
+            </section>
+
+            <p className="osm-attribution">住所データ © Google</p>
           </>
         ) : null}
       </section>
 
       {receiptDialog.isOpen ? (
         <div className="receipt-dialog-backdrop" role="presentation">
-          <section
-            aria-labelledby="receipt-dialog-title"
-            aria-modal="true"
-            className="receipt-dialog"
-            role="dialog"
-          >
+          <section aria-labelledby="receipt-dialog-title" aria-modal="true" className="receipt-dialog" role="dialog">
             <header>
               <div>
                 <p className="eyebrow">Receipt</p>
-                <h2 id="receipt-dialog-title">領収書発行設定</h2>
+                <h2 id="receipt-dialog-title">再発行設定</h2>
               </div>
             </header>
 
             <label>
               宛名（任意）
-              <input
-                placeholder="空欄でも発行できます"
-                value={receiptDialog.customerName}
-                onChange={(event) =>
-                  setReceiptDialog((currentDialog) => ({
-                    ...currentDialog,
-                    customerName: event.target.value,
-                  }))
-                }
-              />
+              <input placeholder="空欄でも発行できます" value={receiptDialog.customerName} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, customerName: event.target.value }))} />
             </label>
 
             <label>
               発行担当者
-              <input
-                value={receiptDialog.issuerName}
-                onChange={(event) =>
-                  setReceiptDialog((currentDialog) => ({
-                    ...currentDialog,
-                    issuerName: event.target.value,
-                  }))
-                }
-              />
+              <input value={receiptDialog.issuerName} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, issuerName: event.target.value }))} />
             </label>
 
             <label>
               但し書き
-              <textarea
-                placeholder="空欄でも発行できます"
-                value={receiptDialog.receiptNote}
-                onChange={(event) =>
-                  setReceiptDialog((currentDialog) => ({
-                    ...currentDialog,
-                    receiptNote: event.target.value,
-                  }))
-                }
-              />
+              <textarea placeholder="空欄でも発行できます" value={receiptDialog.receiptNote} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, receiptNote: event.target.value }))} />
             </label>
 
-            <div className="receipt-dialog-actions">
-              <button
-                className="receipt-dialog-secondary"
-                type="button"
-                onClick={closeReceiptDialog}
-              >
-                キャンセル
-              </button>
-              <button
-                className="receipt-dialog-primary"
-                type="button"
-                onClick={() => {
-                  void handleReceiptDownload()
-                }}
-              >
-                PDF出力
-              </button>
+            <div className="receipt-dialog-actions receipt-dialog-actions--wrap">
+              <button className="receipt-dialog-secondary" type="button" onClick={closeReceiptDialog}>閉じる</button>
+              <button className="receipt-dialog-primary" type="button" onClick={() => { void handleStatementDownload() }}>利用明細再発行</button>
+              <button className="receipt-dialog-primary" type="button" onClick={() => { void handleReceiptDownload() }}>領収書再発行</button>
             </div>
           </section>
         </div>
