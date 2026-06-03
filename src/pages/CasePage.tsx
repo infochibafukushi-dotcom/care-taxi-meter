@@ -29,6 +29,7 @@ import {
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
+  DispatchMenuItem,
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
@@ -223,6 +224,7 @@ export function CasePage() {
   const [isGpsActive, setIsGpsActive] = useState(false)
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
+  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -248,6 +250,9 @@ export function CasePage() {
     useState<TimeFareSettings>(escortFareSettings)
   const [currentCareOptionMaster, setCurrentCareOptionMaster] =
     useState<CareOptionMasterItem[]>(careOptionMaster)
+  const [currentDispatchMenuItems, setCurrentDispatchMenuItems] = useState<DispatchMenuItem[]>(
+    defaultMeterSettings.dispatchMenuItems,
+  )
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
     defaultMeterSettings.expensePresets,
   )
@@ -309,6 +314,7 @@ export function CasePage() {
         setCurrentWaitingFareSettings(settings.waitingFare)
         setCurrentEscortFareSettings(settings.escortFare)
         setCurrentCareOptionMaster(settings.assistItems)
+        setCurrentDispatchMenuItems(settings.dispatchMenuItems)
         setCurrentExpensePresets(settings.expensePresets)
         setSettingsMessage('Firestore設定をリアルタイム反映しています。')
       },
@@ -435,6 +441,15 @@ export function CasePage() {
         ),
     [currentCareOptionMaster],
   )
+  const enabledDispatchMenuItems = useMemo(
+    () =>
+      currentDispatchMenuItems
+        .filter((item) => item.enabled)
+        .sort(
+          (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+        ),
+    [currentDispatchMenuItems],
+  )
   const selectedCareOptionIds = useMemo(
     () => new Set(selectedCareOptions.map((option) => option.masterId)),
     [selectedCareOptions],
@@ -506,6 +521,14 @@ export function CasePage() {
         name: masterItem.name,
       })
     }
+  }
+
+  const addDispatchCharge = (dispatchItem: DispatchMenuItem) => {
+    addCareOption({
+      amountYen: dispatchItem.amount,
+      masterId: `dispatch:${dispatchItem.id}`,
+      name: dispatchItem.name,
+    })
   }
 
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
@@ -990,52 +1013,11 @@ export function CasePage() {
             </div>
           </section>
 
-          <section className="r9-center-panel" aria-label="追加料金サマリー">
-            <div className="r9-panel-title">
-              <span>ASSIST</span>
-              <h2>介助サマリー</h2>
-            </div>
-            <div className="r9-summary-card">
-              {selectedCareOptions.length === 0 ? (
-                <p className="empty-note">介助項目は未選択です。</p>
-              ) : (
-                <div className="r9-summary-list">
-                  {selectedCareOptions.map((option) => (
-                    <p key={option.id}>
-                      <span>{option.name}</span>
-                      <strong>{formatFareYen(option.amountYen)}円</strong>
-                    </p>
-                  ))}
-                </div>
-              )}
-              <div className="r9-summary-total">
-                <span>介助合計</span>
-                <strong>{formatFareYen(fareBreakdown.careOptionFareYen)}円</strong>
-              </div>
-            </div>
-
-            <div className="r9-panel-title r9-panel-title--expense">
-              <span>COST</span>
-              <h2>実費サマリー</h2>
-            </div>
-            <div className="r9-summary-card">
-              {expenses.length === 0 ? (
-                <p className="empty-note">実費は未追加です。</p>
-              ) : (
-                <div className="r9-summary-list">
-                  {expenses.map((expense) => (
-                    <p key={expense.id}>
-                      <span>{expense.name}</span>
-                      <strong>{formatFareYen(expense.amountYen)}円</strong>
-                    </p>
-                  ))}
-                </div>
-              )}
-              <div className="r9-summary-total">
-                <span>実費合計</span>
-                <strong>{formatFareYen(expenseTotalYen)}円</strong>
-              </div>
-            </div>
+          <section className="r9-center-panel" aria-label="料金内訳">
+            <FareBreakdownPanel
+              breakdown={fareBreakdown}
+              paymentMethod={paymentMethod}
+            />
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
@@ -1053,6 +1035,13 @@ export function CasePage() {
                 onClick={() => setIsCareModalOpen(true)}
               >
                 介助
+              </button>
+              <button
+                className="r9-status-button r9-status-button--pickup"
+                type="button"
+                onClick={() => setIsDispatchModalOpen(true)}
+              >
+                予約迎車
               </button>
               <button
                 className="r9-status-button r9-status-button--expense"
@@ -1172,14 +1161,6 @@ export function CasePage() {
                 </details>
               </div>
             ) : null}
-
-            <SettlementPanel
-              breakdown={fareBreakdown}
-              paymentMethod={paymentMethod}
-              saveMessage={caseSaveMessage}
-              saveState={caseSaveState}
-              onPaymentMethodChange={setPaymentMethod}
-            />
           </section>
         </div>
       </div>
@@ -1434,6 +1415,50 @@ export function CasePage() {
                   </button>
                 </div>
               </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isDispatchModalOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="dispatch-modal-title"
+            aria-modal="true"
+            className="settings-modal r9-operation-modal"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>PICKUP</span>
+                <h2 id="dispatch-modal-title">予約迎車</h2>
+              </div>
+              <button type="button" onClick={() => setIsDispatchModalOpen(false)}>
+                閉じる
+              </button>
+            </header>
+
+            <div className="r9-operation-section">
+              <div className="r9-operation-section__header">
+                <h3>迎車メニュー</h3>
+                <span>ボタン押下で料金へ加算します</span>
+              </div>
+              <div className="r9-modal-button-grid r9-modal-button-grid--dispatch">
+                {enabledDispatchMenuItems.length === 0 ? (
+                  <p className="empty-note">有効な予約迎車メニューはありません。</p>
+                ) : null}
+                {enabledDispatchMenuItems.map((dispatchItem) => (
+                  <button
+                    className="r9-modal-choice r9-modal-choice--dispatch"
+                    key={dispatchItem.id}
+                    type="button"
+                    onClick={() => addDispatchCharge(dispatchItem)}
+                  >
+                    <span>{dispatchItem.name}</span>
+                    <strong>{formatFareYen(dispatchItem.amount)}円</strong>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
         </div>

@@ -23,6 +23,7 @@ export type AssistItem = {
 };
 
 export type CareOptionMasterItem = AssistItem;
+export type DispatchMenuItem = AssistItem;
 
 export type ExpenseSettings = {
   defaultItems: Array<{
@@ -71,6 +72,10 @@ export const meterTimeFareSettings: MeterTimeFareSettings = {
   unitSeconds: 90,
   unitFareYen: 90,
 };
+
+export const dispatchMenuMaster: DispatchMenuItem[] = [
+  { id: "reservedPickup", name: "予約迎車", amount: 800, enabled: true, sortOrder: 1 },
+];
 
 export const careOptionMaster: CareOptionMasterItem[] = [
   { id: "basicAssist", name: "基本介助", amount: 500, enabled: true, sortOrder: 1 },

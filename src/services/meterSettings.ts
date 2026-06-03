@@ -4,6 +4,7 @@ import { getFirebaseApp } from '../lib/firebase'
 import {
   basicFareSettings,
   careOptionMaster,
+  dispatchMenuMaster,
   escortFareSettings,
   expenseSettings,
   meterTimeFareSettings,
@@ -12,6 +13,7 @@ import {
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
+  DispatchMenuItem,
   MeterTimeFareSettings,
   TimeFareSettings,
 } from './fare'
@@ -43,6 +45,7 @@ export type MeterSettings = {
   escortFare: TimeFareSettings
   meterTimeFare: MeterTimeFareSettings
   assistItems: CareOptionMasterItem[]
+  dispatchMenuItems: DispatchMenuItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
   receipt: ReceiptSettings
@@ -62,6 +65,7 @@ export const defaultMeterSettings: MeterSettings = {
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   meterTimeFare: meterTimeFareSettings,
   assistItems: careOptionMaster,
+  dispatchMenuItems: dispatchMenuMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
     address: '',
@@ -223,6 +227,51 @@ function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
   )
 }
 
+function sanitizeDispatchMenuItems(value: unknown): DispatchMenuItem[] {
+  if (!Array.isArray(value)) {
+    return defaultMeterSettings.dispatchMenuItems
+  }
+
+  const source = value
+  const defaultsById = new Map(
+    defaultMeterSettings.dispatchMenuItems.map((defaultItem) => [
+      defaultItem.id,
+      defaultItem,
+    ]),
+  )
+  const sanitizedItems = source
+    .map((item, index) => {
+      const sourceItem = toObject(item)
+      const id = toStringValue(sourceItem.id, `dispatch-${index + 1}`).trim()
+      const defaultItem = defaultsById.get(id)
+      const name = toStringValue(sourceItem.name, defaultItem?.name ?? '').trim()
+
+      if (!id || !name) {
+        return null
+      }
+
+      return {
+        id,
+        name,
+        amount: Math.floor(
+          toPositiveNumber(sourceItem.amount, defaultItem?.amount ?? 0),
+        ),
+        enabled:
+          typeof sourceItem.enabled === 'boolean'
+            ? sourceItem.enabled
+            : defaultItem?.enabled ?? true,
+        sortOrder: Math.floor(
+          toPositiveNumber(sourceItem.sortOrder, defaultItem?.sortOrder ?? index + 1),
+        ),
+      }
+    })
+    .filter((item): item is DispatchMenuItem => Boolean(item))
+
+  return sanitizedItems.sort(
+    (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+  )
+}
+
 function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
   const source = Array.isArray(value) ? value : defaultMeterSettings.expensePresets
 
@@ -279,6 +328,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     basicFare: sanitizeBasicFare(source.basicFare),
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
     company: sanitizeCompany(source.company),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems),
     escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),
     expensePresets: sanitizeExpensePresets(source.expensePresets),
     meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare),
