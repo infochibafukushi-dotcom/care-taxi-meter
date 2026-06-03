@@ -1393,6 +1393,67 @@ h1 {
   background: #020617;
 }
 
+.route-address-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  color: #f8fafc;
+  background: #0b1220;
+}
+
+.route-address-panel__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.route-address-panel__header span {
+  color: #60a5fa;
+  font-size: 0.78rem;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+}
+
+.route-address-panel__header h2 {
+  margin: 0;
+  color: #a7b5c9;
+  font-size: 1.05rem;
+}
+
+.route-address-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.route-address-grid div {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #111827;
+}
+
+.route-address-grid span {
+  color: #93c5fd;
+  font-size: 0.82rem;
+  font-weight: 1000;
+}
+
+.route-address-grid strong {
+  color: #f8fafc;
+  font-size: clamp(0.9rem, 1.15vw, 1.08rem);
+  line-height: 1.25;
+}
+
+.route-address-grid small {
+  color: #94a3b8;
+  font-weight: 800;
+}
+
 .r9-metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2065,6 +2126,182 @@ h1 {
 
   .fare-increase-panel {
     padding: 8px 10px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .r9-meter-page {
+    height: 100dvh;
+  }
+
+  .r9-meter-shell {
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 6px;
+    padding: max(6px, env(safe-area-inset-top)) 8px max(6px, env(safe-area-inset-bottom));
+    border-width: 4px;
+    border-radius: 22px;
+  }
+
+  .meter-screw {
+    width: 14px;
+    height: 14px;
+  }
+
+  .meter-screw--top-left { top: 14px; left: 14px; }
+  .meter-screw--top-right { top: 14px; right: 14px; }
+  .meter-screw--bottom-left { bottom: 14px; left: 14px; }
+  .meter-screw--bottom-right { right: 14px; bottom: 14px; }
+
+  .r9-header-strip {
+    min-height: 42px;
+    padding: 6px 54px 6px 48px;
+  }
+
+  .r9-header-strip p,
+  .r9-header-status span {
+    font-size: 0.72rem;
+  }
+
+  .r9-header-strip h1 {
+    font-size: clamp(1rem, 2.4vw, 1.45rem);
+  }
+
+  .r9-meter-console {
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .r9-left-panel,
+  .r9-center-panel {
+    gap: 6px;
+    padding: 8px;
+    overflow: hidden;
+  }
+
+  .r9-right-panel {
+    padding: 8px;
+  }
+
+  .r9-fare-screen {
+    min-height: clamp(96px, 24dvh, 145px);
+    padding: 12px 14px 6px;
+    border-width: 4px;
+  }
+
+  .r9-fare-screen__top {
+    top: 10px;
+    right: 14px;
+    left: 14px;
+    font-size: clamp(0.9rem, 1.8vw, 1.15rem);
+  }
+
+  .r9-fare-screen strong {
+    font-size: clamp(3rem, 14dvh, 5.7rem);
+  }
+
+  .r9-fare-unit {
+    font-size: 1.15rem;
+  }
+
+  .fare-increase-stack {
+    gap: 6px;
+  }
+
+  .fare-increase-panel {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+
+  .fare-increase-track {
+    height: 16px;
+  }
+
+  .fare-increase-panel small,
+  .fare-increase-panel__label {
+    font-size: 0.78rem;
+  }
+
+  .meter-state-panel {
+    gap: 6px;
+  }
+
+  .meter-state-panel div {
+    gap: 2px;
+    padding: 6px 8px;
+  }
+
+  .r9-metrics-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .r9-metrics-grid div {
+    min-height: 42px;
+    padding: 5px 6px;
+  }
+
+  .r9-metrics-grid span {
+    font-size: 0.68rem;
+  }
+
+  .r9-metrics-grid strong {
+    font-size: clamp(0.86rem, 2vw, 1.1rem);
+  }
+
+  .r9-center-panel .fare-breakdown {
+    padding: 8px;
+  }
+
+  .r9-center-panel .fare-breakdown h2,
+  .route-address-panel__header h2 {
+    margin-bottom: 0;
+    font-size: 0.95rem;
+  }
+
+  .r9-center-panel .fare-breakdown dl {
+    gap: 4px;
+  }
+
+  .r9-center-panel .fare-breakdown div {
+    min-height: 24px;
+    padding: 2px 8px;
+  }
+
+  .r9-center-panel .fare-breakdown dt,
+  .r9-center-panel .fare-breakdown dd {
+    font-size: clamp(0.82rem, 1.8vw, 1.05rem);
+  }
+
+  .route-address-panel {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .route-address-grid {
+    gap: 6px;
+  }
+
+  .route-address-grid div {
+    min-height: 42px;
+    gap: 2px;
+    padding: 5px 8px;
+  }
+
+  .route-address-grid span,
+  .route-address-grid small {
+    font-size: 0.68rem;
+  }
+
+  .route-address-grid strong {
+    font-size: clamp(0.78rem, 1.6vw, 0.95rem);
+    line-height: 1.15;
+  }
+
+  .r9-status-stack {
+    gap: 8px;
   }
 }
 

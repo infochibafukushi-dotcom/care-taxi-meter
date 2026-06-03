@@ -1066,10 +1066,29 @@ export function CasePage() {
             </div>
           </section>
 
-          <section className="r9-center-panel" aria-label="料金内訳">
+          <section className="r9-center-panel" aria-label="料金内訳と住所">
             <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
             />
+
+            <section className="route-address-panel" aria-labelledby="route-address-title">
+              <div className="route-address-panel__header">
+                <span>GPS ADDRESS</span>
+                <h2 id="route-address-title">運行住所</h2>
+              </div>
+              <div className="route-address-grid">
+                <div>
+                  <span>運行開始住所</span>
+                  <strong>{pickupLocation.address || '送迎開始時にGPSから取得します'}</strong>
+                  <small>{pickupLocation.capturedAt ? '送迎開始ログ取得済み' : '送迎開始ログ待ち'}</small>
+                </div>
+                <div>
+                  <span>到着住所</span>
+                  <strong>{dropoffLocation.address || '精算終了時にGPSから取得します'}</strong>
+                  <small>{dropoffLocation.capturedAt ? '会計時ログ取得済み' : '会計時ログ待ち'}</small>
+                </div>
+              </div>
+            </section>
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
