@@ -174,12 +174,15 @@ const getReverseGeocodeCauseLabel = ({
     return 'F: Googleレスポンス0件'
   }
 
-  if (diagnostic.geocodingExecutionState === 'タイムアウト') {
-    return 'H: geocoder.geocode() callbackタイムアウト'
+  if (
+    diagnostic.geocodingExecutionState === 'タイムアウト' ||
+    /timed out/i.test(diagnostic.errorMessage)
+  ) {
+    return 'H: geocoder.geocode() Promise/callbackタイムアウト'
   }
 
   if (diagnostic.geocodingExecutionState === '失敗') {
-    if (/not authorized|REQUEST_DENIED|Geocoding/i.test(diagnostic.errorMessage)) {
+    if (/not authorized|REQUEST_DENIED|API project is not authorized/i.test(diagnostic.errorMessage)) {
       return 'D: Geocoding API無効'
     }
 
@@ -1142,7 +1145,7 @@ export function CasePage() {
                   <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
                 </div>
                 <div>
-                  <dt>geocode() callback</dt>
+                  <dt>geocode() 応答</dt>
                   <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
                 </div>
                 <div>
