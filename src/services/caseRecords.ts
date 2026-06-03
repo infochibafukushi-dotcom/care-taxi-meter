@@ -38,6 +38,7 @@ export type CaseRecordInput = {
 
 export type CaseRecordDocument = {
   caseNumber: string
+  caseDate?: string
   closedAt: string
   startedAt: string
   endedAt: string
@@ -73,6 +74,7 @@ export type CaseRecordDocument = {
   dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
+  createdAt?: FieldValue
   savedAt: FieldValue
 }
 
@@ -88,11 +90,19 @@ export type ExpenseCharge = {
   amount: number
 }
 
-export type StoredCaseRecord = Omit<CaseRecordDocument, 'savedAt'> & {
+export type StoredCaseRecord = Omit<CaseRecordDocument, 'createdAt' | 'savedAt'> & {
+  createdAt?: string
   id: string
 }
 
 const caseRecordsCollectionName = 'caseRecords'
+
+const dateInputFormatter = new Intl.DateTimeFormat('sv-SE', {
+  day: '2-digit',
+  month: '2-digit',
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+})
 
 const toNumber = (value: unknown) => (typeof value === 'number' ? value : 0)
 
@@ -100,6 +110,19 @@ const toNullableNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : null
 
 const toString = (value: unknown) => (typeof value === 'string' ? value : '')
+
+const toIsoString = (value: unknown) => {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (value && typeof value === 'object' && 'toDate' in value) {
+    const timestampDate = (value as { toDate: () => Date }).toDate()
+    return Number.isNaN(timestampDate.getTime()) ? '' : timestampDate.toISOString()
+  }
+
+  return ''
+}
 
 const toObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -138,6 +161,11 @@ const toExpenseCharges = (value: unknown): ExpenseCharge[] =>
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
+const toJapanDateInputValue = (dateValue: string) => {
+  const date = new Date(dateValue)
+  return Number.isNaN(date.getTime()) ? '' : dateInputFormatter.format(date)
+}
+
 const toStoredCaseRecord = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
 ): StoredCaseRecord => {
@@ -147,7 +175,9 @@ const toStoredCaseRecord = (
     id: snapshot.id,
     caseNumber:
       typeof data.caseNumber === 'string' ? data.caseNumber : snapshot.id,
+    caseDate: toString(data.caseDate),
     closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
+    createdAt: toIsoString(data.createdAt) || toIsoString(data.savedAt),
     startedAt: toString(data.startedAt),
     endedAt: toString(data.endedAt),
     distanceKm: toNumber(data.distanceKm),
@@ -210,6 +240,7 @@ export async function saveCaseRecord({
 }: CaseRecordInput) {
   const record: CaseRecordDocument = {
     caseNumber,
+    caseDate: toJapanDateInputValue(closedAt),
     closedAt,
     startedAt,
     endedAt,
@@ -253,6 +284,7 @@ export async function saveCaseRecord({
       name: expense.name,
       amount: expense.amountYen,
     })),
+    createdAt: serverTimestamp(),
     savedAt: serverTimestamp(),
   }
 

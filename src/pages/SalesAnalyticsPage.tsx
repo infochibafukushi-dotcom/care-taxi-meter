@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
+import { fetchStaffMembers } from '../services/staffMembers'
+import type { StaffMember } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import {
   calculateSalesAnalyticsSummary,
@@ -338,6 +340,7 @@ function StaffSummaryTable({ rows }: { rows: StaffAnalyticsItem[] }) {
 export function SalesAnalyticsPage() {
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [period, setPeriod] = useState<AnalyticsPeriod>(defaultPeriod)
   const [selectedStaffId, setSelectedStaffId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
@@ -346,13 +349,14 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchCaseRecords()
-      .then((records) => {
+    Promise.all([fetchCaseRecords(), fetchStaffMembers()])
+      .then(([records, loadedStaffMembers]) => {
         if (!isMounted) {
           return
         }
 
         setCaseRecords(records)
+        setStaffMembers(loadedStaffMembers)
         setErrorMessage('')
         setIsLoading(false)
       })
@@ -362,6 +366,7 @@ export function SalesAnalyticsPage() {
         }
 
         setCaseRecords([])
+        setStaffMembers([])
         setErrorMessage(
           error instanceof Error
             ? `売上分析データを取得できませんでした。${error.message}`
@@ -376,13 +381,14 @@ export function SalesAnalyticsPage() {
   }, [])
 
   const analyticsSummary = useMemo(
-    () => calculateSalesAnalyticsSummary(caseRecords, period, selectedStaffId),
-    [caseRecords, period, selectedStaffId],
+    () => calculateSalesAnalyticsSummary(caseRecords, period, selectedStaffId, staffMembers),
+    [caseRecords, period, selectedStaffId, staffMembers],
   )
   const selectedStaffName =
     selectedStaffId === 'all'
       ? '全スタッフ'
-      : analyticsSummary.staffSummary.find((staff) => staff.staffId === selectedStaffId)?.staffName ??
+      : staffMembers.find((staff) => staff.id === selectedStaffId)?.name ??
+        analyticsSummary.staffSummary.find((staff) => staff.staffId === selectedStaffId)?.staffName ??
         '選択スタッフ'
 
   const handleCsvDownload = () => {
@@ -422,7 +428,7 @@ export function SalesAnalyticsPage() {
     const staffFileSuffix = selectedStaffId === 'all'
       ? 'all-staff'
       : sanitizeFileNamePart(selectedStaffName)
-    link.download = `sales-analytics-${period.startMonth}-${period.endMonth}-${staffFileSuffix}.csv`
+    link.download = `sales-analytics-${period.startDate}-${period.endDate}-${staffFileSuffix}.csv`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -466,32 +472,32 @@ export function SalesAnalyticsPage() {
         </div>
 
         <p className="lead admin-lead">
-          Firestoreの保存済み案件を対象に、指定した月範囲の売上・介助・実費・支払方法・月別推移を集計します。
+          Firestoreの保存済み案件を対象に、指定した日付範囲の売上・介助・実費・支払方法・月別推移を集計します。
         </p>
 
         <section className="analytics-period-panel" aria-label="期間・スタッフ選択">
           <label>
-            開始年月
+            開始日
             <input
-              type="month"
-              value={period.startMonth}
+              type="date"
+              value={period.startDate}
               onChange={(event) =>
                 setPeriod((currentPeriod) => ({
                   ...currentPeriod,
-                  startMonth: event.target.value,
+                  startDate: event.target.value,
                 }))
               }
             />
           </label>
           <label>
-            終了年月
+            終了日
             <input
-              type="month"
-              value={period.endMonth}
+              type="date"
+              value={period.endDate}
               onChange={(event) =>
                 setPeriod((currentPeriod) => ({
                   ...currentPeriod,
-                  endMonth: event.target.value,
+                  endDate: event.target.value,
                 }))
               }
             />
@@ -503,9 +509,9 @@ export function SalesAnalyticsPage() {
               onChange={(event) => setSelectedStaffId(event.target.value)}
             >
               <option value="all">全スタッフ</option>
-              {analyticsSummary.staffSummary.map((staff) => (
-                <option key={staff.staffId} value={staff.staffId}>
-                  {staff.staffName}
+              {staffMembers.map((staffMember) => (
+                <option key={staffMember.id} value={staffMember.id}>
+                  {staffMember.name}
                 </option>
               ))}
             </select>
