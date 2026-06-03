@@ -14,7 +14,11 @@ import { fetchVehicles, saveVehicle } from "../services/vehicles";
 import { fetchWorkingWorkSessionCount } from "../services/workSessions";
 import type { StoredCaseRecord } from "../services/caseRecords";
 import { formatFareYen } from "../services/fare";
-import type { BasicFareSettings, CareOptionMasterItem } from "../services/fare";
+import type {
+  BasicFareSettings,
+  CareOptionMasterItem,
+  MeterTimeFareSettings,
+} from "../services/fare";
 import {
   defaultMeterSettings,
   fetchMeterSettings,
@@ -276,6 +280,21 @@ export function AdminPage() {
       basicFare: {
         ...currentSettings.basicFare,
         [key]: toPositiveNumber(value, key.includes("Distance") ? 0.001 : 0),
+      },
+    }));
+  };
+
+  const updateMeterTimeFare = (
+    key: keyof MeterTimeFareSettings,
+    value: string,
+  ) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      meterTimeFare: {
+        ...currentSettings.meterTimeFare,
+        [key]: key === "unitSeconds"
+          ? Math.max(Math.floor(Number(value) || 1), 1)
+          : toPositiveNumber(value),
       },
     }));
   };
@@ -731,7 +750,7 @@ export function AdminPage() {
           {activeAdminSection === "fare" ? (
             <div className="admin-settings-grid">
               <fieldset>
-                <legend>料金設定</legend>
+                <legend>基本運賃設定</legend>
                 <label>
                   初乗距離(km)
                   <input
@@ -755,29 +774,78 @@ export function AdminPage() {
                     }
                   />
                 </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>距離加算設定</legend>
+                <p className="admin-settings-note">
+                  通常走行中のみ進行します。低速走行中は距離加算を停止します。
+                </p>
                 <label>
-                  加算距離(km)
+                  距離加算距離（m）
                   <input
-                    min="0"
-                    step="0.001"
+                    min="1"
+                    step="1"
                     type="number"
-                    value={settings.basicFare.additionalDistanceKm}
+                    value={Math.round(settings.basicFare.additionalDistanceKm * 1000)}
                     onChange={(event) =>
                       updateBasicFare(
                         "additionalDistanceKm",
-                        event.target.value,
+                        String(toPositiveNumber(event.target.value, 1) / 1000),
                       )
                     }
                   />
                 </label>
                 <label>
-                  加算運賃(円)
+                  距離加算金額（円）
                   <input
                     min="0"
                     type="number"
                     value={settings.basicFare.additionalFareYen}
                     onChange={(event) =>
                       updateBasicFare("additionalFareYen", event.target.value)
+                    }
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>時間加算設定</legend>
+                <p className="admin-settings-note">
+                  GPS速度が低速判定速度以下の場合のみ進行します。速度未取得時は直近GPSログの移動距離÷経過時間で判定します。
+                </p>
+                <label>
+                  低速判定速度（km/h）
+                  <input
+                    min="0"
+                    step="0.1"
+                    type="number"
+                    value={settings.meterTimeFare.lowSpeedThresholdKmh}
+                    onChange={(event) =>
+                      updateMeterTimeFare("lowSpeedThresholdKmh", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  時間加算秒数（秒）
+                  <input
+                    min="1"
+                    step="1"
+                    type="number"
+                    value={settings.meterTimeFare.unitSeconds}
+                    onChange={(event) =>
+                      updateMeterTimeFare("unitSeconds", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  時間加算金額（円）
+                  <input
+                    min="0"
+                    type="number"
+                    value={settings.meterTimeFare.unitFareYen}
+                    onChange={(event) =>
+                      updateMeterTimeFare("unitFareYen", event.target.value)
                     }
                   />
                 </label>

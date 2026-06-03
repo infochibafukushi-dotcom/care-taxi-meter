@@ -1253,6 +1253,11 @@ h1 {
   font-weight: 1000;
 }
 
+.fare-increase-stack {
+  display: grid;
+  gap: 10px;
+}
+
 .fare-increase-panel {
   display: grid;
   gap: 6px;
@@ -1260,6 +1265,43 @@ h1 {
   border: 2px solid #475569;
   border-radius: 12px;
   background: #101827;
+  opacity: 0.72;
+}
+
+.fare-increase-panel--active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 18px rgb(56 189 248 / 22%);
+  opacity: 1;
+}
+
+.fare-increase-panel--time .fare-increase-track span {
+  background: linear-gradient(90deg, #38bdf8, #a78bfa 72%, #f472b6);
+}
+
+.meter-state-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meter-state-panel div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  color: #f8fafc;
+  background: #0b1220;
+}
+
+.meter-state-panel span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 1000;
+}
+
+.meter-state-panel strong {
+  font-size: 1.08rem;
 }
 
 .fare-increase-panel__label {
