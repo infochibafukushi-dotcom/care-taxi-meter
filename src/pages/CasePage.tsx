@@ -977,7 +977,7 @@ export function CasePage() {
   return (
     <main
       className={`r9-meter-page r9-meter-page--${statusToneMap[status]}`}
-      aria-labelledby="case-title"
+      aria-label="業務用メーター"
     >
       <div className="landscape-notice" role="status">
         <strong>スマホ表示に対応しました</strong>
@@ -989,17 +989,6 @@ export function CasePage() {
         <span className="meter-screw meter-screw--top-right" />
         <span className="meter-screw meter-screw--bottom-left" />
         <span className="meter-screw meter-screw--bottom-right" />
-
-        <header className="r9-header-strip">
-          <div>
-            <p>介護タクシー専用クラウドメーター</p>
-            <h1 id="case-title">業務用メーター</h1>
-          </div>
-          <div className="r9-header-status">
-            <span>案件 {caseNumber}</span>
-          </div>
-        </header>
-
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
