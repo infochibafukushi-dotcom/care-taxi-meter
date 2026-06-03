@@ -1169,7 +1169,7 @@ h1 {
 .r9-meter-console {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(420px, 1.15fr) minmax(360px, 0.9fr) minmax(235px, 0.55fr);
+  grid-template-columns: minmax(420px, 1.08fr) minmax(340px, 0.92fr);
   gap: 14px;
 }
 
@@ -1196,9 +1196,9 @@ h1 {
 
 .r9-right-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-column: 1 / -1;
   gap: 10px;
-  padding: 16px;
+  padding: 12px 16px;
 }
 
 .r9-fare-screen {
@@ -1253,6 +1253,11 @@ h1 {
   font-weight: 1000;
 }
 
+.fare-increase-stack {
+  display: grid;
+  gap: 10px;
+}
+
 .fare-increase-panel {
   display: grid;
   gap: 6px;
@@ -1260,6 +1265,43 @@ h1 {
   border: 2px solid #475569;
   border-radius: 12px;
   background: #101827;
+  opacity: 0.72;
+}
+
+.fare-increase-panel--active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 18px rgb(56 189 248 / 22%);
+  opacity: 1;
+}
+
+.fare-increase-panel--time .fare-increase-track span {
+  background: linear-gradient(90deg, #38bdf8, #a78bfa 72%, #f472b6);
+}
+
+.meter-state-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meter-state-panel div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  color: #f8fafc;
+  background: #0b1220;
+}
+
+.meter-state-panel span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 1000;
+}
+
+.meter-state-panel strong {
+  font-size: 1.08rem;
 }
 
 .fare-increase-panel__label {
@@ -1305,7 +1347,7 @@ h1 {
   font-weight: 800;
 }
 
-.r9-left-panel .fare-breakdown {
+.r9-center-panel .fare-breakdown {
   padding: 12px;
   border: 2px solid #334155;
   border-radius: 12px;
@@ -1313,19 +1355,19 @@ h1 {
   background: #0b1220;
 }
 
-.r9-left-panel .fare-breakdown h2 {
+.r9-center-panel .fare-breakdown h2 {
   margin: 0 0 8px;
   color: #a7b5c9;
   font-size: 1.15rem;
 }
 
-.r9-left-panel .fare-breakdown dl {
+.r9-center-panel .fare-breakdown dl {
   display: grid;
   gap: 6px;
   margin: 0;
 }
 
-.r9-left-panel .fare-breakdown div {
+.r9-center-panel .fare-breakdown div {
   min-height: 32px;
   display: flex;
   align-items: center;
@@ -1335,18 +1377,18 @@ h1 {
   background: #111827;
 }
 
-.r9-left-panel .fare-breakdown dt,
-.r9-left-panel .fare-breakdown dd {
+.r9-center-panel .fare-breakdown dt,
+.r9-center-panel .fare-breakdown dd {
   margin: 0;
   font-size: clamp(1rem, 1.4vw, 1.35rem);
   font-weight: 1000;
 }
 
-.r9-left-panel .fare-breakdown dd {
+.r9-center-panel .fare-breakdown dd {
   font-family: "Roboto Mono", "DIN Alternate", monospace;
 }
 
-.r9-left-panel .fare-breakdown__total {
+.r9-center-panel .fare-breakdown__total {
   border: 2px solid #38bdf8;
   background: #020617;
 }
@@ -1533,6 +1575,7 @@ h1 {
 
 .r9-status-stack {
   display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1547,6 +1590,7 @@ h1 {
 .r9-status-button--vacant { background: #dc2626; }
 .r9-status-button--driving { background: #2563eb; }
 .r9-status-button--assist { background: #7c3aed; }
+.r9-status-button--pickup { background: #be123c; }
 .r9-status-button--expense { background: #0f766e; }
 .r9-status-button--waiting { color: #1f2937; background: #facc15; }
 .r9-status-button--accompanying { background: #16a34a; }
@@ -1997,7 +2041,7 @@ h1 {
 
 @media (max-width: 1100px) and (orientation: landscape) {
   .r9-meter-console {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(0, 0.58fr);
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
   }
 
   .r9-left-panel,
@@ -2007,7 +2051,16 @@ h1 {
   }
 
   .r9-status-button {
-    min-height: 52px;
+    min-height: 48px;
+    font-size: clamp(0.95rem, 1.6vw, 1.25rem);
+  }
+
+  .r9-fare-screen {
+    min-height: 150px;
+  }
+
+  .fare-increase-panel {
+    padding: 8px 10px;
   }
 }
 
