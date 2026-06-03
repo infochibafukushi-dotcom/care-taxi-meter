@@ -14,7 +14,12 @@ import { fetchVehicles, saveVehicle } from "../services/vehicles";
 import { fetchWorkingWorkSessionCount } from "../services/workSessions";
 import type { StoredCaseRecord } from "../services/caseRecords";
 import { formatFareYen } from "../services/fare";
-import type { BasicFareSettings, CareOptionMasterItem } from "../services/fare";
+import type {
+  BasicFareSettings,
+  CareOptionMasterItem,
+  DispatchMenuItem,
+  MeterTimeFareSettings,
+} from "../services/fare";
 import {
   defaultMeterSettings,
   fetchMeterSettings,
@@ -112,6 +117,14 @@ const createAssistItem = (sortOrder: number): CareOptionMasterItem => ({
   enabled: true,
   id: `assist-${Date.now()}-${crypto.randomUUID()}`,
   name: "新しい介助項目",
+  sortOrder,
+});
+
+const createDispatchMenuItem = (sortOrder: number): DispatchMenuItem => ({
+  amount: 800,
+  enabled: true,
+  id: `dispatch-${Date.now()}-${crypto.randomUUID()}`,
+  name: "予約迎車",
   sortOrder,
 });
 
@@ -280,6 +293,21 @@ export function AdminPage() {
     }));
   };
 
+  const updateMeterTimeFare = (
+    key: keyof MeterTimeFareSettings,
+    value: string,
+  ) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      meterTimeFare: {
+        ...currentSettings.meterTimeFare,
+        [key]: key === "unitSeconds"
+          ? Math.max(Math.floor(Number(value) || 1), 1)
+          : toPositiveNumber(value),
+      },
+    }));
+  };
+
   const updateWaitingFare = (value: string) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
@@ -356,6 +384,46 @@ export function AdminPage() {
         })),
       };
     });
+  };
+
+  const updateDispatchMenuItem = (
+    id: string,
+    key: keyof Pick<DispatchMenuItem, "amount" | "enabled" | "name" | "sortOrder">,
+    value: string | boolean,
+  ) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      dispatchMenuItems: currentSettings.dispatchMenuItems.map((dispatchItem) =>
+        dispatchItem.id === id
+          ? {
+              ...dispatchItem,
+              [key]:
+                key === "amount" || key === "sortOrder"
+                  ? toNonNegativeInteger(String(value))
+                  : value,
+            }
+          : dispatchItem,
+      ),
+    }));
+  };
+
+  const addDispatchMenuItem = () => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      dispatchMenuItems: [
+        ...currentSettings.dispatchMenuItems,
+        createDispatchMenuItem(currentSettings.dispatchMenuItems.length + 1),
+      ],
+    }));
+  };
+
+  const removeDispatchMenuItem = (id: string) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      dispatchMenuItems: currentSettings.dispatchMenuItems.filter(
+        (dispatchItem) => dispatchItem.id !== id,
+      ),
+    }));
   };
 
   const updateExpensePreset = (
@@ -537,10 +605,13 @@ export function AdminPage() {
     const hasEmptyAssistItemName = settings.assistItems.some(
       (assistItem) => !assistItem.name.trim(),
     );
+    const hasEmptyDispatchMenuName = settings.dispatchMenuItems.some(
+      (dispatchItem) => !dispatchItem.name.trim(),
+    );
 
-    if (hasEmptyAssistItemName) {
+    if (hasEmptyAssistItemName || hasEmptyDispatchMenuName) {
       setSettingsSaveState("error");
-      setSettingsMessage("介助項目の名称は空欄にできません。");
+      setSettingsMessage("介助項目・予約迎車メニューの名称は空欄にできません。");
       return;
     }
 
@@ -731,7 +802,7 @@ export function AdminPage() {
           {activeAdminSection === "fare" ? (
             <div className="admin-settings-grid">
               <fieldset>
-                <legend>料金設定</legend>
+                <legend>基本運賃設定</legend>
                 <label>
                   初乗距離(km)
                   <input
@@ -755,29 +826,78 @@ export function AdminPage() {
                     }
                   />
                 </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>距離加算設定</legend>
+                <p className="admin-settings-note">
+                  通常走行中のみ進行します。低速走行中は距離加算を停止します。
+                </p>
                 <label>
-                  加算距離(km)
+                  距離加算距離（m）
                   <input
-                    min="0"
-                    step="0.001"
+                    min="1"
+                    step="1"
                     type="number"
-                    value={settings.basicFare.additionalDistanceKm}
+                    value={Math.round(settings.basicFare.additionalDistanceKm * 1000)}
                     onChange={(event) =>
                       updateBasicFare(
                         "additionalDistanceKm",
-                        event.target.value,
+                        String(toPositiveNumber(event.target.value, 1) / 1000),
                       )
                     }
                   />
                 </label>
                 <label>
-                  加算運賃(円)
+                  距離加算金額（円）
                   <input
                     min="0"
                     type="number"
                     value={settings.basicFare.additionalFareYen}
                     onChange={(event) =>
                       updateBasicFare("additionalFareYen", event.target.value)
+                    }
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>時間加算設定</legend>
+                <p className="admin-settings-note">
+                  GPS速度が低速判定速度以下の場合のみ進行します。速度未取得時は直近GPSログの移動距離÷経過時間で判定します。
+                </p>
+                <label>
+                  低速判定速度（km/h）
+                  <input
+                    min="0"
+                    step="0.1"
+                    type="number"
+                    value={settings.meterTimeFare.lowSpeedThresholdKmh}
+                    onChange={(event) =>
+                      updateMeterTimeFare("lowSpeedThresholdKmh", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  時間加算秒数（秒）
+                  <input
+                    min="1"
+                    step="1"
+                    type="number"
+                    value={settings.meterTimeFare.unitSeconds}
+                    onChange={(event) =>
+                      updateMeterTimeFare("unitSeconds", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  時間加算金額（円）
+                  <input
+                    min="0"
+                    type="number"
+                    value={settings.meterTimeFare.unitFareYen}
+                    onChange={(event) =>
+                      updateMeterTimeFare("unitFareYen", event.target.value)
                     }
                   />
                 </label>
@@ -898,6 +1018,94 @@ export function AdminPage() {
                 </div>
                 <button type="button" onClick={addAssistItem}>
                   介助項目を追加
+                </button>
+              </fieldset>
+
+              <fieldset className="admin-settings-wide">
+                <legend>予約迎車メニュー管理</legend>
+                <p className="admin-settings-note">
+                  予約迎車・深夜迎車などの迎車メニューを名称、金額、表示順、有効状態で管理できます。
+                </p>
+                <div className="assist-item-list">
+                  {[...settings.dispatchMenuItems]
+                    .sort(
+                      (firstItem, secondItem) =>
+                        firstItem.sortOrder - secondItem.sortOrder,
+                    )
+                    .map((dispatchItem) => (
+                      <div className="assist-item-row" key={dispatchItem.id}>
+                        <label>
+                          名称
+                          <input
+                            value={dispatchItem.name}
+                            onChange={(event) =>
+                              updateDispatchMenuItem(
+                                dispatchItem.id,
+                                "name",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          金額(円)
+                          <input
+                            min="0"
+                            step="1"
+                            type="number"
+                            value={dispatchItem.amount}
+                            onChange={(event) =>
+                              updateDispatchMenuItem(
+                                dispatchItem.id,
+                                "amount",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          表示順
+                          <input
+                            min="1"
+                            step="1"
+                            type="number"
+                            value={dispatchItem.sortOrder}
+                            onChange={(event) =>
+                              updateDispatchMenuItem(
+                                dispatchItem.id,
+                                "sortOrder",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="assist-item-toggle">
+                          有効
+                          <input
+                            type="checkbox"
+                            checked={dispatchItem.enabled}
+                            onChange={(event) =>
+                              updateDispatchMenuItem(
+                                dispatchItem.id,
+                                "enabled",
+                                event.target.checked,
+                              )
+                            }
+                          />
+                        </label>
+                        <div className="assist-item-actions">
+                          <button
+                            type="button"
+                            onClick={() => removeDispatchMenuItem(dispatchItem.id)}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <button type="button" onClick={addDispatchMenuItem}>
+                  予約迎車メニューを追加
                 </button>
               </fieldset>
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
-import { FareBreakdownPanel } from '../components/case/FareBreakdownPanel'
+import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
@@ -13,6 +13,7 @@ import {
   basicFareSettings,
   calculateFareBreakdown,
   calculateFareIncreaseProgress,
+  calculateTimeFareIncreaseProgress,
   careOptionMaster,
   escortFareSettings,
   formatFareYen,
@@ -23,12 +24,13 @@ import { fetchVehicles } from '../services/vehicles'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
-  fetchMeterSettings,
   fixedTimeFareUnitSeconds,
+  subscribeMeterSettings,
 } from '../services/meterSettings'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
+  DispatchMenuItem,
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
@@ -90,6 +92,8 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
   待機中: 'waiting',
   院内付き添い中: 'accompanying',
 }
+
+const isDevelopmentMode = import.meta.env.DEV
 
 const loadInputHistory = () => {
   try {
@@ -221,6 +225,7 @@ export function CasePage() {
   const [isGpsActive, setIsGpsActive] = useState(false)
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
+  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -246,6 +251,9 @@ export function CasePage() {
     useState<TimeFareSettings>(escortFareSettings)
   const [currentCareOptionMaster, setCurrentCareOptionMaster] =
     useState<CareOptionMasterItem[]>(careOptionMaster)
+  const [currentDispatchMenuItems, setCurrentDispatchMenuItems] = useState<DispatchMenuItem[]>(
+    defaultMeterSettings.dispatchMenuItems,
+  )
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
     defaultMeterSettings.expensePresets,
   )
@@ -281,7 +289,10 @@ export function CasePage() {
   const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
     useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
   const elapsedTimers = useOperationTimers(activeTimer)
-  const gps = useCurrentPosition(isGpsActive)
+  const gps = useCurrentPosition(
+    isGpsActive,
+    currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+  )
   const workSession = useWorkSession()
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
@@ -293,8 +304,8 @@ export function CasePage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchMeterSettings()
-      .then((settings) => {
+    const unsubscribe = subscribeMeterSettings(
+      (settings) => {
         if (!isMounted) {
           return
         }
@@ -304,10 +315,11 @@ export function CasePage() {
         setCurrentWaitingFareSettings(settings.waitingFare)
         setCurrentEscortFareSettings(settings.escortFare)
         setCurrentCareOptionMaster(settings.assistItems)
+        setCurrentDispatchMenuItems(settings.dispatchMenuItems)
         setCurrentExpensePresets(settings.expensePresets)
-        setSettingsMessage('Firestore設定を反映しています。')
-      })
-      .catch((error) => {
+        setSettingsMessage('Firestore設定をリアルタイム反映しています。')
+      },
+      (error) => {
         if (!isMounted) {
           return
         }
@@ -317,10 +329,12 @@ export function CasePage() {
             ? `Firestore設定を読み込めませんでした。${error.message}`
             : 'Firestore設定を読み込めませんでした。',
         )
-      })
+      },
+    )
 
     return () => {
       isMounted = false
+      unsubscribe()
     }
   }, [])
 
@@ -374,23 +388,51 @@ export function CasePage() {
 
 
   const fareBreakdown = calculateFareBreakdown({
-    distanceKm: gps.totalDistanceKm,
+    distanceKm: gps.chargeableDistanceKm,
     waitingSeconds: waitingFareSeconds,
     escortSeconds: escortFareSeconds,
+    meterTimeSeconds: gps.lowSpeedSeconds,
     careOptions: selectedCareOptions,
     expenses,
     settings: {
       basicFare: currentBasicFareSettings,
       escortFare: currentEscortFareSettings,
+      meterTimeFare: currentMeterSettings.meterTimeFare,
       waitingFare: currentWaitingFareSettings,
     },
   })
 
   const fareIncrease = calculateFareIncreaseProgress(
-    gps.totalDistanceKm,
+    gps.chargeableDistanceKm,
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
+  const distanceFareUnitKm =
+    gps.chargeableDistanceKm < currentBasicFareSettings.initialDistanceKm
+      ? currentBasicFareSettings.initialDistanceKm
+      : currentBasicFareSettings.additionalDistanceKm
+  const distanceFareElapsedMeters = Math.max(
+    0,
+    Math.round((distanceFareUnitKm - fareIncrease.remainingDistanceKm) * 1000),
+  )
+  const distanceFareUnitMeters = Math.round(distanceFareUnitKm * 1000)
+  const timeFareIncrease = calculateTimeFareIncreaseProgress(
+    gps.lowSpeedSeconds,
+    currentMeterSettings.meterTimeFare,
+  )
+  const timeFareIncreasePercent = Math.round(timeFareIncrease.progressRate * 100)
+  const timeFareElapsedSeconds = Math.max(
+    0,
+    Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
+  )
+  const currentSpeedLabel =
+    gps.currentSpeedKmh == null ? '取得中...' : `${gps.currentSpeedKmh.toFixed(1)}km/h`
+  const movementStateLabel =
+    gps.movementState === 'low-speed'
+      ? '低速走行中'
+      : gps.movementState === 'normal'
+        ? '通常走行中'
+        : '速度判定待ち'
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -399,6 +441,15 @@ export function CasePage() {
           (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
         ),
     [currentCareOptionMaster],
+  )
+  const enabledDispatchMenuItems = useMemo(
+    () =>
+      currentDispatchMenuItems
+        .filter((item) => item.enabled)
+        .sort(
+          (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+        ),
+    [currentDispatchMenuItems],
   )
   const selectedCareOptionIds = useMemo(
     () => new Set(selectedCareOptions.map((option) => option.masterId)),
@@ -473,6 +524,14 @@ export function CasePage() {
     }
   }
 
+  const addDispatchCharge = (dispatchItem: DispatchMenuItem) => {
+    addCareOption({
+      amountYen: dispatchItem.amount,
+      masterId: `dispatch:${dispatchItem.id}`,
+      name: dispatchItem.name,
+    })
+  }
+
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
     setExpenses((currentExpenses) => [
       ...currentExpenses,
@@ -499,17 +558,6 @@ export function CasePage() {
     setKeypadTarget(null)
   }
 
-  const handleHistorySelect = (history: InputHistory) => {
-    if (history.mode === 'care') {
-      addCareOption({
-        amountYen: history.amountYen,
-        masterId: 'history-care',
-        name: history.name,
-      })
-    } else {
-      addExpense({ amountYen: history.amountYen, name: history.name })
-    }
-  }
 
   const captureAddressWithLatestGps = (position: GpsPosition | null) => {
     if (!position) {
@@ -867,7 +915,8 @@ export function CasePage() {
   }
 
   const displayMetrics = [
-    { label: '距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
+    { label: '課金距離', value: `${gps.chargeableDistanceKm.toFixed(3)} km` },
+    { label: '実走行距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
     { label: '運行時間', value: elapsedTimers.driving },
     { label: '待機時間', value: elapsedTimers.waiting },
     { label: '付き添い', value: elapsedTimers.accompanying },
@@ -903,50 +952,6 @@ export function CasePage() {
         </header>
 
 
-        <section className="work-session-panel" aria-labelledby="case-vehicle-title">
-          <div className="work-session-panel__header">
-            <div>
-              <span>CASE VEHICLE</span>
-              <h2 id="case-vehicle-title">案件車両選択</h2>
-            </div>
-            <strong>{workSession.currentSession ? workSession.currentSession.staffName : '未出勤'}</strong>
-          </div>
-          {workSession.currentSession ? (
-            <div className="work-session-form">
-              <label>
-                店舗
-                <input readOnly value={workSession.currentSession.storeName} />
-              </label>
-              <label>
-                スタッフ
-                <input readOnly value={workSession.currentSession.staffName} />
-              </label>
-              <label>
-                車両
-                <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)}>
-                  <option value="">車両を選択</option>
-                  {vehicles
-                    .filter(
-                      (vehicle) =>
-                        vehicle.enabled &&
-                        vehicle.status === '稼働中' &&
-                        vehicle.companyId === workSession.currentSession?.companyId &&
-                        vehicle.storeId === workSession.currentSession?.storeId,
-                    )
-                    .map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            </div>
-          ) : (
-            <p className="empty-note">TOP画面で出勤してから案件を開始してください。</p>
-          )}
-        </section>
-
-
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
             <div className="r9-fare-screen">
@@ -958,21 +963,46 @@ export function CasePage() {
               <span className="r9-fare-unit">円</span>
             </div>
 
-            <div className="fare-increase-panel">
-              <div className="fare-increase-panel__label">
-                <span>運賃上昇予告</span>
-                <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
+            <div className="fare-increase-stack" aria-label="加算インジケーター">
+              <div className={`fare-increase-panel ${gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
+                <div className="fare-increase-panel__label">
+                  <span>距離加算まで</span>
+                  <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
+                </div>
+                <div className="fare-increase-track">
+                  <span style={{ width: `${fareIncreasePercent}%` }} />
+                  <i />
+                </div>
+                <small>
+                  {distanceFareElapsedMeters}m / {distanceFareUnitMeters}m
+                </small>
               </div>
-              <div className="fare-increase-track">
-                <span style={{ width: `${fareIncreasePercent}%` }} />
-                <i />
+
+              <div className={`fare-increase-panel fare-increase-panel--time ${gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
+                <div className="fare-increase-panel__label">
+                  <span>時間加算まで</span>
+                  <strong>次回 +{formatFareYen(timeFareIncrease.nextIncreaseYen)}円</strong>
+                </div>
+                <div className="fare-increase-track">
+                  <span style={{ width: `${timeFareIncreasePercent}%` }} />
+                  <i />
+                </div>
+                <small>
+                  {timeFareElapsedSeconds}秒 / {currentMeterSettings.meterTimeFare.unitSeconds}秒
+                </small>
               </div>
-              <small>
-                次回加算まで 約{fareIncrease.remainingDistanceKm.toFixed(3)}km
-              </small>
             </div>
 
-            <FareBreakdownPanel breakdown={fareBreakdown} />
+            <div className="meter-state-panel" aria-label="速度判定">
+              <div>
+                <span>現在速度</span>
+                <strong>{currentSpeedLabel}</strong>
+              </div>
+              <div>
+                <span>現在状態</span>
+                <strong>{movementStateLabel}</strong>
+              </div>
+            </div>
 
             <div className="r9-metrics-grid" aria-label="運行情報">
               {displayMetrics.map((item) => (
@@ -984,72 +1014,11 @@ export function CasePage() {
             </div>
           </section>
 
-          <section className="r9-center-panel" aria-label="追加料金サマリー">
-            <div className="r9-panel-title">
-              <span>ASSIST</span>
-              <h2>介助サマリー</h2>
-            </div>
-            <div className="r9-summary-card">
-              {selectedCareOptions.length === 0 ? (
-                <p className="empty-note">介助項目は未選択です。</p>
-              ) : (
-                <div className="r9-summary-list">
-                  {selectedCareOptions.map((option) => (
-                    <p key={option.id}>
-                      <span>{option.name}</span>
-                      <strong>{formatFareYen(option.amountYen)}円</strong>
-                    </p>
-                  ))}
-                </div>
-              )}
-              <div className="r9-summary-total">
-                <span>介助合計</span>
-                <strong>{formatFareYen(fareBreakdown.careOptionFareYen)}円</strong>
-              </div>
-            </div>
-
-            <div className="r9-panel-title r9-panel-title--expense">
-              <span>COST</span>
-              <h2>実費サマリー</h2>
-            </div>
-            <div className="r9-summary-card">
-              {expenses.length === 0 ? (
-                <p className="empty-note">実費は未追加です。</p>
-              ) : (
-                <div className="r9-summary-list">
-                  {expenses.map((expense) => (
-                    <p key={expense.id}>
-                      <span>{expense.name}</span>
-                      <strong>{formatFareYen(expense.amountYen)}円</strong>
-                    </p>
-                  ))}
-                </div>
-              )}
-              <div className="r9-summary-total">
-                <span>実費合計</span>
-                <strong>{formatFareYen(expenseTotalYen)}円</strong>
-              </div>
-            </div>
-
-            <div className="r9-history-panel">
-              <h2>過去入力履歴</h2>
-              {inputHistory.length === 0 ? (
-                <p>履歴はまだありません。</p>
-              ) : null}
-              <div>
-                {inputHistory.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleHistorySelect(item)}
-                  >
-                    <span>{item.mode === 'care' ? '介助' : '実費'}</span>
-                    <strong>{item.name}</strong>
-                    <em>{formatFareYen(item.amountYen)}円</em>
-                  </button>
-                ))}
-              </div>
-            </div>
+          <section className="r9-center-panel" aria-label="料金内訳">
+            <MeterFareBreakdownPanel
+              breakdown={fareBreakdown}
+              paymentMethod={paymentMethod}
+            />
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
@@ -1069,6 +1038,13 @@ export function CasePage() {
                 介助
               </button>
               <button
+                className="r9-status-button r9-status-button--pickup"
+                type="button"
+                onClick={() => setIsDispatchModalOpen(true)}
+              >
+                予約迎車
+              </button>
+              <button
                 className="r9-status-button r9-status-button--expense"
                 type="button"
                 onClick={() => setIsExpenseModalOpen(true)}
@@ -1085,115 +1061,107 @@ export function CasePage() {
               </button>
             </div>
 
-            <div className="r9-side-tools">
-              <button type="button" onClick={() => setIsSettingsOpen(true)}>
-                設定
-              </button>
-              <details
-                className="r9-gps-debug"
-                open={isGpsPanelOpen}
-                onToggle={(event) => setIsGpsPanelOpen(event.currentTarget.open)}
-              >
-                <summary>GPS非表示</summary>
-                <GpsPanel
-                  errorMessage={gps.errorMessage}
-                  gpsLogCount={gps.gpsLogCount}
-                  isActive={gps.isActive}
-                  position={gps.position}
-                  status={gps.status}
-                  totalDistanceKm={gps.totalDistanceKm}
-                />
-              </details>
-            </div>
+            {isDevelopmentMode ? (
+              <div className="r9-side-tools">
+                <button type="button" onClick={() => setIsSettingsOpen(true)}>
+                  開発用設定
+                </button>
+                <details
+                  className="r9-gps-debug"
+                  open={isGpsPanelOpen}
+                  onToggle={(event) => setIsGpsPanelOpen(event.currentTarget.open)}
+                >
+                  <summary>GPS診断</summary>
+                  <GpsPanel
+                    errorMessage={gps.errorMessage}
+                    gpsLogCount={gps.gpsLogCount}
+                    isActive={gps.isActive}
+                    position={gps.position}
+                    status={gps.status}
+                    speedSource={gps.speedSource}
+                    totalDistanceKm={gps.totalDistanceKm}
+                  />
+                </details>
 
-            <div className="r9-address-capture" aria-label="住所取得状態">
-              <p>
-                <span>伺い先</span>
-                <strong>{pickupLocation.address || '住所未取得'}</strong>
-              </p>
-              <p>
-                <span>送り先</span>
-                <strong>{dropoffLocation.address || '住所未取得'}</strong>
-              </p>
-            </div>
-
-            <details className="r9-address-debug-panel" open>
-              <summary>住所取得診断</summary>
-              <dl>
-                <div>
-                  <dt>原因判定</dt>
-                  <dd>{reverseGeocodeCauseLabel}</dd>
-                </div>
-                <div>
-                  <dt>Google Maps APIロード状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.googleMapsApiLoadState}</dd>
-                </div>
-                <div>
-                  <dt>Geocoder生成状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocoderState}</dd>
-                </div>
-                <div>
-                  <dt>Geocoding実行状態</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodingExecutionState}</dd>
-                </div>
-                <div>
-                  <dt>reverseGeocodeWithGoogle</dt>
-                  <dd>{reverseGeocodeDiagnostic.reverseGeocodeCalled ? '呼び出し済み' : '未実行'}</dd>
-                </div>
-                <div>
-                  <dt>geocode()</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
-                </div>
-                <div>
-                  <dt>geocode() 応答</dt>
-                  <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
-                </div>
-                <div>
-                  <dt>取得緯度</dt>
-                  <dd>{reverseGeocodeDiagnostic.latitude ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>取得経度</dt>
-                  <dd>{reverseGeocodeDiagnostic.longitude ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>Googleレスポンス件数</dt>
-                  <dd>{reverseGeocodeDiagnostic.responseCount ?? '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>Googleレスポンス内容</dt>
-                  <dd>{reverseGeocodeDiagnostic.googleResponseJson || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>formatted_address</dt>
-                  <dd>{reverseGeocodeDiagnostic.formattedAddress || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>取得住所</dt>
-                  <dd>{reverseGeocodeDiagnostic.address || '未取得'}</dd>
-                </div>
-                <div>
-                  <dt>エラーメッセージ</dt>
-                  <dd>{reverseGeocodeDiagnostic.errorMessage || 'なし'}</dd>
-                </div>
-                <div>
-                  <dt>空文字発生箇所</dt>
-                  <dd>{reverseGeocodeDiagnostic.emptyAddressReason || 'なし'}</dd>
-                </div>
-                <div>
-                  <dt>最終更新</dt>
-                  <dd>{reverseGeocodeDiagnostic.lastUpdatedAt || '未更新'}</dd>
-                </div>
-              </dl>
-            </details>
-
-            <SettlementPanel
-              breakdown={fareBreakdown}
-              paymentMethod={paymentMethod}
-              saveMessage={caseSaveMessage}
-              saveState={caseSaveState}
-              onPaymentMethodChange={setPaymentMethod}
-            />
+                <details className="r9-address-debug-panel">
+                  <summary>住所取得診断</summary>
+                  <dl>
+                    <div>
+                      <dt>原因判定</dt>
+                      <dd>{reverseGeocodeCauseLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>伺い先</dt>
+                      <dd>{pickupLocation.address || '住所未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>送り先</dt>
+                      <dd>{dropoffLocation.address || '住所未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Google Maps APIロード状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.googleMapsApiLoadState}</dd>
+                    </div>
+                    <div>
+                      <dt>Geocoder生成状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocoderState}</dd>
+                    </div>
+                    <div>
+                      <dt>Geocoding実行状態</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodingExecutionState}</dd>
+                    </div>
+                    <div>
+                      <dt>reverseGeocodeWithGoogle</dt>
+                      <dd>{reverseGeocodeDiagnostic.reverseGeocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                    </div>
+                    <div>
+                      <dt>geocode()</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodeCalled ? '呼び出し済み' : '未実行'}</dd>
+                    </div>
+                    <div>
+                      <dt>geocode() 応答</dt>
+                      <dd>{reverseGeocodeDiagnostic.geocodeCallbackState}</dd>
+                    </div>
+                    <div>
+                      <dt>取得緯度</dt>
+                      <dd>{reverseGeocodeDiagnostic.latitude ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>取得経度</dt>
+                      <dd>{reverseGeocodeDiagnostic.longitude ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Googleレスポンス件数</dt>
+                      <dd>{reverseGeocodeDiagnostic.responseCount ?? '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>Googleレスポンス内容</dt>
+                      <dd>{reverseGeocodeDiagnostic.googleResponseJson || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>formatted_address</dt>
+                      <dd>{reverseGeocodeDiagnostic.formattedAddress || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>取得住所</dt>
+                      <dd>{reverseGeocodeDiagnostic.address || '未取得'}</dd>
+                    </div>
+                    <div>
+                      <dt>エラーメッセージ</dt>
+                      <dd>{reverseGeocodeDiagnostic.errorMessage || 'なし'}</dd>
+                    </div>
+                    <div>
+                      <dt>空文字発生箇所</dt>
+                      <dd>{reverseGeocodeDiagnostic.emptyAddressReason || 'なし'}</dd>
+                    </div>
+                    <div>
+                      <dt>最終更新</dt>
+                      <dd>{reverseGeocodeDiagnostic.lastUpdatedAt || '未更新'}</dd>
+                    </div>
+                  </dl>
+                </details>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>
@@ -1448,6 +1416,50 @@ export function CasePage() {
                   </button>
                 </div>
               </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isDispatchModalOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="dispatch-modal-title"
+            aria-modal="true"
+            className="settings-modal r9-operation-modal"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>PICKUP</span>
+                <h2 id="dispatch-modal-title">予約迎車</h2>
+              </div>
+              <button type="button" onClick={() => setIsDispatchModalOpen(false)}>
+                閉じる
+              </button>
+            </header>
+
+            <div className="r9-operation-section">
+              <div className="r9-operation-section__header">
+                <h3>迎車メニュー</h3>
+                <span>ボタン押下で料金へ加算します</span>
+              </div>
+              <div className="r9-modal-button-grid r9-modal-button-grid--dispatch">
+                {enabledDispatchMenuItems.length === 0 ? (
+                  <p className="empty-note">有効な予約迎車メニューはありません。</p>
+                ) : null}
+                {enabledDispatchMenuItems.map((dispatchItem) => (
+                  <button
+                    className="r9-modal-choice r9-modal-choice--dispatch"
+                    key={dispatchItem.id}
+                    type="button"
+                    onClick={() => addDispatchCharge(dispatchItem)}
+                  >
+                    <span>{dispatchItem.name}</span>
+                    <strong>{formatFareYen(dispatchItem.amount)}円</strong>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
         </div>
