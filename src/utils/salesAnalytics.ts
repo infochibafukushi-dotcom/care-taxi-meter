@@ -1,5 +1,5 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
-import type { StaffMember } from '../types/work'
+import type { StaffMember, Vehicle } from '../types/work'
 
 export type AnalyticsPeriod = {
   endDate: string
@@ -32,9 +32,19 @@ export type MonthlyAnalyticsItem = {
 }
 
 export type TopCaseAnalyticsItem = {
+  basicFareYen: number
+  careOptionFareYen: number
   caseNumber: string
   dateLabel: string
+  distanceKm: number
+  drivingSeconds: number
+  dropoffAreaName: string
+  escortFareYen: number
+  expenseFareYen: number
+  id: string
+  pickupAreaName: string
   salesYen: number
+  waitingFareYen: number
 }
 
 export type AreaDirectionalAnalyticsItem = {
@@ -56,12 +66,16 @@ export type AreaAnalyticsItem = {
   salesYen: number
 }
 
-export type DistanceRangeAnalyticsItem = {
+export type RangeAnalyticsItem = {
+  averageDistanceKm: number
+  averageYen: number
   count: number
   label: string
   percent: number
   salesYen: number
 }
+
+export type DistanceRangeAnalyticsItem = RangeAnalyticsItem
 
 export type DistanceAnalyticsSummary = {
   averageDistanceKm: number
@@ -75,12 +89,16 @@ export type AnalyticsCsvRow = {
   careOptionFareYen: number
   caseNumber: string
   dateLabel: string
+  dropoffAreaName: string
   distanceKm: number
   drivingSeconds: number
   escortFareYen: number
   expenseFareYen: number
   paymentMethod: string
+  pickupAreaName: string
+  staffName: string
   totalFareYen: number
+  vehicleName: string
   waitingFareYen: number
 }
 
@@ -95,6 +113,34 @@ export type StaffAnalyticsItem = {
   salesYen: number
 }
 
+
+export type VehicleAnalyticsItem = {
+  activeDayCount: number
+  averageYen: number
+  count: number
+  distanceKm: number
+  drivingSeconds: number
+  salesYen: number
+  vehicleId: string
+  vehicleName: string
+}
+
+export type WeekdayAnalyticsItem = {
+  averageYen: number
+  count: number
+  dayIndex: number
+  drivingSeconds: number
+  label: string
+  salesYen: number
+}
+
+export type TimeRangeAnalyticsItem = {
+  averageYen: number
+  count: number
+  label: string
+  salesYen: number
+}
+
 export type SalesAnalyticsSummary = {
   activeDayCount: number
   areaSummary: AreaAnalyticsItem[]
@@ -104,6 +150,7 @@ export type SalesAnalyticsSummary = {
   csvRows: AnalyticsCsvRow[]
   distanceRangeSummary: DistanceRangeAnalyticsItem[]
   distanceSummary: DistanceAnalyticsSummary
+  salesRangeSummary: RangeAnalyticsItem[]
   dropoffAreaCountTop: AreaDirectionalAnalyticsItem[]
   dropoffAreaSalesTop: AreaDirectionalAnalyticsItem[]
   expenseSummary: AnalyticsBreakdownItem[]
@@ -115,11 +162,14 @@ export type SalesAnalyticsSummary = {
   revenueBreakdown: AnalyticsBreakdownItem[]
   salesComposition: AnalyticsBreakdownItem[]
   staffSummary: StaffAnalyticsItem[]
+  timeRangeSummary: TimeRangeAnalyticsItem[]
   topCases: TopCaseAnalyticsItem[]
   totalCount: number
   totalDistanceKm: number
   totalDrivingSeconds: number
   totalSalesYen: number
+  vehicleSummary: VehicleAnalyticsItem[]
+  weekdaySummary: WeekdayAnalyticsItem[]
 }
 
 const dateFormatter = new Intl.DateTimeFormat('ja-JP', {
@@ -146,6 +196,7 @@ const toFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0
 
 const staffUnknownId = '__staff_unknown__'
+const vehicleUnknownId = '__vehicle_unknown__'
 
 const toPaymentMethodLabel = (paymentMethod: unknown) =>
   typeof paymentMethod === 'string' && paymentMethod.trim()
@@ -186,6 +237,15 @@ const toMonthLabel = (monthKey: string) => monthKey.replace('-', '/')
 
 const toStaffName = (caseRecord: StoredCaseRecord) =>
   caseRecord.staffName.trim() || 'スタッフ未設定'
+
+const toVehicleName = (caseRecord: StoredCaseRecord) =>
+  caseRecord.vehicleName.trim() || '車両未設定'
+
+export const toVehicleAnalyticsId = (caseRecord: StoredCaseRecord) =>
+  caseRecord.vehicleId.trim() ||
+  (caseRecord.vehicleName.trim()
+    ? `vehicle-name:${caseRecord.vehicleName.trim()}`
+    : vehicleUnknownId)
 
 export const toStaffAnalyticsId = (caseRecord: StoredCaseRecord) =>
   caseRecord.staffId.trim() ||
@@ -291,6 +351,72 @@ function toBreakdownItem(
   }
 }
 
+
+function calculateVehicleSummary(
+  caseRecords: StoredCaseRecord[],
+  vehicles: Vehicle[] = [],
+): VehicleAnalyticsItem[] {
+  const vehicleNameById = new Map(
+    vehicles.map((vehicle) => [
+      vehicle.id,
+      vehicle.name.trim() || '名称未設定の車両',
+    ]),
+  )
+  const vehicleMap = new Map<
+    string,
+    {
+      activeDayKeys: Set<string>
+      count: number
+      distanceKm: number
+      drivingSeconds: number
+      salesYen: number
+      vehicleId: string
+      vehicleName: string
+    }
+  >()
+
+  caseRecords.forEach((caseRecord) => {
+    const vehicleId = toVehicleAnalyticsId(caseRecord)
+    const current = vehicleMap.get(vehicleId) ?? {
+      activeDayKeys: new Set<string>(),
+      count: 0,
+      distanceKm: 0,
+      drivingSeconds: 0,
+      salesYen: 0,
+      vehicleId,
+      vehicleName: vehicleNameById.get(vehicleId) ?? toVehicleName(caseRecord),
+    }
+    const dateLabel = toCaseRecordDateLabel(caseRecord)
+
+    if (dateLabel !== '日付未設定') {
+      current.activeDayKeys.add(dateLabel)
+    }
+
+    current.count += 1
+    current.distanceKm += toFiniteNumber(caseRecord.distanceKm)
+    current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
+    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    vehicleMap.set(vehicleId, current)
+  })
+
+  return Array.from(vehicleMap.values())
+    .map((vehicleSummary) => ({
+      activeDayCount: vehicleSummary.activeDayKeys.size,
+      averageYen: toAverageYen(vehicleSummary.salesYen, vehicleSummary.count),
+      count: vehicleSummary.count,
+      distanceKm: vehicleSummary.distanceKm,
+      drivingSeconds: vehicleSummary.drivingSeconds,
+      salesYen: vehicleSummary.salesYen,
+      vehicleId: vehicleSummary.vehicleId,
+      vehicleName: vehicleSummary.vehicleName,
+    }))
+    .sort(
+      (firstVehicle, secondVehicle) =>
+        secondVehicle.salesYen - firstVehicle.salesYen ||
+        firstVehicle.vehicleName.localeCompare(secondVehicle.vehicleName, 'ja'),
+    )
+}
+
 function calculateStaffSummary(
   caseRecords: StoredCaseRecord[],
   staffMembers: StaffMember[] = [],
@@ -357,10 +483,29 @@ function calculateStaffSummary(
 }
 
 const distanceRanges = [
-  { label: '5km未満', minKm: 0, maxKm: 5 },
-  { label: '5km〜10km', minKm: 5, maxKm: 10 },
-  { label: '10km〜20km', minKm: 10, maxKm: 20 },
-  { label: '20km以上', minKm: 20, maxKm: Number.POSITIVE_INFINITY },
+  { label: '0km〜3km未満', minKm: 0, maxKm: 3 },
+  { label: '3km〜10km未満', minKm: 3, maxKm: 10 },
+  { label: '10km〜30km未満', minKm: 10, maxKm: 30 },
+  { label: '30km以上', minKm: 30, maxKm: Number.POSITIVE_INFINITY },
+]
+
+const salesRanges = [
+  { label: '3,000円未満', minYen: 0, maxYen: 3000 },
+  { label: '3,000円〜5,000円未満', minYen: 3000, maxYen: 5000 },
+  { label: '5,000円〜10,000円未満', minYen: 5000, maxYen: 10000 },
+  { label: '10,000円以上', minYen: 10000, maxYen: Number.POSITIVE_INFINITY },
+]
+
+const weekdayLabels = ['日', '月', '火', '水', '木', '金', '土']
+const weekdayDisplayOrder = [1, 2, 3, 4, 5, 6, 0]
+
+const timeRanges = [
+  { label: '6時〜9時', minHour: 6, maxHour: 9 },
+  { label: '9時〜12時', minHour: 9, maxHour: 12 },
+  { label: '12時〜15時', minHour: 12, maxHour: 15 },
+  { label: '15時〜18時', minHour: 15, maxHour: 18 },
+  { label: '18時〜21時', minHour: 18, maxHour: 21 },
+  { label: '21時以降', minHour: 21, maxHour: Number.POSITIVE_INFINITY },
 ]
 
 function addDirectionalArea(
@@ -485,15 +630,131 @@ function calculateDistanceRangeSummary(caseRecords: StoredCaseRecord[]) {
       const distanceKm = toFiniteNumber(caseRecord.distanceKm)
       return distanceKm >= range.minKm && distanceKm < range.maxKm
     })
+    const salesYen = rangeRecords.reduce(
+      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      0,
+    )
+    const distanceKm = rangeRecords.reduce(
+      (total, caseRecord) => total + toFiniteNumber(caseRecord.distanceKm),
+      0,
+    )
 
     return {
+      averageDistanceKm: rangeRecords.length > 0 ? distanceKm / rangeRecords.length : 0,
+      averageYen: toAverageYen(salesYen, rangeRecords.length),
       count: rangeRecords.length,
       label: range.label,
       percent: toPercent(rangeRecords.length, totalCount),
-      salesYen: rangeRecords.reduce(
-        (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
-        0,
-      ),
+      salesYen,
+    }
+  })
+}
+
+function calculateSalesRangeSummary(caseRecords: StoredCaseRecord[]) {
+  const totalCount = caseRecords.length
+
+  return salesRanges.map((range) => {
+    const rangeRecords = caseRecords.filter((caseRecord) => {
+      const salesYen = toFiniteNumber(caseRecord.totalFareYen)
+      return salesYen >= range.minYen && salesYen < range.maxYen
+    })
+    const salesYen = rangeRecords.reduce(
+      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      0,
+    )
+    const distanceKm = rangeRecords.reduce(
+      (total, caseRecord) => total + toFiniteNumber(caseRecord.distanceKm),
+      0,
+    )
+
+    return {
+      averageDistanceKm: rangeRecords.length > 0 ? distanceKm / rangeRecords.length : 0,
+      averageYen: toAverageYen(salesYen, rangeRecords.length),
+      count: rangeRecords.length,
+      label: range.label,
+      percent: toPercent(rangeRecords.length, totalCount),
+      salesYen,
+    }
+  })
+}
+
+function getJapanDateParts(dateValue: string) {
+  const date = toValidDate(dateValue)
+  if (!date) {
+    return null
+  }
+
+  const formatter = new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+  })
+  const parts = formatter.formatToParts(date)
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
+  const weekdayLabel = parts.find((part) => part.type === 'weekday')?.value ?? ''
+  const dayIndex = weekdayLabels.indexOf(weekdayLabel)
+
+  return {
+    dayIndex: dayIndex >= 0 ? dayIndex : date.getUTCDay(),
+    hour,
+  }
+}
+
+function calculateWeekdaySummary(caseRecords: StoredCaseRecord[]) {
+  const map = new Map(
+    weekdayLabels.map((label, dayIndex) => [
+      dayIndex,
+      { count: 0, drivingSeconds: 0, label, salesYen: 0 },
+    ]),
+  )
+
+  caseRecords.forEach((caseRecord) => {
+    const parts = getJapanDateParts(getCaseRecordDateValue(caseRecord))
+    if (!parts) {
+      return
+    }
+
+    const current = map.get(parts.dayIndex)
+    if (!current) {
+      return
+    }
+
+    current.count += 1
+    current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
+    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+  })
+
+  return weekdayDisplayOrder.map((dayIndex) => {
+    const item = map.get(dayIndex) ?? { count: 0, drivingSeconds: 0, label: weekdayLabels[dayIndex], salesYen: 0 }
+    return {
+      averageYen: toAverageYen(item.salesYen, item.count),
+      count: item.count,
+      dayIndex,
+      drivingSeconds: item.drivingSeconds,
+      label: item.label,
+      salesYen: item.salesYen,
+    }
+  })
+}
+
+function calculateTimeRangeSummary(caseRecords: StoredCaseRecord[]) {
+  return timeRanges.map((range) => {
+    const rangeRecords = caseRecords.filter((caseRecord) => {
+      const parts = getJapanDateParts(caseRecord.startedAt || getCaseRecordDateValue(caseRecord))
+      const hour = parts?.hour ?? -1
+      return hour >= range.minHour && hour < range.maxHour
+    })
+    const salesYen = rangeRecords.reduce(
+      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      0,
+    )
+
+    return {
+      averageYen: toAverageYen(salesYen, rangeRecords.length),
+      count: rangeRecords.length,
+      label: range.label,
+      salesYen,
     }
   })
 }
@@ -541,6 +802,8 @@ export function calculateSalesAnalyticsSummary(
   period: AnalyticsPeriod,
   staffId = 'all',
   staffMembers: StaffMember[] = [],
+  vehicleId = 'all',
+  vehicles: Vehicle[] = [],
 ): SalesAnalyticsSummary {
   const sortedPeriod = getSortedPeriod(period)
   const startIso = createJapanStartOfDayIso(sortedPeriod.startDate)
@@ -565,15 +828,32 @@ export function calculateSalesAnalyticsSummary(
     const caseTime = caseDate?.getTime() ?? Number.NaN
     return caseTime >= startTime && caseTime < endTime
   })
-  const staffSummary = calculateStaffSummary(periodRecords, staffMembers)
-  const filteredRecords =
+  const staffFilteredRecords =
     staffId === 'all'
       ? periodRecords
       : periodRecords.filter(
           (caseRecord) => toStaffAnalyticsId(caseRecord) === staffId,
         )
+  const filteredRecords =
+    vehicleId === 'all'
+      ? staffFilteredRecords
+      : staffFilteredRecords.filter(
+          (caseRecord) => toVehicleAnalyticsId(caseRecord) === vehicleId,
+        )
+  const staffSummary = calculateStaffSummary(
+    vehicleId === 'all'
+      ? periodRecords
+      : periodRecords.filter(
+          (caseRecord) => toVehicleAnalyticsId(caseRecord) === vehicleId,
+        ),
+    staffMembers,
+  )
+  const vehicleSummary = calculateVehicleSummary(staffFilteredRecords, vehicles)
   const areaAnalytics = calculateAreaAnalytics(filteredRecords)
   const distanceRangeSummary = calculateDistanceRangeSummary(filteredRecords)
+  const salesRangeSummary = calculateSalesRangeSummary(filteredRecords)
+  const weekdaySummary = calculateWeekdaySummary(filteredRecords)
+  const timeRangeSummary = calculateTimeRangeSummary(filteredRecords)
   const distanceSummary = calculateDistanceSummary(filteredRecords)
   const totalSalesYen = filteredRecords.reduce(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
@@ -686,16 +966,21 @@ export function calculateSalesAnalyticsSummary(
       careOptionFareYen: toFiniteNumber(caseRecord.careOptionFareYen),
       caseNumber: caseRecord.caseNumber,
       dateLabel: toCaseRecordDateLabel(caseRecord),
+      dropoffAreaName: extractAreaName(caseRecord.dropoffAddress),
       distanceKm: toFiniteNumber(caseRecord.distanceKm),
       drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
       escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
       expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
       paymentMethod: toPaymentMethodLabel(caseRecord.paymentMethod),
+      pickupAreaName: extractAreaName(caseRecord.pickupAddress),
+      staffName: toStaffName(caseRecord),
       totalFareYen: toFiniteNumber(caseRecord.totalFareYen),
+      vehicleName: toVehicleName(caseRecord),
       waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
     })),
     distanceRangeSummary,
     distanceSummary,
+    salesRangeSummary,
     dropoffAreaCountTop: areaAnalytics.dropoffAreaCountTop,
     dropoffAreaSalesTop: areaAnalytics.dropoffAreaSalesTop,
     expenseSummary: Array.from(expenseMap, ([label, item]) => ({
@@ -739,6 +1024,7 @@ export function calculateSalesAnalyticsSummary(
     revenueBreakdown,
     salesComposition: revenueBreakdown,
     staffSummary,
+    timeRangeSummary,
     topCases: [...filteredRecords]
       .sort((firstRecord, secondRecord) => {
         const salesDifference =
@@ -751,13 +1037,25 @@ export function calculateSalesAnalyticsSummary(
       })
       .slice(0, 10)
       .map((caseRecord) => ({
+        basicFareYen: toFiniteNumber(caseRecord.basicFareYen),
+        careOptionFareYen: toFiniteNumber(caseRecord.careOptionFareYen),
         caseNumber: caseRecord.caseNumber,
         dateLabel: toCaseRecordDateLabel(caseRecord),
+        distanceKm: toFiniteNumber(caseRecord.distanceKm),
+        drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
+        dropoffAreaName: extractAreaName(caseRecord.dropoffAddress),
+        escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
+        expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
+        id: caseRecord.id,
+        pickupAreaName: extractAreaName(caseRecord.pickupAddress),
         salesYen: toFiniteNumber(caseRecord.totalFareYen),
+        waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
       })),
     totalCount: filteredRecords.length,
     totalDistanceKm,
     totalDrivingSeconds,
     totalSalesYen,
+    vehicleSummary,
+    weekdaySummary,
   }
 }
