@@ -1,7 +1,11 @@
 # 介護タクシー専用メーター
 
-React + TypeScript + Vite + Firebase + PWA で構成した初期プロジェクトです。
-現時点では土台作成のみを目的としており、GPS、料金計算、領収書の各機能は実装していません。
+React + TypeScript + Vite + Firebase + PWA で構成した介護タクシー向けクラウドメーターです。
+GPS距離計測、料金計算、介助・実費入力、案件保存、領収書/レシートPDF、管理センター、売上分析を備えています。
+
+## マニュアル
+
+現状実装されている機能一覧と操作手順は [`docs/MANUAL.md`](docs/MANUAL.md) を参照してください。
 
 ## セットアップ
 
@@ -18,13 +22,18 @@ cp .env.example .env.local
 
 ## ルーティング
 
-React Router を導入し、以下の仮画面を用意しています。
+React Router を導入し、以下の主要画面を用意しています。
 
 | パス | 画面 |
 | --- | --- |
-| `/` | HomePage |
-| `/case` | CasePage |
-| `/admin` | AdminPage |
+| `/` | TOP / ログイン |
+| `/case/start` | 案件開始 |
+| `/case` | 業務用メーター |
+| `/cases` | 案件一覧 |
+| `/cases/:caseRecordId` | 案件詳細 |
+| `/admin` | 管理センター |
+| `/admin/analytics` | 売上分析 |
+| `/hq` | FC本部管理 |
 
 ## フォルダ構成
 
