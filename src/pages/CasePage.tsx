@@ -997,9 +997,6 @@ export function CasePage() {
           </div>
           <div className="r9-header-status">
             <span>案件 {caseNumber}</span>
-            <strong className={`status-badge status-badge--${statusToneMap[status]}`}>
-              {status}
-            </strong>
           </div>
         </header>
 
