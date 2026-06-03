@@ -8,6 +8,7 @@ import {
   escortFareSettings,
   expenseSettings,
   meterTimeFareSettings,
+  specialVehicleMenuMaster,
   waitingFareSettings,
 } from './fare'
 import type {
@@ -15,6 +16,7 @@ import type {
   CareOptionMasterItem,
   DispatchMenuItem,
   MeterTimeFareSettings,
+  SpecialVehicleMenuItem,
   TimeFareSettings,
 } from './fare'
 
@@ -46,6 +48,7 @@ export type MeterSettings = {
   meterTimeFare: MeterTimeFareSettings
   assistItems: CareOptionMasterItem[]
   dispatchMenuItems: DispatchMenuItem[]
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
   receipt: ReceiptSettings
@@ -66,6 +69,7 @@ export const defaultMeterSettings: MeterSettings = {
   meterTimeFare: meterTimeFareSettings,
   assistItems: careOptionMaster,
   dispatchMenuItems: dispatchMenuMaster,
+  specialVehicleMenuItems: specialVehicleMenuMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
     address: '',
@@ -227,22 +231,24 @@ function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
   )
 }
 
-function sanitizeDispatchMenuItems(value: unknown): DispatchMenuItem[] {
+function sanitizeMenuItems<TMenuItem extends {
+  amount: number
+  enabled: boolean
+  id: string
+  name: string
+  sortOrder: number
+}>(value: unknown, fallbackItems: TMenuItem[], idPrefix: string): TMenuItem[] {
   if (!Array.isArray(value)) {
-    return defaultMeterSettings.dispatchMenuItems
+    return fallbackItems
   }
 
-  const source = value
   const defaultsById = new Map(
-    defaultMeterSettings.dispatchMenuItems.map((defaultItem) => [
-      defaultItem.id,
-      defaultItem,
-    ]),
+    fallbackItems.map((defaultItem) => [defaultItem.id, defaultItem]),
   )
-  const sanitizedItems = source
+  const sanitizedItems = value
     .map((item, index) => {
       const sourceItem = toObject(item)
-      const id = toStringValue(sourceItem.id, `dispatch-${index + 1}`).trim()
+      const id = toStringValue(sourceItem.id, `${idPrefix}-${index + 1}`).trim()
       const defaultItem = defaultsById.get(id)
       const name = toStringValue(sourceItem.name, defaultItem?.name ?? '').trim()
 
@@ -263,12 +269,28 @@ function sanitizeDispatchMenuItems(value: unknown): DispatchMenuItem[] {
         sortOrder: Math.floor(
           toPositiveNumber(sourceItem.sortOrder, defaultItem?.sortOrder ?? index + 1),
         ),
-      }
+      } as TMenuItem
     })
-    .filter((item): item is DispatchMenuItem => Boolean(item))
+    .filter((item): item is TMenuItem => Boolean(item))
 
   return sanitizedItems.sort(
     (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+  )
+}
+
+function sanitizeDispatchMenuItems(value: unknown): DispatchMenuItem[] {
+  return sanitizeMenuItems(
+    value,
+    defaultMeterSettings.dispatchMenuItems,
+    'dispatch',
+  )
+}
+
+function sanitizeSpecialVehicleMenuItems(value: unknown): SpecialVehicleMenuItem[] {
+  return sanitizeMenuItems(
+    value,
+    defaultMeterSettings.specialVehicleMenuItems,
+    'special-vehicle',
   )
 }
 
@@ -329,6 +351,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
     company: sanitizeCompany(source.company),
     dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems),
     escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),
     expensePresets: sanitizeExpensePresets(source.expensePresets),
     meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare),

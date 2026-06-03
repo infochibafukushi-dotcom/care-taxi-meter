@@ -24,6 +24,7 @@ export type AssistItem = {
 
 export type CareOptionMasterItem = AssistItem;
 export type DispatchMenuItem = AssistItem;
+export type SpecialVehicleMenuItem = AssistItem;
 
 export type ExpenseSettings = {
   defaultItems: Array<{
@@ -40,6 +41,8 @@ export type FareLineItem = {
 };
 
 export type FareBreakdown = {
+  dispatchFareYen: number;
+  specialVehicleFareYen: number;
   basicFareYen: number;
   waitingFareYen: number;
   meterTimeFareYen: number;
@@ -75,6 +78,10 @@ export const meterTimeFareSettings: MeterTimeFareSettings = {
 
 export const dispatchMenuMaster: DispatchMenuItem[] = [
   { id: "reservedPickup", name: "予約迎車", amount: 800, enabled: true, sortOrder: 1 },
+];
+
+export const specialVehicleMenuMaster: SpecialVehicleMenuItem[] = [
+  { id: "oneBoxLift", name: "1BOXリフト車両", amount: 1000, enabled: true, sortOrder: 1 },
 ];
 
 export const careOptionMaster: CareOptionMasterItem[] = [
@@ -170,6 +177,8 @@ export function calculateFareBreakdown({
   waitingSeconds,
   escortSeconds,
   meterTimeSeconds = 0,
+  dispatchCharges = [],
+  specialVehicleCharges = [],
   careOptions,
   expenses,
   settings = {},
@@ -178,6 +187,8 @@ export function calculateFareBreakdown({
   waitingSeconds: number;
   escortSeconds: number;
   meterTimeSeconds?: number;
+  dispatchCharges?: Array<{ amountYen: number }>;
+  specialVehicleCharges?: Array<{ amountYen: number }>;
   careOptions: Array<{ amountYen: number }>;
   expenses: Array<{ amountYen: number }>;
   settings?: {
@@ -187,6 +198,8 @@ export function calculateFareBreakdown({
     waitingFare?: TimeFareSettings;
   };
 }): FareBreakdown {
+  const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
+  const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
   const basicFareYen = calculateBasicFareYen(
     distanceKm,
     settings.basicFare ?? basicFareSettings,
@@ -206,6 +219,8 @@ export function calculateFareBreakdown({
   const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
   const expenseFareYen = calculateExpenseTotalYen(expenses);
   const totalFareYen =
+    dispatchFareYen +
+    specialVehicleFareYen +
     basicFareYen +
     waitingFareYen +
     meterTimeFareYen +
@@ -214,6 +229,8 @@ export function calculateFareBreakdown({
     expenseFareYen;
 
   return {
+    dispatchFareYen,
+    specialVehicleFareYen,
     basicFareYen,
     waitingFareYen,
     meterTimeFareYen,
@@ -222,11 +239,11 @@ export function calculateFareBreakdown({
     expenseFareYen,
     totalFareYen,
     lineItems: [
+      { label: "予約・迎車料金", amountYen: dispatchFareYen },
+      { label: "特殊車両料金", amountYen: specialVehicleFareYen },
       { label: "基本運賃", amountYen: basicFareYen },
-      { label: "時間加算料金", amountYen: meterTimeFareYen },
-      { label: "待機料金", amountYen: waitingFareYen },
-      { label: "院内付き添い料金", amountYen: escortFareYen },
       { label: "介助料金", amountYen: careOptionFareYen },
+      { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
   };

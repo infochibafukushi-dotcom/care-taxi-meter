@@ -31,6 +31,7 @@ import type {
   BasicFareSettings,
   CareOptionMasterItem,
   DispatchMenuItem,
+  SpecialVehicleMenuItem,
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
@@ -235,6 +236,12 @@ export function CasePage() {
   const [selectedCareOptions, setSelectedCareOptions] = useState<
     SelectedCareOption[]
   >([])
+  const [selectedDispatchCharges, setSelectedDispatchCharges] = useState<
+    SelectedCareOption[]
+  >([])
+  const [selectedSpecialVehicleCharges, setSelectedSpecialVehicleCharges] = useState<
+    SelectedCareOption[]
+  >([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
@@ -253,6 +260,9 @@ export function CasePage() {
     useState<CareOptionMasterItem[]>(careOptionMaster)
   const [currentDispatchMenuItems, setCurrentDispatchMenuItems] = useState<DispatchMenuItem[]>(
     defaultMeterSettings.dispatchMenuItems,
+  )
+  const [currentSpecialVehicleMenuItems, setCurrentSpecialVehicleMenuItems] = useState<SpecialVehicleMenuItem[]>(
+    defaultMeterSettings.specialVehicleMenuItems,
   )
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
     defaultMeterSettings.expensePresets,
@@ -316,6 +326,7 @@ export function CasePage() {
         setCurrentEscortFareSettings(settings.escortFare)
         setCurrentCareOptionMaster(settings.assistItems)
         setCurrentDispatchMenuItems(settings.dispatchMenuItems)
+        setCurrentSpecialVehicleMenuItems(settings.specialVehicleMenuItems)
         setCurrentExpensePresets(settings.expensePresets)
         setSettingsMessage('Firestore設定をリアルタイム反映しています。')
       },
@@ -392,6 +403,8 @@ export function CasePage() {
     waitingSeconds: waitingFareSeconds,
     escortSeconds: escortFareSeconds,
     meterTimeSeconds: gps.lowSpeedSeconds,
+    dispatchCharges: selectedDispatchCharges,
+    specialVehicleCharges: selectedSpecialVehicleCharges,
     careOptions: selectedCareOptions,
     expenses,
     settings: {
@@ -450,6 +463,15 @@ export function CasePage() {
           (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
         ),
     [currentDispatchMenuItems],
+  )
+  const enabledSpecialVehicleMenuItems = useMemo(
+    () =>
+      currentSpecialVehicleMenuItems
+        .filter((item) => item.enabled)
+        .sort(
+          (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+        ),
+    [currentSpecialVehicleMenuItems],
   )
   const selectedCareOptionIds = useMemo(
     () => new Set(selectedCareOptions.map((option) => option.masterId)),
@@ -525,11 +547,27 @@ export function CasePage() {
   }
 
   const addDispatchCharge = (dispatchItem: DispatchMenuItem) => {
-    addCareOption({
-      amountYen: dispatchItem.amount,
-      masterId: `dispatch:${dispatchItem.id}`,
-      name: dispatchItem.name,
-    })
+    setSelectedDispatchCharges((currentCharges) => [
+      ...currentCharges,
+      {
+        amountYen: dispatchItem.amount,
+        id: createId(dispatchItem.id),
+        masterId: dispatchItem.id,
+        name: dispatchItem.name,
+      },
+    ])
+  }
+
+  const addSpecialVehicleCharge = (specialItem: SpecialVehicleMenuItem) => {
+    setSelectedSpecialVehicleCharges((currentCharges) => [
+      ...currentCharges,
+      {
+        amountYen: specialItem.amount,
+        id: createId(specialItem.id),
+        masterId: specialItem.id,
+        name: specialItem.name,
+      },
+    ])
   }
 
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
@@ -756,6 +794,8 @@ export function CasePage() {
         paymentMethod,
         pickupLocation: pickupLocationRef.current,
         selectedCareOptions,
+        selectedDispatchCharges,
+        selectedSpecialVehicleCharges,
         selectedExpenses: expenses,
         dropoffLocation: dropoffLocationRef.current,
       })
@@ -780,6 +820,8 @@ export function CasePage() {
         workSessionId: workSession.currentSession?.id ?? '',
         storeId: workSession.currentSession?.storeId ?? '',
         storeName: workSession.currentSession?.storeName ?? '',
+        dispatchFareYen: fareBreakdown.dispatchFareYen,
+        specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
         basicFareYen: fareBreakdown.basicFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
@@ -799,6 +841,16 @@ export function CasePage() {
           id: careOption.masterId,
           name: careOption.name,
           amount: careOption.amountYen,
+        })),
+        dispatchCharges: selectedDispatchCharges.map((dispatchCharge) => ({
+          id: dispatchCharge.masterId,
+          name: dispatchCharge.name,
+          amount: dispatchCharge.amountYen,
+        })),
+        specialVehicleCharges: selectedSpecialVehicleCharges.map((specialVehicleCharge) => ({
+          id: specialVehicleCharge.masterId,
+          name: specialVehicleCharge.name,
+          amount: specialVehicleCharge.amountYen,
         })),
         expenseCharges: expenses.map((expense) => ({
           id: expense.id,
@@ -1017,7 +1069,6 @@ export function CasePage() {
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
-              paymentMethod={paymentMethod}
             />
           </section>
 
@@ -1439,27 +1490,52 @@ export function CasePage() {
               </button>
             </header>
 
-            <div className="r9-operation-section">
-              <div className="r9-operation-section__header">
-                <h3>迎車メニュー</h3>
-                <span>ボタン押下で料金へ加算します</span>
-              </div>
-              <div className="r9-modal-button-grid r9-modal-button-grid--dispatch">
-                {enabledDispatchMenuItems.length === 0 ? (
-                  <p className="empty-note">有効な予約迎車メニューはありません。</p>
-                ) : null}
-                {enabledDispatchMenuItems.map((dispatchItem) => (
-                  <button
-                    className="r9-modal-choice r9-modal-choice--dispatch"
-                    key={dispatchItem.id}
-                    type="button"
-                    onClick={() => addDispatchCharge(dispatchItem)}
-                  >
-                    <span>{dispatchItem.name}</span>
-                    <strong>{formatFareYen(dispatchItem.amount)}円</strong>
-                  </button>
-                ))}
-              </div>
+            <div className="r9-operation-sections">
+              <section className="r9-operation-section" aria-labelledby="dispatch-items-title">
+                <div className="r9-operation-section__header">
+                  <h3 id="dispatch-items-title">予約・迎車メニュー</h3>
+                  <span>ボタン押下で予約・迎車料金へ加算します</span>
+                </div>
+                <div className="r9-modal-button-grid r9-modal-button-grid--dispatch">
+                  {enabledDispatchMenuItems.length === 0 ? (
+                    <p className="empty-note">有効な予約迎車メニューはありません。</p>
+                  ) : null}
+                  {enabledDispatchMenuItems.map((dispatchItem) => (
+                    <button
+                      className="r9-modal-choice r9-modal-choice--dispatch"
+                      key={dispatchItem.id}
+                      type="button"
+                      onClick={() => addDispatchCharge(dispatchItem)}
+                    >
+                      <span>{dispatchItem.name}</span>
+                      <strong>{formatFareYen(dispatchItem.amount)}円</strong>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="r9-operation-section" aria-labelledby="special-vehicle-items-title">
+                <div className="r9-operation-section__header">
+                  <h3 id="special-vehicle-items-title">特殊車両料金</h3>
+                  <span>1BOXリフト車両などを特殊車両料金へ加算します</span>
+                </div>
+                <div className="r9-modal-button-grid r9-modal-button-grid--special-vehicle">
+                  {enabledSpecialVehicleMenuItems.length === 0 ? (
+                    <p className="empty-note">有効な特殊車両メニューはありません。</p>
+                  ) : null}
+                  {enabledSpecialVehicleMenuItems.map((specialItem) => (
+                    <button
+                      className="r9-modal-choice r9-modal-choice--special-vehicle"
+                      key={specialItem.id}
+                      type="button"
+                      onClick={() => addSpecialVehicleCharge(specialItem)}
+                    >
+                      <span>{specialItem.name}</span>
+                      <strong>{formatFareYen(specialItem.amount)}円</strong>
+                    </button>
+                  ))}
+                </div>
+              </section>
             </div>
           </section>
         </div>

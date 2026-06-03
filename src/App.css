@@ -1718,6 +1718,8 @@ h1 {
 }
 
 .r9-modal-button-grid--expense,
+.r9-modal-button-grid--dispatch,
+.r9-modal-button-grid--special-vehicle,
 .r9-time-toggle-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2028,6 +2030,8 @@ h1 {
   .r9-metrics-grid,
   .r9-modal-button-grid--care,
   .r9-modal-button-grid--expense,
+  .r9-modal-button-grid--dispatch,
+  .r9-modal-button-grid--special-vehicle,
   .r9-time-toggle-grid,
   .r9-address-capture--modal,
   .r9-settlement-steps {

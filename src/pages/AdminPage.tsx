@@ -19,6 +19,7 @@ import type {
   CareOptionMasterItem,
   DispatchMenuItem,
   MeterTimeFareSettings,
+  SpecialVehicleMenuItem,
 } from "../services/fare";
 import {
   defaultMeterSettings,
@@ -125,6 +126,14 @@ const createDispatchMenuItem = (sortOrder: number): DispatchMenuItem => ({
   enabled: true,
   id: `dispatch-${Date.now()}-${crypto.randomUUID()}`,
   name: "予約迎車",
+  sortOrder,
+});
+
+const createSpecialVehicleMenuItem = (sortOrder: number): SpecialVehicleMenuItem => ({
+  amount: 1000,
+  enabled: true,
+  id: `special-vehicle-${Date.now()}-${crypto.randomUUID()}`,
+  name: "1BOXリフト車両",
   sortOrder,
 });
 
@@ -426,6 +435,46 @@ export function AdminPage() {
     }));
   };
 
+  const updateSpecialVehicleMenuItem = (
+    id: string,
+    key: keyof Pick<SpecialVehicleMenuItem, "amount" | "enabled" | "name" | "sortOrder">,
+    value: string | boolean,
+  ) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      specialVehicleMenuItems: currentSettings.specialVehicleMenuItems.map((specialItem) =>
+        specialItem.id === id
+          ? {
+              ...specialItem,
+              [key]:
+                key === "amount" || key === "sortOrder"
+                  ? toNonNegativeInteger(String(value))
+                  : value,
+            }
+          : specialItem,
+      ),
+    }));
+  };
+
+  const addSpecialVehicleMenuItem = () => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      specialVehicleMenuItems: [
+        ...currentSettings.specialVehicleMenuItems,
+        createSpecialVehicleMenuItem(currentSettings.specialVehicleMenuItems.length + 1),
+      ],
+    }));
+  };
+
+  const removeSpecialVehicleMenuItem = (id: string) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      specialVehicleMenuItems: currentSettings.specialVehicleMenuItems.filter(
+        (specialItem) => specialItem.id !== id,
+      ),
+    }));
+  };
+
   const updateExpensePreset = (
     id: string,
     key: keyof Pick<ExpensePreset, "defaultAmountYen" | "name">,
@@ -608,10 +657,13 @@ export function AdminPage() {
     const hasEmptyDispatchMenuName = settings.dispatchMenuItems.some(
       (dispatchItem) => !dispatchItem.name.trim(),
     );
+    const hasEmptySpecialVehicleMenuName = settings.specialVehicleMenuItems.some(
+      (specialItem) => !specialItem.name.trim(),
+    );
 
-    if (hasEmptyAssistItemName || hasEmptyDispatchMenuName) {
+    if (hasEmptyAssistItemName || hasEmptyDispatchMenuName || hasEmptySpecialVehicleMenuName) {
       setSettingsSaveState("error");
-      setSettingsMessage("介助項目・予約迎車メニューの名称は空欄にできません。");
+      setSettingsMessage("介助項目・予約迎車・特殊車両メニューの名称は空欄にできません。");
       return;
     }
 
@@ -1106,6 +1158,94 @@ export function AdminPage() {
                 </div>
                 <button type="button" onClick={addDispatchMenuItem}>
                   予約迎車メニューを追加
+                </button>
+              </fieldset>
+
+              <fieldset className="admin-settings-wide">
+                <legend>特殊車両メニュー管理</legend>
+                <p className="admin-settings-note">
+                  1BOXリフト車両などの特殊車両料金を名称、金額、表示順、有効状態で管理できます。
+                </p>
+                <div className="assist-item-list">
+                  {[...settings.specialVehicleMenuItems]
+                    .sort(
+                      (firstItem, secondItem) =>
+                        firstItem.sortOrder - secondItem.sortOrder,
+                    )
+                    .map((specialItem) => (
+                      <div className="assist-item-row" key={specialItem.id}>
+                        <label>
+                          名称
+                          <input
+                            value={specialItem.name}
+                            onChange={(event) =>
+                              updateSpecialVehicleMenuItem(
+                                specialItem.id,
+                                "name",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          金額(円)
+                          <input
+                            min="0"
+                            step="1"
+                            type="number"
+                            value={specialItem.amount}
+                            onChange={(event) =>
+                              updateSpecialVehicleMenuItem(
+                                specialItem.id,
+                                "amount",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          表示順
+                          <input
+                            min="1"
+                            step="1"
+                            type="number"
+                            value={specialItem.sortOrder}
+                            onChange={(event) =>
+                              updateSpecialVehicleMenuItem(
+                                specialItem.id,
+                                "sortOrder",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="assist-item-toggle">
+                          有効
+                          <input
+                            type="checkbox"
+                            checked={specialItem.enabled}
+                            onChange={(event) =>
+                              updateSpecialVehicleMenuItem(
+                                specialItem.id,
+                                "enabled",
+                                event.target.checked,
+                              )
+                            }
+                          />
+                        </label>
+                        <div className="assist-item-actions">
+                          <button
+                            type="button"
+                            onClick={() => removeSpecialVehicleMenuItem(specialItem.id)}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <button type="button" onClick={addSpecialVehicleMenuItem}>
+                  特殊車両メニューを追加
                 </button>
               </fieldset>
 
