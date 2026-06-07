@@ -307,7 +307,7 @@ export function HomePage() {
 
   if (!loggedInUser && !currentSession) {
     return (
-      <main className="page page--home" aria-labelledby="home-title">
+      <main className="page page--home page--login" aria-labelledby="home-title">
         <section className="hero-card login-card">
           <p className="eyebrow">Login</p>
           <h1 id="home-title">ログイン</h1>

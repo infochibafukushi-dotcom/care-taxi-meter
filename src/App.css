@@ -3608,6 +3608,10 @@ h1 {
   min-width: 1180px;
 }
 
+.login-card {
+  display: grid;
+}
+
 .login-form {
   display: grid;
   gap: 14px;
@@ -3637,6 +3641,93 @@ h1 {
   border: 0;
   font: inherit;
   cursor: pointer;
+}
+
+.login-card .save-note {
+  margin-top: 16px;
+}
+
+@media (max-height: 620px) {
+  .page--login {
+    place-items: center;
+    padding: max(10px, env(safe-area-inset-top)) 12px
+      max(10px, env(safe-area-inset-bottom));
+  }
+
+  .login-card {
+    width: min(100%, 720px);
+    padding: clamp(16px, 4vh, 24px) clamp(20px, 5vw, 44px);
+    border-radius: 24px;
+  }
+
+  .login-card .eyebrow {
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+  }
+
+  .login-card h1 {
+    font-size: clamp(2rem, 8vh, 3rem);
+    line-height: 1;
+  }
+
+  .login-card .lead {
+    margin-top: 12px;
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .login-form {
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .login-form label {
+    gap: 4px;
+    font-size: 0.9rem;
+  }
+
+  .login-form input {
+    min-height: 38px;
+  }
+
+  .login-submit {
+    min-height: 42px;
+  }
+
+  .login-card .save-note {
+    margin-top: 10px;
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 22px 18px;
+  }
+
+  .login-card .lead {
+    margin-top: 14px;
+  }
+
+  .login-form {
+    gap: 12px;
+    margin-top: 18px;
+  }
+}
+
+@media (max-width: 480px) and (max-height: 760px) {
+  .page--login {
+    place-items: center;
+  }
+
+  .login-card {
+    padding-block: 18px;
+  }
+
+  .login-card h1 {
+    font-size: clamp(2.2rem, 11vw, 3.2rem);
+  }
 }
 
 .work-dashboard-grid {
