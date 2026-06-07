@@ -19,9 +19,9 @@ import {
   formatFareYen,
   waitingFareSettings,
 } from '../services/fare'
-import { saveCaseRecord } from '../services/caseRecords'
+import { generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { fetchVehicles } from '../services/vehicles'
-import type { StoredCaseRecord } from '../services/caseRecords'
+import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
   fixedTimeFareUnitSeconds,
@@ -53,9 +53,11 @@ import type {
 import type {
   ExpenseItem,
   OperationStatus,
+  PaymentAllocation,
   PaymentMethod,
   GpsPosition,
   SelectedCareOption,
+  TaxiTicket,
   StatusTone,
   TimerKey,
 } from '../types/case'
@@ -96,6 +98,14 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
 }
 
 const isDevelopmentMode = import.meta.env.DEV
+const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
+const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
+  QR決済: 0,
+  その他: 0,
+  クレジット: 0,
+  現金: 0,
+  請求書: 0,
+})
 
 const loadInputHistory = () => {
   try {
@@ -108,32 +118,67 @@ const loadInputHistory = () => {
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUID()}`
 
-const createCaseNumber = () => {
-  const now = new Date()
-  const datePart = new Intl.DateTimeFormat('ja-JP', {
-    day: '2-digit',
-    month: '2-digit',
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-  })
-    .format(now)
-    .replaceAll('/', '')
-  const timePart = new Intl.DateTimeFormat('ja-JP', {
-    hour: '2-digit',
-    hour12: false,
-    minute: '2-digit',
-    second: '2-digit',
-    timeZone: 'Asia/Tokyo',
-  })
-    .format(now)
-    .replaceAll(':', '')
-
-  return `CASE-${datePart}-${timePart}`
-}
-
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+
+const createFareSnapshot = ({
+  assistItems,
+  basicFare,
+  dispatchMenuItems,
+  escortFare,
+  expensePresets,
+  meterSettings,
+  specialVehicleMenuItems,
+  waitingFare,
+}: {
+  assistItems: CareOptionMasterItem[]
+  basicFare: BasicFareSettings
+  dispatchMenuItems: DispatchMenuItem[]
+  escortFare: TimeFareSettings
+  expensePresets: ExpensePreset[]
+  meterSettings: MeterSettings
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
+  waitingFare: TimeFareSettings
+}): FareSnapshot => ({
+  assistItems: assistItems.map((item) => ({ ...item })),
+  basicFare: { ...basicFare },
+  capturedAt: new Date().toISOString(),
+  disabilityDiscount: {
+    appliesTo: ['basicFare', 'meterTimeFare'],
+    discountRate: 0.1,
+    enabled: true,
+    rounding: 'floorToTenYen',
+  },
+  dispatchMenuItems: dispatchMenuItems.map((item) => ({ ...item })),
+  escortFare: { ...escortFare },
+  expensePresets: expensePresets.map((preset, index) => ({
+    ...preset,
+    amount: preset.defaultAmountYen,
+    enabled: true,
+    sortOrder: index + 1,
+  })),
+  meterTimeFare: { ...meterSettings.meterTimeFare },
+  midnightEarlyMorning: {
+    appliesTo: ['basicFare', 'meterTimeFare'],
+    enabled: false,
+    endTime: '',
+    startTime: '',
+    surchargeRate: 0,
+  },
+  specialVehicleMenuItems: specialVehicleMenuItems.map((item) => ({ ...item })),
+  taxiVoucher: {
+    multipleAllowed: true,
+    storesMunicipalityName: true,
+    storesVoucherNumber: true,
+  },
+  timeSpecificFare: {
+    enabled: false,
+    fixedFareYen: 0,
+    timeBands: [],
+  },
+  waitingFare: { ...waitingFare },
+})
 
 const getReverseGeocodeCauseLabel = ({
   diagnostic,
@@ -217,7 +262,12 @@ const getReverseGeocodeCauseLabel = ({
 export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
-  const caseNumber = useMemo(() => createCaseNumber(), [])
+  const [caseNumber, setCaseNumber] = useState('未採番')
+  const [caseNumberAssignment, setCaseNumberAssignment] =
+    useState<CaseNumberAssignment | null>(null)
+  const [fareSnapshot, setFareSnapshot] = useState<FareSnapshot | null>(null)
+  const fareSnapshotRef = useRef<FareSnapshot | null>(null)
+  const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
   const [billableTimeStarted, setBillableTimeStarted] = useState({
@@ -244,7 +294,13 @@ export function CasePage() {
     SelectedCareOption[]
   >([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
+  const [isDisabilityDiscount, setIsDisabilityDiscount] = useState(false)
+  const [taxiTickets, setTaxiTickets] = useState<TaxiTicket[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
+  const [paymentAmounts, setPaymentAmounts] = useState<Record<PaymentMethod, number>>(
+    createEmptyPaymentAmounts,
+  )
+  const [receiptName, setReceiptName] = useState('')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
     isFirebaseConfigured
@@ -303,6 +359,7 @@ export function CasePage() {
   const gps = useCurrentPosition(
     isGpsActive,
     currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+    status === '走行中',
   )
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
@@ -313,6 +370,20 @@ export function CasePage() {
     ? Math.max(elapsedTimers.seconds.accompanying, 1)
     : 0
 
+  const isTripStarted = status !== '空車'
+  const isCaseClosed = status === '案件終了'
+  const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
+  const canStartWaiting = status === '走行中'
+  const canEndWaiting = status === '待機中'
+  const canStartAccompanying = status === '走行中'
+  const canEndAccompanying = status === '院内付き添い中'
+  const canOpenSettlement = status === '走行中'
+  const canAddAssistCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
+  const canAddExpenseCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
+  const canAddDispatchCharge = status === '走行中' && selectedDispatchCharges.length === 0
+  const canAddSpecialVehicleCharge = status === '走行中' && selectedSpecialVehicleCharges.length === 0
+  const canOpenDispatchModal = status === '走行中' && !isCaseClosed
+
   useEffect(() => {
     let isMounted = true
 
@@ -320,6 +391,11 @@ export function CasePage() {
       currentScope,
       (settings: MeterSettings) => {
         if (!isMounted) {
+          return
+        }
+
+        if (fareSnapshotRef.current) {
+          setSettingsMessage('案件開始時の料金設定スナップショットで計算中です。')
           return
         }
 
@@ -410,6 +486,8 @@ export function CasePage() {
     specialVehicleCharges: selectedSpecialVehicleCharges,
     careOptions: selectedCareOptions,
     expenses,
+    isDisabilityDiscount,
+    taxiTickets,
     settings: {
       basicFare: currentBasicFareSettings,
       escortFare: currentEscortFareSettings,
@@ -417,6 +495,18 @@ export function CasePage() {
       waitingFare: currentWaitingFareSettings,
     },
   })
+
+  const paymentTotalYen = paymentMethods.reduce(
+    (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
+    0,
+  )
+  const payments: PaymentAllocation[] = paymentMethods
+    .map((method) => ({
+      amount: Math.max(Math.round(paymentAmounts[method]) || 0, 0),
+      id: `payment-${method}`,
+      type: method,
+    }))
+    .filter((payment) => payment.amount > 0)
 
   const fareIncrease = calculateFareIncreaseProgress(
     gps.chargeableDistanceKm,
@@ -509,6 +599,10 @@ export function CasePage() {
     masterId: string
     name: string
   }) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+
     setSelectedCareOptions((currentOptions) => [
       ...currentOptions,
       {
@@ -522,6 +616,10 @@ export function CasePage() {
   }
 
   const toggleCareOption = (masterItem: CareOptionMasterItem) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+
     const isSelected = selectedCareOptionIds.has(masterItem.id)
 
     setSelectedCareOptions((currentOptions) => {
@@ -550,8 +648,11 @@ export function CasePage() {
   }
 
   const addDispatchCharge = (dispatchItem: DispatchMenuItem) => {
-    setSelectedDispatchCharges((currentCharges) => [
-      ...currentCharges,
+    if (!canAddDispatchCharge) {
+      return
+    }
+
+    setSelectedDispatchCharges([
       {
         amountYen: dispatchItem.amount,
         id: createId(dispatchItem.id),
@@ -562,8 +663,11 @@ export function CasePage() {
   }
 
   const addSpecialVehicleCharge = (specialItem: SpecialVehicleMenuItem) => {
-    setSelectedSpecialVehicleCharges((currentCharges) => [
-      ...currentCharges,
+    if (!canAddSpecialVehicleCharge) {
+      return
+    }
+
+    setSelectedSpecialVehicleCharges([
       {
         amountYen: specialItem.amount,
         id: createId(specialItem.id),
@@ -574,6 +678,10 @@ export function CasePage() {
   }
 
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
+    if (!canAddExpenseCharge) {
+      return
+    }
+
     setExpenses((currentExpenses) => [
       ...currentExpenses,
       { amountYen, id: createId('expense'), name },
@@ -597,6 +705,31 @@ export function CasePage() {
     }
 
     setKeypadTarget(null)
+  }
+
+  const addTaxiTicket = (ticket: Omit<TaxiTicket, 'id'>) => {
+    setTaxiTickets((currentTickets) => [
+      ...currentTickets,
+      { ...ticket, id: createId('taxi-ticket') },
+    ])
+  }
+
+  const removeTaxiTicket = (ticketId: string) => {
+    setTaxiTickets((currentTickets) => currentTickets.filter((ticket) => ticket.id !== ticketId))
+  }
+
+  const updatePaymentAmount = (method: PaymentMethod, amount: number) => {
+    setPaymentAmounts((currentAmounts) => ({
+      ...currentAmounts,
+      [method]: Math.max(Math.round(amount) || 0, 0),
+    }))
+  }
+
+  const settlePaymentRemainder = () => {
+    setPaymentAmounts({
+      ...createEmptyPaymentAmounts(),
+      [paymentMethod]: fareBreakdown.totalFareYen,
+    })
   }
 
 
@@ -672,30 +805,105 @@ export function CasePage() {
     return capturePromise
   }
 
-  const handleDrivingStart = () => {
-    markOperationStarted()
-    handleStatusChange('走行中')
-    void capturePickupLocation()
+  const canTransitionStatus = (currentStatus: OperationStatus, nextStatus: OperationStatus) => {
+    if (currentStatus === nextStatus) {
+      return true
+    }
+
+    const allowedTransitions: Record<OperationStatus, OperationStatus[]> = {
+      空車: ['走行中'],
+      走行中: ['待機中', '院内付き添い中', '精算前'],
+      待機中: ['走行中'],
+      院内付き添い中: ['走行中'],
+      精算前: ['案件終了'],
+      案件終了: [],
+    }
+
+    return allowedTransitions[currentStatus].includes(nextStatus)
+  }
+
+  const handleDrivingStart = async () => {
+    if (!canStartTrip || !workSession.currentSession || operationStartedAtRef.current) {
+      setCaseSaveState('error')
+      setCaseSaveMessage(
+        !workSession.currentSession
+          ? '出勤してから送迎開始してください。'
+          : !selectedVehicleId
+            ? '案件車両を選択してください。'
+            : '現在の状態では送迎開始できません。',
+      )
+      return
+    }
+
+    try {
+      const assignment = await generateCaseNumber({
+        franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+        storeId: workSession.currentSession.storeId,
+        storeName: workSession.currentSession.storeName,
+      })
+      const snapshot = createFareSnapshot({
+        assistItems: currentCareOptionMaster,
+        basicFare: currentBasicFareSettings,
+        dispatchMenuItems: currentDispatchMenuItems,
+        escortFare: currentEscortFareSettings,
+        expensePresets: currentExpensePresets,
+        meterSettings: currentMeterSettings,
+        specialVehicleMenuItems: currentSpecialVehicleMenuItems,
+        waitingFare: currentWaitingFareSettings,
+      })
+
+      caseNumberAssignmentRef.current = assignment
+      fareSnapshotRef.current = snapshot
+      setCaseNumberAssignment(assignment)
+      setFareSnapshot(snapshot)
+      setCaseNumber(assignment.caseNumber)
+      markOperationStarted()
+
+      if (!handleStatusChange('走行中')) {
+        return
+      }
+
+      setSettingsMessage('送迎開始時の料金設定スナップショットで計算中です。')
+      setCaseSaveState('idle')
+      setCaseSaveMessage('送迎を開始しました。精算・終了で保存します。')
+      void capturePickupLocation()
+    } catch (error) {
+      setCaseSaveState('error')
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `案件番号の採番に失敗しました。${error.message}`
+          : '案件番号の採番に失敗しました。通信状況とFirebase設定を確認してください。',
+      )
+    }
   }
 
   const handleSettlementStart = () => {
+    if (!canOpenSettlement) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('走行中のみ精算へ進めます。')
+      return false
+    }
+
     if (!workSession.currentSession) {
       setCaseSaveState('error')
       setCaseSaveMessage('出勤してから案件を保存してください。')
-      return null
+      return false
     }
 
     if (!selectedVehicleId) {
       setCaseSaveState('error')
       setCaseSaveMessage('案件車両を選択してください。')
-      return null
+      return false
     }
 
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
     }
-    handleStatusChange('精算前')
+
+    if (!handleStatusChange('精算前')) {
+      return false
+    }
 
     if (
       (!dropoffLocationRef.current.capturedAt || !dropoffLocationRef.current.address) &&
@@ -703,15 +911,33 @@ export function CasePage() {
     ) {
       void captureDropoffLocation()
     }
+
+    return true
   }
 
   const handleSettlementFlowStart = () => {
+    if (!handleSettlementStart()) {
+      return
+    }
+
+    if (paymentTotalYen === 0) {
+      setPaymentAmounts({
+        ...createEmptyPaymentAmounts(),
+        [paymentMethod]: fareBreakdown.totalFareYen,
+      })
+    }
+
     setIsSettlementFlowOpen(true)
     setSettlementFlowStep('receipt')
-    handleSettlementStart()
   }
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
+    if (!canTransitionStatus(status, nextStatus)) {
+      setCaseSaveState('error')
+      setCaseSaveMessage(`現在の状態（${status}）から${nextStatus}へは切り替えできません。`)
+      return false
+    }
+
     setStatus(nextStatus)
     setActiveTimer(activeTimerMap[nextStatus] ?? null)
 
@@ -730,6 +956,8 @@ export function CasePage() {
     if (nextStatus === '空車' || nextStatus === '案件終了') {
       setIsGpsActive(false)
     }
+
+    return true
   }
 
 
@@ -754,10 +982,22 @@ export function CasePage() {
       return null
     }
 
+    if (status !== '精算前') {
+      setCaseSaveState('error')
+      setCaseSaveMessage('精算前の状態で保存してください。')
+      return null
+    }
+
     if (!operationEndedAtRef.current) {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
     }
+    if (paymentTotalYen !== fareBreakdown.totalFareYen) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('支払総額と請求額が一致しないため保存できません。')
+      return null
+    }
+
     const finalDrivingSeconds = elapsedTimers.seconds.driving
 
     handleStatusChange('案件終了')
@@ -782,8 +1022,14 @@ export function CasePage() {
       }
 
       const closedAt = new Date().toISOString()
+      const currentCaseNumberAssignment = caseNumberAssignmentRef.current
+      const currentFareSnapshot = fareSnapshotRef.current
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
+        caseDate: currentCaseNumberAssignment?.caseDate,
+        storeCode: currentCaseNumberAssignment?.storeCode,
+        dailySequence: currentCaseNumberAssignment?.dailySequence,
+        fareSnapshot: currentFareSnapshot,
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
@@ -795,6 +1041,9 @@ export function CasePage() {
         vehicle: selectedVehicle,
         fareBreakdown,
         paymentMethod,
+        payments,
+        receiptName,
+        taxiTickets,
         pickupLocation: pickupLocationRef.current,
         selectedCareOptions,
         selectedDispatchCharges,
@@ -805,6 +1054,10 @@ export function CasePage() {
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
         caseNumber,
+        caseDate: currentCaseNumberAssignment?.caseDate ?? '',
+        storeCode: currentCaseNumberAssignment?.storeCode ?? '',
+        dailySequence: currentCaseNumberAssignment?.dailySequence ?? 0,
+        fareSnapshot: currentFareSnapshot,
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
@@ -828,20 +1081,35 @@ export function CasePage() {
         dispatchFareYen: fareBreakdown.dispatchFareYen,
         specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
         basicFareYen: fareBreakdown.basicFareYen,
+        meterTimeFareYen: fareBreakdown.meterTimeFareYen,
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
         careOptionFareYen: fareBreakdown.careOptionFareYen,
         expenseFareYen: fareBreakdown.expenseFareYen,
         totalFareYen: fareBreakdown.totalFareYen,
+        grossFareYen: fareBreakdown.grossFareYen,
+        discountableFareYen: fareBreakdown.discountableFareYen,
+        isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
+        disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
+        disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+        taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
+        taxiTickets,
         paymentMethod,
-        customerName: '',
+        payments,
+        receiptName,
+        customerName: receiptName,
         remarks: '',
         status: 'completed',
         deleted: false,
         deletedAt: '',
         deletedBy: '',
         deleteReason: '',
+        restoredAt: '',
+        restoredBy: '',
+        cancelReason: '',
         canceledAt: '',
+        cancelledBy: '',
+        receiptReissues: [],
         changeHistory: [],
         pickupLatitude: pickupLocationRef.current.latitude,
         pickupLongitude: pickupLocationRef.current.longitude,
@@ -955,7 +1223,7 @@ export function CasePage() {
     }
 
     await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
-      customerName: '',
+      customerName: savedCaseRecord.receiptName || receiptName,
       expenseItems: expenses,
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
@@ -969,7 +1237,7 @@ export function CasePage() {
     }
 
     await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
-      customerName: '',
+      customerName: savedCaseRecord.receiptName || receiptName,
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
     })
@@ -981,6 +1249,8 @@ export function CasePage() {
   }
 
   const displayMetrics = [
+    { label: '案件番号', value: caseNumberAssignment ? caseNumberAssignment.caseNumber : caseNumber },
+    { label: '料金設定', value: fareSnapshot ? '開始時固定' : '未固定' },
     { label: '課金距離', value: `${gps.chargeableDistanceKm.toFixed(3)} km` },
     { label: '実走行距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
     { label: '運行時間', value: elapsedTimers.driving },
@@ -1016,7 +1286,7 @@ export function CasePage() {
             </div>
 
             <div className="fare-increase-stack" aria-label="加算インジケーター">
-              <div className={`fare-increase-panel ${gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
+              <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
                 <div className="fare-increase-panel__label">
                   <span>距離加算まで</span>
                   <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
@@ -1030,7 +1300,7 @@ export function CasePage() {
                 </small>
               </div>
 
-              <div className={`fare-increase-panel fare-increase-panel--time ${gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
+              <div className={`fare-increase-panel fare-increase-panel--time ${status === '走行中' && gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
                 <div className="fare-increase-panel__label">
                   <span>時間加算まで</span>
                   <strong>次回 +{formatFareYen(timeFareIncrease.nextIncreaseYen)}円</strong>
@@ -1096,13 +1366,15 @@ export function CasePage() {
               <button
                 className="r9-status-button r9-status-button--driving"
                 type="button"
-                onClick={handleDrivingStart}
+                disabled={!canStartTrip}
+                onClick={() => { void handleDrivingStart() }}
               >
                 送迎開始
               </button>
               <button
                 className="r9-status-button r9-status-button--assist"
                 type="button"
+                disabled={!canAddAssistCharge}
                 onClick={() => setIsCareModalOpen(true)}
               >
                 介助
@@ -1110,6 +1382,7 @@ export function CasePage() {
               <button
                 className="r9-status-button r9-status-button--pickup"
                 type="button"
+                disabled={!canOpenDispatchModal}
                 onClick={() => setIsDispatchModalOpen(true)}
               >
                 予約迎車
@@ -1117,6 +1390,7 @@ export function CasePage() {
               <button
                 className="r9-status-button r9-status-button--expense"
                 type="button"
+                disabled={!canAddExpenseCharge}
                 onClick={() => setIsExpenseModalOpen(true)}
               >
                 実費
@@ -1124,7 +1398,7 @@ export function CasePage() {
               <button
                 className="r9-status-button r9-status-button--settlement"
                 type="button"
-                disabled={caseSaveState === 'saving'}
+                disabled={caseSaveState === 'saving' || !canOpenSettlement}
                 onClick={handleSettlementFlowStart}
               >
                 精算・終了
@@ -1448,6 +1722,7 @@ export function CasePage() {
                         key={item.id}
                         type="button"
                         aria-pressed={isSelected}
+                        disabled={!canAddAssistCharge}
                         onClick={() => toggleCareOption(item)}
                       >
                         <span>{isSelected ? '✓ ' : ''}{item.name}</span>
@@ -1468,6 +1743,7 @@ export function CasePage() {
                     className={`r9-time-toggle ${status === '待機中' ? 'r9-time-toggle--active' : ''}`}
                     type="button"
                     aria-pressed={status === '待機中'}
+                    disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
                     onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
                   >
                     <span>待機 {status === '待機中' ? 'ON' : 'OFF'}</span>
@@ -1478,6 +1754,7 @@ export function CasePage() {
                     className={`r9-time-toggle ${status === '院内付き添い中' ? 'r9-time-toggle--active' : ''}`}
                     type="button"
                     aria-pressed={status === '院内付き添い中'}
+                    disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
                     onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
                   >
                     <span>付き添い {status === '院内付き添い中' ? 'ON' : 'OFF'}</span>
@@ -1524,6 +1801,7 @@ export function CasePage() {
                       className="r9-modal-choice r9-modal-choice--dispatch"
                       key={dispatchItem.id}
                       type="button"
+                      disabled={!canAddDispatchCharge}
                       onClick={() => addDispatchCharge(dispatchItem)}
                     >
                       <span>{dispatchItem.name}</span>
@@ -1547,6 +1825,7 @@ export function CasePage() {
                       className="r9-modal-choice r9-modal-choice--special-vehicle"
                       key={specialItem.id}
                       type="button"
+                      disabled={!canAddSpecialVehicleCharge}
                       onClick={() => addSpecialVehicleCharge(specialItem)}
                     >
                       <span>{specialItem.name}</span>
@@ -1591,6 +1870,7 @@ export function CasePage() {
                       className="r9-modal-choice r9-modal-choice--expense"
                       key={preset.id}
                       type="button"
+                      disabled={!canAddExpenseCharge}
                       onClick={() =>
                         setKeypadTarget({
                           amountYen: preset.defaultAmountYen,
@@ -1671,15 +1951,25 @@ export function CasePage() {
                 </div>
                 <SettlementPanel
                   breakdown={fareBreakdown}
+                  isDisabilityDiscount={isDisabilityDiscount}
+                  paymentAmounts={paymentAmounts}
                   paymentMethod={paymentMethod}
+                  receiptName={receiptName}
                   saveMessage={caseSaveMessage}
                   saveState={caseSaveState}
+                  taxiTickets={taxiTickets}
+                  onAddTaxiTicket={addTaxiTicket}
+                  onDisabilityDiscountChange={setIsDisabilityDiscount}
+                  onPaymentAmountChange={updatePaymentAmount}
                   onPaymentMethodChange={setPaymentMethod}
+                  onReceiptNameChange={setReceiptName}
+                  onRemoveTaxiTicket={removeTaxiTicket}
+                  onSettlePaymentRemainder={settlePaymentRemainder}
                 />
                 <button
                   className="r9-flow-primary"
                   type="button"
-                  disabled={caseSaveState === 'saving'}
+                  disabled={caseSaveState === 'saving' || status !== '精算前'}
                   onClick={() => {
                     void handleSettlementSave()
                   }}
