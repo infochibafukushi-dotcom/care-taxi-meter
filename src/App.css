@@ -3995,3 +3995,280 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.personal-operation-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.personal-operation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid rgb(14 165 233 / 20%);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+}
+
+.personal-operation-header h3,
+.personal-operation-header p,
+.personal-operation-summary h4,
+.personal-operation-footer h4,
+.personal-operation-summary dl {
+  margin: 0;
+}
+
+.personal-operation-header h3 {
+  color: #0f172a;
+  font-size: clamp(1.35rem, 3vw, 1.9rem);
+}
+
+.personal-operation-header p:not(.eyebrow) {
+  margin-top: 10px;
+  color: #475569;
+  font-weight: 700;
+  line-height: 1.7;
+}
+
+.personal-operation-header > strong {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border: 1px solid rgb(37 99 235 / 18%);
+  border-radius: 14px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  box-shadow: 0 12px 24px rgb(37 99 235 / 10%);
+}
+
+.personal-operation-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.personal-operation-summary,
+.personal-operation-footer section {
+  padding: 16px;
+  border: 1px solid rgb(15 23 42 / 10%);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 14px 30px rgb(15 23 42 / 7%);
+}
+
+.personal-operation-summary h4,
+.personal-operation-footer h4 {
+  color: #075985;
+  font-size: 1rem;
+}
+
+.personal-operation-summary dl {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.personal-operation-summary dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgb(15 23 42 / 8%);
+}
+
+.personal-operation-summary dt,
+.personal-operation-summary dd {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.personal-operation-summary dt {
+  color: #475569;
+}
+
+.personal-operation-summary dd {
+  color: #0f172a;
+  text-align: right;
+}
+
+.personal-operation-main {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.personal-operation-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.personal-operation-kpis div {
+  padding: 16px;
+  border: 1px solid rgb(14 165 233 / 18%);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 24px rgb(15 23 42 / 7%);
+}
+
+.personal-operation-kpis span,
+.personal-operation-kpis strong {
+  display: block;
+}
+
+.personal-operation-kpis span {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.personal-operation-kpis strong {
+  margin-top: 6px;
+  color: #0f172a;
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
+  line-height: 1.15;
+}
+
+.personal-operation-summary .is-emphasis,
+.personal-operation-kpis .is-emphasis {
+  border-color: rgb(37 99 235 / 24%);
+  background: #eff6ff;
+}
+
+.personal-operation-summary .is-emphasis dd,
+.personal-operation-kpis .is-emphasis strong,
+.personal-operation-table .is-emphasis {
+  color: #1d4ed8;
+  font-weight: 950;
+}
+
+.personal-operation-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgb(15 23 42 / 10%);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 80%);
+}
+
+.personal-operation-table {
+  min-width: 1320px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.personal-operation-table th,
+.personal-operation-table td {
+  min-width: 58px;
+  padding: 9px 8px;
+  border: 1px solid rgb(226 232 240 / 95%);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.personal-operation-table thead th,
+.personal-operation-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 104px;
+  color: #334155;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.personal-operation-table thead th {
+  top: 0;
+  z-index: 2;
+  text-align: center;
+}
+
+.personal-operation-table thead th small {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.7rem;
+}
+
+.personal-operation-table thead th.is-saturday,
+.personal-operation-table thead th.is-saturday small {
+  color: #2563eb;
+}
+
+.personal-operation-table thead th.is-sunday,
+.personal-operation-table thead th.is-sunday small {
+  color: #dc2626;
+}
+
+.personal-operation-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 16px;
+}
+
+.personal-operation-footer p {
+  margin: 10px 0 0;
+  color: #475569;
+  font-weight: 700;
+  line-height: 1.7;
+}
+
+.personal-operation-footer section:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personal-operation-footer section:last-child h4 {
+  grid-column: 1 / -1;
+}
+
+.personal-operation-footer section:last-child div {
+  padding: 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.personal-operation-footer span,
+.personal-operation-footer strong {
+  display: block;
+  font-weight: 900;
+}
+
+.personal-operation-footer span {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.personal-operation-footer strong {
+  margin-top: 6px;
+  color: #1d4ed8;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 1040px) {
+  .personal-operation-layout,
+  .personal-operation-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .personal-operation-kpis,
+  .personal-operation-footer section:last-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .personal-operation-header {
+    flex-direction: column;
+  }
+
+  .personal-operation-kpis,
+  .personal-operation-footer section:last-child {
+    grid-template-columns: 1fr;
+  }
+}
