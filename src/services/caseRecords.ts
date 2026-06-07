@@ -61,6 +61,12 @@ export type CaseRecordChangeEntry = {
   nextValue: string
 }
 
+export type ReceiptReissueEntry = {
+  reissuedAt: string
+  reissuedBy: string
+  reason: string
+}
+
 export type FareSnapshot = {
   basicFare: BasicFareSettings
   meterTimeFare: MeterTimeFareSettings
@@ -155,7 +161,12 @@ export type CaseRecordDocument = {
   deletedAt: string
   deletedBy: string
   deleteReason: string
+  restoredAt: string
+  restoredBy: string
+  cancelReason: string
   canceledAt: string
+  cancelledBy: string
+  receiptReissues: ReceiptReissueEntry[]
   changeHistory: CaseRecordChangeEntry[]
   pickupLatitude: number | null
   pickupLongitude: number | null
@@ -193,6 +204,7 @@ export type StoredCaseRecord = Omit<CaseRecordDocument, 'createdAt' | 'savedAt'>
 export type CaseRecordEditableValues = {
   careOptionFareYen: number
   dispatchFareYen: number
+  specialVehicleFareYen: number
   expenseFareYen: number
   paymentMethod: string
   remarks: string
@@ -308,6 +320,20 @@ const toChangeHistory = (value: unknown): CaseRecordChangeEntry[] =>
             : null
         })
         .filter((item): item is CaseRecordChangeEntry => Boolean(item))
+    : []
+
+const toReceiptReissues = (value: unknown): ReceiptReissueEntry[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const reissuedAt = toIsoString(source.reissuedAt) || toString(source.reissuedAt)
+          const reissuedBy = toString(source.reissuedBy)
+          const reason = toString(source.reason)
+
+          return reissuedAt ? { reason, reissuedAt, reissuedBy } : null
+        })
+        .filter((item): item is ReceiptReissueEntry => Boolean(item))
     : []
 
 const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
@@ -517,7 +543,12 @@ const toStoredCaseRecord = (
     deletedAt: toIsoString(data.deletedAt) || toString(data.deletedAt),
     deletedBy: toString(data.deletedBy),
     deleteReason: toString(data.deleteReason),
+    restoredAt: toIsoString(data.restoredAt) || toString(data.restoredAt),
+    restoredBy: toString(data.restoredBy),
+    cancelReason: toString(data.cancelReason),
     canceledAt: toString(data.canceledAt),
+    cancelledBy: toString(data.cancelledBy),
+    receiptReissues: toReceiptReissues(data.receiptReissues),
     changeHistory: toChangeHistory(data.changeHistory),
     pickupLatitude: toNullableNumber(data.pickupLatitude),
     pickupLongitude: toNullableNumber(data.pickupLongitude),
@@ -683,7 +714,12 @@ export async function saveCaseRecord({
     deletedAt: '',
     deletedBy: '',
     deleteReason: '',
+    restoredAt: '',
+    restoredBy: '',
+    cancelReason: '',
     canceledAt: '',
+    cancelledBy: '',
+    receiptReissues: [],
     changeHistory: [],
     pickupLatitude: pickupLocation.latitude,
     pickupLongitude: pickupLocation.longitude,
@@ -771,6 +807,7 @@ const editableFieldDefinitions: Array<{
 }> = [
   { key: 'careOptionFareYen', label: '介助料金', format: (value) => formatYenForHistory(Number(value)) },
   { key: 'dispatchFareYen', label: '予約迎車料金', format: (value) => formatYenForHistory(Number(value)) },
+  { key: 'specialVehicleFareYen', label: '特殊車両料金', format: (value) => formatYenForHistory(Number(value)) },
   { key: 'expenseFareYen', label: '実費', format: (value) => formatYenForHistory(Number(value)) },
   { key: 'paymentMethod', label: '支払方法', format: (value) => String(value || '未設定') },
   { key: 'remarks', label: '備考', format: (value) => String(value || '未設定') },
@@ -779,6 +816,7 @@ const editableFieldDefinitions: Array<{
 const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValues => ({
   careOptionFareYen: caseRecord.careOptionFareYen,
   dispatchFareYen: caseRecord.dispatchFareYen,
+  specialVehicleFareYen: caseRecord.specialVehicleFareYen,
   expenseFareYen: caseRecord.expenseFareYen,
   paymentMethod: caseRecord.paymentMethod,
   remarks: caseRecord.remarks,
@@ -787,6 +825,7 @@ const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValue
 const normalizeEditableValues = (values: CaseRecordEditableValues): CaseRecordEditableValues => ({
   careOptionFareYen: Math.max(Math.round(values.careOptionFareYen), 0),
   dispatchFareYen: Math.max(Math.round(values.dispatchFareYen), 0),
+  specialVehicleFareYen: Math.max(Math.round(values.specialVehicleFareYen), 0),
   expenseFareYen: Math.max(Math.round(values.expenseFareYen), 0),
   paymentMethod: values.paymentMethod.trim() || '未設定',
   remarks: values.remarks.trim(),
@@ -794,7 +833,7 @@ const normalizeEditableValues = (values: CaseRecordEditableValues): CaseRecordEd
 
 const calculateEditableFareYen = (values: Pick<
   CaseRecordEditableValues,
-  'careOptionFareYen' | 'dispatchFareYen' | 'expenseFareYen'
+  'careOptionFareYen' | 'dispatchFareYen' | 'specialVehicleFareYen' | 'expenseFareYen'
 >) => values.careOptionFareYen + values.dispatchFareYen + values.expenseFareYen
 
 const calculateTotalFareYen = (
@@ -850,9 +889,10 @@ export async function updateCaseRecordEditableValues(
   })
 
   await createAuditLog({
-    action: "case.update",
+    action: "case_update",
     actor,
     targetId: caseRecord.id,
+    targetType: 'caseRecord',
     before: previousValues,
     after: { ...normalizedValues, totalFareYen: updatedRecord.totalFareYen },
     reason,
@@ -861,37 +901,46 @@ export async function updateCaseRecordEditableValues(
   return updatedRecord
 }
 
-export async function cancelCaseRecord(caseRecord: StoredCaseRecord, actor?: AuditActor | null) {
+export async function cancelCaseRecord(
+  caseRecord: StoredCaseRecord,
+  { actor = null, reason }: { actor?: AuditActor | null; reason: string },
+) {
   const canceledAt = new Date().toISOString()
+  const cancelledBy = actor?.userId ?? ''
   const updatedRecord: StoredCaseRecord = {
     ...caseRecord,
+    cancelReason: reason,
     canceledAt,
+    cancelledBy,
     status: 'canceled',
     changeHistory: [
       ...(caseRecord.changeHistory ?? []),
       {
         changedAt: canceledAt,
-        fieldLabel: 'ステータス',
+        fieldLabel: 'キャンセル',
         previousValue: caseRecord.status === 'canceled' ? 'キャンセル済' : '通常',
-        nextValue: 'キャンセル済',
+        nextValue: `キャンセル済（${reason}）`,
       },
     ],
   }
 
   await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    cancelReason: reason,
     canceledAt,
+    cancelledBy,
     status: 'canceled',
     changeHistory: updatedRecord.changeHistory,
     savedAt: serverTimestamp(),
   })
 
   await createAuditLog({
-    action: 'case.update',
+    action: 'case_cancel',
     actor,
     targetId: caseRecord.id,
-    before: { status: caseRecord.status, canceledAt: caseRecord.canceledAt },
-    after: { status: 'canceled', canceledAt },
-    reason: '案件キャンセル',
+    targetType: 'caseRecord',
+    before: { cancelReason: caseRecord.cancelReason, canceledAt: caseRecord.canceledAt, status: caseRecord.status },
+    after: { cancelReason: reason, canceledAt, cancelledBy, status: 'canceled' },
+    reason,
   })
 
   return updatedRecord
@@ -930,9 +979,10 @@ export async function softDeleteCaseRecord(
   })
 
   await createAuditLog({
-    action: "case.delete",
+    action: "case_delete",
     actor,
     targetId: caseRecord.id,
+    targetType: 'caseRecord',
     before: { deleted: caseRecord.deleted, deleteReason: caseRecord.deleteReason },
     after: { deleted: true, deletedAt, deletedBy, deleteReason: reason },
     reason,
@@ -941,3 +991,87 @@ export async function softDeleteCaseRecord(
   return updatedRecord
 }
 
+
+export async function restoreCaseRecord(
+  caseRecord: StoredCaseRecord,
+  { actor = null, reason }: { actor?: AuditActor | null; reason: string },
+) {
+  const restoredAt = new Date().toISOString()
+  const restoredBy = actor?.userId ?? ''
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    deleted: false,
+    restoredAt,
+    restoredBy,
+    changeHistory: [
+      ...(caseRecord.changeHistory ?? []),
+      {
+        changedAt: restoredAt,
+        fieldLabel: '復元',
+        previousValue: caseRecord.deleted ? `削除済（${caseRecord.deleteReason || '理由未記録'}）` : '通常',
+        nextValue: `通常（${reason}）`,
+      },
+    ],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    deleted: false,
+    restoredAt,
+    restoredBy,
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  await createAuditLog({
+    action: 'case_restore',
+    actor,
+    targetId: caseRecord.id,
+    targetType: 'caseRecord',
+    before: { deleted: caseRecord.deleted, deleteReason: caseRecord.deleteReason },
+    after: { deleted: false, restoredAt, restoredBy },
+    reason,
+  })
+
+  return updatedRecord
+}
+
+export async function recordReceiptReissue(
+  caseRecord: StoredCaseRecord,
+  { actor = null, reason }: { actor?: AuditActor | null; reason: string },
+) {
+  const reissuedAt = new Date().toISOString()
+  const reissuedBy = actor?.userId ?? ''
+  const receiptReissue = { reason, reissuedAt, reissuedBy }
+  const receiptReissues = [...(caseRecord.receiptReissues ?? []), receiptReissue]
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    receiptReissues,
+    changeHistory: [
+      ...(caseRecord.changeHistory ?? []),
+      {
+        changedAt: reissuedAt,
+        fieldLabel: '領収書再発行',
+        previousValue: `${caseRecord.receiptReissues.length}回`,
+        nextValue: `${receiptReissues.length}回（${reason}）`,
+      },
+    ],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    receiptReissues,
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  await createAuditLog({
+    action: 'receipt_reissue',
+    actor,
+    targetId: caseRecord.id,
+    targetType: 'caseRecord',
+    before: { receiptReissueCount: caseRecord.receiptReissues.length },
+    after: { receiptReissueCount: receiptReissues.length, receiptReissue },
+    reason,
+  })
+
+  return updatedRecord
+}

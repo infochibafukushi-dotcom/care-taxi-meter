@@ -6,6 +6,7 @@ import type { ExpenseItem } from '../types/case'
 
 export type ThermalReceiptIssueOptions = {
   customerName: string
+  isReissue?: boolean
   expenseItems: ExpenseItem[]
   issuerName: string
   receiptNote: string
@@ -153,7 +154,7 @@ function createThermalReceiptCanvas(
   y += 16
   drawDivider(context, y)
   y += 52
-  drawText(context, '領収書', canvas.width / 2, y, {
+  drawText(context, issueOptions.isReissue ? '領収書（再発行）' : '領収書', canvas.width / 2, y, {
     align: 'center',
     font: 'bold 48px sans-serif',
   })

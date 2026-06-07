@@ -6,6 +6,7 @@ import { formatCaseDateTime } from './caseRecords'
 
 export type ReceiptIssueOptions = {
   customerName: string
+  isReissue?: boolean
   issuerName: string
   receiptNote: string
 }
@@ -211,7 +212,7 @@ function createReceiptCanvas(
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  drawText(context, receiptTitle, canvas.width / 2, 150, {
+  drawText(context, issueOptions.isReissue ? `${receiptTitle}（再発行）` : receiptTitle, canvas.width / 2, 150, {
     align: 'center',
     font: 'bold 72px sans-serif',
   })

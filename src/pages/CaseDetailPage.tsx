@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   cancelCaseRecord,
+  recordReceiptReissue,
+  restoreCaseRecord,
   softDeleteCaseRecord,
   fetchCaseRecord,
   updateCaseRecordEditableValues,
@@ -17,7 +19,7 @@ import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
-import { canDeleteCaseRecord, canManageCaseRecord } from '../types/permissions'
+import { canCancelCaseRecord, canDeleteCaseRecord, canManageCaseRecord, canRestoreCaseRecord } from '../types/permissions'
 
 const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
 
@@ -34,6 +36,7 @@ const formatDrivingDuration = (seconds: number, hasTimeData: boolean) =>
 const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValues => ({
   careOptionFareYen: caseRecord.careOptionFareYen,
   dispatchFareYen: caseRecord.dispatchFareYen,
+  specialVehicleFareYen: caseRecord.specialVehicleFareYen,
   expenseFareYen: caseRecord.expenseFareYen,
   paymentMethod: caseRecord.paymentMethod,
   remarks: caseRecord.remarks,
@@ -59,6 +62,7 @@ type ReceiptDialogState = {
   customerName: string
   issuerName: string
   receiptNote: string
+  reissueReason: string
   isOpen: boolean
 }
 
@@ -69,7 +73,9 @@ export function CaseDetailPage() {
   const currentSession = workSession.currentSession
   const currentRole = currentSession?.staffRole ?? ''
   const isAdmin = canManageCaseRecord(currentRole)
+  const canCancel = canCancelCaseRecord(currentRole)
   const canDelete = canDeleteCaseRecord(currentRole)
+  const canRestore = canRestoreCaseRecord(currentRole)
   const auditActor = currentSession
     ? { userId: currentSession.staffId, userName: currentSession.staffName, role: currentSession.staffRole }
     : null
@@ -85,12 +91,14 @@ export function CaseDetailPage() {
     customerName: '',
     issuerName: '',
     receiptNote: defaultMeterSettings.receipt.defaultReceiptNote,
+    reissueReason: '領収書再発行',
     isOpen: false,
   })
   const [isEditing, setIsEditing] = useState(false)
   const [editValues, setEditValues] = useState<CaseRecordEditableValues>({
     careOptionFareYen: 0,
     dispatchFareYen: 0,
+    specialVehicleFareYen: 0,
     expenseFareYen: 0,
     paymentMethod: '未設定',
     remarks: '',
@@ -205,6 +213,7 @@ export function CaseDetailPage() {
       customerName: caseRecord?.receiptName || caseRecord?.customerName || '',
       issuerName: state.meterSettings.receipt.issuerName,
       receiptNote: state.meterSettings.receipt.defaultReceiptNote,
+      reissueReason: '領収書再発行',
       isOpen: true,
     })
   }
@@ -221,9 +230,13 @@ export function CaseDetailPage() {
       return
     }
 
-    await downloadReceiptPdf(caseRecord, state.meterSettings, {
+    const reason = receiptDialog.reissueReason.trim() || '領収書再発行'
+    const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
+    setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '領収書再発行履歴を保存しました。' }))
+    await downloadReceiptPdf(updatedRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
+      isReissue: true,
       receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
@@ -234,21 +247,25 @@ export function CaseDetailPage() {
       return
     }
 
-    await openThermalReceiptPdf(caseRecord, state.meterSettings, {
+    const reason = receiptDialog.reissueReason.trim() || '利用明細再発行'
+    const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
+    setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '利用明細再発行履歴を保存しました。' }))
+    await openThermalReceiptPdf(updatedRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
-      expenseItems: caseRecord.expenseCharges.map((expenseCharge) => ({
+      expenseItems: updatedRecord.expenseCharges.map((expenseCharge) => ({
         id: expenseCharge.id,
         name: expenseCharge.name,
         amountYen: expenseCharge.amount,
       })),
       issuerName: receiptDialog.issuerName,
+      isReissue: true,
       receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
   }
 
   const updateNumberEditValue = (
-    key: 'careOptionFareYen' | 'dispatchFareYen' | 'expenseFareYen',
+    key: 'careOptionFareYen' | 'dispatchFareYen' | 'specialVehicleFareYen' | 'expenseFareYen',
     value: string,
   ) => {
     setEditValues((currentValues) => ({
@@ -264,7 +281,13 @@ export function CaseDetailPage() {
 
     setState((currentState) => ({ ...currentState, statusMessage: '変更を保存中です。' }))
     try {
-      const updatedRecord = await updateCaseRecordEditableValues(caseRecord, editValues, auditActor, "案件修正")
+      const reason = window.prompt('修正理由を入力してください。', '明細修正')
+      if (!reason) {
+        setState((currentState) => ({ ...currentState, statusMessage: '修正理由が未入力のため保存しませんでした。' }))
+        return
+      }
+
+      const updatedRecord = await updateCaseRecordEditableValues(caseRecord, editValues, auditActor, reason)
       setState((currentState) => ({
         ...currentState,
         caseRecord: updatedRecord,
@@ -288,11 +311,16 @@ export function CaseDetailPage() {
       return
     }
 
+    const reason = window.prompt('キャンセル理由を入力してください。', '利用者都合')
+    if (!reason) {
+      return
+    }
+
     if (!window.confirm('この案件をキャンセル済に変更しますか。売上集計から除外されます。')) {
       return
     }
 
-    const updatedRecord = await cancelCaseRecord(caseRecord, auditActor)
+    const updatedRecord = await cancelCaseRecord(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({
       ...currentState,
       caseRecord: updatedRecord,
@@ -327,6 +355,25 @@ export function CaseDetailPage() {
       ...currentState,
       caseRecord: updatedRecord,
       statusMessage: "案件を削除済みにしました。監査ログへ記録しました。",
+    }))
+  }
+
+
+  const handleRestoreCase = async () => {
+    if (!caseRecord || !canRestore || !caseRecord.deleted) {
+      return
+    }
+
+    const reason = window.prompt('復元理由を入力してください。', '削除取り消し')
+    if (!reason) {
+      return
+    }
+
+    const updatedRecord = await restoreCaseRecord(caseRecord, { actor: auditActor, reason })
+    setState((currentState) => ({
+      ...currentState,
+      caseRecord: updatedRecord,
+      statusMessage: '案件を復元しました。監査ログへ記録しました。',
     }))
   }
 
@@ -372,19 +419,26 @@ export function CaseDetailPage() {
                   }}>
                     {isEditing ? '編集を閉じる' : '編集'}
                   </button>
-                  <button
-                    className="case-detail-danger-button"
-                    type="button"
-                    disabled={caseRecord.status === 'canceled' || caseRecord.deleted}
-                    onClick={() => { void handleCancelCase() }}
-                  >
-                    キャンセル
-                  </button>
                 </>
+              ) : null}
+              {canCancel ? (
+                <button
+                  className="case-detail-danger-button"
+                  type="button"
+                  disabled={caseRecord.status === 'canceled' || caseRecord.deleted}
+                  onClick={() => { void handleCancelCase() }}
+                >
+                  キャンセル
+                </button>
               ) : null}
               {canDelete && !caseRecord.deleted ? (
                 <button className="case-detail-danger-button case-detail-danger-button--delete" type="button" onClick={() => { void handleSoftDelete() }}>
                   削除済みにする
+                </button>
+              ) : null}
+              {canRestore && caseRecord.deleted ? (
+                <button className="case-detail-secondary-button" type="button" onClick={() => { void handleRestoreCase() }}>
+                  復元する
                 </button>
               ) : null}
             </div>
@@ -394,7 +448,7 @@ export function CaseDetailPage() {
             ) : null}
 
             {caseRecord.status === 'canceled' ? (
-              <p className="case-status-badge">キャンセル済（売上集計対象外）</p>
+              <p className="case-status-badge">キャンセル済（売上集計対象外） 理由: {caseRecord.cancelReason || '未記録'}</p>
             ) : null}
 
             {isEditing ? (
@@ -408,6 +462,10 @@ export function CaseDetailPage() {
                   <label>
                     予約迎車料金
                     <input type="number" min="0" value={toNumberInputValue(editValues.dispatchFareYen)} onChange={(event) => updateNumberEditValue('dispatchFareYen', event.target.value)} />
+                  </label>
+                  <label>
+                    特殊車両料金
+                    <input type="number" min="0" value={toNumberInputValue(editValues.specialVehicleFareYen)} onChange={(event) => updateNumberEditValue('specialVehicleFareYen', event.target.value)} />
                   </label>
                   <label>
                     実費
@@ -610,6 +668,23 @@ export function CaseDetailPage() {
               )}
             </section>
 
+            <section className="case-change-history" aria-labelledby="case-reissue-history-title">
+              <h2 id="case-reissue-history-title">領収書再発行履歴</h2>
+              {caseRecord.receiptReissues.length > 0 ? (
+                <div className="case-change-history-list">
+                  {caseRecord.receiptReissues.map((reissue, index) => (
+                    <article key={`${reissue.reissuedAt}-${index}`}>
+                      <time>{formatChangeDateTime(reissue.reissuedAt)}</time>
+                      <strong>再発行</strong>
+                      <p>{reissue.reason || '理由未記録'} / 実行者: {reissue.reissuedBy || '未記録'}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-note">領収書再発行履歴はありません。</p>
+              )}
+            </section>
+
             <p className="osm-attribution">住所データ © Google</p>
           </>
         ) : null}
@@ -638,6 +713,11 @@ export function CaseDetailPage() {
             <label>
               但し書き
               <textarea placeholder="空欄でも発行できます" value={receiptDialog.receiptNote} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, receiptNote: event.target.value }))} />
+            </label>
+
+            <label>
+              再発行理由
+              <input value={receiptDialog.reissueReason} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, reissueReason: event.target.value }))} />
             </label>
 
             <div className="receipt-dialog-actions receipt-dialog-actions--wrap">
