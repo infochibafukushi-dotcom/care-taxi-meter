@@ -213,10 +213,18 @@ const toPaymentMethodLabel = (paymentMethod: unknown) =>
     ? paymentMethod.trim()
     : '未設定'
 
-const toTaxiTicketTotalYen = (caseRecord: StoredCaseRecord) =>
-  caseRecord.taxiTickets.length > 0
-    ? caseRecord.taxiTickets.reduce((total, ticket) => total + toFiniteNumber(ticket.amount), 0)
-    : toFiniteNumber(caseRecord.taxiTicketAmountYen)
+const toTaxiTicketTotalYen = (caseRecord: StoredCaseRecord) => {
+  const appliedTaxiTicketYen = toFiniteNumber(caseRecord.taxiTicketAmountYen)
+
+  if (appliedTaxiTicketYen > 0) {
+    return appliedTaxiTicketYen
+  }
+
+  return caseRecord.taxiTickets.reduce(
+    (total, ticket) => total + toFiniteNumber(ticket.amount),
+    0,
+  )
+}
 
 const toPaymentTotalYen = (caseRecord: StoredCaseRecord) =>
   caseRecord.payments.length > 0
