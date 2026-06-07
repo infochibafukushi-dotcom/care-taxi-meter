@@ -855,7 +855,16 @@ export function AdminPage() {
     }
 
     try {
-      await Promise.all(staffMembers.map(saveStaffMember));
+      const auditActor = workSession.currentSession
+        ? {
+            franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+            role: workSession.currentSession.staffRole,
+            storeId: workSession.currentSession.storeId,
+            userId: workSession.currentSession.staffId,
+            userName: workSession.currentSession.staffName,
+          }
+        : null;
+      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(staffMember, auditActor)));
       setMasterMessage("スタッフ情報を保存しました。");
     } catch (error) {
       setMasterMessage(
