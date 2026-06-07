@@ -50,12 +50,28 @@ const resetSummary = {
   preservedByCollection: {},
 }
 
+const textValue = (value) => (typeof value === 'string' ? value.trim() : '')
+
 const isHeadquartersAdmin = (data) => {
-  const name = typeof data.name === 'string' ? data.name.trim() : ''
-  const role = typeof data.role === 'string' ? data.role.trim() : ''
-  const userId = typeof data.userId === 'string' ? data.userId.trim() : ''
+  const name = textValue(data.name)
+  const role = textValue(data.role)
+  const userId = textValue(data.userId)
 
   return name === '山本信勝' && role === 'superAdmin' && (userId === 'admin' || userId === '')
+}
+
+const isHeadquartersStore = (data, documentId) => {
+  const name = textValue(data.name || data.storeName)
+  const storeId = textValue(data.id || data.storeId || documentId)
+
+  return storeId === 'store_fc_headquarters' || name === 'FC本部'
+}
+
+const isHeadquartersTenant = (data, documentId) => {
+  const tenantId = textValue(data.id || data.tenantId || data.franchiseeId || data.companyId || documentId)
+  const name = textValue(data.name || data.tenantName || data.companyName)
+
+  return ['default-franchisee', 'chiba-care-taxi'].includes(tenantId) || name === 'FC本部'
 }
 
 async function deleteQuerySnapshot(collectionName, querySnapshot) {
@@ -91,7 +107,7 @@ async function deleteCollection(collectionName) {
   resetSummary.deletedByCollection[collectionName] = deletedCount
 }
 
-async function deleteCollectionExceptHeadquartersAdmin(collectionName) {
+async function deleteCollectionExcept(collectionName, shouldPreserve) {
   let deletedCount = 0
   const preservedDocumentIds = new Set()
 
@@ -110,7 +126,7 @@ async function deleteCollectionExceptHeadquartersAdmin(collectionName) {
     let batchDeleteCount = 0
 
     snapshot.docs.forEach((documentSnapshot) => {
-      if (isHeadquartersAdmin(documentSnapshot.data())) {
+      if (shouldPreserve(documentSnapshot.data(), documentSnapshot.id)) {
         preservedDocumentIds.add(documentSnapshot.id)
         return
       }
@@ -138,11 +154,10 @@ for (const collectionName of fullDeleteCollections) {
 }
 
 for (const collectionName of ['staffMembers', 'staff', 'users']) {
-  await deleteCollectionExceptHeadquartersAdmin(collectionName)
+  await deleteCollectionExcept(collectionName, isHeadquartersAdmin)
 }
 
-for (const collectionName of ['stores', 'tenants']) {
-  await deleteCollection(collectionName)
-}
+await deleteCollectionExcept('stores', isHeadquartersStore)
+await deleteCollectionExcept('tenants', isHeadquartersTenant)
 
 console.log(JSON.stringify(resetSummary, null, 2))
