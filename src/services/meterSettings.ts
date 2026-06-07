@@ -1,6 +1,9 @@
 import { doc, getDoc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
+import { defaultFranchiseeId, defaultStoreId, tenantFields } from './tenancy'
+import type { TenantScope } from './tenancy'
+import { createAuditLog } from './auditLogs'
 import {
   basicFareSettings,
   careOptionMaster,
@@ -55,10 +58,14 @@ export type MeterSettings = {
 }
 
 export type MeterSettingsDocument = MeterSettings & {
+  franchiseeId: string
+  storeId: string
+  companyId: string
   updatedAt: FieldValue
 }
 
-const settingsCollectionName = 'appSettings'
+const legacySettingsCollectionName = 'appSettings'
+const settingsCollectionName = 'meterSettings'
 const meterSettingsDocumentId = 'meterSettings'
 export const fixedTimeFareUnitSeconds = 30 * 60
 
@@ -114,9 +121,17 @@ const legacyAssistItemIds: Record<string, string> = {
   'other-care': 'otherAssist',
 }
 
-function getMeterSettingsRef() {
+const getMeterSettingsDocumentId = (scope: TenantScope = { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }) =>
+  `${scope.franchiseeId}_${scope.storeId}`
+
+function getLegacyMeterSettingsRef() {
   const db = getFirestore(getFirebaseApp())
-  return doc(db, settingsCollectionName, meterSettingsDocumentId)
+  return doc(db, legacySettingsCollectionName, meterSettingsDocumentId)
+}
+
+function getMeterSettingsRef(scope?: TenantScope) {
+  const db = getFirestore(getFirebaseApp())
+  return doc(db, settingsCollectionName, getMeterSettingsDocumentId(scope))
 }
 
 function sanitizeBasicFare(value: unknown): BasicFareSettings {
@@ -360,17 +375,45 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
   }
 }
 
-export async function fetchMeterSettings() {
-  const snapshot = await getDoc(getMeterSettingsRef())
+export async function fetchMeterSettings(scope?: TenantScope) {
+  const settingsRef = getMeterSettingsRef(scope)
+  const snapshot = await getDoc(settingsRef)
 
-  if (!snapshot.exists()) {
-    return defaultMeterSettings
+  if (snapshot.exists()) {
+    return sanitizeMeterSettings(snapshot.data())
   }
 
-  return sanitizeMeterSettings(snapshot.data())
+  const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
+  if (legacySnapshot.exists()) {
+    const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
+    await saveMeterSettings(migratedSettings, scope)
+    return migratedSettings
+  }
+
+  await saveMeterSettings(defaultMeterSettings, scope)
+  return defaultMeterSettings
 }
 
 export function subscribeMeterSettings(
+  scopeOrOnUpdate: TenantScope | ((settings: MeterSettings) => void),
+  onUpdateOrOnError?: ((settings: MeterSettings) => void) | ((error: Error) => void),
+  onError?: (error: Error) => void,
+) {
+  const scope = typeof scopeOrOnUpdate === 'function' ? undefined : scopeOrOnUpdate
+  const onUpdate = typeof scopeOrOnUpdate === 'function' ? scopeOrOnUpdate : onUpdateOrOnError as (settings: MeterSettings) => void
+  const errorHandler = typeof scopeOrOnUpdate === 'function' ? onUpdateOrOnError as ((error: Error) => void) | undefined : onError
+  return onSnapshot(
+    getMeterSettingsRef(scope),
+    (snapshot) => {
+      onUpdate(snapshot.exists() ? sanitizeMeterSettings(snapshot.data()) : defaultMeterSettings)
+    },
+    (error) => {
+      errorHandler?.(error)
+    },
+  )
+}
+
+export function subscribeLegacyMeterSettings(
   onUpdate: (settings: MeterSettings) => void,
   onError?: (error: Error) => void,
 ) {
@@ -385,13 +428,26 @@ export function subscribeMeterSettings(
   )
 }
 
-export async function saveMeterSettings(settings: MeterSettings) {
+export async function saveMeterSettings(settings: MeterSettings, scope: TenantScope = { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }) {
+  const settingsRef = getMeterSettingsRef(scope)
+  const beforeSnapshot = await getDoc(settingsRef)
   const sanitizedSettings = sanitizeMeterSettings(settings)
   const document: MeterSettingsDocument = {
     ...sanitizedSettings,
+    ...tenantFields(scope),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(getMeterSettingsRef(), document, { merge: true })
+  await setDoc(settingsRef, document, { merge: true })
+  await createAuditLog({
+    action: beforeSnapshot.exists() ? 'settings.updated' : 'settings.created',
+    targetType: 'meterSettings',
+    targetId: getMeterSettingsDocumentId(scope),
+    franchiseeId: scope.franchiseeId,
+    storeId: scope.storeId,
+    before: beforeSnapshot.exists() ? sanitizeMeterSettings(beforeSnapshot.data()) : null,
+    after: sanitizedSettings,
+    reason: '店舗別メーター・帳票・会社設定の保存',
+  })
   return sanitizedSettings
 }

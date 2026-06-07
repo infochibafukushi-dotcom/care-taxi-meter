@@ -37,6 +37,7 @@ import type { StaffMember, StaffRole, Store, Vehicle } from "../types/work";
 import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary } from "../utils/caseRecords";
+import { tenantScopeFromSession } from "../services/tenancy";
 
 type AdminSummaryState = {
   errorMessage: string;
@@ -293,6 +294,8 @@ const createSpecialVehicleMenuItem = (
 export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
+  const currentScope = tenantScopeFromSession(workSession.currentSession);
+  const currentStoreName = workSession.currentSession?.storeName || "本店";
   const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/superadmin") ? "superAdmin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
@@ -323,7 +326,7 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchCaseRecords()
+    fetchCaseRecords({ ...currentScope, role: currentRole, staffId: workSession.currentSession?.staffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return;
@@ -353,12 +356,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentRole, currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchMeterSettings()
+    fetchMeterSettings(currentScope)
       .then((loadedSettings) => {
         if (!isMounted) {
           return;
@@ -383,12 +386,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentScope.franchiseeId, currentScope.storeId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([fetchStores(), fetchStaffMembers(), fetchVehicles()])
+    Promise.all([fetchStores(currentRole === "superAdmin" ? undefined : currentScope.franchiseeId), fetchStaffMembers({ ...currentScope, role: currentRole }), fetchVehicles({ ...currentScope, role: currentRole })])
       .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return;
@@ -414,12 +417,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentRole, currentScope.franchiseeId, currentScope.storeId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchWorkingWorkSessionCount()
+    fetchWorkingWorkSessionCount({ ...currentScope, role: currentRole })
       .then((count) => {
         if (!isMounted) {
           return;
@@ -747,13 +750,16 @@ export function AdminPage() {
     const primaryStore = stores[0];
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
-      companyId: primaryStore?.companyId ?? defaultCompanyId,
+      companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
+      franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       storeId: primaryStore?.id ?? "",
       storeName: primaryStore?.name ?? "",
       userId: "",
       password: "",
       name: "新しいスタッフ",
       role: "driver",
+      canDrive: true,
+      isActive: true,
       phoneNumber: "",
       email: "",
       address: "",
@@ -770,11 +776,14 @@ export function AdminPage() {
     const primaryStore = stores[0];
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
-      companyId: primaryStore?.companyId ?? defaultCompanyId,
+      companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
+      franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       storeId: primaryStore?.id ?? "",
       storeName: primaryStore?.name ?? "",
       name: "新しい車両",
+      vehicleName: "新しい車両",
       number: "",
+      plateNumber: "",
       status: "稼働中",
       fuelType: "",
       vehicleType: "",
@@ -784,6 +793,7 @@ export function AdminPage() {
       insuranceExpiresAt: "",
       memo: "",
       enabled: true,
+      isActive: true,
       sortOrder: vehicles.length + 1,
     };
   };
@@ -904,7 +914,7 @@ export function AdminPage() {
     setSettingsMessage("Firestoreへ設定を保存中です。");
 
     try {
-      const savedSettings = await saveMeterSettings(settings);
+      const savedSettings = await saveMeterSettings(settings, currentScope);
       setSettings(savedSettings);
       setSettingsSaveState("saved");
       setSettingsMessage("Firestoreへ設定を保存しました。");
@@ -925,7 +935,7 @@ export function AdminPage() {
           <div className="case-list-header">
             <div>
               <p className="eyebrow">Admin Center</p>
-              <h1 id="admin-title">管理センター</h1>
+              <h1 id="admin-title">{currentRole === "superAdmin" ? `FC本部モード：${currentStoreName}を表示中` : `管理センター：${currentStoreName}`}</h1>
             </div>
             <Link className="text-link" to="/">
               ホームへ戻る
@@ -945,7 +955,7 @@ export function AdminPage() {
         <div className="case-list-header">
           <div>
             <p className="eyebrow">Admin Center</p>
-            <h1 id="admin-title">管理センター</h1>
+            <h1 id="admin-title">{currentRole === "superAdmin" ? `FC本部モード：${currentStoreName}を表示中` : `管理センター：${currentStoreName}`}</h1>
           </div>
           <div className="admin-header-actions">
             <Link
