@@ -13,7 +13,7 @@ import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany } from './companies'
-import { defaultCompanyId, ensureDefaultStore } from './stores'
+import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from './stores'
 
 const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
@@ -91,7 +91,8 @@ export async function saveStaffMember(staffMember: StaffMember) {
 
 export async function ensureDefaultAdminStaffMember() {
   await ensureDefaultCompany()
-  const defaultStore = await ensureDefaultStore(defaultCompanyId)
+  await ensureDefaultStore(defaultCompanyId)
+  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
   const staffMemberRef = getStaffMemberRef(defaultAdminStaffMemberId)
   const snapshot = await getDoc(staffMemberRef)
 
@@ -107,7 +108,8 @@ export async function ensureDefaultAdminStaffMember() {
         userId: defaultAdminStaffUserId,
         role: 'superAdmin',
         enabled: true,
-        storeName: existingStaffMember.storeName || 'FC本部',
+        storeId: headquartersStore.id,
+        storeName: headquartersStore.name,
         memo: existingStaffMember.memo || 'FC本部初期管理者アカウント',
       }
 
@@ -124,7 +126,7 @@ export async function ensureDefaultAdminStaffMember() {
   const staffMember: StaffMember = {
     id: defaultAdminStaffMemberId,
     companyId: defaultCompanyId,
-    storeId: defaultStore.id,
+    storeId: headquartersStore.id,
     storeName: 'FC本部',
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
@@ -149,6 +151,39 @@ export async function ensureDefaultAdminStaffMember() {
   return staffMember
 }
 
+
+async function migrateLegacySuperAdminStaffMembers() {
+  const staffMembers = await fetchStaffMembers()
+  const legacySuperAdminStaffMembers = staffMembers.filter(
+    (staffMember) =>
+      staffMember.userId === defaultAdminStaffUserId || staffMember.name === '山本信勝',
+  )
+
+  if (legacySuperAdminStaffMembers.length === 0) {
+    return
+  }
+
+  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
+  await Promise.all(
+    legacySuperAdminStaffMembers.map((staffMember) =>
+      setDoc(
+        getStaffMemberRef(staffMember.id),
+        {
+          ...staffMember,
+          companyId: defaultCompanyId,
+          storeId: headquartersStore.id,
+          storeName: headquartersStore.name,
+          role: 'superAdmin',
+          enabled: true,
+          memo: staffMember.memo || 'FC本部管理者アカウント',
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      ),
+    ),
+  )
+}
+
 export async function authenticateStaff({
   companyId,
   password,
@@ -159,6 +194,7 @@ export async function authenticateStaff({
   userId: string
 }) {
   await ensureDefaultAdminStaffMember()
+  await migrateLegacySuperAdminStaffMembers()
   const staffMembers = await fetchStaffMembers()
   return staffMembers.find(
     (staffMember) =>

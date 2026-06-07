@@ -293,7 +293,7 @@ const createSpecialVehicleMenuItem = (
 export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
-  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : "");
+  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/superadmin") ? "superAdmin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -835,12 +835,12 @@ export function AdminPage() {
       return;
     }
 
-    const invalidSuperAdminAssignment = staffMembers.some(
+    const invalidSuperAdminAssignment = currentRole !== "superAdmin" && staffMembers.some(
       (staffMember) => staffMember.role === "superAdmin" && staffMember.userId !== "admin",
     );
 
     if (invalidSuperAdminAssignment) {
-      setMasterMessage("本部管理者権限はスタッフ管理画面では付与できません。");
+      setMasterMessage("本部管理者権限はFC本部権限でログインした場合のみ付与できます。");
       return;
     }
 
@@ -1087,7 +1087,7 @@ export function AdminPage() {
               }
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
-              canAssignSuperAdmin={false}
+              canAssignSuperAdmin={currentRole === "superAdmin"}
             />
           ) : null}
 

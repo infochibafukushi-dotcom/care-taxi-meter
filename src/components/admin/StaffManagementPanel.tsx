@@ -83,7 +83,7 @@ export function StaffManagementPanel({
                   <td>
                     <select
                       value={staffMember.role}
-                      disabled={staffMember.role === 'superAdmin'}
+                      disabled={staffMember.role === 'superAdmin' && !canAssignSuperAdmin}
                       onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}
                     >
                       {staffRoleSelectGroups.map((group, groupIndex) =>
