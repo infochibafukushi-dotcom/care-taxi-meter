@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
   cancelCaseRecord,
-  deleteCaseRecordPermanently,
+  softDeleteCaseRecord,
   fetchCaseRecord,
   updateCaseRecordEditableValues,
 } from '../services/caseRecords'
@@ -16,6 +16,7 @@ import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import { useWorkSession } from '../hooks/useWorkSession'
+import { canDeleteCaseRecord, canManageCaseRecord } from '../types/permissions'
 
 const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
 
@@ -62,11 +63,14 @@ type ReceiptDialogState = {
 
 export function CaseDetailPage() {
   const { caseRecordId } = useParams()
-  const navigate = useNavigate()
   const workSession = useWorkSession()
-  const isAdmin = ['superAdmin', 'owner', 'manager'].includes(
-    workSession.currentSession?.staffRole ?? '',
-  )
+  const currentSession = workSession.currentSession
+  const currentRole = currentSession?.staffRole ?? ''
+  const isAdmin = canManageCaseRecord(currentRole)
+  const canDelete = canDeleteCaseRecord(currentRole)
+  const auditActor = currentSession
+    ? { userId: currentSession.staffId, userName: currentSession.staffName, role: currentSession.staffRole }
+    : null
   const [state, setState] = useState<CaseDetailState>({
     caseRecord: null,
     errorMessage: '',
@@ -256,7 +260,7 @@ export function CaseDetailPage() {
 
     setState((currentState) => ({ ...currentState, statusMessage: '変更を保存中です。' }))
     try {
-      const updatedRecord = await updateCaseRecordEditableValues(caseRecord, editValues)
+      const updatedRecord = await updateCaseRecordEditableValues(caseRecord, editValues, auditActor, "案件修正")
       setState((currentState) => ({
         ...currentState,
         caseRecord: updatedRecord,
@@ -284,7 +288,7 @@ export function CaseDetailPage() {
       return
     }
 
-    const updatedRecord = await cancelCaseRecord(caseRecord)
+    const updatedRecord = await cancelCaseRecord(caseRecord, auditActor)
     setState((currentState) => ({
       ...currentState,
       caseRecord: updatedRecord,
@@ -292,21 +296,34 @@ export function CaseDetailPage() {
     }))
   }
 
-  const handlePermanentDelete = async () => {
-    if (!caseRecord || !isAdmin) {
+  const handleSoftDelete = async () => {
+    if (!caseRecord || !canDelete || caseRecord.deleted) {
       return
     }
 
-    if (!window.confirm('この案件を完全削除しますか')) {
+    const reason = window.prompt(
+      "削除理由を入力してください（入力ミス / 重複登録 / キャンセル / その他）。",
+      "入力ミス",
+    )
+    const allowedReasons = ["入力ミス", "重複登録", "キャンセル", "その他"]
+    if (!reason || !allowedReasons.includes(reason)) {
+      setState((currentState) => ({
+        ...currentState,
+        statusMessage: "削除理由は 入力ミス / 重複登録 / キャンセル / その他 から選択してください。",
+      }))
       return
     }
 
-    if (!window.confirm('削除すると履歴・変更履歴も復元できません。本当に完全削除しますか。')) {
+    if (!window.confirm("この案件を削除済みに変更しますか。物理削除は行いません。")) {
       return
     }
 
-    await deleteCaseRecordPermanently(caseRecord.id)
-    navigate('/cases')
+    const updatedRecord = await softDeleteCaseRecord(caseRecord, { actor: auditActor, reason })
+    setState((currentState) => ({
+      ...currentState,
+      caseRecord: updatedRecord,
+      statusMessage: "案件を削除済みにしました。監査ログへ記録しました。",
+    }))
   }
 
   return (
@@ -343,26 +360,34 @@ export function CaseDetailPage() {
               <button className="receipt-download-button" type="button" onClick={openReceiptDialog}>
                 領収書再発行 / 利用明細再発行
               </button>
-              <button className="case-detail-secondary-button" type="button" onClick={() => {
-                setEditValues(toEditableValues(caseRecord))
-                setIsEditing((current) => !current)
-              }}>
-                {isEditing ? '編集を閉じる' : '編集'}
-              </button>
-              <button
-                className="case-detail-danger-button"
-                type="button"
-                disabled={caseRecord.status === 'canceled'}
-                onClick={() => { void handleCancelCase() }}
-              >
-                キャンセル
-              </button>
               {isAdmin ? (
-                <button className="case-detail-danger-button case-detail-danger-button--delete" type="button" onClick={() => { void handlePermanentDelete() }}>
-                  完全削除
+                <>
+                  <button className="case-detail-secondary-button" type="button" disabled={caseRecord.deleted} onClick={() => {
+                    setEditValues(toEditableValues(caseRecord))
+                    setIsEditing((current) => !current)
+                  }}>
+                    {isEditing ? '編集を閉じる' : '編集'}
+                  </button>
+                  <button
+                    className="case-detail-danger-button"
+                    type="button"
+                    disabled={caseRecord.status === 'canceled' || caseRecord.deleted}
+                    onClick={() => { void handleCancelCase() }}
+                  >
+                    キャンセル
+                  </button>
+                </>
+              ) : null}
+              {canDelete && !caseRecord.deleted ? (
+                <button className="case-detail-danger-button case-detail-danger-button--delete" type="button" onClick={() => { void handleSoftDelete() }}>
+                  削除済みにする
                 </button>
               ) : null}
             </div>
+
+            {caseRecord.deleted ? (
+              <p className="case-error">【削除済】削除理由: {caseRecord.deleteReason || '未記録'}。売上集計から除外されます。</p>
+            ) : null}
 
             {caseRecord.status === 'canceled' ? (
               <p className="case-status-badge">キャンセル済（売上集計対象外）</p>

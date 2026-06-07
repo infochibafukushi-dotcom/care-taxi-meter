@@ -1,7 +1,6 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -18,6 +17,8 @@ import type { FareBreakdown } from './fare'
 import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
 import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
+import { createAuditLog } from './auditLogs'
+import type { AuditActor } from './auditLogs'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -82,6 +83,10 @@ export type CaseRecordDocument = {
   customerName: string
   remarks: string
   status: CaseRecordStatus
+  deleted: boolean
+  deletedAt: string
+  deletedBy: string
+  deleteReason: string
   canceledAt: string
   changeHistory: CaseRecordChangeEntry[]
   pickupLatitude: number | null
@@ -258,6 +263,10 @@ const toStoredCaseRecord = (
     customerName: toString(data.customerName),
     remarks: toString(data.remarks),
     status: toCaseRecordStatus(data.status),
+    deleted: data.deleted === true,
+    deletedAt: toIsoString(data.deletedAt) || toString(data.deletedAt),
+    deletedBy: toString(data.deletedBy),
+    deleteReason: toString(data.deleteReason),
     canceledAt: toString(data.canceledAt),
     changeHistory: toChangeHistory(data.changeHistory),
     pickupLatitude: toNullableNumber(data.pickupLatitude),
@@ -333,6 +342,10 @@ export async function saveCaseRecord({
     customerName: '',
     remarks: '',
     status: 'completed',
+    deleted: false,
+    deletedAt: '',
+    deletedBy: '',
+    deleteReason: '',
     canceledAt: '',
     changeHistory: [],
     pickupLatitude: pickupLocation.latitude,
@@ -457,6 +470,8 @@ const calculateTotalFareYen = (
 export async function updateCaseRecordEditableValues(
   caseRecord: StoredCaseRecord,
   values: CaseRecordEditableValues,
+  actor?: AuditActor | null,
+  reason = "案件修正",
 ) {
   const normalizedValues = normalizeEditableValues(values)
   const previousValues = toEditableValues(caseRecord)
@@ -495,10 +510,19 @@ export async function updateCaseRecordEditableValues(
     savedAt: serverTimestamp(),
   })
 
+  await createAuditLog({
+    action: "case.update",
+    actor,
+    targetId: caseRecord.id,
+    before: previousValues,
+    after: { ...normalizedValues, totalFareYen: updatedRecord.totalFareYen },
+    reason,
+  })
+
   return updatedRecord
 }
 
-export async function cancelCaseRecord(caseRecord: StoredCaseRecord) {
+export async function cancelCaseRecord(caseRecord: StoredCaseRecord, actor?: AuditActor | null) {
   const canceledAt = new Date().toISOString()
   const updatedRecord: StoredCaseRecord = {
     ...caseRecord,
@@ -522,10 +546,59 @@ export async function cancelCaseRecord(caseRecord: StoredCaseRecord) {
     savedAt: serverTimestamp(),
   })
 
+  await createAuditLog({
+    action: 'case.update',
+    actor,
+    targetId: caseRecord.id,
+    before: { status: caseRecord.status, canceledAt: caseRecord.canceledAt },
+    after: { status: 'canceled', canceledAt },
+    reason: '案件キャンセル',
+  })
+
   return updatedRecord
 }
 
-export async function deleteCaseRecordPermanently(caseRecordId: string) {
-  await deleteDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecordId))
+export async function softDeleteCaseRecord(
+  caseRecord: StoredCaseRecord,
+  { actor = null, reason }: { actor?: AuditActor | null; reason: string },
+) {
+  const deletedAt = new Date().toISOString()
+  const deletedBy = actor?.userId ?? ""
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    deleted: true,
+    deletedAt,
+    deletedBy,
+    deleteReason: reason,
+    changeHistory: [
+      ...(caseRecord.changeHistory ?? []),
+      {
+        changedAt: deletedAt,
+        fieldLabel: "削除",
+        previousValue: caseRecord.deleted ? "削除済" : "通常",
+        nextValue: `削除済（${reason}）`,
+      },
+    ],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    deleted: true,
+    deletedAt: serverTimestamp(),
+    deletedBy,
+    deleteReason: reason,
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  await createAuditLog({
+    action: "case.delete",
+    actor,
+    targetId: caseRecord.id,
+    before: { deleted: caseRecord.deleted, deleteReason: caseRecord.deleteReason },
+    after: { deleted: true, deletedAt, deletedBy, deleteReason: reason },
+    reason,
+  })
+
+  return updatedRecord
 }
 

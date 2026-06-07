@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
 import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
@@ -33,7 +33,9 @@ import type {
   MeterSettings,
   ReceiptSettings,
 } from "../services/meterSettings";
-import type { StaffMember, Store, Vehicle } from "../types/work";
+import type { StaffMember, StaffRole, Store, Vehicle } from "../types/work";
+import { useWorkSession } from "../hooks/useWorkSession";
+import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary } from "../utils/caseRecords";
 
 type AdminSummaryState = {
@@ -289,6 +291,9 @@ const createSpecialVehicleMenuItem = (
 });
 
 export function AdminPage() {
+  const workSession = useWorkSession();
+  const location = useLocation();
+  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -310,6 +315,9 @@ export function AdminPage() {
     useState("出勤状況を読み込み中です。");
   const [masterMessage, setMasterMessage] = useState(
     "店舗・スタッフ・車両情報を読み込み中です。",
+  );
+  const availableAdminCenterCards = adminCenterCards.filter((card) =>
+    canAccessAdminSection(currentRole, card.id),
   );
 
   useEffect(() => {
@@ -827,6 +835,15 @@ export function AdminPage() {
       return;
     }
 
+    const invalidSuperAdminAssignment = staffMembers.some(
+      (staffMember) => staffMember.role === "superAdmin" && staffMember.userId !== "admin",
+    );
+
+    if (invalidSuperAdminAssignment) {
+      setMasterMessage("本部管理者権限はスタッフ管理画面では付与できません。");
+      return;
+    }
+
     try {
       await Promise.all(staffMembers.map(saveStaffMember));
       setMasterMessage("スタッフ情報を保存しました。");
@@ -901,6 +918,27 @@ export function AdminPage() {
     }
   };
 
+  if (availableAdminCenterCards.length === 0) {
+    return (
+      <main className="page admin-page" aria-labelledby="admin-title">
+        <section className="content-card admin-card">
+          <div className="case-list-header">
+            <div>
+              <p className="eyebrow">Admin Center</p>
+              <h1 id="admin-title">管理センター</h1>
+            </div>
+            <Link className="text-link" to="/">
+              ホームへ戻る
+            </Link>
+          </div>
+          <p className="case-error" role="alert">
+            この権限では管理センターを利用できません。ログイン後、役職別の画面へ自動遷移します。
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="page admin-page" aria-labelledby="admin-title">
       <section className="content-card admin-card">
@@ -923,8 +961,9 @@ export function AdminPage() {
         </div>
 
         <p className="lead admin-lead">
-          Firestoreの保存済み案件から売上状況を集計し、
-          管理メニューから各業務設定を選択して編集・保存します。
+          {currentRole
+            ? `${ROLE_LABELS[currentRole]}権限で利用可能な管理機能のみ表示しています。`
+            : "ログイン中の権限を確認できません。TOPからログインしてください。"}
         </p>
 
         {summaryState.isLoading ? (
@@ -974,7 +1013,7 @@ export function AdminPage() {
             <h2 id="admin-center-menu-title">管理メニュー</h2>
           </div>
           <div className="admin-center-card-grid">
-            {adminCenterCards.map((card) => (
+            {availableAdminCenterCards.map((card) => (
               <button
                 key={card.id}
                 type="button"
@@ -1001,9 +1040,9 @@ export function AdminPage() {
               <p className="eyebrow">Workspace</p>
               <h2 id="settings-heading">
                 {
-                  adminCenterCards.find(
+                  availableAdminCenterCards.find(
                     (card) => card.id === activeAdminSection,
-                  )?.label
+                  )?.label ?? "利用不可"
                 }
               </h2>
             </div>
@@ -1048,6 +1087,7 @@ export function AdminPage() {
               }
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
+              canAssignSuperAdmin={false}
             />
           ) : null}
 
