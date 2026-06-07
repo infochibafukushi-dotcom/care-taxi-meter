@@ -16,7 +16,7 @@ import { ensureDefaultCompany } from './companies'
 import { defaultCompanyId, ensureDefaultStore } from './stores'
 
 const staffMembersCollectionName = 'staffMembers'
-const validRoles: StaffRole[] = ['superAdmin', 'owner', 'manager', 'driver']
+const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
 
 export const defaultAdminStaffMemberId = 'staff_admin'
 export const defaultAdminStaffUserId = 'admin'
@@ -96,25 +96,47 @@ export async function ensureDefaultAdminStaffMember() {
   const snapshot = await getDoc(staffMemberRef)
 
   if (snapshot.exists()) {
-    return toStaffMember(snapshot)
+    const existingStaffMember = toStaffMember(snapshot)
+    if (
+      existingStaffMember.userId === defaultAdminStaffUserId ||
+      existingStaffMember.name === '山本信勝'
+    ) {
+      const migratedStaffMember: StaffMember = {
+        ...existingStaffMember,
+        name: '山本信勝',
+        userId: defaultAdminStaffUserId,
+        role: 'superAdmin',
+        enabled: true,
+        storeName: existingStaffMember.storeName || 'FC本部',
+        memo: existingStaffMember.memo || 'FC本部初期管理者アカウント',
+      }
+
+      await setDoc(staffMemberRef, {
+        ...migratedStaffMember,
+        updatedAt: serverTimestamp(),
+      }, { merge: true })
+      return migratedStaffMember
+    }
+
+    return existingStaffMember
   }
 
   const staffMember: StaffMember = {
     id: defaultAdminStaffMemberId,
     companyId: defaultCompanyId,
     storeId: defaultStore.id,
-    storeName: defaultStore.name,
+    storeName: 'FC本部',
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
-    name: '初期管理者',
-    role: 'owner',
+    name: '山本信勝',
+    role: 'superAdmin',
     phoneNumber: '',
     email: '',
     address: '',
     licenseNumber: '',
     licenseExpiresAt: '',
     accidentHistory: '',
-    memo: '初回起動時に自動作成される管理者アカウント',
+    memo: 'FC本部初期管理者アカウント',
     enabled: true,
     sortOrder: 1,
   }

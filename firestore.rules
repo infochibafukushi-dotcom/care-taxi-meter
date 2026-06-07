@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() { return signedIn() ? request.auth.token.role : null; }
+    function companyId() { return signedIn() ? request.auth.token.companyId : null; }
+    function storeId() { return signedIn() ? request.auth.token.storeId : null; }
+    function staffId() { return signedIn() ? request.auth.token.staffId : null; }
+    function isSuperAdmin() { return role() == 'superAdmin'; }
+    function isOwner() { return role() == 'owner'; }
+    function isManager() { return role() == 'manager'; }
+    function isDriver() { return role() == 'driver'; }
+    function sameCompany(data) { return data.companyId == companyId(); }
+    function sameStore(data) { return data.storeId == storeId(); }
+    function ownStaffData(data) { return data.staffId == staffId() || data.id == staffId(); }
+    function isLogicalDelete() {
+      return request.resource.data.deleted == true
+        && request.resource.data.deletedAt is timestamp
+        && request.resource.data.deletedBy is string
+        && request.resource.data.deleteReason is string;
+    }
+    function preventsSuperAdminGrant() {
+      return !('role' in request.resource.data)
+        || request.resource.data.role != 'superAdmin'
+        || isSuperAdmin();
+    }
+
+    match /auditLogs/{auditLogId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin() || isOwner() || isManager();
+      allow update, delete: if false;
+    }
+
+    match /companies/{companyDocumentId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && companyDocumentId == companyId();
+      allow update: if isOwner() && companyDocumentId == companyId() && request.resource.data.id == resource.data.id;
+    }
+
+    match /stores/{storeDocumentId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && sameCompany(resource.data);
+      allow create, update, delete: if isOwner() && sameCompany(request.resource.data);
+      allow read: if isManager() && sameStore(resource.data);
+    }
+
+    match /staffMembers/{staffMemberId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && sameCompany(resource.data);
+      allow create, update, delete: if isOwner() && sameCompany(request.resource.data) && preventsSuperAdminGrant();
+      allow read: if isManager() && sameStore(resource.data);
+      allow create, update: if isManager() && sameStore(request.resource.data) && preventsSuperAdminGrant();
+      allow read: if isDriver() && staffMemberId == staffId();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && sameCompany(resource.data);
+      allow create, update, delete: if isOwner() && sameCompany(request.resource.data);
+      allow read: if isManager() && sameStore(resource.data);
+      allow create, update: if isManager() && sameStore(request.resource.data);
+      allow read: if isDriver() && sameStore(resource.data);
+    }
+
+    match /workSessions/{workSessionId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && sameCompany(resource.data);
+      allow create, update: if isOwner() && sameCompany(request.resource.data);
+      allow read: if isManager() && sameStore(resource.data);
+      allow create, update: if isManager() && sameStore(request.resource.data);
+      allow read: if isDriver() && ownStaffData(resource.data);
+      allow create, update: if isDriver() && ownStaffData(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /caseRecords/{caseRecordId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if isOwner() && sameCompany(resource.data);
+      allow create, update: if isOwner() && sameCompany(request.resource.data);
+      allow read: if isManager() && sameStore(resource.data);
+      allow create, update: if isManager() && sameStore(request.resource.data);
+      allow update: if ((isOwner() && sameCompany(request.resource.data)) || (isManager() && sameStore(request.resource.data))) && isLogicalDelete();
+      allow read: if isDriver() && ownStaffData(resource.data);
+      allow create: if isDriver() && ownStaffData(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /meterSettings/{settingsId} {
+      allow read, write: if isSuperAdmin();
+      allow read, write: if isOwner();
+      allow read: if isManager() || isDriver();
+    }
+
+    match /{document=**} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}

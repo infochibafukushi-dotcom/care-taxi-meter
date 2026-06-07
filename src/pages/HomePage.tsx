@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { authenticateStaff } from '../services/staffMembers'
 import { defaultCompany, fetchCompanies } from '../services/companies'
@@ -8,6 +8,7 @@ import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store } from '../types/work'
+import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { formatElapsedTime } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
 
@@ -106,6 +107,7 @@ const calculateSummary = ({
 
 export function HomePage() {
   const workSession = useWorkSession()
+  const navigate = useNavigate()
   const [loginForm, setLoginForm] = useState<LoginForm>({
     companyId: defaultCompanyId,
     userId: '',
@@ -132,7 +134,9 @@ export function HomePage() {
   const dashboardCompanyName = currentSession?.companyName || loggedInUser?.companyName || defaultCompanyName
   const dashboardStoreName = currentSession?.storeName || loggedInUser?.store.name || '未設定'
   const dashboardStaffName = currentSession?.staffName || loggedInUser?.staffMember.name || '未ログイン'
-  const dashboardRole = currentSession?.staffRole ?? loggedInUser?.staffMember.role
+  const dashboardRole = currentSession?.staffRole ?? loggedInUser?.staffMember.role ?? ''
+  const canOpenManagement = canAccessAdminSection(dashboardRole, 'staff') || dashboardRole === 'superAdmin'
+  const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
 
   useEffect(() => {
     if (!currentSession) {
@@ -241,12 +245,14 @@ export function HomePage() {
       const restoredSession = await workSession.restoreWorkingSession(staffMember)
       if (restoredSession) {
         setLoginMessage('ログインしました。勤務中状態を復元しました。')
+        navigate(roleHomePaths[staffMember.role])
         return
       }
 
       setLoginMessage('ログインしました。出勤位置を取得して勤務を開始しています。')
       await workSession.clockIn(nextLoggedInUser)
       setLoginMessage('ログインしました。出勤しました。')
+      navigate(roleHomePaths[staffMember.role])
     } catch (error) {
       setLoginMessage(
         error instanceof Error ? `ログインまたは出勤できませんでした。${error.message}` : 'ログインまたは出勤できませんでした。',
@@ -369,10 +375,13 @@ export function HomePage() {
             <button className="primary-action home-button" type="button" onClick={handleClockIn}>出勤</button>
           )}
           <Link className="secondary-action" to="/cases">案件一覧</Link>
-          <Link className="secondary-action" to="/admin">管理画面</Link>
-          <Link className="secondary-action" to="/admin/analytics">売上分析</Link>
-          {dashboardRole === 'superAdmin' ? (
-            <Link className="secondary-action" to="/hq">FC本部管理</Link>
+          {canOpenManagement ? (
+            <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : dashboardRole === 'owner' ? '/owner' : '/superadmin'}>
+              {dashboardRole === 'superAdmin' ? 'FC本部管理' : '管理センター'}
+            </Link>
+          ) : null}
+          {canOpenAnalytics ? (
+            <Link className="secondary-action" to="/admin/analytics">売上分析</Link>
           ) : null}
           {!currentSession ? (
             <button className="secondary-action home-button" type="button" onClick={handleLogout}>ログアウト</button>

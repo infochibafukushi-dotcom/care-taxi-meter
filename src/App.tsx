@@ -41,6 +41,22 @@ const router = createBrowserRouter([
         element: <CaseDetailPage />,
       },
       {
+        path: 'driver',
+        element: <HomePage />,
+      },
+      {
+        path: 'manager',
+        element: <AdminPage />,
+      },
+      {
+        path: 'owner',
+        element: <AdminPage />,
+      },
+      {
+        path: 'superadmin',
+        element: <HeadquartersPage />,
+      },
+      {
         path: 'admin',
         element: <AdminPage />,
       },
