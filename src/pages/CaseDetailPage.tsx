@@ -18,7 +18,7 @@ import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
-import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import { downloadStatementPdf } from '../utils/statementPdf'
 import { canCancelCaseRecord, canDeleteCaseRecord, canManageCaseRecord, canRestoreCaseRecord } from '../types/permissions'
 
 const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
@@ -69,6 +69,8 @@ type ReceiptDialogState = {
 export function CaseDetailPage() {
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
   const { caseRecordId } = useParams()
   const currentSession = workSession.currentSession
   const currentRole = currentSession?.staffRole ?? ''
@@ -151,7 +153,7 @@ export function CaseDetailPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchMeterSettings(currentScope)
+    fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
       .then((meterSettings) => {
         if (!isMounted) {
           return
@@ -189,7 +191,7 @@ export function CaseDetailPage() {
     return () => {
       isMounted = false
     }
-  }, [currentScope.franchiseeId, currentScope.storeId])
+  }, [currentFranchiseeId, currentStoreId])
 
   const caseRecord = state.caseRecord
   const assistCharges = caseRecord?.assistCharges ?? []
@@ -250,16 +252,10 @@ export function CaseDetailPage() {
     const reason = receiptDialog.reissueReason.trim() || '利用明細再発行'
     const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '利用明細再発行履歴を保存しました。' }))
-    await openThermalReceiptPdf(updatedRecord, state.meterSettings, {
+    await downloadStatementPdf(updatedRecord, state.meterSettings, {
       customerName: receiptDialog.customerName,
-      expenseItems: updatedRecord.expenseCharges.map((expenseCharge) => ({
-        id: expenseCharge.id,
-        name: expenseCharge.name,
-        amountYen: expenseCharge.amount,
-      })),
       issuerName: receiptDialog.issuerName,
       isReissue: true,
-      receiptNote: receiptDialog.receiptNote,
     })
     closeReceiptDialog()
   }

@@ -295,6 +295,8 @@ export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
   const currentScope = tenantScopeFromSession(workSession.currentSession);
+  const currentFranchiseeId = currentScope.franchiseeId;
+  const currentStoreId = currentScope.storeId;
   const currentStoreName = workSession.currentSession?.storeName || "本店";
   const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/superadmin") ? "superAdmin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
@@ -326,7 +328,7 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchCaseRecords({ ...currentScope, role: currentRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: workSession.currentSession?.staffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return;
@@ -356,12 +358,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentRole, currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId]);
+  }, [currentRole, currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchMeterSettings(currentScope)
+    fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
       .then((loadedSettings) => {
         if (!isMounted) {
           return;
@@ -386,12 +388,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentScope.franchiseeId, currentScope.storeId]);
+  }, [currentFranchiseeId, currentStoreId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([fetchStores(currentRole === "superAdmin" ? undefined : currentScope.franchiseeId), fetchStaffMembers({ ...currentScope, role: currentRole }), fetchVehicles({ ...currentScope, role: currentRole })])
+    Promise.all([fetchStores(currentRole === "superAdmin" ? undefined : currentFranchiseeId), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })])
       .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return;
@@ -417,12 +419,12 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentRole, currentScope.franchiseeId, currentScope.storeId]);
+  }, [currentRole, currentFranchiseeId, currentStoreId]);
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchWorkingWorkSessionCount({ ...currentScope, role: currentRole })
+    fetchWorkingWorkSessionCount({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })
       .then((count) => {
         if (!isMounted) {
           return;
@@ -447,7 +449,7 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentFranchiseeId, currentRole, currentStoreId]);
 
   const salesSummary = calculateSalesSummary(summaryState.caseRecords);
   const activeVehicleCount = vehicles.filter(

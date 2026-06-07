@@ -514,6 +514,8 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
 export function SalesAnalyticsPage() {
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
@@ -527,7 +529,7 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ ...currentScope, role: workSession.currentSession?.staffRole }), fetchVehicles({ ...currentScope, role: workSession.currentSession?.staffRole })])
+    Promise.all([fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole })])
       .then(([records, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return
@@ -558,7 +560,7 @@ export function SalesAnalyticsPage() {
     return () => {
       isMounted = false
     }
-  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
   const analyticsSummary = useMemo(
     () =>

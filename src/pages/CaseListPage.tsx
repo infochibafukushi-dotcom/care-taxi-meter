@@ -31,6 +31,8 @@ type CaseRecordsState = {
 export function CaseListPage() {
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
   const currentRole = workSession.currentSession?.staffRole ?? ''
   const canViewDeleted = canManageCaseRecord(currentRole)
   const [statusFilter, setStatusFilter] = useState<CaseRecordStatusFilter>('normal')
@@ -43,7 +45,7 @@ export function CaseListPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return
@@ -69,7 +71,7 @@ export function CaseListPage() {
     return () => {
       isMounted = false
     }
-  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
   const visibleCaseRecords = state.caseRecords.filter((caseRecord) => {
     if (statusFilter === 'deleted') {

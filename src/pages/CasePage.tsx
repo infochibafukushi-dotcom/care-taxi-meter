@@ -363,6 +363,8 @@ export function CasePage() {
   )
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
     : 0
@@ -388,7 +390,7 @@ export function CasePage() {
     let isMounted = true
 
     const unsubscribe = subscribeMeterSettings(
-      currentScope,
+      { franchiseeId: currentFranchiseeId, storeId: currentStoreId },
       (settings: MeterSettings) => {
         if (!isMounted) {
           return
@@ -426,13 +428,13 @@ export function CasePage() {
       isMounted = false
       unsubscribe()
     }
-  }, [currentScope.franchiseeId, currentScope.storeId])
+  }, [currentFranchiseeId, currentStoreId])
 
 
   useEffect(() => {
     let isMounted = true
 
-    fetchVehicles({ ...currentScope, role: workSession.currentSession?.staffRole })
+    fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole })
       .then((loadedVehicles) => {
         if (!isMounted) {
           return
@@ -465,7 +467,7 @@ export function CasePage() {
     return () => {
       isMounted = false
     }
-  }, [vehicleIdFromQuery, workSession.currentSession])
+  }, [currentFranchiseeId, currentStoreId, vehicleIdFromQuery, workSession.currentSession])
 
 
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])

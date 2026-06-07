@@ -18,10 +18,19 @@ service cloud.firestore {
     function isDriverCancel(data) {
       return isDriver()
         && ownStaffData(data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'cancelReason',
+          'cancelledBy',
+          'canceledAt',
+          'cancelledAt',
+          'savedAt',
+          'changeHistory',
+        ])
         && request.resource.data.status == 'canceled'
         && request.resource.data.cancelReason is string
         && request.resource.data.cancelledBy is string
-        && request.resource.data.canceledAt is string;
+        && (request.resource.data.canceledAt is string || request.resource.data.cancelledAt is string);
     }
     function isLogicalDelete() {
       return request.resource.data.deleted == true
