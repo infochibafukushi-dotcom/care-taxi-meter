@@ -309,9 +309,11 @@ export function HomePage() {
     return (
       <main className="page page--home page--login" aria-labelledby="home-title">
         <section className="hero-card login-card">
-          <p className="eyebrow">Login</p>
-          <h1 id="home-title">ログイン</h1>
-          <p className="lead">会社ID・スタッフID・パスワードでスタッフを特定し、ログインと同時に出勤します。</p>
+          <div className="login-intro">
+            <p className="eyebrow">Login</p>
+            <h1 id="home-title">ログイン</h1>
+            <p className="lead">会社ID・スタッフID・パスワードでスタッフを特定し、ログインと同時に出勤します。</p>
+          </div>
           <div className="login-form">
             <label>
               会社ID
