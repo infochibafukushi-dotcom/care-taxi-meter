@@ -15,7 +15,7 @@ import {
 import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
-import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
+import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket } from '../types/case'
 import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import type { ExpensePreset } from './meterSettings'
@@ -41,6 +41,9 @@ export type CaseRecordInput = {
   vehicle?: Vehicle | null
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
+  payments?: PaymentAllocation[]
+  receiptName?: string
+  taxiTickets?: TaxiTicket[]
   pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
   selectedDispatchCharges?: SelectedCareOption[]
@@ -135,7 +138,16 @@ export type CaseRecordDocument = {
   careOptionFareYen: number
   expenseFareYen: number
   totalFareYen: number
+  grossFareYen: number
+  discountableFareYen: number
+  isDisabilityDiscount: boolean
+  disabilityDiscountRate: number
+  disabilityDiscountAmount: number
+  taxiTicketAmountYen: number
+  taxiTickets: TaxiTicket[]
   paymentMethod: string
+  payments: PaymentAllocation[]
+  receiptName: string
   customerName: string
   remarks: string
   status: CaseRecordStatus
@@ -247,6 +259,37 @@ const toExpenseCharges = (value: unknown): ExpenseCharge[] =>
           return id && name ? { id, name, amount } : null
         })
         .filter((item): item is ExpenseCharge => Boolean(item))
+    : []
+
+const toTaxiTickets = (value: unknown): TaxiTicket[] =>
+  Array.isArray(value)
+    ? value
+        .map((item, index) => {
+          const source = toObject(item)
+          const municipality = toString(source.municipality)
+          const ticketNumber = toString(source.ticketNumber)
+          const amount = Math.max(Math.round(toNumber(source.amount)), 0)
+          const id = toString(source.id) || `taxi-ticket-${index}`
+
+          return municipality && amount > 0
+            ? { amount, id, municipality, ticketNumber }
+            : null
+        })
+        .filter((item): item is TaxiTicket => Boolean(item))
+    : []
+
+const toPaymentAllocations = (value: unknown): PaymentAllocation[] =>
+  Array.isArray(value)
+    ? value
+        .map((item, index) => {
+          const source = toObject(item)
+          const type = toString(source.type) as PaymentMethod
+          const amount = Math.max(Math.round(toNumber(source.amount)), 0)
+          const id = toString(source.id) || `payment-${index}`
+
+          return type && amount > 0 ? { amount, id, type } : null
+        })
+        .filter((item): item is PaymentAllocation => Boolean(item))
     : []
 
 
@@ -457,7 +500,16 @@ const toStoredCaseRecord = (
     careOptionFareYen: toNumber(data.careOptionFareYen),
     expenseFareYen: toNumber(data.expenseFareYen),
     totalFareYen: toNumber(data.totalFareYen),
+    grossFareYen: toNumber(data.grossFareYen),
+    discountableFareYen: toNumber(data.discountableFareYen),
+    isDisabilityDiscount: toBoolean(data.isDisabilityDiscount),
+    disabilityDiscountRate: toNumber(data.disabilityDiscountRate),
+    disabilityDiscountAmount: toNumber(data.disabilityDiscountAmount),
+    taxiTicketAmountYen: toNumber(data.taxiTicketAmountYen),
+    taxiTickets: toTaxiTickets(data.taxiTickets),
     paymentMethod: toPaymentMethod(data.paymentMethod),
+    payments: toPaymentAllocations(data.payments),
+    receiptName: toString(data.receiptName),
     customerName: toString(data.customerName),
     remarks: toString(data.remarks),
     status: toCaseRecordStatus(data.status),
@@ -569,6 +621,9 @@ export async function saveCaseRecord({
   vehicle = null,
   fareBreakdown,
   paymentMethod,
+  payments = [],
+  receiptName = '',
+  taxiTickets = [],
   pickupLocation,
   selectedCareOptions,
   selectedDispatchCharges = [],
@@ -611,8 +666,17 @@ export async function saveCaseRecord({
     careOptionFareYen: fareBreakdown.careOptionFareYen,
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
+    grossFareYen: fareBreakdown.grossFareYen,
+    discountableFareYen: fareBreakdown.discountableFareYen,
+    isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
+    disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
+    disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+    taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
+    taxiTickets,
     paymentMethod,
-    customerName: '',
+    payments,
+    receiptName,
+    customerName: receiptName,
     remarks: '',
     status: 'completed',
     deleted: false,

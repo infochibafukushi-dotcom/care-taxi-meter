@@ -187,6 +187,8 @@ export function CaseDetailPage() {
   const assistCharges = caseRecord?.assistCharges ?? []
   const dispatchCharges = caseRecord?.dispatchCharges ?? []
   const expenseCharges = caseRecord?.expenseCharges ?? []
+  const taxiTickets = caseRecord?.taxiTickets ?? []
+  const payments = caseRecord?.payments ?? []
   const caseAddressItems = caseRecord
     ? [
         { label: '出発地', value: caseRecord.pickupAddress },
@@ -200,7 +202,7 @@ export function CaseDetailPage() {
 
   const openReceiptDialog = () => {
     setReceiptDialog({
-      customerName: caseRecord?.customerName ?? '',
+      customerName: caseRecord?.receiptName || caseRecord?.customerName || '',
       issuerName: state.meterSettings.receipt.issuerName,
       receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       isOpen: true,
@@ -452,6 +454,10 @@ export function CaseDetailPage() {
                 <span>顧客名</span>
                 <strong>{formatOptionalText(caseRecord.customerName)}</strong>
               </div>
+              <div>
+                <span>領収書宛名</span>
+                <strong>{formatOptionalText(caseRecord.receiptName)}</strong>
+              </div>
               {caseAddressItems.map((addressItem) => (
                 <div className="case-detail-address" key={addressItem.label}>
                   <span>{addressItem.label}</span>
@@ -536,8 +542,46 @@ export function CaseDetailPage() {
                 )}
               </div>
               <div>
+                <span>障害者割引</span>
+                <strong>{caseRecord.isDisabilityDiscount ? `${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用'}</strong>
+              </div>
+              <div className="case-detail-assist-charges">
+                <span>タクシー券</span>
+                {taxiTickets.length > 0 ? (
+                  <div>
+                    {taxiTickets.map((ticket) => (
+                      <p key={ticket.id}>
+                        <span>{ticket.municipality} {ticket.ticketNumber || '番号未入力'}</span>
+                        <strong>{formatFareYen(ticket.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>適用額</span>
+                      <strong>{formatFareYen(caseRecord.taxiTicketAmountYen)}円</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <strong>未使用</strong>
+                )}
+              </div>
+              <div>
                 <span>支払方法</span>
                 <strong>{caseRecord.paymentMethod}</strong>
+              </div>
+              <div className="case-detail-assist-charges">
+                <span>支払内訳</span>
+                {payments.length > 0 ? (
+                  <div>
+                    {payments.map((payment) => (
+                      <p key={payment.id}>
+                        <span>{payment.type}</span>
+                        <strong>{formatFareYen(payment.amount)}円</strong>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <strong>{caseRecord.paymentMethod}</strong>
+                )}
               </div>
               <div>
                 <span>合計金額</span>

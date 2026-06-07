@@ -78,6 +78,15 @@ function createThermalReceiptLines(
     })
   })
 
+  lines.push({ label: '障害者割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' })
+  lines.push({ label: 'タクシー券', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` })
+  caseRecord.taxiTickets.forEach((ticket) => {
+    lines.push({
+      indent: true,
+      label: `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'}`,
+      value: `${formatFareYen(ticket.amount)}円`,
+    })
+  })
   lines.push({ label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` })
   expenseItems
     .filter((expenseItem) => expenseItem.name.trim())
@@ -197,7 +206,19 @@ function createThermalReceiptCanvas(
     align: 'right',
     font: '24px sans-serif',
   })
-  y += 42
+  y += 34
+  const paymentLines = caseRecord.payments.length > 0
+    ? caseRecord.payments
+    : [{ amount: caseRecord.totalFareYen, id: 'legacy-payment', type: caseRecord.paymentMethod }]
+  paymentLines.forEach((payment) => {
+    drawText(context, `支払内訳 ${payment.type}`, 48, y, { font: '22px sans-serif' })
+    drawText(context, `${formatFareYen(payment.amount)}円`, canvas.width - 48, y, {
+      align: 'right',
+      font: '22px sans-serif',
+    })
+    y += 30
+  })
+  y += 12
 
   if (receiptNote) {
     drawDivider(context, y)

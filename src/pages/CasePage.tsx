@@ -53,9 +53,11 @@ import type {
 import type {
   ExpenseItem,
   OperationStatus,
+  PaymentAllocation,
   PaymentMethod,
   GpsPosition,
   SelectedCareOption,
+  TaxiTicket,
   StatusTone,
   TimerKey,
 } from '../types/case'
@@ -96,6 +98,14 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
 }
 
 const isDevelopmentMode = import.meta.env.DEV
+const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
+const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
+  QR決済: 0,
+  その他: 0,
+  クレジット: 0,
+  現金: 0,
+  請求書: 0,
+})
 
 const loadInputHistory = () => {
   try {
@@ -284,7 +294,13 @@ export function CasePage() {
     SelectedCareOption[]
   >([])
   const [expenses, setExpenses] = useState<ExpenseItem[]>([])
+  const [isDisabilityDiscount, setIsDisabilityDiscount] = useState(false)
+  const [taxiTickets, setTaxiTickets] = useState<TaxiTicket[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
+  const [paymentAmounts, setPaymentAmounts] = useState<Record<PaymentMethod, number>>(
+    createEmptyPaymentAmounts,
+  )
+  const [receiptName, setReceiptName] = useState('')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
     isFirebaseConfigured
@@ -470,6 +486,8 @@ export function CasePage() {
     specialVehicleCharges: selectedSpecialVehicleCharges,
     careOptions: selectedCareOptions,
     expenses,
+    isDisabilityDiscount,
+    taxiTickets,
     settings: {
       basicFare: currentBasicFareSettings,
       escortFare: currentEscortFareSettings,
@@ -477,6 +495,18 @@ export function CasePage() {
       waitingFare: currentWaitingFareSettings,
     },
   })
+
+  const paymentTotalYen = paymentMethods.reduce(
+    (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
+    0,
+  )
+  const payments: PaymentAllocation[] = paymentMethods
+    .map((method) => ({
+      amount: Math.max(Math.round(paymentAmounts[method]) || 0, 0),
+      id: `payment-${method}`,
+      type: method,
+    }))
+    .filter((payment) => payment.amount > 0)
 
   const fareIncrease = calculateFareIncreaseProgress(
     gps.chargeableDistanceKm,
@@ -677,6 +707,31 @@ export function CasePage() {
     setKeypadTarget(null)
   }
 
+  const addTaxiTicket = (ticket: Omit<TaxiTicket, 'id'>) => {
+    setTaxiTickets((currentTickets) => [
+      ...currentTickets,
+      { ...ticket, id: createId('taxi-ticket') },
+    ])
+  }
+
+  const removeTaxiTicket = (ticketId: string) => {
+    setTaxiTickets((currentTickets) => currentTickets.filter((ticket) => ticket.id !== ticketId))
+  }
+
+  const updatePaymentAmount = (method: PaymentMethod, amount: number) => {
+    setPaymentAmounts((currentAmounts) => ({
+      ...currentAmounts,
+      [method]: Math.max(Math.round(amount) || 0, 0),
+    }))
+  }
+
+  const settlePaymentRemainder = () => {
+    setPaymentAmounts({
+      ...createEmptyPaymentAmounts(),
+      [paymentMethod]: fareBreakdown.totalFareYen,
+    })
+  }
+
 
   const captureAddressWithLatestGps = (position: GpsPosition | null) => {
     if (!position) {
@@ -865,6 +920,13 @@ export function CasePage() {
       return
     }
 
+    if (paymentTotalYen === 0) {
+      setPaymentAmounts({
+        ...createEmptyPaymentAmounts(),
+        [paymentMethod]: fareBreakdown.totalFareYen,
+      })
+    }
+
     setIsSettlementFlowOpen(true)
     setSettlementFlowStep('receipt')
   }
@@ -930,6 +992,12 @@ export function CasePage() {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
     }
+    if (paymentTotalYen !== fareBreakdown.totalFareYen) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('支払総額と請求額が一致しないため保存できません。')
+      return null
+    }
+
     const finalDrivingSeconds = elapsedTimers.seconds.driving
 
     handleStatusChange('案件終了')
@@ -973,6 +1041,9 @@ export function CasePage() {
         vehicle: selectedVehicle,
         fareBreakdown,
         paymentMethod,
+        payments,
+        receiptName,
+        taxiTickets,
         pickupLocation: pickupLocationRef.current,
         selectedCareOptions,
         selectedDispatchCharges,
@@ -1016,8 +1087,17 @@ export function CasePage() {
         careOptionFareYen: fareBreakdown.careOptionFareYen,
         expenseFareYen: fareBreakdown.expenseFareYen,
         totalFareYen: fareBreakdown.totalFareYen,
+        grossFareYen: fareBreakdown.grossFareYen,
+        discountableFareYen: fareBreakdown.discountableFareYen,
+        isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
+        disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
+        disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+        taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
+        taxiTickets,
         paymentMethod,
-        customerName: '',
+        payments,
+        receiptName,
+        customerName: receiptName,
         remarks: '',
         status: 'completed',
         deleted: false,
@@ -1138,7 +1218,7 @@ export function CasePage() {
     }
 
     await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
-      customerName: '',
+      customerName: savedCaseRecord.receiptName || receiptName,
       expenseItems: expenses,
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
@@ -1152,7 +1232,7 @@ export function CasePage() {
     }
 
     await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
-      customerName: '',
+      customerName: savedCaseRecord.receiptName || receiptName,
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
     })
@@ -1866,10 +1946,20 @@ export function CasePage() {
                 </div>
                 <SettlementPanel
                   breakdown={fareBreakdown}
+                  isDisabilityDiscount={isDisabilityDiscount}
+                  paymentAmounts={paymentAmounts}
                   paymentMethod={paymentMethod}
+                  receiptName={receiptName}
                   saveMessage={caseSaveMessage}
                   saveState={caseSaveState}
+                  taxiTickets={taxiTickets}
+                  onAddTaxiTicket={addTaxiTicket}
+                  onDisabilityDiscountChange={setIsDisabilityDiscount}
+                  onPaymentAmountChange={updatePaymentAmount}
                   onPaymentMethodChange={setPaymentMethod}
+                  onReceiptNameChange={setReceiptName}
+                  onRemoveTaxiTicket={removeTaxiTicket}
+                  onSettlePaymentRemainder={settlePaymentRemainder}
                 />
                 <button
                   className="r9-flow-primary"
