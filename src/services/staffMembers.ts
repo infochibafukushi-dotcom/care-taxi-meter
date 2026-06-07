@@ -14,6 +14,8 @@ import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany } from './companies'
 import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from './stores'
+import { createAuditLog } from './auditLogs'
+import type { AuditActor } from './auditLogs'
 import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
 
@@ -81,7 +83,7 @@ export async function fetchStaffMembers(scope?: TenantAccessScope) {
   return snapshots.docs.map(toStaffMember).filter((staffMember) => matchesTenantScope(staffMember, scope))
 }
 
-export async function saveStaffMember(staffMember: StaffMember) {
+export async function saveStaffMember(staffMember: StaffMember, actor?: AuditActor | null) {
   const staffMemberRef = getStaffMemberRef(staffMember.id)
   const snapshot = await getDoc(staffMemberRef)
   const document = {
@@ -94,7 +96,38 @@ export async function saveStaffMember(staffMember: StaffMember) {
     updatedAt: serverTimestamp(),
   }
 
+  const previousStaffMember = snapshot.exists() ? toStaffMember(snapshot) : null
+
   await setDoc(staffMemberRef, document, { merge: true })
+
+  if (actor && previousStaffMember?.role && previousStaffMember.role !== staffMember.role) {
+    await createAuditLog({
+      action: 'role_change',
+      actor,
+      after: { role: staffMember.role },
+      before: { role: previousStaffMember.role },
+      franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+      reason: 'スタッフ権限変更',
+      storeId: staffMember.storeId,
+      targetId: staffMember.id,
+      targetType: 'staffMember',
+    })
+  }
+
+  if (actor && previousStaffMember?.enabled === true && staffMember.enabled === false) {
+    await createAuditLog({
+      action: 'staff_delete',
+      actor,
+      after: { enabled: false },
+      before: { enabled: true },
+      franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+      reason: 'スタッフ無効化',
+      storeId: staffMember.storeId,
+      targetId: staffMember.id,
+      targetType: 'staffMember',
+    })
+  }
+
   return staffMember
 }
 
