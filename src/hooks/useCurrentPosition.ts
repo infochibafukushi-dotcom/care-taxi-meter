@@ -17,7 +17,8 @@ type GpsLogState = {
 }
 
 const GPS_INTERVAL_MS = 5000
-const MAX_DISTANCE_ACCURACY_METERS = 50
+const MAX_DISTANCE_ACCURACY_METERS = 30
+const MIN_CHARGEABLE_SEGMENT_DISTANCE_METERS = 5
 const MAX_DISTANCE_PER_INTERVAL_METERS = 500
 const GPS_INTERVAL_SECONDS = GPS_INTERVAL_MS / 1000
 const UNSUPPORTED_GPS_MESSAGE = 'この端末ではGPS取得を利用できません'
@@ -25,8 +26,10 @@ const UNSUPPORTED_GPS_MESSAGE = 'この端末ではGPS取得を利用できま�
 const shouldIncludeDistance = (
   previousLog: GpsLogEntry | undefined,
   currentLog: GpsLogEntry,
+  currentSpeedKmh: number | null,
+  lowSpeedThresholdKmh: number,
 ) => {
-  if (!previousLog) {
+  if (!previousLog || currentSpeedKmh == null || currentSpeedKmh <= lowSpeedThresholdKmh) {
     return false
   }
 
@@ -42,16 +45,17 @@ const shouldIncludeDistance = (
     (currentLog.capturedAt - previousLog.capturedAt) / 1000,
     1,
   )
+  const isTooShortSegment = distanceMeters < MIN_CHARGEABLE_SEGMENT_DISTANCE_METERS
   const isAbnormalMovement =
     elapsedSeconds <= GPS_INTERVAL_SECONDS &&
     distanceMeters >= MAX_DISTANCE_PER_INTERVAL_METERS
 
-  return !isAbnormalMovement
+  return !isTooShortSegment && !isAbnormalMovement
 }
 
 export function useCurrentPosition(
   isActive: boolean,
-  lowSpeedThresholdKmh = 5,
+  lowSpeedThresholdKmh = 10,
 ) {
   const [position, setPosition] = useState<GpsPosition | null>(null)
   const [status, setStatus] = useState<GpsStatus>('idle')
@@ -99,11 +103,6 @@ export function useCurrentPosition(
           setPosition(currentPosition)
           setGpsLogState((currentState) => {
             const previousLog = currentState.logs.at(-1)
-            const shouldAddDistance = shouldIncludeDistance(previousLog, currentLog)
-            const additionalDistanceMeters =
-              previousLog && shouldAddDistance
-                ? calculateDistanceMeters(previousLog, currentLog)
-                : 0
             const elapsedSeconds = previousLog
               ? Math.max((currentLog.capturedAt - previousLog.capturedAt) / 1000, 0)
               : 0
@@ -117,10 +116,18 @@ export function useCurrentPosition(
                 : speedReading.speedKmh <= lowSpeedThresholdKmh
                   ? 'low-speed'
                   : 'normal'
+            const shouldAddDistance = shouldIncludeDistance(
+              previousLog,
+              currentLog,
+              speedReading.speedKmh,
+              lowSpeedThresholdKmh,
+            )
+            const additionalDistanceMeters =
+              previousLog && shouldAddDistance
+                ? calculateDistanceMeters(previousLog, currentLog)
+                : 0
             const chargeableDistanceMeters =
-              movementState === 'normal'
-                ? currentState.chargeableDistanceMeters + additionalDistanceMeters
-                : currentState.chargeableDistanceMeters
+              currentState.chargeableDistanceMeters + additionalDistanceMeters
             const lowSpeedSeconds =
               movementState === 'low-speed'
                 ? currentState.lowSpeedSeconds + elapsedSeconds

@@ -71,7 +71,7 @@ export const escortFareSettings: TimeFareSettings = {
 };
 
 export const meterTimeFareSettings: MeterTimeFareSettings = {
-  lowSpeedThresholdKmh: 5,
+  lowSpeedThresholdKmh: 10,
   unitSeconds: 90,
   unitFareYen: 90,
 };
