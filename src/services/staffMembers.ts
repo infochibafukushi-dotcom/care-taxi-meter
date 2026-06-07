@@ -14,6 +14,8 @@ import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany } from './companies'
 import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from './stores'
+import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import type { TenantAccessScope } from './tenancy'
 
 const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
@@ -39,13 +41,16 @@ const toStaffMember = (
 
   return {
     id: toStringValue(data.id) || snapshot.id,
-    companyId: toStringValue(data.companyId) || defaultCompanyId,
-    storeId: toStringValue(data.storeId),
+    companyId: getFranchiseeId(data),
+    franchiseeId: getFranchiseeId(data),
+    storeId: getStoreId(data),
     storeName: toStringValue(data.storeName),
     userId: toStringValue(data.userId),
     password: toStringValue(data.password),
     name: toStringValue(data.name) || '名称未設定のスタッフ',
     role: toRole(data.role),
+    canDrive: toBooleanValue(data.canDrive, toRole(data.role) === 'owner' || toRole(data.role) === 'driver'),
+    isActive: toBooleanValue(data.isActive ?? data.enabled),
     phoneNumber: toStringValue(data.phoneNumber),
     email: toStringValue(data.email),
     address: toStringValue(data.address),
@@ -68,12 +73,12 @@ function getStaffMemberRef(staffMemberId: string) {
   return doc(db, staffMembersCollectionName, staffMemberId)
 }
 
-export async function fetchStaffMembers() {
+export async function fetchStaffMembers(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
     query(getStaffMembersCollection(), orderBy('sortOrder', 'asc')),
   )
 
-  return snapshots.docs.map(toStaffMember)
+  return snapshots.docs.map(toStaffMember).filter((staffMember) => matchesTenantScope(staffMember, scope))
 }
 
 export async function saveStaffMember(staffMember: StaffMember) {
@@ -81,6 +86,10 @@ export async function saveStaffMember(staffMember: StaffMember) {
   const snapshot = await getDoc(staffMemberRef)
   const document = {
     ...staffMember,
+    companyId: staffMember.franchiseeId || staffMember.companyId,
+    franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+    isActive: staffMember.isActive ?? staffMember.enabled,
+    canDrive: staffMember.canDrive ?? (staffMember.role === 'owner' || staffMember.role === 'driver'),
     ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
@@ -126,12 +135,15 @@ export async function ensureDefaultAdminStaffMember() {
   const staffMember: StaffMember = {
     id: defaultAdminStaffMemberId,
     companyId: defaultCompanyId,
+    franchiseeId: defaultCompanyId,
     storeId: headquartersStore.id,
     storeName: 'FC本部',
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
     name: '山本信勝',
     role: 'superAdmin',
+    canDrive: false,
+    isActive: true,
     phoneNumber: '',
     email: '',
     address: '',
@@ -171,6 +183,7 @@ async function migrateLegacySuperAdminStaffMembers() {
         {
           ...staffMember,
           companyId: defaultCompanyId,
+          franchiseeId: defaultCompanyId,
           storeId: headquartersStore.id,
           storeName: headquartersStore.name,
           role: 'superAdmin',

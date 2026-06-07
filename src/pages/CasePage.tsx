@@ -36,6 +36,7 @@ import type {
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
+import { tenantScopeFromSession } from '../services/tenancy'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
@@ -304,6 +305,7 @@ export function CasePage() {
     currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
   )
   const workSession = useWorkSession()
+  const currentScope = tenantScopeFromSession(workSession.currentSession)
   const waitingFareSeconds = billableTimeStarted.waiting
     ? Math.max(elapsedTimers.seconds.waiting, 1)
     : 0
@@ -315,7 +317,8 @@ export function CasePage() {
     let isMounted = true
 
     const unsubscribe = subscribeMeterSettings(
-      (settings) => {
+      currentScope,
+      (settings: MeterSettings) => {
         if (!isMounted) {
           return
         }
@@ -330,7 +333,7 @@ export function CasePage() {
         setCurrentExpensePresets(settings.expensePresets)
         setSettingsMessage('Firestore設定をリアルタイム反映しています。')
       },
-      (error) => {
+      (error: Error) => {
         if (!isMounted) {
           return
         }
@@ -347,13 +350,13 @@ export function CasePage() {
       isMounted = false
       unsubscribe()
     }
-  }, [])
+  }, [currentScope.franchiseeId, currentScope.storeId])
 
 
   useEffect(() => {
     let isMounted = true
 
-    fetchVehicles()
+    fetchVehicles({ ...currentScope, role: workSession.currentSession?.staffRole })
       .then((loadedVehicles) => {
         if (!isMounted) {
           return
@@ -809,9 +812,11 @@ export function CasePage() {
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
-        companyId: workSession.currentSession?.companyId ?? '',
+        companyId: workSession.currentSession?.franchiseeId || workSession.currentSession?.companyId || '',
+        franchiseeId: workSession.currentSession?.franchiseeId || workSession.currentSession?.companyId || '',
         companyName: workSession.currentSession?.companyName ?? '',
         staffId: workSession.currentSession?.staffId ?? '',
+        driverId: workSession.currentSession?.staffId ?? '',
         staffName: workSession.currentSession?.staffName ?? '',
         staffRole: workSession.currentSession?.staffRole ?? '',
         vehicleId: selectedVehicle.id,

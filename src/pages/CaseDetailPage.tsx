@@ -7,6 +7,8 @@ import {
   updateCaseRecordEditableValues,
 } from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
+import { useWorkSession } from '../hooks/useWorkSession'
+import { tenantScopeFromSession } from '../services/tenancy'
 import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
 import type { PaymentMethod } from '../types/case'
@@ -15,7 +17,6 @@ import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
-import { useWorkSession } from '../hooks/useWorkSession'
 import { canDeleteCaseRecord, canManageCaseRecord } from '../types/permissions'
 
 const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
@@ -62,8 +63,9 @@ type ReceiptDialogState = {
 }
 
 export function CaseDetailPage() {
-  const { caseRecordId } = useParams()
   const workSession = useWorkSession()
+  const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const { caseRecordId } = useParams()
   const currentSession = workSession.currentSession
   const currentRole = currentSession?.staffRole ?? ''
   const isAdmin = canManageCaseRecord(currentRole)
@@ -141,7 +143,7 @@ export function CaseDetailPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchMeterSettings()
+    fetchMeterSettings(currentScope)
       .then((meterSettings) => {
         if (!isMounted) {
           return
@@ -179,7 +181,7 @@ export function CaseDetailPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [currentScope.franchiseeId, currentScope.storeId])
 
   const caseRecord = state.caseRecord
   const assistCharges = caseRecord?.assistCharges ?? []

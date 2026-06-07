@@ -11,7 +11,8 @@ import {
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
-import { defaultCompanyId } from './stores'
+import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import type { TenantAccessScope } from './tenancy'
 import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
@@ -39,9 +40,10 @@ const toWorkSession = (snapshot: {
 
   return {
     id: toStringValue(data.id) || snapshot.id,
-    companyId: toStringValue(data.companyId) || defaultCompanyId,
+    companyId: getFranchiseeId(data),
+    franchiseeId: getFranchiseeId(data),
     companyName: toStringValue(data.companyName),
-    storeId: toStringValue(data.storeId),
+    storeId: getStoreId(data),
     storeName: toStringValue(data.storeName),
     staffId: toStringValue(data.staffId),
     staffName: toStringValue(data.staffName),
@@ -69,20 +71,22 @@ function getWorkSessionsCollection() {
   return collection(db, workSessionsCollectionName)
 }
 
-export async function fetchWorkingWorkSessionCount() {
+export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
     query(getWorkSessionsCollection(), where('status', '==', 'working')),
   )
 
-  return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).length
+  return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).filter((session) => matchesTenantScope(session, scope)).length
 }
 
 export async function fetchOpenWorkingWorkSession({
   companyId,
   staffId,
+  storeId,
 }: {
   companyId: string
   staffId: string
+  storeId?: string
 }) {
   const snapshots = await getDocs(
     query(getWorkSessionsCollection(), where('status', '==', 'working')),
@@ -93,6 +97,7 @@ export async function fetchOpenWorkingWorkSession({
     .filter(
       (workSession) =>
         workSession.companyId === companyId &&
+        (!storeId || workSession.storeId === storeId) &&
         workSession.staffId === staffId &&
         isOpenWorkingSession(workSession),
     )
@@ -115,7 +120,8 @@ export async function clockInWorkSession({
   const clockInAt = new Date().toISOString()
   const workSession: WorkSession = {
     id: createWorkSessionId(),
-    companyId: staffMember.companyId,
+    companyId: staffMember.franchiseeId || staffMember.companyId,
+    franchiseeId: staffMember.franchiseeId || staffMember.companyId,
     companyName,
     storeId: store.id,
     storeName: store.name,

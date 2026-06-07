@@ -19,6 +19,8 @@ import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
+import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import type { TenantAccessScope } from './tenancy'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -61,8 +63,10 @@ export type CaseRecordDocument = {
   waitingSeconds: number
   accompanyingSeconds: number
   companyId: string
+  franchiseeId: string
   companyName: string
   staffId: string
+  driverId: string
   staffName: string
   staffRole: StaffRole | ''
   vehicleId: string
@@ -240,16 +244,18 @@ const toStoredCaseRecord = (
     drivingSeconds: toNumber(data.drivingSeconds),
     waitingSeconds: toNumber(data.waitingSeconds),
     accompanyingSeconds: toNumber(data.accompanyingSeconds),
-    companyId: toString(data.companyId),
+    companyId: getFranchiseeId(data),
+    franchiseeId: getFranchiseeId(data),
     companyName: toString(data.companyName),
-    staffId: toString(data.staffId),
+    staffId: toString(data.staffId) || toString(data.driverId),
+    driverId: toString(data.driverId) || toString(data.staffId),
     staffName: toString(data.staffName),
     staffRole: toString(data.staffRole) as StaffRole | '',
     vehicleId: toString(data.vehicleId),
     vehicleName: toString(data.vehicleName),
     vehicleNumber: toString(data.vehicleNumber),
     workSessionId: toString(data.workSessionId),
-    storeId: toString(data.storeId),
+    storeId: getStoreId(data),
     storeName: toString(data.storeName),
     dispatchFareYen: toNumber(data.dispatchFareYen),
     specialVehicleFareYen: toNumber(data.specialVehicleFareYen),
@@ -319,9 +325,11 @@ export async function saveCaseRecord({
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
     waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
     accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
-    companyId: workSession?.companyId ?? '',
+    companyId: workSession?.franchiseeId || workSession?.companyId || '',
+    franchiseeId: workSession?.franchiseeId || workSession?.companyId || '',
     companyName: workSession?.companyName ?? '',
     staffId: workSession?.staffId ?? '',
+    driverId: workSession?.staffId ?? '',
     staffName: workSession?.staffName ?? '',
     staffRole: workSession?.staffRole ?? '',
     vehicleId: vehicle?.id ?? '',
@@ -383,20 +391,22 @@ export async function saveCaseRecord({
   return addDoc(getCaseRecordsCollection(), record)
 }
 
-export async function fetchCaseRecords() {
+export async function fetchCaseRecords(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
     query(getCaseRecordsCollection(), orderBy('closedAt', 'desc')),
   )
 
-  return snapshots.docs.map(toStoredCaseRecord)
+  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, scope))
 }
 
 export async function fetchCaseRecordsInClosedAtRange({
   endIso,
   startIso,
+  scope,
 }: {
   endIso: string
   startIso: string
+  scope?: TenantAccessScope
 }) {
   const snapshots = await getDocs(
     query(
@@ -407,7 +417,7 @@ export async function fetchCaseRecordsInClosedAtRange({
     ),
   )
 
-  return snapshots.docs.map(toStoredCaseRecord)
+  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, scope))
 }
 
 export async function fetchCaseRecord(caseRecordId: string) {

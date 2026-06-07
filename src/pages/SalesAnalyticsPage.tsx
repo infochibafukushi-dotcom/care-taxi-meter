@@ -4,6 +4,8 @@ import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { fetchStaffMembers } from '../services/staffMembers'
 import { fetchVehicles } from '../services/vehicles'
+import { useWorkSession } from '../hooks/useWorkSession'
+import { tenantScopeFromSession } from '../services/tenancy'
 import type { StaffMember, Vehicle } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import {
@@ -510,6 +512,8 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
 
 
 export function SalesAnalyticsPage() {
+  const workSession = useWorkSession()
+  const currentScope = tenantScopeFromSession(workSession.currentSession)
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
@@ -523,7 +527,7 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords(), fetchStaffMembers(), fetchVehicles()])
+    Promise.all([fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ ...currentScope, role: workSession.currentSession?.staffRole }), fetchVehicles({ ...currentScope, role: workSession.currentSession?.staffRole })])
       .then(([records, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return
@@ -554,7 +558,7 @@ export function SalesAnalyticsPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
   const analyticsSummary = useMemo(
     () =>

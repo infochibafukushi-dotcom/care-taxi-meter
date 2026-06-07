@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
+import { useWorkSession } from '../hooks/useWorkSession'
+import { tenantScopeFromSession } from '../services/tenancy'
 import {
   calculateTodayCaseSummary,
   formatCaseDateTime,
@@ -24,6 +26,8 @@ type CaseRecordsState = {
 }
 
 export function CaseListPage() {
+  const workSession = useWorkSession()
+  const currentScope = tenantScopeFromSession(workSession.currentSession)
   const [state, setState] = useState<CaseRecordsState>({
     caseRecords: [],
     errorMessage: '',
@@ -33,7 +37,7 @@ export function CaseListPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchCaseRecords()
+    fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return
@@ -59,7 +63,7 @@ export function CaseListPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
   const todaySummary = calculateTodayCaseSummary(state.caseRecords)
 

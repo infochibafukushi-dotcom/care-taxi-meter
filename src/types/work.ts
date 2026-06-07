@@ -1,6 +1,7 @@
 export type StaffRole = 'superAdmin' | 'owner' | 'manager' | 'driver'
 
-export type CompanyStatus = 'active' | 'suspended'
+export type CompanyStatus = 'active' | 'suspended' | 'archived'
+export type StoreStatus = 'active' | 'suspended' | 'archived'
 
 export type VehicleStatus = '稼働中' | '整備中' | '休車' | '売却済'
 
@@ -10,6 +11,7 @@ export type WorkSessionStatus = 'working' | 'closed'
 
 export type Company = {
   id: string
+  franchiseeId?: string
   name: string
   enabled: boolean
   sortOrder: number
@@ -23,20 +25,36 @@ export type Company = {
 export type Store = {
   id: string
   companyId: string
+  franchiseeId: string
   name: string
+  storeName?: string
+  companyName?: string
+  ownerName?: string
+  address?: string
+  phoneNumber?: string
+  email?: string
+  invoiceNumber?: string
+  planId?: string
+  planName?: string
+  monthlyPrice?: number
+  status: StoreStatus
   enabled: boolean
+  isActive: boolean
   sortOrder: number
 }
 
 export type StaffMember = {
   id: string
   companyId: string
+  franchiseeId: string
   storeId: string
   storeName: string
   userId: string
   password: string
   name: string
   role: StaffRole
+  canDrive: boolean
+  isActive: boolean
   phoneNumber: string
   email: string
   address: string
@@ -51,10 +69,13 @@ export type StaffMember = {
 export type Vehicle = {
   id: string
   companyId: string
+  franchiseeId: string
   storeId: string
   storeName: string
   name: string
+  vehicleName: string
   number: string
+  plateNumber: string
   status: VehicleStatus
   fuelType: VehicleFuelType
   vehicleType: string
@@ -64,12 +85,14 @@ export type Vehicle = {
   insuranceExpiresAt: string
   memo: string
   enabled: boolean
+  isActive: boolean
   sortOrder: number
 }
 
 export type WorkSession = {
   id: string
   companyId: string
+  franchiseeId: string
   companyName: string
   storeId: string
   storeName: string
