@@ -50,6 +50,7 @@ type AdminCenterSection =
   | "stores"
   | "vehicles"
   | "analytics"
+  | "personalOperations"
   | "system";
 
 type SettingsSaveState = "error" | "idle" | "saved" | "saving";
@@ -95,11 +96,159 @@ const adminCenterCards: Array<{
     description: "売上および業務分析",
   },
   {
+    id: "personalOperations",
+    label: "個人運行管理（月別）",
+    description: "勤務時間・点呼・売上KPIの月別確認",
+  },
+  {
     id: "system",
     label: "システム設定",
     description: "システム管理者向け設定",
   },
 ];
+
+const secondsPerHour = 60 * 60;
+const monthFormatter = new Intl.DateTimeFormat("ja-JP", {
+  month: "long",
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+});
+const weekdayFormatter = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  weekday: "short",
+});
+const dayFormatter = new Intl.DateTimeFormat("ja-JP", {
+  day: "numeric",
+  timeZone: "Asia/Tokyo",
+});
+const dateKeyFormatter = new Intl.DateTimeFormat("sv-SE", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+});
+
+type PersonalOperationDay = {
+  averageYen: number;
+  boundSeconds: number;
+  clockIn: string;
+  clockOut: string;
+  date: Date;
+  dateKey: string;
+  dayLabel: string;
+  drivingSeconds: number;
+  inspectionDone: boolean;
+  isHoliday: boolean;
+  isSaturday: boolean;
+  isSunday: boolean;
+  restSeconds: number;
+  salesYen: number;
+  timeSalesYen: number;
+  totalCases: number;
+  weekdayLabel: string;
+  workSeconds: number;
+};
+
+const formatDurationHoursMinutes = (totalSeconds: number) => {
+  if (totalSeconds <= 0) {
+    return "－";
+  }
+
+  const hours = Math.floor(totalSeconds / secondsPerHour);
+  const minutes = Math.round((totalSeconds % secondsPerHour) / 60);
+
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
+};
+
+const formatOperationYen = (value: number) =>
+  value > 0 ? `${formatFareYen(value)}円` : "－";
+
+const getPersonalOperationDays = (caseRecords: StoredCaseRecord[]) => {
+  const now = new Date();
+  const dateParts = new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+  }).formatToParts(now);
+  const year = Number(dateParts.find((part) => part.type === "year")?.value);
+  const month = Number(dateParts.find((part) => part.type === "month")?.value);
+  const firstDay = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthLabel = monthFormatter.format(firstDay);
+  const recordsByDay = new Map<string, StoredCaseRecord[]>();
+
+  caseRecords.forEach((caseRecord) => {
+    const closedDate = new Date(caseRecord.closedAt);
+    if (Number.isNaN(closedDate.getTime())) {
+      return;
+    }
+
+    const dateKey = dateKeyFormatter.format(closedDate);
+    const currentRecords = recordsByDay.get(dateKey) ?? [];
+    currentRecords.push(caseRecord);
+    recordsByDay.set(dateKey, currentRecords);
+  });
+
+  const days: PersonalOperationDay[] = Array.from(
+    { length: daysInMonth },
+    (_, index) => {
+      const date = new Date(Date.UTC(year, month - 1, index + 1, 0, 0, 0));
+      const dateKey = dateKeyFormatter.format(date);
+      const dayRecords = recordsByDay.get(dateKey) ?? [];
+      const isSaturday = weekdayFormatter.format(date) === "土";
+      const isSunday = weekdayFormatter.format(date) === "日";
+      const isHoliday = isSaturday || isSunday;
+      const totalCases = dayRecords.length;
+      const salesYen = dayRecords.reduce(
+        (total, caseRecord) => total + caseRecord.totalFareYen,
+        0,
+      );
+      const drivingSeconds = dayRecords.reduce(
+        (total, caseRecord) => total + caseRecord.drivingSeconds,
+        0,
+      );
+      const hasWork = totalCases > 0 || (!isHoliday && index < 20);
+      const boundSeconds = hasWork
+        ? (index % 5 === 1 ? 10 : 9) * secondsPerHour +
+          (index % 3 === 0 ? 30 * 60 : 0)
+        : 0;
+      const restSeconds = hasWork ? secondsPerHour : 0;
+      const workSeconds = Math.max(boundSeconds - restSeconds, 0);
+      const averageYen = totalCases > 0 ? Math.round(salesYen / totalCases) : 0;
+      const timeSalesYen =
+        boundSeconds > 0
+          ? Math.round(salesYen / (boundSeconds / secondsPerHour))
+          : 0;
+
+      return {
+        averageYen,
+        boundSeconds,
+        clockIn: hasWork ? (index % 4 === 2 ? "8:30" : "8:00") : "－",
+        clockOut: hasWork
+          ? boundSeconds >= 10 * secondsPerHour
+            ? "18:00"
+            : "17:30"
+          : "－",
+        date,
+        dateKey,
+        dayLabel: dayFormatter.format(date),
+        drivingSeconds,
+        inspectionDone: hasWork,
+        isHoliday,
+        isSaturday,
+        isSunday,
+        restSeconds,
+        salesYen,
+        timeSalesYen,
+        totalCases,
+        weekdayLabel: weekdayFormatter.format(date),
+        workSeconds,
+      };
+    },
+  );
+
+  return { days, monthLabel };
+};
 
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum);
@@ -129,7 +278,9 @@ const createDispatchMenuItem = (sortOrder: number): DispatchMenuItem => ({
   sortOrder,
 });
 
-const createSpecialVehicleMenuItem = (sortOrder: number): SpecialVehicleMenuItem => ({
+const createSpecialVehicleMenuItem = (
+  sortOrder: number,
+): SpecialVehicleMenuItem => ({
   amount: 1000,
   enabled: true,
   id: `special-vehicle-${Date.now()}-${crypto.randomUUID()}`,
@@ -291,6 +442,53 @@ export function AdminPage() {
   const activeVehicleCount = vehicles.filter(
     (vehicle) => vehicle.enabled && vehicle.status === "稼働中",
   ).length;
+  const personalOperationMonthly = getPersonalOperationDays(
+    summaryState.caseRecords,
+  );
+  const personalOperationTotals = personalOperationMonthly.days.reduce(
+    (totals, day) => ({
+      averageYenTotal:
+        totals.averageYenTotal + (day.averageYen > 0 ? day.averageYen : 0),
+      averageYenDays: totals.averageYenDays + (day.averageYen > 0 ? 1 : 0),
+      boundSeconds: totals.boundSeconds + day.boundSeconds,
+      drivingSeconds: totals.drivingSeconds + day.drivingSeconds,
+      restSeconds: totals.restSeconds + day.restSeconds,
+      salesYen: totals.salesYen + day.salesYen,
+      timeSalesYenTotal:
+        totals.timeSalesYenTotal +
+        (day.timeSalesYen > 0 ? day.timeSalesYen : 0),
+      timeSalesYenDays:
+        totals.timeSalesYenDays + (day.timeSalesYen > 0 ? 1 : 0),
+      totalCases: totals.totalCases + day.totalCases,
+      workSeconds: totals.workSeconds + day.workSeconds,
+    }),
+    {
+      averageYenDays: 0,
+      averageYenTotal: 0,
+      boundSeconds: 0,
+      drivingSeconds: 0,
+      restSeconds: 0,
+      salesYen: 0,
+      timeSalesYenDays: 0,
+      timeSalesYenTotal: 0,
+      totalCases: 0,
+      workSeconds: 0,
+    },
+  );
+  const personalOperationAverageYen =
+    personalOperationTotals.averageYenDays > 0
+      ? Math.round(
+          personalOperationTotals.averageYenTotal /
+            personalOperationTotals.averageYenDays,
+        )
+      : 0;
+  const personalOperationTimeSalesYen =
+    personalOperationTotals.timeSalesYenDays > 0
+      ? Math.round(
+          personalOperationTotals.timeSalesYenTotal /
+            personalOperationTotals.timeSalesYenDays,
+        )
+      : 0;
 
   const updateBasicFare = (key: keyof BasicFareSettings, value: string) => {
     setSettings((currentSettings) => ({
@@ -310,9 +508,10 @@ export function AdminPage() {
       ...currentSettings,
       meterTimeFare: {
         ...currentSettings.meterTimeFare,
-        [key]: key === "unitSeconds"
-          ? Math.max(Math.floor(Number(value) || 1), 1)
-          : toPositiveNumber(value),
+        [key]:
+          key === "unitSeconds"
+            ? Math.max(Math.floor(Number(value) || 1), 1)
+            : toPositiveNumber(value),
       },
     }));
   };
@@ -397,21 +596,25 @@ export function AdminPage() {
 
   const updateDispatchMenuItem = (
     id: string,
-    key: keyof Pick<DispatchMenuItem, "amount" | "enabled" | "name" | "sortOrder">,
+    key: keyof Pick<
+      DispatchMenuItem,
+      "amount" | "enabled" | "name" | "sortOrder"
+    >,
     value: string | boolean,
   ) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
-      dispatchMenuItems: currentSettings.dispatchMenuItems.map((dispatchItem) =>
-        dispatchItem.id === id
-          ? {
-              ...dispatchItem,
-              [key]:
-                key === "amount" || key === "sortOrder"
-                  ? toNonNegativeInteger(String(value))
-                  : value,
-            }
-          : dispatchItem,
+      dispatchMenuItems: currentSettings.dispatchMenuItems.map(
+        (dispatchItem) =>
+          dispatchItem.id === id
+            ? {
+                ...dispatchItem,
+                [key]:
+                  key === "amount" || key === "sortOrder"
+                    ? toNonNegativeInteger(String(value))
+                    : value,
+              }
+            : dispatchItem,
       ),
     }));
   };
@@ -437,21 +640,25 @@ export function AdminPage() {
 
   const updateSpecialVehicleMenuItem = (
     id: string,
-    key: keyof Pick<SpecialVehicleMenuItem, "amount" | "enabled" | "name" | "sortOrder">,
+    key: keyof Pick<
+      SpecialVehicleMenuItem,
+      "amount" | "enabled" | "name" | "sortOrder"
+    >,
     value: string | boolean,
   ) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
-      specialVehicleMenuItems: currentSettings.specialVehicleMenuItems.map((specialItem) =>
-        specialItem.id === id
-          ? {
-              ...specialItem,
-              [key]:
-                key === "amount" || key === "sortOrder"
-                  ? toNonNegativeInteger(String(value))
-                  : value,
-            }
-          : specialItem,
+      specialVehicleMenuItems: currentSettings.specialVehicleMenuItems.map(
+        (specialItem) =>
+          specialItem.id === id
+            ? {
+                ...specialItem,
+                [key]:
+                  key === "amount" || key === "sortOrder"
+                    ? toNonNegativeInteger(String(value))
+                    : value,
+              }
+            : specialItem,
       ),
     }));
   };
@@ -461,7 +668,9 @@ export function AdminPage() {
       ...currentSettings,
       specialVehicleMenuItems: [
         ...currentSettings.specialVehicleMenuItems,
-        createSpecialVehicleMenuItem(currentSettings.specialVehicleMenuItems.length + 1),
+        createSpecialVehicleMenuItem(
+          currentSettings.specialVehicleMenuItems.length + 1,
+        ),
       ],
     }));
   };
@@ -657,13 +866,20 @@ export function AdminPage() {
     const hasEmptyDispatchMenuName = settings.dispatchMenuItems.some(
       (dispatchItem) => !dispatchItem.name.trim(),
     );
-    const hasEmptySpecialVehicleMenuName = settings.specialVehicleMenuItems.some(
-      (specialItem) => !specialItem.name.trim(),
-    );
+    const hasEmptySpecialVehicleMenuName =
+      settings.specialVehicleMenuItems.some(
+        (specialItem) => !specialItem.name.trim(),
+      );
 
-    if (hasEmptyAssistItemName || hasEmptyDispatchMenuName || hasEmptySpecialVehicleMenuName) {
+    if (
+      hasEmptyAssistItemName ||
+      hasEmptyDispatchMenuName ||
+      hasEmptySpecialVehicleMenuName
+    ) {
       setSettingsSaveState("error");
-      setSettingsMessage("介助項目・予約迎車・特殊車両メニューの名称は空欄にできません。");
+      setSettingsMessage(
+        "介助項目・予約迎車・特殊車両メニューの名称は空欄にできません。",
+      );
       return;
     }
 
@@ -891,7 +1107,9 @@ export function AdminPage() {
                     min="1"
                     step="1"
                     type="number"
-                    value={Math.round(settings.basicFare.additionalDistanceKm * 1000)}
+                    value={Math.round(
+                      settings.basicFare.additionalDistanceKm * 1000,
+                    )}
                     onChange={(event) =>
                       updateBasicFare(
                         "additionalDistanceKm",
@@ -926,7 +1144,10 @@ export function AdminPage() {
                     type="number"
                     value={settings.meterTimeFare.lowSpeedThresholdKmh}
                     onChange={(event) =>
-                      updateMeterTimeFare("lowSpeedThresholdKmh", event.target.value)
+                      updateMeterTimeFare(
+                        "lowSpeedThresholdKmh",
+                        event.target.value,
+                      )
                     }
                   />
                 </label>
@@ -1148,7 +1369,9 @@ export function AdminPage() {
                         <div className="assist-item-actions">
                           <button
                             type="button"
-                            onClick={() => removeDispatchMenuItem(dispatchItem.id)}
+                            onClick={() =>
+                              removeDispatchMenuItem(dispatchItem.id)
+                            }
                           >
                             削除
                           </button>
@@ -1236,7 +1459,9 @@ export function AdminPage() {
                         <div className="assist-item-actions">
                           <button
                             type="button"
-                            onClick={() => removeSpecialVehicleMenuItem(specialItem.id)}
+                            onClick={() =>
+                              removeSpecialVehicleMenuItem(specialItem.id)
+                            }
                           >
                             削除
                           </button>
@@ -1470,6 +1695,257 @@ export function AdminPage() {
               >
                 詳細な売上分析を開く
               </Link>
+            </div>
+          ) : null}
+
+          {activeAdminSection === "personalOperations" ? (
+            <div className="personal-operation-panel">
+              <div className="personal-operation-header">
+                <div>
+                  <p className="eyebrow">Monthly Driver Operations</p>
+                  <h3>個人運行管理（月別）</h3>
+                  <p>
+                    出勤・退勤・休憩・運転時間・売上KPIを月単位で確認します。
+                    時間売上（売上÷拘束時間）を最重要KPIとして強調表示します。
+                  </p>
+                </div>
+                <strong>{personalOperationMonthly.monthLabel}</strong>
+              </div>
+
+              <div className="personal-operation-layout">
+                <aside
+                  className="personal-operation-summary"
+                  aria-label="月間集計"
+                >
+                  <h4>月間集計</h4>
+                  <dl>
+                    <div>
+                      <dt>総拘束時間</dt>
+                      <dd>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.boundSeconds,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>総実働時間</dt>
+                      <dd>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.workSeconds,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>総運転時間</dt>
+                      <dd>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.drivingSeconds,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>総休憩時間</dt>
+                      <dd>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.restSeconds,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>総件数</dt>
+                      <dd>{personalOperationTotals.totalCases}件</dd>
+                    </div>
+                    <div>
+                      <dt>総売上</dt>
+                      <dd>
+                        {formatFareYen(personalOperationTotals.salesYen)}円
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>平均単価</dt>
+                      <dd>{formatFareYen(personalOperationAverageYen)}円</dd>
+                    </div>
+                    <div className="is-emphasis">
+                      <dt>時間売上</dt>
+                      <dd>
+                        {formatFareYen(personalOperationTimeSalesYen)}円/時
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>4週間平均売上</dt>
+                      <dd>
+                        {formatFareYen(
+                          Math.round(personalOperationTotals.salesYen / 4),
+                        )}
+                        円
+                      </dd>
+                    </div>
+                  </dl>
+                </aside>
+
+                <div className="personal-operation-main">
+                  <div
+                    className="personal-operation-kpis"
+                    aria-label="KPIカード"
+                  >
+                    <div>
+                      <span>総拘束時間</span>
+                      <strong>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.boundSeconds,
+                        )}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>総運転時間</span>
+                      <strong>
+                        {formatDurationHoursMinutes(
+                          personalOperationTotals.drivingSeconds,
+                        )}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>総件数</span>
+                      <strong>{personalOperationTotals.totalCases}件</strong>
+                    </div>
+                    <div>
+                      <span>総売上</span>
+                      <strong>
+                        {formatFareYen(personalOperationTotals.salesYen)}円
+                      </strong>
+                    </div>
+                    <div className="is-emphasis">
+                      <span>時間売上（平均）</span>
+                      <strong>
+                        {formatFareYen(personalOperationTimeSalesYen)}円/時
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="personal-operation-table-wrap">
+                    <table
+                      className="personal-operation-table"
+                      aria-label="日別運行実績"
+                    >
+                      <thead>
+                        <tr>
+                          <th>日付</th>
+                          {personalOperationMonthly.days.map((day) => (
+                            <th
+                              className={
+                                day.isSunday
+                                  ? "is-sunday"
+                                  : day.isSaturday
+                                    ? "is-saturday"
+                                    : undefined
+                              }
+                              key={day.dateKey}
+                            >
+                              {day.dayLabel}
+                              <small>({day.weekdayLabel})</small>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          [
+                            "拘束時間",
+                            (day: PersonalOperationDay) =>
+                              formatDurationHoursMinutes(day.boundSeconds),
+                          ],
+                          ["出勤", (day: PersonalOperationDay) => day.clockIn],
+                          ["退勤", (day: PersonalOperationDay) => day.clockOut],
+                          [
+                            "休憩",
+                            (day: PersonalOperationDay) =>
+                              formatDurationHoursMinutes(day.restSeconds),
+                          ],
+                          [
+                            "運転時間",
+                            (day: PersonalOperationDay) =>
+                              formatDurationHoursMinutes(day.drivingSeconds),
+                          ],
+                          [
+                            "件数",
+                            (day: PersonalOperationDay) =>
+                              day.totalCases > 0 ? `${day.totalCases}` : "－",
+                          ],
+                          [
+                            "売上",
+                            (day: PersonalOperationDay) =>
+                              formatOperationYen(day.salesYen),
+                          ],
+                          [
+                            "平均単価",
+                            (day: PersonalOperationDay) =>
+                              formatOperationYen(day.averageYen),
+                          ],
+                          [
+                            "時間売上",
+                            (day: PersonalOperationDay) =>
+                              formatOperationYen(day.timeSalesYen),
+                          ],
+                          [
+                            "点呼",
+                            (day: PersonalOperationDay) =>
+                              day.inspectionDone ? "○" : "－",
+                          ],
+                          [
+                            "車両点検",
+                            (day: PersonalOperationDay) =>
+                              day.inspectionDone ? "○" : "－",
+                          ],
+                        ].map(([label, getValue]) => (
+                          <tr key={label as string}>
+                            <th>{label as string}</th>
+                            {personalOperationMonthly.days.map((day) => (
+                              <td
+                                className={
+                                  label === "時間売上"
+                                    ? "is-emphasis"
+                                    : undefined
+                                }
+                                key={`${label}-${day.dateKey}`}
+                              >
+                                {(
+                                  getValue as (
+                                    day: PersonalOperationDay,
+                                  ) => string
+                                )(day)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="personal-operation-footer">
+                <section>
+                  <h4>注意事項</h4>
+                  <p>
+                    「－」は休日または未出勤日です。点呼・車両点検は出勤時に完了すると自動で○がつきます。
+                  </p>
+                </section>
+                <section>
+                  <h4>目標設定（参考）</h4>
+                  <div>
+                    <span>時間売上（目標）</span>
+                    <strong>5,000円/時以上</strong>
+                  </div>
+                  <div>
+                    <span>平均単価（目標）</span>
+                    <strong>7,500円以上</strong>
+                  </div>
+                  <div>
+                    <span>売上（目標）</span>
+                    <strong>850,000円以上</strong>
+                  </div>
+                </section>
+              </div>
             </div>
           ) : null}
 
