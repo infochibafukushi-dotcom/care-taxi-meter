@@ -66,6 +66,20 @@ function drawLine(
   context.restore()
 }
 
+const formatPaymentDetails = (caseRecord: StoredCaseRecord) =>
+  caseRecord.payments.length > 0
+    ? caseRecord.payments
+        .map((payment) => `${payment.type} ${formatFareYen(payment.amount)}円`)
+        .join(' / ')
+    : caseRecord.paymentMethod
+
+const formatTaxiTicketDetails = (caseRecord: StoredCaseRecord) =>
+  caseRecord.taxiTickets.length > 0
+    ? caseRecord.taxiTickets
+        .map((ticket) => `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'} ${formatFareYen(ticket.amount)}円`)
+        .join(' / ')
+    : '未使用'
+
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   const careOptionLines =
     caseRecord.assistCharges.length > 0
@@ -88,15 +102,21 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
 
   return [
     { label: '案件番号', value: caseRecord.caseNumber },
+    { label: '宛名', value: caseRecord.receiptName || '未入力' },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
     { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
+    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,
+    { label: '障害者割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
+    { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
+    { label: 'タクシー券適用額', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` },
     { label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` },
     { label: '合計金額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
     { label: '支払方法', value: caseRecord.paymentMethod },
+    { label: '支払内訳', value: formatPaymentDetails(caseRecord) },
   ]
 }
 

@@ -7,23 +7,29 @@ import {
   getFirestore,
   orderBy,
   query,
+  runTransaction,
   where,
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
 import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import type { FareBreakdown } from './fare'
-import type { ExpenseItem, PaymentMethod, SelectedCareOption } from '../types/case'
+import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
+import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket } from '../types/case'
 import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
+import type { ExpensePreset } from './meterSettings'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
-import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import { defaultStoreId, getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
 
 export type CaseRecordInput = {
   caseNumber: string
+  caseDate?: string
+  storeCode?: string
+  dailySequence?: number
+  fareSnapshot?: FareSnapshot | null
   closedAt: string
   startedAt: string
   endedAt: string
@@ -35,6 +41,9 @@ export type CaseRecordInput = {
   vehicle?: Vehicle | null
   fareBreakdown: FareBreakdown
   paymentMethod: PaymentMethod
+  payments?: PaymentAllocation[]
+  receiptName?: string
+  taxiTickets?: TaxiTicket[]
   pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
   selectedDispatchCharges?: SelectedCareOption[]
@@ -52,9 +61,54 @@ export type CaseRecordChangeEntry = {
   nextValue: string
 }
 
+export type FareSnapshot = {
+  basicFare: BasicFareSettings
+  meterTimeFare: MeterTimeFareSettings
+  waitingFare: TimeFareSettings
+  escortFare: TimeFareSettings
+  midnightEarlyMorning: {
+    enabled: boolean
+    startTime: string
+    endTime: string
+    surchargeRate: number
+    appliesTo: string[]
+  }
+  timeSpecificFare: {
+    enabled: boolean
+    fixedFareYen: number
+    timeBands: Array<{ startTime: string; endTime: string; fareYen: number }>
+  }
+  disabilityDiscount: {
+    enabled: boolean
+    discountRate: number
+    appliesTo: string[]
+    rounding: 'floorToTenYen'
+  }
+  taxiVoucher: {
+    multipleAllowed: boolean
+    storesVoucherNumber: boolean
+    storesMunicipalityName: boolean
+  }
+  dispatchMenuItems: DispatchMenuItem[]
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
+  assistItems: CareOptionMasterItem[]
+  expensePresets: Array<ExpensePreset & { amount: number; enabled: boolean; sortOrder: number }>
+  capturedAt: string
+}
+
+export type CaseNumberAssignment = {
+  caseNumber: string
+  caseDate: string
+  dailySequence: number
+  storeCode: string
+}
+
 export type CaseRecordDocument = {
   caseNumber: string
   caseDate?: string
+  storeCode: string
+  dailySequence: number
+  fareSnapshot?: FareSnapshot | null
   closedAt: string
   startedAt: string
   endedAt: string
@@ -78,12 +132,22 @@ export type CaseRecordDocument = {
   dispatchFareYen: number
   specialVehicleFareYen: number
   basicFareYen: number
+  meterTimeFareYen: number
   waitingFareYen: number
   escortFareYen: number
   careOptionFareYen: number
   expenseFareYen: number
   totalFareYen: number
+  grossFareYen: number
+  discountableFareYen: number
+  isDisabilityDiscount: boolean
+  disabilityDiscountRate: number
+  disabilityDiscountAmount: number
+  taxiTicketAmountYen: number
+  taxiTickets: TaxiTicket[]
   paymentMethod: string
+  payments: PaymentAllocation[]
+  receiptName: string
   customerName: string
   remarks: string
   status: CaseRecordStatus
@@ -197,6 +261,37 @@ const toExpenseCharges = (value: unknown): ExpenseCharge[] =>
         .filter((item): item is ExpenseCharge => Boolean(item))
     : []
 
+const toTaxiTickets = (value: unknown): TaxiTicket[] =>
+  Array.isArray(value)
+    ? value
+        .map((item, index) => {
+          const source = toObject(item)
+          const municipality = toString(source.municipality)
+          const ticketNumber = toString(source.ticketNumber)
+          const amount = Math.max(Math.round(toNumber(source.amount)), 0)
+          const id = toString(source.id) || `taxi-ticket-${index}`
+
+          return municipality && amount > 0
+            ? { amount, id, municipality, ticketNumber }
+            : null
+        })
+        .filter((item): item is TaxiTicket => Boolean(item))
+    : []
+
+const toPaymentAllocations = (value: unknown): PaymentAllocation[] =>
+  Array.isArray(value)
+    ? value
+        .map((item, index) => {
+          const source = toObject(item)
+          const type = toString(source.type) as PaymentMethod
+          const amount = Math.max(Math.round(toNumber(source.amount)), 0)
+          const id = toString(source.id) || `payment-${index}`
+
+          return type && amount > 0 ? { amount, id, type } : null
+        })
+        .filter((item): item is PaymentAllocation => Boolean(item))
+    : []
+
 
 const toChangeHistory = (value: unknown): CaseRecordChangeEntry[] =>
   Array.isArray(value)
@@ -221,6 +316,142 @@ const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
+const toBoolean = (value: unknown, fallback = false) =>
+  typeof value === 'boolean' ? value : fallback
+
+const toStringArray = (value: unknown, fallback: string[]) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : fallback
+
+const toBasicFareSnapshot = (value: unknown): BasicFareSettings | null => {
+  const source = toObject(value)
+  const initialDistanceKm = toNumber(source.initialDistanceKm)
+  const initialFareYen = toNumber(source.initialFareYen)
+  const additionalDistanceKm = toNumber(source.additionalDistanceKm)
+  const additionalFareYen = toNumber(source.additionalFareYen)
+
+  return initialDistanceKm > 0 || initialFareYen > 0 || additionalDistanceKm > 0 || additionalFareYen > 0
+    ? { additionalDistanceKm, additionalFareYen, initialDistanceKm, initialFareYen }
+    : null
+}
+
+const toTimeFareSnapshot = (value: unknown): TimeFareSettings | null => {
+  const source = toObject(value)
+  const unitSeconds = toNumber(source.unitSeconds)
+  const unitFareYen = toNumber(source.unitFareYen)
+
+  return unitSeconds > 0 || unitFareYen > 0 ? { unitFareYen, unitSeconds } : null
+}
+
+const toMeterTimeFareSnapshot = (value: unknown): MeterTimeFareSettings | null => {
+  const source = toObject(value)
+  const baseTimeFare = toTimeFareSnapshot(source)
+
+  return baseTimeFare
+    ? {
+        ...baseTimeFare,
+        lowSpeedThresholdKmh: toNumber(source.lowSpeedThresholdKmh),
+      }
+    : null
+}
+
+const toSnapshotMenuItems = (value: unknown): CareOptionMasterItem[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const id = toString(source.id)
+          const name = toString(source.name)
+
+          return id && name
+            ? {
+                amount: toNumber(source.amount),
+                enabled: toBoolean(source.enabled, true),
+                id,
+                name,
+                sortOrder: toNumber(source.sortOrder),
+              }
+            : null
+        })
+        .filter((item): item is CareOptionMasterItem => Boolean(item))
+    : []
+
+const toSnapshotExpensePresets = (value: unknown): FareSnapshot['expensePresets'] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const id = toString(source.id)
+          const name = toString(source.name)
+          const defaultAmountYen = toNumber(source.defaultAmountYen ?? source.amount)
+
+          return id && name
+            ? {
+                amount: toNumber(source.amount ?? defaultAmountYen),
+                defaultAmountYen,
+                enabled: toBoolean(source.enabled, true),
+                id,
+                name,
+                sortOrder: toNumber(source.sortOrder),
+              }
+            : null
+        })
+        .filter((item): item is FareSnapshot['expensePresets'][number] => Boolean(item))
+    : []
+
+const toFareSnapshot = (value: unknown): FareSnapshot | null => {
+  const source = toObject(value)
+  const basicFare = toBasicFareSnapshot(source.basicFare)
+  const meterTimeFare = toMeterTimeFareSnapshot(source.meterTimeFare)
+  const waitingFare = toTimeFareSnapshot(source.waitingFare)
+  const escortFare = toTimeFareSnapshot(source.escortFare)
+
+  if (!basicFare || !meterTimeFare || !waitingFare || !escortFare) {
+    return null
+  }
+
+  const midnightEarlyMorning = toObject(source.midnightEarlyMorning)
+  const timeSpecificFare = toObject(source.timeSpecificFare)
+  const disabilityDiscount = toObject(source.disabilityDiscount)
+  const taxiVoucher = toObject(source.taxiVoucher)
+
+  return {
+    assistItems: toSnapshotMenuItems(source.assistItems),
+    basicFare,
+    capturedAt: toString(source.capturedAt),
+    disabilityDiscount: {
+      appliesTo: toStringArray(disabilityDiscount.appliesTo, ['basicFare', 'meterTimeFare']),
+      discountRate: toNumber(disabilityDiscount.discountRate),
+      enabled: toBoolean(disabilityDiscount.enabled),
+      rounding: 'floorToTenYen',
+    },
+    dispatchMenuItems: toSnapshotMenuItems(source.dispatchMenuItems),
+    escortFare,
+    expensePresets: toSnapshotExpensePresets(source.expensePresets),
+    meterTimeFare,
+    midnightEarlyMorning: {
+      appliesTo: toStringArray(midnightEarlyMorning.appliesTo, ['basicFare', 'meterTimeFare']),
+      enabled: toBoolean(midnightEarlyMorning.enabled),
+      endTime: toString(midnightEarlyMorning.endTime),
+      startTime: toString(midnightEarlyMorning.startTime),
+      surchargeRate: toNumber(midnightEarlyMorning.surchargeRate),
+    },
+    specialVehicleMenuItems: toSnapshotMenuItems(source.specialVehicleMenuItems),
+    taxiVoucher: {
+      multipleAllowed: toBoolean(taxiVoucher.multipleAllowed, true),
+      storesMunicipalityName: toBoolean(taxiVoucher.storesMunicipalityName, true),
+      storesVoucherNumber: toBoolean(taxiVoucher.storesVoucherNumber, true),
+    },
+    timeSpecificFare: {
+      enabled: toBoolean(timeSpecificFare.enabled),
+      fixedFareYen: toNumber(timeSpecificFare.fixedFareYen),
+      timeBands: [],
+    },
+    waitingFare,
+  }
+}
+
 const toJapanDateInputValue = (dateValue: string) => {
   const date = new Date(dateValue)
   return Number.isNaN(date.getTime()) ? '' : dateInputFormatter.format(date)
@@ -234,8 +465,11 @@ const toStoredCaseRecord = (
   return {
     id: snapshot.id,
     caseNumber:
-      typeof data.caseNumber === 'string' ? data.caseNumber : snapshot.id,
+      typeof data.caseNumber === 'string' && data.caseNumber.trim() ? data.caseNumber : snapshot.id,
     caseDate: toString(data.caseDate),
+    storeCode: toString(data.storeCode),
+    dailySequence: Math.max(Math.floor(toNumber(data.dailySequence)), 0),
+    fareSnapshot: toFareSnapshot(data.fareSnapshot),
     closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
     createdAt: toIsoString(data.createdAt) || toIsoString(data.savedAt),
     startedAt: toString(data.startedAt),
@@ -260,12 +494,22 @@ const toStoredCaseRecord = (
     dispatchFareYen: toNumber(data.dispatchFareYen),
     specialVehicleFareYen: toNumber(data.specialVehicleFareYen),
     basicFareYen: toNumber(data.basicFareYen),
+    meterTimeFareYen: toNumber(data.meterTimeFareYen),
     waitingFareYen: toNumber(data.waitingFareYen),
     escortFareYen: toNumber(data.escortFareYen),
     careOptionFareYen: toNumber(data.careOptionFareYen),
     expenseFareYen: toNumber(data.expenseFareYen),
     totalFareYen: toNumber(data.totalFareYen),
+    grossFareYen: toNumber(data.grossFareYen),
+    discountableFareYen: toNumber(data.discountableFareYen),
+    isDisabilityDiscount: toBoolean(data.isDisabilityDiscount),
+    disabilityDiscountRate: toNumber(data.disabilityDiscountRate),
+    disabilityDiscountAmount: toNumber(data.disabilityDiscountAmount),
+    taxiTicketAmountYen: toNumber(data.taxiTicketAmountYen),
+    taxiTickets: toTaxiTickets(data.taxiTickets),
     paymentMethod: toPaymentMethod(data.paymentMethod),
+    payments: toPaymentAllocations(data.payments),
+    receiptName: toString(data.receiptName),
     customerName: toString(data.customerName),
     remarks: toString(data.remarks),
     status: toCaseRecordStatus(data.status),
@@ -295,8 +539,77 @@ function getCaseRecordsCollection() {
   return collection(db, caseRecordsCollectionName)
 }
 
+const caseCountersCollectionName = 'caseCounters'
+
+const caseNumberDateKeyFormatter = new Intl.DateTimeFormat('sv-SE', {
+  day: '2-digit',
+  month: '2-digit',
+  timeZone: 'Asia/Tokyo',
+  year: '2-digit',
+})
+
+const createCaseNumberDateKey = (date = new Date()) =>
+  caseNumberDateKeyFormatter.format(date).replaceAll('-', '')
+
+// 店舗コードが未設定の既存データに対応するため、店舗ID/店舗名から英数字のみを抽出し、
+// 先頭5文字を店舗コードとして使う。抽出できない場合は STORE をfallbackにする。
+export const deriveStoreCode = (storeId: string, storeName = '') => {
+  const normalizedSource = (storeId || storeName || 'STORE')
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9]/g, '')
+
+  return (normalizedSource || 'STORE').slice(0, 5).padEnd(5, '0')
+}
+
+export async function generateCaseNumber({
+  franchiseeId = '',
+  storeId,
+  storeName = '',
+}: {
+  franchiseeId?: string
+  storeId: string
+  storeName?: string
+}): Promise<CaseNumberAssignment> {
+  const db = getFirestore(getFirebaseApp())
+  const dateKey = createCaseNumberDateKey()
+  const safeStoreId = storeId || defaultStoreId
+  const storeCode = deriveStoreCode(safeStoreId, storeName)
+  const counterRef = doc(db, caseCountersCollectionName, `${safeStoreId}_${dateKey}`)
+
+  const dailySequence = await runTransaction(db, async (transaction) => {
+    const counterSnapshot = await transaction.get(counterRef)
+    const currentSequence = counterSnapshot.exists()
+      ? Math.max(Math.floor(toNumber(counterSnapshot.data().currentSequence)), 0)
+      : 0
+    const nextSequence = currentSequence + 1
+
+    transaction.set(counterRef, {
+      companyId: franchiseeId,
+      currentSequence: nextSequence,
+      dateKey,
+      franchiseeId,
+      storeCode,
+      storeId: safeStoreId,
+      updatedAt: serverTimestamp(),
+    }, { merge: true })
+
+    return nextSequence
+  })
+
+  return {
+    caseDate: toJapanDateInputValue(new Date().toISOString()),
+    caseNumber: `${dateKey}-${storeCode}-${String(dailySequence).padStart(4, '0')}`,
+    dailySequence,
+    storeCode,
+  }
+}
+
 export async function saveCaseRecord({
   caseNumber,
+  caseDate,
+  storeCode = '',
+  dailySequence = 0,
+  fareSnapshot = null,
   closedAt,
   startedAt,
   endedAt,
@@ -308,6 +621,9 @@ export async function saveCaseRecord({
   vehicle = null,
   fareBreakdown,
   paymentMethod,
+  payments = [],
+  receiptName = '',
+  taxiTickets = [],
   pickupLocation,
   selectedCareOptions,
   selectedDispatchCharges = [],
@@ -317,7 +633,10 @@ export async function saveCaseRecord({
 }: CaseRecordInput) {
   const record: CaseRecordDocument = {
     caseNumber,
-    caseDate: toJapanDateInputValue(closedAt),
+    caseDate: caseDate || toJapanDateInputValue(closedAt),
+    storeCode,
+    dailySequence: Math.max(Math.floor(dailySequence), 0),
+    fareSnapshot,
     closedAt,
     startedAt,
     endedAt,
@@ -341,13 +660,23 @@ export async function saveCaseRecord({
     dispatchFareYen: fareBreakdown.dispatchFareYen,
     specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
     basicFareYen: fareBreakdown.basicFareYen,
+    meterTimeFareYen: fareBreakdown.meterTimeFareYen,
     waitingFareYen: fareBreakdown.waitingFareYen,
     escortFareYen: fareBreakdown.escortFareYen,
     careOptionFareYen: fareBreakdown.careOptionFareYen,
     expenseFareYen: fareBreakdown.expenseFareYen,
     totalFareYen: fareBreakdown.totalFareYen,
+    grossFareYen: fareBreakdown.grossFareYen,
+    discountableFareYen: fareBreakdown.discountableFareYen,
+    isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
+    disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
+    disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+    taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
+    taxiTickets,
     paymentMethod,
-    customerName: '',
+    payments,
+    receiptName,
+    customerName: receiptName,
     remarks: '',
     status: 'completed',
     deleted: false,
