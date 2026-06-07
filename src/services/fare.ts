@@ -242,6 +242,7 @@ export function calculateFareBreakdown({
       { label: "予約・迎車料金", amountYen: dispatchFareYen },
       { label: "特殊車両料金", amountYen: specialVehicleFareYen },
       { label: "基本運賃", amountYen: basicFareYen },
+      { label: "時間距離併用運賃", amountYen: meterTimeFareYen },
       { label: "介助料金", amountYen: careOptionFareYen },
       { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },

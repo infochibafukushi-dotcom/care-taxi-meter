@@ -91,6 +91,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
     { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
+    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,

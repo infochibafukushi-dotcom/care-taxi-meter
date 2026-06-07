@@ -77,6 +77,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /caseCounters/{caseCounterId} {
+      allow read, write: if isHqAdmin();
+      allow read: if signedIn();
+      allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isStoreManager() && sameStore(resource.data);
+      allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isDriver() && sameStore(resource.data);
+      allow create, update: if isDriver() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow delete: if false;
+    }
+
     match /caseRecords/{caseRecordId} {
       allow read, write: if isHqAdmin();
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);

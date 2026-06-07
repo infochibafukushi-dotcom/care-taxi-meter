@@ -471,7 +471,11 @@ export function CaseDetailPage() {
                 <strong>{formatFareYen(caseRecord.basicFareYen)}円</strong>
               </div>
               <div>
-                <span>時間加算</span>
+                <span>時間距離併用運賃</span>
+                <strong>{formatFareYen(caseRecord.meterTimeFareYen)}円</strong>
+              </div>
+              <div>
+                <span>待機/付き添い料金</span>
                 <strong>{formatFareYen(caseRecord.waitingFareYen + caseRecord.escortFareYen)}円</strong>
               </div>
               <div className="case-detail-assist-charges">
