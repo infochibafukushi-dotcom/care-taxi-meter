@@ -51,4 +51,8 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
 export const canManageCaseRecord = (role: StaffRole | '') =>
   ['manager', 'owner', 'superAdmin'].includes(role)
 
+export const canCancelCaseRecord = (role: StaffRole | '') =>
+  ['driver', 'manager', 'owner', 'superAdmin'].includes(role)
+
 export const canDeleteCaseRecord = canManageCaseRecord
+export const canRestoreCaseRecord = canManageCaseRecord

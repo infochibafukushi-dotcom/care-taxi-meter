@@ -49,6 +49,19 @@ export type ExpenseItem = {
 
 export type PaymentMethod = '現金' | 'クレジット' | 'QR決済' | '請求書' | 'その他'
 
+export type TaxiTicket = {
+  amount: number
+  id: string
+  municipality: string
+  ticketNumber: string
+}
+
+export type PaymentAllocation = {
+  amount: number
+  id: string
+  type: PaymentMethod
+}
+
 export type MeterMetric = {
   label: string
   value: string

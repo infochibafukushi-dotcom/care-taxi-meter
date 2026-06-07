@@ -5,6 +5,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantScopeFromSession } from '../services/tenancy'
+import { canManageCaseRecord } from '../types/permissions'
 import {
   calculateTodayCaseSummary,
   formatCaseDateTime,
@@ -19,6 +20,8 @@ const formatOptionalDateTime = (dateTime: string) =>
 const formatOptionalText = (value: string) =>
   value.trim() ? value : '未設定'
 
+type CaseRecordStatusFilter = 'normal' | 'canceled' | 'deleted'
+
 type CaseRecordsState = {
   caseRecords: StoredCaseRecord[]
   errorMessage: string
@@ -28,6 +31,11 @@ type CaseRecordsState = {
 export function CaseListPage() {
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
+  const currentRole = workSession.currentSession?.staffRole ?? ''
+  const canViewDeleted = canManageCaseRecord(currentRole)
+  const [statusFilter, setStatusFilter] = useState<CaseRecordStatusFilter>('normal')
   const [state, setState] = useState<CaseRecordsState>({
     caseRecords: [],
     errorMessage: '',
@@ -37,7 +45,7 @@ export function CaseListPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return
@@ -63,8 +71,19 @@ export function CaseListPage() {
     return () => {
       isMounted = false
     }
-  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
+  const visibleCaseRecords = state.caseRecords.filter((caseRecord) => {
+    if (statusFilter === 'deleted') {
+      return canViewDeleted && caseRecord.deleted
+    }
+
+    if (statusFilter === 'canceled') {
+      return !caseRecord.deleted && caseRecord.status === 'canceled'
+    }
+
+    return !caseRecord.deleted && caseRecord.status !== 'canceled'
+  })
   const todaySummary = calculateTodayCaseSummary(state.caseRecords)
 
   return (
@@ -101,12 +120,30 @@ export function CaseListPage() {
           </p>
         ) : null}
 
-        {!state.isLoading && !state.errorMessage && state.caseRecords.length === 0 ? (
-          <p className="empty-note">保存済み案件はまだありません。</p>
+        <fieldset className="payment-methods" aria-label="状態フィルタ">
+          <legend>状態</legend>
+          <label>
+            <input checked={statusFilter === 'normal'} name="case-status-filter" type="radio" onChange={() => setStatusFilter('normal')} />
+            通常
+          </label>
+          <label>
+            <input checked={statusFilter === 'canceled'} name="case-status-filter" type="radio" onChange={() => setStatusFilter('canceled')} />
+            キャンセル
+          </label>
+          {canViewDeleted ? (
+            <label>
+              <input checked={statusFilter === 'deleted'} name="case-status-filter" type="radio" onChange={() => setStatusFilter('deleted')} />
+              削除済み（監査用）
+            </label>
+          ) : null}
+        </fieldset>
+
+        {!state.isLoading && !state.errorMessage && visibleCaseRecords.length === 0 ? (
+          <p className="empty-note">表示対象の案件はありません。</p>
         ) : null}
 
         <div className="case-record-list" aria-label="保存済み案件">
-          {state.caseRecords.map((caseRecord) => (
+          {visibleCaseRecords.map((caseRecord) => (
             <Link
               className="case-record-row case-record-row--with-addresses"
               key={caseRecord.id}
