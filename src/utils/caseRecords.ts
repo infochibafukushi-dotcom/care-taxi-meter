@@ -4,7 +4,7 @@ export const isCanceledCaseRecord = (caseRecord: StoredCaseRecord) =>
   caseRecord.status === 'canceled'
 
 export const getBillableCaseRecords = (caseRecords: StoredCaseRecord[]) =>
-  caseRecords.filter((caseRecord) => !isCanceledCaseRecord(caseRecord))
+  caseRecords.filter((caseRecord) => !isCanceledCaseRecord(caseRecord) && !caseRecord.deleted)
 
 const japaneseDateTimeFormatter = new Intl.DateTimeFormat('ja-JP', {
   dateStyle: 'medium',

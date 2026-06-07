@@ -110,7 +110,7 @@ export function CaseListPage() {
             >
               <span>
                 <small>案件番号</small>
-                <strong>{caseRecord.caseNumber}</strong>
+                <strong>{caseRecord.deleted ? `【削除済】${caseRecord.caseNumber}` : caseRecord.caseNumber}</strong>
               </span>
               <span>
                 <small>日時</small>
@@ -146,7 +146,7 @@ export function CaseListPage() {
               </span>
               <span>
                 <small>ステータス</small>
-                <strong>{caseRecord.status === 'canceled' ? 'キャンセル済' : '通常'}</strong>
+                <strong>{caseRecord.deleted ? '【削除済】' : caseRecord.status === 'canceled' ? 'キャンセル済' : '通常'}</strong>
               </span>
               <span>
                 <small>支払方法</small>

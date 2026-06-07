@@ -1,5 +1,5 @@
 import type { StaffMember, StaffRole, Store } from '../../types/work'
-import { staffRoles } from '../../types/work'
+import { ROLE_LABELS, staffRoleSelectGroups } from '../../types/permissions'
 
 type StaffManagementPanelProps = {
   message: string
@@ -8,6 +8,7 @@ type StaffManagementPanelProps = {
   onAdd: () => void
   onSave: () => void
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
+  canAssignSuperAdmin?: boolean
 }
 
 export function StaffManagementPanel({
@@ -17,6 +18,7 @@ export function StaffManagementPanel({
   onAdd,
   onSave,
   onUpdate,
+  canAssignSuperAdmin = false,
 }: StaffManagementPanelProps) {
   const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -79,8 +81,28 @@ export function StaffManagementPanel({
                   <td><input value={staffMember.userId} onChange={(event) => onUpdate(staffMember.id, { userId: event.target.value })} /></td>
                   <td><input type="password" value={staffMember.password} onChange={(event) => onUpdate(staffMember.id, { password: event.target.value })} /></td>
                   <td>
-                    <select value={staffMember.role} onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}>
-                      {staffRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+                    <select
+                      value={staffMember.role}
+                      disabled={staffMember.role === 'superAdmin' && !canAssignSuperAdmin}
+                      onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}
+                    >
+                      {staffRoleSelectGroups.map((group, groupIndex) =>
+                        group.label ? (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.roles.map((role) => (
+                              <option key={role} value={role} disabled={!canAssignSuperAdmin}>
+                                {ROLE_LABELS[role]}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : (
+                          group.roles.map((role) => (
+                            <option key={`${groupIndex}-${role}`} value={role}>
+                              {ROLE_LABELS[role]}
+                            </option>
+                          ))
+                        ),
+                      )}
                     </select>
                   </td>
                   <td><input value={staffMember.phoneNumber} onChange={(event) => onUpdate(staffMember.id, { phoneNumber: event.target.value })} /></td>

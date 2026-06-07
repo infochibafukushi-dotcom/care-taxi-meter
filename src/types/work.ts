@@ -90,6 +90,6 @@ export type WorkSession = {
 
 export type CurrentWorkSession = WorkSession
 
-export const staffRoles: StaffRole[] = ['superAdmin', 'owner', 'manager', 'driver']
+export const staffRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
 export const vehicleStatuses: VehicleStatus[] = ['稼働中', '整備中', '休車', '売却済']
 export const vehicleFuelTypes: VehicleFuelType[] = ['', 'ガソリン', '軽油', 'EV']

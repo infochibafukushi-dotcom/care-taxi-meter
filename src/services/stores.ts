@@ -39,6 +39,14 @@ function getStoresCollection() {
   return collection(db, storesCollectionName)
 }
 
+export const headquartersStore: Store = {
+  id: 'store_fc_headquarters',
+  companyId: defaultCompanyId,
+  name: 'FC本部',
+  enabled: true,
+  sortOrder: 0,
+}
+
 export const defaultStore: Store = {
   id: 'store_chiba_chuo',
   companyId: defaultCompanyId,
@@ -70,6 +78,12 @@ export async function saveStore(store: Store) {
 
 export async function ensureDefaultStore(companyId = defaultCompanyId) {
   const store = { ...defaultStore, companyId }
+  await saveStore(store)
+  return store
+}
+
+export async function ensureHeadquartersStore(companyId = defaultCompanyId) {
+  const store = { ...headquartersStore, companyId }
   await saveStore(store)
   return store
 }
