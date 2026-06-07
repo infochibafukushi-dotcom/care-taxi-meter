@@ -916,7 +916,7 @@ export function AdminPage() {
               <fieldset>
                 <legend>時間加算設定</legend>
                 <p className="admin-settings-note">
-                  GPS速度が低速判定速度以下の場合のみ進行します。速度未取得時は直近GPSログの移動距離÷経過時間で判定します。
+                  GPS速度が低速判定速度（標準10km/h）以下の場合のみ進行します。10km/h超では、GPS精度30m以内かつ5m以上移動した区間だけ距離加算します。速度未取得時は直近GPSログの移動距離÷経過時間で判定します。
                 </p>
                 <label>
                   低速判定速度（km/h）
