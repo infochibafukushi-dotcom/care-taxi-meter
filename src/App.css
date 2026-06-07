@@ -117,6 +117,23 @@ h1 {
   }
 }
 
+@media (min-width: 1024px) {
+  .page--home,
+  .admin-page {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .page--home > .hero-card,
+  .admin-page > .admin-card {
+    width: 100%;
+    max-width: none;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+}
+
 @media (max-width: 480px) {
   .page {
     align-items: start;
@@ -126,6 +143,138 @@ h1 {
   .hero-card,
   .content-card {
     border-radius: 22px;
+  }
+}
+
+@media (max-width: 640px) {
+  .page--home:not(.page--login) {
+    min-height: 100svh;
+    height: 100svh;
+    align-items: stretch;
+    padding: max(8px, env(safe-area-inset-top)) 8px
+      max(8px, env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+
+  .page--home:not(.page--login) > .hero-card {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: clamp(10px, 3.2vw, 16px);
+    border-radius: 18px;
+  }
+
+  .page--home:not(.page--login) .eyebrow {
+    margin-bottom: 4px;
+    font-size: 0.68rem;
+    line-height: 1.1;
+  }
+
+  .page--home:not(.page--login) h1 {
+    font-size: clamp(1.65rem, 9vw, 2.4rem);
+    line-height: 1;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid div {
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 12px;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid span {
+    overflow: hidden;
+    font-size: 0.68rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid strong {
+    overflow: hidden;
+    margin-top: 2px;
+    font-size: 0.86rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page--home:not(.page--login) .save-note {
+    margin: 6px 0 0;
+    font-size: 0.68rem;
+    line-height: 1.25;
+  }
+
+  .page--home:not(.page--login) .case-error {
+    margin: 6px 0 0;
+    padding: 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .page--home:not(.page--login) .home-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 8px;
+  }
+
+  .page--home:not(.page--login) .primary-action,
+  .page--home:not(.page--login) .secondary-action {
+    min-height: 34px;
+    border-radius: 12px;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 380px), (max-height: 620px) {
+  .page--home:not(.page--login) {
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+
+  .page--home:not(.page--login) > .hero-card {
+    padding: 9px;
+  }
+
+  .page--home:not(.page--login) h1 {
+    font-size: clamp(1.45rem, 8vw, 2rem);
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid {
+    gap: 5px;
+    margin-top: 6px;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid div {
+    padding: 5px 7px;
+    border-radius: 10px;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid span {
+    font-size: 0.62rem;
+  }
+
+  .page--home:not(.page--login) .work-dashboard-grid strong {
+    font-size: 0.78rem;
+  }
+
+  .page--home:not(.page--login) .home-actions {
+    gap: 5px;
+    padding-top: 6px;
+  }
+
+  .page--home:not(.page--login) .primary-action,
+  .page--home:not(.page--login) .secondary-action {
+    min-height: 30px;
+    border-radius: 10px;
+    font-size: 0.76rem;
   }
 }
 
