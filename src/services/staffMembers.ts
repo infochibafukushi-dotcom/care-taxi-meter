@@ -23,8 +23,8 @@ const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
 
 export const defaultAdminStaffMemberId = 'staff_admin'
-export const defaultAdminStaffUserId = 'admin'
-export const defaultAdminStaffPassword = 'admin123'
+export const defaultAdminStaffUserId = '山本信勝'
+export const defaultAdminStaffPassword = '123'
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
@@ -142,12 +142,14 @@ export async function ensureDefaultAdminStaffMember() {
     const existingStaffMember = toStaffMember(snapshot)
     if (
       existingStaffMember.userId === defaultAdminStaffUserId ||
+      existingStaffMember.userId === 'admin' ||
       existingStaffMember.name === '山本信勝'
     ) {
       const migratedStaffMember: StaffMember = {
         ...existingStaffMember,
         name: '山本信勝',
         userId: defaultAdminStaffUserId,
+        password: defaultAdminStaffPassword,
         role: 'superAdmin',
         enabled: true,
         storeId: headquartersStore.id,
@@ -201,7 +203,9 @@ async function migrateLegacySuperAdminStaffMembers() {
   const staffMembers = await fetchStaffMembers()
   const legacySuperAdminStaffMembers = staffMembers.filter(
     (staffMember) =>
-      staffMember.userId === defaultAdminStaffUserId || staffMember.name === '山本信勝',
+      staffMember.userId === defaultAdminStaffUserId ||
+      staffMember.userId === 'admin' ||
+      staffMember.name === '山本信勝',
   )
 
   if (legacySuperAdminStaffMembers.length === 0) {
@@ -220,6 +224,8 @@ async function migrateLegacySuperAdminStaffMembers() {
           storeId: headquartersStore.id,
           storeName: headquartersStore.name,
           role: 'superAdmin',
+          userId: defaultAdminStaffUserId,
+          password: defaultAdminStaffPassword,
           enabled: true,
           memo: staffMember.memo || 'FC本部管理者アカウント',
           updatedAt: serverTimestamp(),

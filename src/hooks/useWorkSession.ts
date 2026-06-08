@@ -14,43 +14,8 @@ type WorkSessionStatusMessage = {
   text: string
 }
 
-const isMatchingWorkingSession = (
-  workSession: WorkSession | null,
-  staffMember: StaffMember,
-) =>
-  Boolean(
-    workSession &&
-      workSession.status === 'working' &&
-      !workSession.clockOutAt &&
-      workSession.companyId === staffMember.companyId &&
-      workSession.staffId === staffMember.id,
-  )
-
-const loadStoredWorkSession = () => {
-  try {
-    const storedValue = localStorage.getItem(workSessionStorageKey)
-    if (!storedValue) {
-      return null
-    }
-
-    const parsedValue = JSON.parse(storedValue) as WorkSession
-    if (parsedValue.status !== 'working') {
-      return null
-    }
-
-    return {
-      ...parsedValue,
-      companyName: parsedValue.companyName ?? '',
-    }
-  } catch {
-    return null
-  }
-}
-
 export function useWorkSession() {
-  const [currentSession, setCurrentSession] = useState<WorkSession | null>(
-    loadStoredWorkSession,
-  )
+  const [currentSession, setCurrentSession] = useState<WorkSession | null>(null)
   const [message, setMessage] = useState<WorkSessionStatusMessage>({
     tone: 'idle',
     text: '会社ID・ユーザーID・パスワードを入力して出勤してください。',
@@ -90,11 +55,6 @@ export function useWorkSession() {
   const restoreWorkingSession = async (staffMember: StaffMember) => {
     setMessage({ tone: 'saving', text: '勤務中状態を確認しています。' })
 
-    if (isMatchingWorkingSession(currentSession, staffMember)) {
-      setMessage({ tone: 'saved', text: '勤務中状態を復元しました。' })
-      return currentSession
-    }
-
     try {
       const restoredSession = await fetchOpenWorkingWorkSession({
         companyId: staffMember.companyId,
@@ -102,6 +62,8 @@ export function useWorkSession() {
       })
 
       if (!restoredSession) {
+        localStorage.removeItem(workSessionStorageKey)
+        setCurrentSession(null)
         setMessage({ tone: 'idle', text: '未出勤です。ログイン後に勤務を開始します。' })
         return null
       }
@@ -114,16 +76,8 @@ export function useWorkSession() {
       })
       return restoredSession
     } catch (error) {
-      const storedSession = loadStoredWorkSession()
-      if (isMatchingWorkingSession(storedSession, staffMember)) {
-        setCurrentSession(storedSession)
-        setMessage({
-          tone: 'saved',
-          text: '通信できないため端末内の勤務中状態を復元しました。',
-        })
-        return storedSession
-      }
-
+      localStorage.removeItem(workSessionStorageKey)
+      setCurrentSession(null)
       throw error
     }
   }
