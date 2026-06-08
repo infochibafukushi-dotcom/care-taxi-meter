@@ -87,7 +87,7 @@ async function recreateInitialData() {
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
     name: defaultAdminStaffUserId,
-    role: 'superAdmin',
+    role: 'hq_admin',
     canDrive: false,
     isActive: true,
     phoneNumber: '',

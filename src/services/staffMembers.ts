@@ -20,7 +20,7 @@ import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
 
 const staffMembersCollectionName = 'staffMembers'
-const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
+const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
 
 export const defaultAdminStaffMemberId = 'staff_admin'
 export const defaultAdminStaffUserId = '山本信勝'
@@ -31,10 +31,12 @@ const toBooleanValue = (value: unknown, fallback = true) =>
   typeof value === 'boolean' ? value : fallback
 const toNumberValue = (value: unknown, fallback = 0) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
-const toRole = (value: unknown): StaffRole =>
-  typeof value === 'string' && validRoles.includes(value as StaffRole)
+const toRole = (value: unknown): StaffRole => {
+  if (value === 'superAdmin' || value === 'hq_admin') return 'hq_admin'
+  return typeof value === 'string' && validRoles.includes(value as StaffRole)
     ? (value as StaffRole)
     : 'driver'
+}
 
 const toStaffMember = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -48,11 +50,16 @@ const toStaffMember = (
     storeId: getStoreId(data),
     storeName: toStringValue(data.storeName),
     userId: toStringValue(data.userId),
+    loginId: toStringValue(data.loginId) || toStringValue(data.userId),
     password: toStringValue(data.password),
     name: toStringValue(data.name) || '名称未設定のスタッフ',
     role: toRole(data.role),
     canDrive: toBooleanValue(data.canDrive, toRole(data.role) === 'owner' || toRole(data.role) === 'driver'),
     isActive: toBooleanValue(data.isActive ?? data.enabled),
+    status: ['employed', 'leave', 'retired', 'disabled'].includes(toStringValue(data.status)) ? data.status as StaffMember['status'] : (toBooleanValue(data.enabled) ? 'employed' : 'disabled'),
+    joinedAt: toStringValue(data.joinedAt),
+    retiredAt: toStringValue(data.retiredAt),
+    lastLoginAt: toStringValue(data.lastLoginAt),
     phoneNumber: toStringValue(data.phoneNumber),
     email: toStringValue(data.email),
     address: toStringValue(data.address),
@@ -150,7 +157,7 @@ export async function ensureDefaultAdminStaffMember() {
         name: '山本信勝',
         userId: defaultAdminStaffUserId,
         password: defaultAdminStaffPassword,
-        role: 'superAdmin',
+        role: 'hq_admin',
         enabled: true,
         storeId: headquartersStore.id,
         storeName: headquartersStore.name,
@@ -176,7 +183,7 @@ export async function ensureDefaultAdminStaffMember() {
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
     name: '山本信勝',
-    role: 'superAdmin',
+    role: 'hq_admin',
     canDrive: false,
     isActive: true,
     phoneNumber: '',
@@ -223,7 +230,7 @@ async function migrateLegacySuperAdminStaffMembers() {
           franchiseeId: defaultCompanyId,
           storeId: headquartersStore.id,
           storeName: headquartersStore.name,
-          role: 'superAdmin',
+          role: 'hq_admin',
           userId: defaultAdminStaffUserId,
           password: defaultAdminStaffPassword,
           enabled: true,
