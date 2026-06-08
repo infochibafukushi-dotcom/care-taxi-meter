@@ -268,9 +268,6 @@ export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const [caseNumber, setCaseNumber] = useState('未採番')
-  const [caseNumberAssignment, setCaseNumberAssignment] =
-    useState<CaseNumberAssignment | null>(null)
-  const [fareSnapshot, setFareSnapshot] = useState<FareSnapshot | null>(null)
   const fareSnapshotRef = useRef<FareSnapshot | null>(null)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
@@ -385,11 +382,12 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中'
   const canEndAccompanying = status === '院内付き添い中'
   const canOpenSettlement = status === '走行中'
-  const canAddAssistCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddExpenseCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddDispatchCharge = status === '走行中' && selectedDispatchCharges.length === 0
-  const canAddSpecialVehicleCharge = status === '走行中' && selectedSpecialVehicleCharges.length === 0
-  const canOpenDispatchModal = status === '走行中' && !isCaseClosed
+  const canEditCharges = !isCaseClosed && status !== '精算前' && caseSaveState !== 'saving'
+  const canAddAssistCharge = canEditCharges
+  const canAddExpenseCharge = canEditCharges
+  const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
+  const canAddSpecialVehicleCharge = canEditCharges && selectedSpecialVehicleCharges.length === 0
+  const canOpenDispatchModal = canEditCharges
 
   useEffect(() => {
     let isMounted = true
@@ -861,8 +859,6 @@ export function CasePage() {
 
       caseNumberAssignmentRef.current = assignment
       fareSnapshotRef.current = snapshot
-      setCaseNumberAssignment(assignment)
-      setFareSnapshot(snapshot)
       setCaseNumber(assignment.caseNumber)
       markOperationStarted()
 
@@ -1258,8 +1254,6 @@ export function CasePage() {
   }
 
   const displayMetrics = [
-    { label: '案件番号', value: caseNumberAssignment ? caseNumberAssignment.caseNumber : caseNumber },
-    { label: '料金設定', value: fareSnapshot ? '開始時固定' : '未固定' },
     { label: '課金距離', value: `${gps.chargeableDistanceKm.toFixed(3)} km` },
     { label: '実走行距離', value: `${gps.totalDistanceKm.toFixed(3)} km` },
     { label: '運行時間', value: elapsedTimers.driving },
@@ -1343,14 +1337,8 @@ export function CasePage() {
                 </div>
               ))}
             </div>
-          </section>
 
-          <section className="r9-center-panel" aria-label="料金内訳と住所">
-            <MeterFareBreakdownPanel
-              breakdown={fareBreakdown}
-            />
-
-            <section className="route-address-panel" aria-labelledby="route-address-title">
+            <section className="route-address-panel route-address-panel--meter" aria-labelledby="route-address-title">
               <div className="route-address-panel__header">
                 <span>GPS ADDRESS</span>
                 <h2 id="route-address-title">運行住所</h2>
@@ -1368,6 +1356,12 @@ export function CasePage() {
                 </div>
               </div>
             </section>
+          </section>
+
+          <section className="r9-center-panel" aria-label="料金内訳">
+            <MeterFareBreakdownPanel
+              breakdown={fareBreakdown}
+            />
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
