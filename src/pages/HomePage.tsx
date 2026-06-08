@@ -9,6 +9,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
+import { saveAuthStaffSession, clearAuthStaffSession } from '../services/authSession'
 import { formatElapsedTime } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
 
@@ -114,7 +115,7 @@ export function HomePage() {
     password: '',
   })
   const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(null)
-  const [loginMessage, setLoginMessage] = useState('会社ID・スタッフID・パスワードでログインすると出勤します。')
+  const [loginMessage, setLoginMessage] = useState('会社ID・ログインID・パスワードでログインしてください。')
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [dashboardRecordsState, setDashboardRecordsState] = useState<CaseRecordState>({
@@ -135,7 +136,8 @@ export function HomePage() {
   const dashboardStoreName = currentSession?.storeName || loggedInUser?.store.name || '未設定'
   const dashboardStaffName = currentSession?.staffName || loggedInUser?.staffMember.name || '未ログイン'
   const dashboardRole = currentSession?.staffRole ?? loggedInUser?.staffMember.role ?? ''
-  const canOpenManagement = canAccessAdminSection(dashboardRole, 'staff') || dashboardRole === 'superAdmin'
+  const isHqAdmin = dashboardRole === 'hq_admin'
+  const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
 
   useEffect(() => {
@@ -222,7 +224,7 @@ export function HomePage() {
     try {
       const staffMember = await authenticateStaff(loginForm)
       if (!staffMember) {
-        setLoginMessage('会社ID・スタッフID・パスワードが一致するスタッフが見つかりません。')
+        setLoginMessage('会社ID・ログインID・パスワードが一致するスタッフが見つかりません。')
         return
       }
 
@@ -241,6 +243,13 @@ export function HomePage() {
         store,
       }
       setLoggedInUser(nextLoggedInUser)
+      saveAuthStaffSession(staffMember)
+
+      if (staffMember.role === 'hq_admin') {
+        setLoginMessage('FC本部管理者としてログインしました。現場業務の出勤処理は行いません。')
+        navigate(roleHomePaths[staffMember.role])
+        return
+      }
 
       const restoredSession = await workSession.restoreWorkingSession(staffMember)
       if (restoredSession) {
@@ -285,6 +294,7 @@ export function HomePage() {
 
   const handleLogout = () => {
     setLoggedInUser(null)
+    clearAuthStaffSession()
     setLoginForm((currentForm) => ({ ...currentForm, password: '' }))
     setLoginMessage('ログアウトしました。')
   }
@@ -318,7 +328,7 @@ export function HomePage() {
           <div className="login-intro">
             <p className="eyebrow">Login</p>
             <h1 id="home-title">ログイン</h1>
-            <p className="lead">会社ID・スタッフID・パスワードでスタッフを特定し、ログインと同時に出勤します。</p>
+            <p className="lead">会社ID・ログインID・パスワードでログインします。FC本部管理者は出勤せず本部画面へ移動します。</p>
           </div>
           <div className="login-form">
             <label>
@@ -326,7 +336,7 @@ export function HomePage() {
               <input value={loginForm.companyId} onChange={(event) => handleLoginChange('companyId', event.target.value)} />
             </label>
             <label>
-              スタッフID
+              ログインID
               <input value={loginForm.userId} onChange={(event) => handleLoginChange('userId', event.target.value)} />
             </label>
             <label>
@@ -334,7 +344,7 @@ export function HomePage() {
               <input type="password" value={loginForm.password} onChange={(event) => handleLoginChange('password', event.target.value)} />
             </label>
             <button className="primary-action login-submit" type="button" disabled={isLoginSubmitting} onClick={handleLogin}>
-              {isLoginSubmitting ? '処理中' : 'ログインして出勤'}
+              {isLoginSubmitting ? '処理中' : 'ログイン'}
             </button>
           </div>
           <p className="save-note">{loginMessage}</p>
@@ -368,19 +378,19 @@ export function HomePage() {
         <nav className="home-actions" aria-label="主要メニュー">
           {currentSession ? (
             <>
-              <Link className="primary-action" to="/case/start">案件開始</Link>
-              <button className="secondary-action home-button" type="button" onClick={openClockOutSummary}>退勤</button>
+              {!isHqAdmin ? <Link className="primary-action" to="/case/start">案件開始</Link> : null}
+              {!isHqAdmin ? <button className="secondary-action home-button" type="button" onClick={openClockOutSummary}>退勤</button> : null}
             </>
           ) : (
             <button className="primary-action home-button" type="button" onClick={handleClockIn}>出勤</button>
           )}
-          <Link className="secondary-action" to="/cases">案件一覧</Link>
+          {!isHqAdmin ? <Link className="secondary-action" to="/cases">案件一覧</Link> : null}
           {canOpenManagement ? (
-            <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : dashboardRole === 'owner' ? '/owner' : '/superadmin'}>
-              {dashboardRole === 'superAdmin' ? 'FC本部管理' : '管理センター'}
+            <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : '/owner'}>
+              管理センター
             </Link>
           ) : null}
-          {canOpenAnalytics ? (
+          {!isHqAdmin && canOpenAnalytics ? (
             <Link className="secondary-action" to="/admin/analytics">売上分析</Link>
           ) : null}
           {!currentSession ? (
