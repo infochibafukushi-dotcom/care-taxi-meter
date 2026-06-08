@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { disableCompany, ensureDefaultCompany, fetchCompanies, saveCompany } from '../services/companies'
 import { fetchCaseRecords } from '../services/caseRecords'
-import { fetchStaffMembers } from '../services/staffMembers'
-import { fetchStores } from '../services/stores'
+import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
+import { fetchStores, saveStore } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { Company, StaffMember, Store, Vehicle } from '../types/work'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
+import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
 
 const createCompanyDraft = (sortOrder: number): Company => ({
   id: '',
@@ -22,10 +23,31 @@ const createCompanyDraft = (sortOrder: number): Company => ({
   memo: '',
 })
 
+type OwnerLoginDraft = {
+  password: string
+  userId: string
+}
+
+const createOwnerLoginDraft = (): OwnerLoginDraft => ({
+  password: '',
+  userId: '',
+})
+
 const normalizeCompanyId = (value: string) =>
-  value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\//g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 
 const getCompanyId = (company: Company) => normalizeCompanyId(company.id || company.name)
+
+const isPlaceholderCompanyId = (value: string) => /^-+$/.test(value)
+
+const getCompanyDisplayId = (company: Company) =>
+  isPlaceholderCompanyId(company.id) && company.name.trim() ? company.name : company.id
 
 export function HeadquartersPage() {
   const workSession = useWorkSession()
@@ -35,6 +57,7 @@ export function HeadquartersPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [draftCompany, setDraftCompany] = useState<Company>(createCompanyDraft(1))
+  const [ownerLoginDraft, setOwnerLoginDraft] = useState<OwnerLoginDraft>(createOwnerLoginDraft())
   const [selectedCompanyId, setSelectedCompanyId] = useState('')
   const [message, setMessage] = useState('加盟店情報を読み込み中です。')
   const [isLoading, setIsLoading] = useState(true)
@@ -57,6 +80,7 @@ export function HeadquartersPage() {
       setCaseRecords(records)
       setSelectedCompanyId((currentCompanyId) => currentCompanyId || companyItems[0]?.id || '')
       setDraftCompany(createCompanyDraft(companyItems.length + 1))
+      setOwnerLoginDraft(createOwnerLoginDraft())
       setMessage('加盟店情報を読み込みました。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '加盟店情報の読み込みに失敗しました。')
@@ -101,18 +125,72 @@ export function HeadquartersPage() {
     setDraftCompany((currentCompany) => ({ ...currentCompany, [key]: value }))
   }
 
+  const updateOwnerLoginDraft = (key: keyof OwnerLoginDraft, value: string) => {
+    setOwnerLoginDraft((currentOwnerLogin) => ({ ...currentOwnerLogin, [key]: value }))
+  }
+
   const handleCompanySave = async () => {
     const companyId = getCompanyId(draftCompany)
-    if (!companyId || !draftCompany.name.trim()) {
+    const companyName = draftCompany.name.trim()
+    const ownerUserId = ownerLoginDraft.userId.trim()
+    const ownerPassword = ownerLoginDraft.password.trim()
+    if (!companyId || !companyName) {
       setMessage('会社IDと加盟店名を入力してください。')
       return
     }
 
-    setMessage('加盟店を保存中です。')
-    await saveCompany({ ...draftCompany, id: companyId })
+    if (!ownerUserId || !ownerPassword) {
+      setMessage('代表ログインIDと代表パスワードを入力してください。')
+      return
+    }
+
+    const initialStoreId = `${companyId}_main-store`
+    const initialStoreName = companyName
+
+    setMessage('加盟店と代表アカウントを保存中です。')
+    await saveCompany({ ...draftCompany, id: companyId, name: companyName })
+    await saveStore({
+      id: initialStoreId,
+      companyId,
+      franchiseeId: companyId,
+      name: initialStoreName,
+      storeName: initialStoreName,
+      companyName,
+      ownerName: draftCompany.ownerName.trim(),
+      address: draftCompany.address,
+      phoneNumber: draftCompany.phoneNumber,
+      email: draftCompany.email,
+      status: 'active',
+      enabled: true,
+      isActive: true,
+      sortOrder: 1,
+    })
+    await saveStaffMember({
+      id: `${companyId}_owner`,
+      companyId,
+      franchiseeId: companyId,
+      storeId: initialStoreId,
+      storeName: initialStoreName,
+      userId: ownerUserId,
+      password: ownerPassword,
+      name: draftCompany.ownerName.trim() || ownerUserId,
+      role: 'owner',
+      canDrive: true,
+      isActive: true,
+      phoneNumber: draftCompany.phoneNumber,
+      email: draftCompany.email,
+      address: draftCompany.address,
+      licenseNumber: '',
+      licenseExpiresAt: '',
+      accidentHistory: '',
+      memo: '加盟店追加時に作成した代表アカウント',
+      enabled: true,
+      sortOrder: 1,
+    })
     await loadData()
     setSelectedCompanyId(companyId)
-    setMessage('加盟店を保存しました。')
+    setOwnerLoginDraft(createOwnerLoginDraft())
+    setMessage('加盟店と代表アカウントを保存しました。')
   }
 
   const handleCompanyDisable = async (company: Company) => {
@@ -122,9 +200,26 @@ export function HeadquartersPage() {
     setMessage(`${company.name} を停止しました。`)
   }
 
+  const handleDevelopmentDataReset = async () => {
+    const confirmed = window.confirm('加盟店・売上・勤務・スタッフ・車両データを削除し、FC本部の初期データのみ再作成します。実行しますか？')
+    if (!confirmed) {
+      return
+    }
+
+    setMessage('データをリセット中です。')
+    try {
+      const summary = await resetHeadquartersDevelopmentData()
+      await loadData()
+      setSelectedCompanyId('default-franchisee')
+      setMessage(`データをリセットしました。削除件数: ${Object.values(summary.deletedByCollection).reduce((total, count) => total + count, 0)}件`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `データリセットに失敗しました。${error.message}` : 'データリセットに失敗しました。')
+    }
+  }
+
   if (!isSuperAdmin) {
     return (
-      <main className="page page--admin" aria-labelledby="hq-title">
+      <main className="page page--admin page--hq" aria-labelledby="hq-title">
         <section className="admin-section">
           <p className="eyebrow">Headquarters</p>
           <h1 id="hq-title">FC本部管理画面</h1>
@@ -136,12 +231,13 @@ export function HeadquartersPage() {
   }
 
   return (
-    <main className="page page--admin" aria-labelledby="hq-title">
+    <main className="page page--admin page--hq" aria-labelledby="hq-title">
       <section className="admin-section">
         <p className="eyebrow">Headquarters</p>
         <h1 id="hq-title">FC本部管理画面</h1>
         <p className="lead">会社ID管理・加盟店追加・加盟店停止・加盟店詳細を管理します。</p>
         <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
+        <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>データリセット</button>
       </section>
 
       <section className="admin-section">
@@ -170,6 +266,14 @@ export function HeadquartersPage() {
           <label>
             並び順
             <input type="number" value={draftCompany.sortOrder} onChange={(event) => updateDraftCompany('sortOrder', Number(event.target.value))} />
+          </label>
+          <label>
+            代表ログインID
+            <input value={ownerLoginDraft.userId} onChange={(event) => updateOwnerLoginDraft('userId', event.target.value)} placeholder="owner-id" />
+          </label>
+          <label>
+            代表パスワード
+            <input type="password" value={ownerLoginDraft.password} onChange={(event) => updateOwnerLoginDraft('password', event.target.value)} />
           </label>
         </div>
         <label className="settings-textarea-label">
@@ -203,7 +307,7 @@ export function HeadquartersPage() {
             <tbody>
               {companySummaries.map((summary) => (
                 <tr key={summary.company.id}>
-                  <td>{summary.company.id}</td>
+                  <td>{getCompanyDisplayId(summary.company)}</td>
                   <td>{summary.company.name}</td>
                   <td>{summary.company.enabled ? '稼働中' : '停止中'}</td>
                   <td>{summary.storeCount}</td>
@@ -228,7 +332,7 @@ export function HeadquartersPage() {
         <h2>加盟店詳細</h2>
         {selectedCompany && selectedSummary ? (
           <div className="work-dashboard-grid">
-            <div><span>会社ID</span><strong>{selectedCompany.id}</strong></div>
+            <div><span>会社ID</span><strong>{getCompanyDisplayId(selectedCompany)}</strong></div>
             <div><span>加盟店名</span><strong>{selectedCompany.name}</strong></div>
             <div><span>状態</span><strong>{selectedCompany.enabled ? '稼働中' : '停止中'}</strong></div>
             <div><span>店舗数</span><strong>{selectedSummary.storeCount}</strong></div>

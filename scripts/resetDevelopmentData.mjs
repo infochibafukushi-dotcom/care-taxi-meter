@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app'
-import { getFirestore, FieldPath } from 'firebase-admin/firestore'
+import { FieldPath, getFirestore } from 'firebase-admin/firestore'
 
 const CONFIRMATION = 'delete-dev-data'
 const PAGE_SIZE = 300
+const DEFAULT_FRANCHISEE_ID = 'default-franchisee'
+const HEADQUARTERS_STORE_ID = 'store_fc_headquarters'
+const DEFAULT_ADMIN_STAFF_ID = 'staff_admin'
+const DEFAULT_ADMIN_NAME = '山本信勝'
+const DEFAULT_ADMIN_PASSWORD = '123'
 
 const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT
 const confirmation = process.env.CONFIRM_RESET_DEVELOPMENT_DATA
@@ -34,47 +39,22 @@ if (getApps().length === 0) {
 const db = getFirestore()
 
 const fullDeleteCollections = [
-  'caseRecords',
-  'cases',
-  'sales',
-  'salesAggregates',
-  'salesSummaries',
-  'analyticsCache',
-  'analyticsCaches',
-  'caseCounters',
   'auditLogs',
+  'caseRecords',
+  'workSessions',
+  'meterSettings',
+  'vehicles',
+  'stores',
+  'staffMembers',
+  'companies',
 ]
 
 const resetSummary = {
   deletedByCollection: {},
-  preservedByCollection: {},
+  recreatedDocuments: [],
 }
 
-const textValue = (value) => (typeof value === 'string' ? value.trim() : '')
-
-const isHeadquartersAdmin = (data) => {
-  const name = textValue(data.name)
-  const role = textValue(data.role)
-  const userId = textValue(data.userId)
-
-  return name === '山本信勝' && role === 'superAdmin' && (userId === 'admin' || userId === '')
-}
-
-const isHeadquartersStore = (data, documentId) => {
-  const name = textValue(data.name || data.storeName)
-  const storeId = textValue(data.id || data.storeId || documentId)
-
-  return storeId === 'store_fc_headquarters' || name === 'FC本部'
-}
-
-const isHeadquartersTenant = (data, documentId) => {
-  const tenantId = textValue(data.id || data.tenantId || data.franchiseeId || data.companyId || documentId)
-  const name = textValue(data.name || data.tenantName || data.companyName)
-
-  return ['default-franchisee', 'chiba-care-taxi'].includes(tenantId) || name === 'FC本部'
-}
-
-async function deleteQuerySnapshot(collectionName, querySnapshot) {
+async function deleteQuerySnapshot(querySnapshot) {
   if (querySnapshot.empty) {
     return 0
   }
@@ -101,63 +81,78 @@ async function deleteCollection(collectionName) {
       break
     }
 
-    deletedCount += await deleteQuerySnapshot(collectionName, snapshot)
+    deletedCount += await deleteQuerySnapshot(snapshot)
   }
 
   resetSummary.deletedByCollection[collectionName] = deletedCount
 }
 
-async function deleteCollectionExcept(collectionName, shouldPreserve) {
-  let deletedCount = 0
-  const preservedDocumentIds = new Set()
+async function recreateInitialData() {
+  const now = new Date().toISOString()
+  const serverNow = new Date()
 
-  while (true) {
-    const snapshot = await db
-      .collection(collectionName)
-      .orderBy(FieldPath.documentId())
-      .limit(PAGE_SIZE)
-      .get()
+  await db.collection('companies').doc(DEFAULT_FRANCHISEE_ID).set({
+    id: DEFAULT_FRANCHISEE_ID,
+    name: 'FC本部',
+    enabled: true,
+    sortOrder: 1,
+    ownerName: DEFAULT_ADMIN_NAME,
+    phoneNumber: '',
+    email: '',
+    address: '',
+    memo: '',
+    createdAt: serverNow,
+    updatedAt: serverNow,
+  })
+  resetSummary.recreatedDocuments.push(`companies/${DEFAULT_FRANCHISEE_ID}`)
 
-    if (snapshot.empty) {
-      break
-    }
+  await db.collection('stores').doc(HEADQUARTERS_STORE_ID).set({
+    id: HEADQUARTERS_STORE_ID,
+    companyId: DEFAULT_FRANCHISEE_ID,
+    franchiseeId: DEFAULT_FRANCHISEE_ID,
+    name: 'FC本部',
+    storeName: 'FC本部',
+    status: 'active',
+    enabled: true,
+    isActive: true,
+    sortOrder: 0,
+    createdAt: serverNow,
+    updatedAt: serverNow,
+  })
+  resetSummary.recreatedDocuments.push(`stores/${HEADQUARTERS_STORE_ID}`)
 
-    const batch = db.batch()
-    let batchDeleteCount = 0
-
-    snapshot.docs.forEach((documentSnapshot) => {
-      if (shouldPreserve(documentSnapshot.data(), documentSnapshot.id)) {
-        preservedDocumentIds.add(documentSnapshot.id)
-        return
-      }
-
-      batch.delete(documentSnapshot.ref)
-      batchDeleteCount += 1
-    })
-
-    if (batchDeleteCount > 0) {
-      await batch.commit()
-      deletedCount += batchDeleteCount
-    }
-
-    if (batchDeleteCount === 0) {
-      break
-    }
-  }
-
-  resetSummary.deletedByCollection[collectionName] = deletedCount
-  resetSummary.preservedByCollection[collectionName] = preservedDocumentIds.size
+  await db.collection('staffMembers').doc(DEFAULT_ADMIN_STAFF_ID).set({
+    id: DEFAULT_ADMIN_STAFF_ID,
+    companyId: DEFAULT_FRANCHISEE_ID,
+    franchiseeId: DEFAULT_FRANCHISEE_ID,
+    storeId: HEADQUARTERS_STORE_ID,
+    storeName: 'FC本部',
+    userId: DEFAULT_ADMIN_NAME,
+    password: DEFAULT_ADMIN_PASSWORD,
+    name: DEFAULT_ADMIN_NAME,
+    role: 'superAdmin',
+    canDrive: false,
+    isActive: true,
+    phoneNumber: '',
+    email: '',
+    address: '',
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: 'FC本部初期管理者アカウント',
+    enabled: true,
+    sortOrder: 1,
+    createdAt: serverNow,
+    updatedAt: serverNow,
+    resetAt: now,
+  })
+  resetSummary.recreatedDocuments.push(`staffMembers/${DEFAULT_ADMIN_STAFF_ID}`)
 }
 
 for (const collectionName of fullDeleteCollections) {
   await deleteCollection(collectionName)
 }
 
-for (const collectionName of ['staffMembers', 'staff', 'users']) {
-  await deleteCollectionExcept(collectionName, isHeadquartersAdmin)
-}
-
-await deleteCollectionExcept('stores', isHeadquartersStore)
-await deleteCollectionExcept('tenants', isHeadquartersTenant)
+await recreateInitialData()
 
 console.log(JSON.stringify(resetSummary, null, 2))
