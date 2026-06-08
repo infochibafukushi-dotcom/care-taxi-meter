@@ -1251,8 +1251,7 @@ h1 {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) 12px
-    max(10px, env(safe-area-inset-bottom));
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
   border: 5px solid #64748b;
   border-radius: 28px;
   background:
@@ -2287,7 +2286,7 @@ h1 {
     min-height: 0;
     grid-template-rows: minmax(0, 1fr);
     gap: 6px;
-    padding: max(6px, env(safe-area-inset-top)) 8px max(6px, env(safe-area-inset-bottom));
+    padding: 6px 8px max(6px, env(safe-area-inset-bottom));
     border-width: 4px;
     border-radius: 22px;
   }
