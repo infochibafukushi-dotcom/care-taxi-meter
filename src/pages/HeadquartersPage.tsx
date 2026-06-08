@@ -24,9 +24,20 @@ const createCompanyDraft = (sortOrder: number): Company => ({
 })
 
 const normalizeCompanyId = (value: string) =>
-  value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\//g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 
 const getCompanyId = (company: Company) => normalizeCompanyId(company.id || company.name)
+
+const isPlaceholderCompanyId = (value: string) => /^-+$/.test(value)
+
+const getCompanyDisplayId = (company: Company) =>
+  isPlaceholderCompanyId(company.id) && company.name.trim() ? company.name : company.id
 
 export function HeadquartersPage() {
   const workSession = useWorkSession()
@@ -222,7 +233,7 @@ export function HeadquartersPage() {
             <tbody>
               {companySummaries.map((summary) => (
                 <tr key={summary.company.id}>
-                  <td>{summary.company.id}</td>
+                  <td>{getCompanyDisplayId(summary.company)}</td>
                   <td>{summary.company.name}</td>
                   <td>{summary.company.enabled ? '稼働中' : '停止中'}</td>
                   <td>{summary.storeCount}</td>
@@ -247,7 +258,7 @@ export function HeadquartersPage() {
         <h2>加盟店詳細</h2>
         {selectedCompany && selectedSummary ? (
           <div className="work-dashboard-grid">
-            <div><span>会社ID</span><strong>{selectedCompany.id}</strong></div>
+            <div><span>会社ID</span><strong>{getCompanyDisplayId(selectedCompany)}</strong></div>
             <div><span>加盟店名</span><strong>{selectedCompany.name}</strong></div>
             <div><span>状態</span><strong>{selectedCompany.enabled ? '稼働中' : '停止中'}</strong></div>
             <div><span>店舗数</span><strong>{selectedSummary.storeCount}</strong></div>
