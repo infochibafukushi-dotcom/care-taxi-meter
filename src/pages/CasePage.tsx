@@ -382,11 +382,12 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中'
   const canEndAccompanying = status === '院内付き添い中'
   const canOpenSettlement = status === '走行中'
-  const canAddAssistCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddExpenseCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddDispatchCharge = status === '走行中' && selectedDispatchCharges.length === 0
-  const canAddSpecialVehicleCharge = status === '走行中' && selectedSpecialVehicleCharges.length === 0
-  const canOpenDispatchModal = status === '走行中' && !isCaseClosed
+  const canEditCharges = !isCaseClosed && status !== '精算前' && caseSaveState !== 'saving'
+  const canAddAssistCharge = canEditCharges
+  const canAddExpenseCharge = canEditCharges
+  const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
+  const canAddSpecialVehicleCharge = canEditCharges && selectedSpecialVehicleCharges.length === 0
+  const canOpenDispatchModal = canEditCharges
 
   useEffect(() => {
     let isMounted = true
