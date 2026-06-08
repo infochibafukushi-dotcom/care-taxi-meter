@@ -68,7 +68,7 @@ export async function fetchCompanies() {
       corporateName: toString(data.corporateName),
       representativeName: toString(data.representativeName) || toString(data.ownerName),
       area: toString(data.area),
-      status: ['screening', 'preparing', 'active', 'suspended', 'terminated', 'archived'].includes(toString(data.status)) ? data.status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
+      status: ['screening', 'preparing', 'active', 'suspended', 'ending', 'terminated', 'archived'].includes(toString(data.status)) ? data.status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
       plan: toString(data.plan) || toString(data.planName),
       monthlyFee: toNumber(data.monthlyFee) || toNumber(data.monthlyPrice),
       initialFee: toNumber(data.initialFee),
@@ -104,7 +104,7 @@ export async function saveCompany(company: Company) {
 
 export async function updateCompanyStatus(company: Company, status: Company['status']) {
   await updateDoc(getCompanyRef(company.id), {
-    enabled: status === 'active' || status === 'preparing' || status === 'screening',
+    enabled: status === 'active' || status === 'preparing' || status === 'screening' || status === 'ending',
     status,
     updatedAt: serverTimestamp(),
   })

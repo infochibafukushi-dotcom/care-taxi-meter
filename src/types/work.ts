@@ -1,6 +1,6 @@
 export type StaffRole = 'hq_admin' | 'owner' | 'manager' | 'driver'
 
-export type CompanyStatus = 'screening' | 'preparing' | 'active' | 'suspended' | 'terminated' | 'archived'
+export type CompanyStatus = 'screening' | 'preparing' | 'active' | 'suspended' | 'ending' | 'terminated' | 'archived'
 export type StoreStatus = 'active' | 'suspended' | 'archived'
 
 export type VehicleStatus = '稼働中' | '整備中' | '休車' | '売却済'
