@@ -2409,10 +2409,6 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .route-address-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .r9-metrics-grid div {
     min-height: 34px;
     padding: 4px 6px;
@@ -2624,6 +2620,35 @@ h1 {
     padding: 4px 3px;
     border-radius: 8px;
     font-size: clamp(0.62rem, 1.45vw, 0.82rem);
+  }
+}
+
+
+@media (orientation: landscape) and (max-height: 760px) and (max-width: 1500px) {
+  .r9-meter-page {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.74;
+    width: calc(100% / var(--meter-landscape-scale));
+    height: calc(100dvh / var(--meter-landscape-scale));
+    min-height: 0;
+    transform: scale(var(--meter-landscape-scale));
+    transform-origin: top left;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 680px) and (max-width: 1500px) {
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.68;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 620px) and (max-width: 1500px) {
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.66;
   }
 }
 
