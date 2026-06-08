@@ -95,6 +95,10 @@ export type AnalyticsCsvRow = {
   drivingSeconds: number
   escortFareYen: number
   expenseFareYen: number
+  grossFareYen: number
+  disabilityDiscountAmount: number
+  taxiTicketAmountYen: number
+  actualPaymentYen: number
   paymentMethod: string
   pickupAreaName: string
   staffName: string
@@ -166,6 +170,11 @@ export type SalesAnalyticsSummary = {
   timeRangeSummary: TimeRangeAnalyticsItem[]
   topCases: TopCaseAnalyticsItem[]
   totalCount: number
+  totalGrossSalesYen: number
+  totalDiscountYen: number
+  totalTaxiTicketYen: number
+  totalClaimYen: number
+  totalActualPaymentYen: number
   totalDistanceKm: number
   totalDrivingSeconds: number
   totalSalesYen: number
@@ -203,6 +212,24 @@ const toPaymentMethodLabel = (paymentMethod: unknown) =>
   typeof paymentMethod === 'string' && paymentMethod.trim()
     ? paymentMethod.trim()
     : '未設定'
+
+const toTaxiTicketTotalYen = (caseRecord: StoredCaseRecord) => {
+  const appliedTaxiTicketYen = toFiniteNumber(caseRecord.taxiTicketAmountYen)
+
+  if (appliedTaxiTicketYen > 0) {
+    return appliedTaxiTicketYen
+  }
+
+  return caseRecord.taxiTickets.reduce(
+    (total, ticket) => total + toFiniteNumber(ticket.amount),
+    0,
+  )
+}
+
+const toPaymentTotalYen = (caseRecord: StoredCaseRecord) =>
+  caseRecord.payments.length > 0
+    ? caseRecord.payments.reduce((total, payment) => total + toFiniteNumber(payment.amount), 0)
+    : toFiniteNumber(caseRecord.totalFareYen)
 
 const toAverageYen = (salesYen: number, count: number) =>
   count > 0 ? Math.round(salesYen / count) : 0
@@ -861,6 +888,22 @@ export function calculateSalesAnalyticsSummary(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
     0,
   )
+  const totalGrossSalesYen = filteredRecords.reduce(
+    (total, caseRecord) => total + (toFiniteNumber(caseRecord.grossFareYen) || toFiniteNumber(caseRecord.totalFareYen)),
+    0,
+  )
+  const totalDiscountYen = filteredRecords.reduce(
+    (total, caseRecord) => total + toFiniteNumber(caseRecord.disabilityDiscountAmount),
+    0,
+  )
+  const totalTaxiTicketYen = filteredRecords.reduce(
+    (total, caseRecord) => total + toTaxiTicketTotalYen(caseRecord),
+    0,
+  )
+  const totalActualPaymentYen = filteredRecords.reduce(
+    (total, caseRecord) => total + toPaymentTotalYen(caseRecord),
+    0,
+  )
   const activeDayKeys = new Set<string>()
   const paymentMethodMap = new Map<
     string,
@@ -894,11 +937,17 @@ export function calculateSalesAnalyticsSummary(
       monthly.salesYen += salesYen
     }
 
-    addToMap(
-      paymentMethodMap,
-      toPaymentMethodLabel(caseRecord.paymentMethod),
-      salesYen,
-    )
+    if (caseRecord.payments.length > 0) {
+      caseRecord.payments.forEach((payment) => {
+        addToMap(paymentMethodMap, toPaymentMethodLabel(payment.type), toFiniteNumber(payment.amount))
+      })
+    } else {
+      addToMap(
+        paymentMethodMap,
+        toPaymentMethodLabel(caseRecord.paymentMethod),
+        salesYen,
+      )
+    }
 
     caseRecord.assistCharges.forEach((assistCharge) => {
       addToMap(
@@ -973,6 +1022,10 @@ export function calculateSalesAnalyticsSummary(
       drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
       escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
       expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
+      grossFareYen: toFiniteNumber(caseRecord.grossFareYen) || toFiniteNumber(caseRecord.totalFareYen),
+      disabilityDiscountAmount: toFiniteNumber(caseRecord.disabilityDiscountAmount),
+      taxiTicketAmountYen: toTaxiTicketTotalYen(caseRecord),
+      actualPaymentYen: toPaymentTotalYen(caseRecord),
       paymentMethod: toPaymentMethodLabel(caseRecord.paymentMethod),
       pickupAreaName: extractAreaName(caseRecord.pickupAddress),
       staffName: toStaffName(caseRecord),
@@ -1054,6 +1107,11 @@ export function calculateSalesAnalyticsSummary(
         waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
       })),
     totalCount: filteredRecords.length,
+    totalGrossSalesYen,
+    totalDiscountYen,
+    totalTaxiTicketYen,
+    totalClaimYen: totalSalesYen,
+    totalActualPaymentYen,
     totalDistanceKm,
     totalDrivingSeconds,
     totalSalesYen,

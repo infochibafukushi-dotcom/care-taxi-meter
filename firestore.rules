@@ -15,6 +15,23 @@ service cloud.firestore {
     function sameStore(data) { return sameFranchisee(data) && data.storeId == storeId(); }
     function ownStaffData(data) { return sameStore(data) && (data.staffId == staffId() || data.driverId == staffId() || data.id == staffId()); }
     function hasTenant(data) { return docFranchisee(data) is string && data.storeId is string; }
+    function isDriverCancel(data) {
+      return isDriver()
+        && ownStaffData(data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'cancelReason',
+          'cancelledBy',
+          'canceledAt',
+          'cancelledAt',
+          'savedAt',
+          'changeHistory',
+        ])
+        && request.resource.data.status == 'canceled'
+        && request.resource.data.cancelReason is string
+        && request.resource.data.cancelledBy is string
+        && (request.resource.data.canceledAt is string || request.resource.data.cancelledAt is string);
+    }
     function isLogicalDelete() {
       return request.resource.data.deleted == true
         && request.resource.data.deletedAt is string
@@ -28,8 +45,14 @@ service cloud.firestore {
     }
 
     match /auditLogs/{auditLogId} {
-      allow read: if isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(resource.data)) || ((isStoreManager() || isDriver()) && sameStore(resource.data));
-      allow create: if signedIn() && (isHqAdmin() || sameFranchisee(request.resource.data)) && ('action' in request.resource.data) && ('targetType' in request.resource.data);
+      allow read: if isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(resource.data)) || (isStoreManager() && sameStore(resource.data));
+      allow create: if signedIn()
+        && (isHqAdmin() || sameFranchisee(request.resource.data))
+        && ('actionType' in request.resource.data)
+        && ('targetType' in request.resource.data)
+        && ('userId' in request.resource.data)
+        && ('beforeData' in request.resource.data)
+        && ('afterData' in request.resource.data);
       allow update, delete: if false;
     }
 
@@ -77,6 +100,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /caseCounters/{caseCounterId} {
+      allow read, write: if isHqAdmin();
+      allow read: if signedIn();
+      allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isStoreManager() && sameStore(resource.data);
+      allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isDriver() && sameStore(resource.data);
+      allow create, update: if isDriver() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow delete: if false;
+    }
+
     match /caseRecords/{caseRecordId} {
       allow read, write: if isHqAdmin();
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
@@ -86,6 +121,7 @@ service cloud.firestore {
       allow update: if ((isFranchiseeOwner() && sameFranchisee(request.resource.data)) || (isStoreManager() && sameStore(request.resource.data))) && isLogicalDelete();
       allow read: if isDriver() && ownStaffData(resource.data);
       allow create: if isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
+      allow update: if isDriverCancel(resource.data);
       allow delete: if false;
     }
 

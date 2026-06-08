@@ -514,6 +514,8 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
 export function SalesAnalyticsPage() {
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const currentFranchiseeId = currentScope.franchiseeId
+  const currentStoreId = currentScope.storeId
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
@@ -527,7 +529,7 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords({ ...currentScope, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ ...currentScope, role: workSession.currentSession?.staffRole }), fetchVehicles({ ...currentScope, role: workSession.currentSession?.staffRole })])
+    Promise.all([fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole })])
       .then(([records, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return
@@ -558,7 +560,7 @@ export function SalesAnalyticsPage() {
     return () => {
       isMounted = false
     }
-  }, [currentScope.franchiseeId, currentScope.storeId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
 
   const analyticsSummary = useMemo(
     () =>
@@ -612,7 +614,11 @@ export function SalesAnalyticsPage() {
       '付き添い料金',
       '介助料金',
       '実費',
-      '合計売上',
+      '割引前売上',
+      '割引額',
+      'タクシー券利用額',
+      '請求額',
+      '実入金額',
       '支払方法',
     ]
     const body = analyticsSummary.csvRows.map((row) => [
@@ -629,7 +635,11 @@ export function SalesAnalyticsPage() {
       row.escortFareYen,
       row.careOptionFareYen,
       row.expenseFareYen,
+      row.grossFareYen,
+      row.disabilityDiscountAmount,
+      row.taxiTicketAmountYen,
       row.totalFareYen,
+      row.actualPaymentYen,
       row.paymentMethod,
     ])
     const csv = [header, ...body]
@@ -768,8 +778,24 @@ export function SalesAnalyticsPage() {
 
         <section className="analytics-kpi-grid" aria-label="基本集計">
           <div>
-            <span>売上</span>
-            <strong>{formatFareYen(analyticsSummary.totalSalesYen)}円</strong>
+            <span>請求額</span>
+            <strong>{formatFareYen(analyticsSummary.totalClaimYen)}円</strong>
+          </div>
+          <div>
+            <span>割引前売上</span>
+            <strong>{formatFareYen(analyticsSummary.totalGrossSalesYen)}円</strong>
+          </div>
+          <div>
+            <span>割引額</span>
+            <strong>{formatFareYen(analyticsSummary.totalDiscountYen)}円</strong>
+          </div>
+          <div>
+            <span>タクシー券</span>
+            <strong>{formatFareYen(analyticsSummary.totalTaxiTicketYen)}円</strong>
+          </div>
+          <div>
+            <span>実入金額</span>
+            <strong>{formatFareYen(analyticsSummary.totalActualPaymentYen)}円</strong>
           </div>
           <div>
             <span>件数</span>

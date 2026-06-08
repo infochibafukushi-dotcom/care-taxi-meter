@@ -56,6 +56,7 @@ const shouldIncludeDistance = (
 export function useCurrentPosition(
   isActive: boolean,
   lowSpeedThresholdKmh = 10,
+  isFareMeterActive = isActive,
 ) {
   const [position, setPosition] = useState<GpsPosition | null>(null)
   const [status, setStatus] = useState<GpsStatus>('idle')
@@ -116,7 +117,7 @@ export function useCurrentPosition(
                 : speedReading.speedKmh <= lowSpeedThresholdKmh
                   ? 'low-speed'
                   : 'normal'
-            const shouldAddDistance = shouldIncludeDistance(
+            const shouldAddDistance = isFareMeterActive && shouldIncludeDistance(
               previousLog,
               currentLog,
               speedReading.speedKmh,
@@ -129,7 +130,7 @@ export function useCurrentPosition(
             const chargeableDistanceMeters =
               currentState.chargeableDistanceMeters + additionalDistanceMeters
             const lowSpeedSeconds =
-              movementState === 'low-speed'
+              isFareMeterActive && movementState === 'low-speed'
                 ? currentState.lowSpeedSeconds + elapsedSeconds
                 : currentState.lowSpeedSeconds
 
@@ -170,7 +171,7 @@ export function useCurrentPosition(
       isMounted = false
       window.clearInterval(intervalId)
     }
-  }, [isActive, isUnsupported, lowSpeedThresholdKmh])
+  }, [isActive, isFareMeterActive, isUnsupported, lowSpeedThresholdKmh])
 
   const derivedStatus = useMemo<GpsStatus>(() => {
     if (!isActive) {
