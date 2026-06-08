@@ -142,7 +142,7 @@ export function HeadquartersPage() {
 
   if (!isSuperAdmin) {
     return (
-      <main className="page page--admin" aria-labelledby="hq-title">
+      <main className="page page--admin page--hq" aria-labelledby="hq-title">
         <section className="admin-section">
           <p className="eyebrow">Headquarters</p>
           <h1 id="hq-title">FC本部管理画面</h1>
@@ -154,7 +154,7 @@ export function HeadquartersPage() {
   }
 
   return (
-    <main className="page page--admin" aria-labelledby="hq-title">
+    <main className="page page--admin page--hq" aria-labelledby="hq-title">
       <section className="admin-section">
         <p className="eyebrow">Headquarters</p>
         <h1 id="hq-title">FC本部管理画面</h1>
