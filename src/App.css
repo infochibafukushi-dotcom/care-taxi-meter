@@ -1317,7 +1317,7 @@ h1 {
 .r9-meter-console {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(390px, 1.08fr) minmax(320px, 0.9fr) minmax(150px, 0.18fr);
+  grid-template-columns: minmax(430px, 1.14fr) minmax(300px, 0.76fr) minmax(150px, 0.18fr);
   gap: 14px;
 }
 
@@ -1572,6 +1572,7 @@ h1 {
 
 .route-address-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1603,7 +1604,7 @@ h1 {
 
 .r9-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -2236,6 +2237,7 @@ h1 {
   }
 
   .r9-metrics-grid,
+  .route-address-grid,
   .r9-modal-button-grid--care,
   .r9-modal-button-grid--expense,
   .r9-modal-button-grid--dispatch,
@@ -2253,7 +2255,7 @@ h1 {
 
 @media (max-width: 1100px) and (orientation: landscape) {
   .r9-meter-console {
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.88fr) clamp(92px, 15vw, 140px);
+    grid-template-columns: minmax(0, 1.14fr) minmax(0, 0.76fr) clamp(92px, 15vw, 140px);
   }
 
   .r9-left-panel,
@@ -2276,7 +2278,7 @@ h1 {
   }
 }
 
-@media (orientation: landscape) and (max-height: 620px) {
+@media (orientation: landscape) and (max-height: 760px) {
   .r9-meter-page {
     height: 100dvh;
   }
@@ -2285,10 +2287,10 @@ h1 {
     height: 100dvh;
     min-height: 0;
     grid-template-rows: minmax(0, 1fr);
-    gap: 6px;
-    padding: 6px 8px max(6px, env(safe-area-inset-bottom));
-    border-width: 4px;
-    border-radius: 22px;
+    gap: 3px;
+    padding: 4px 6px max(4px, env(safe-area-inset-bottom));
+    border-width: 3px;
+    border-radius: 20px;
   }
 
   .meter-screw {
@@ -2321,78 +2323,95 @@ h1 {
 
   .r9-meter-console {
     min-height: 0;
-    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.86fr) clamp(78px, 14vw, 118px);
+    grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.72fr) clamp(76px, 13vw, 112px);
     grid-template-rows: minmax(0, 1fr);
-    gap: 6px;
+    gap: 5px;
   }
 
   .r9-left-panel,
   .r9-center-panel {
-    gap: 6px;
-    padding: 8px;
+    gap: 4px;
+    padding: 6px;
     overflow: hidden;
   }
 
   .r9-right-panel {
-    padding: 8px;
+    padding: 6px;
   }
 
   .r9-fare-screen {
-    min-height: clamp(96px, 24dvh, 145px);
-    padding: 12px 14px 6px;
+    min-height: clamp(78px, 19dvh, 118px);
+    padding: 8px 12px 4px;
     border-width: 4px;
   }
 
   .r9-fare-screen__top {
-    top: 10px;
-    right: 14px;
-    left: 14px;
-    font-size: clamp(0.9rem, 1.8vw, 1.15rem);
+    top: 8px;
+    right: 12px;
+    left: 12px;
+    font-size: clamp(0.74rem, 1.6vw, 1rem);
   }
 
   .r9-fare-screen strong {
-    font-size: clamp(3rem, 14dvh, 5.7rem);
+    font-size: clamp(2.75rem, 11dvh, 4.9rem);
   }
 
   .r9-fare-unit {
-    font-size: 1.15rem;
+    margin-top: -10px;
+    font-size: 0.95rem;
   }
 
   .fare-increase-stack {
-    gap: 6px;
+    gap: 4px;
   }
 
   .fare-increase-panel {
-    gap: 4px;
-    padding: 6px 8px;
+    gap: 2px;
+    padding: 4px 8px;
+    border-width: 1px;
   }
 
   .fare-increase-track {
-    height: 16px;
+    height: 12px;
   }
 
   .fare-increase-panel small,
   .fare-increase-panel__label {
-    font-size: 0.78rem;
+    font-size: 0.66rem;
+    line-height: 1.15;
   }
 
   .meter-state-panel {
-    gap: 6px;
+    gap: 5px;
   }
 
   .meter-state-panel div {
-    gap: 2px;
-    padding: 6px 8px;
+    gap: 1px;
+    min-height: 34px;
+    padding: 4px 8px;
+    border-width: 1px;
+  }
+
+  .meter-state-panel span {
+    font-size: 0.62rem;
+  }
+
+  .meter-state-panel strong {
+    font-size: 0.9rem;
   }
 
   .r9-metrics-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 6px;
+    gap: 5px;
+  }
+
+  .route-address-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .r9-metrics-grid div {
-    min-height: 42px;
-    padding: 5px 6px;
+    min-height: 34px;
+    padding: 4px 6px;
   }
 
   .r9-metrics-grid span {
@@ -2400,7 +2419,8 @@ h1 {
   }
 
   .r9-metrics-grid strong {
-    font-size: clamp(0.86rem, 2vw, 1.1rem);
+    font-size: clamp(0.72rem, 1.6vw, 0.98rem);
+    line-height: 1.05;
   }
 
   .r9-center-panel .fare-breakdown {
@@ -2410,7 +2430,7 @@ h1 {
   .r9-center-panel .fare-breakdown h2,
   .route-address-panel__header h2 {
     margin-bottom: 0;
-    font-size: 0.95rem;
+    font-size: 0.78rem;
   }
 
   .r9-center-panel .fare-breakdown dl {
@@ -2418,28 +2438,28 @@ h1 {
   }
 
   .r9-center-panel .fare-breakdown div {
-    min-height: 24px;
-    padding: 2px 8px;
+    min-height: 20px;
+    padding: 1px 8px;
   }
 
   .r9-center-panel .fare-breakdown dt,
   .r9-center-panel .fare-breakdown dd {
-    font-size: clamp(0.82rem, 1.8vw, 1.05rem);
+    font-size: clamp(0.68rem, 1.45vw, 0.92rem);
   }
 
   .route-address-panel {
-    gap: 6px;
-    padding: 8px;
+    gap: 4px;
+    padding: 6px;
   }
 
   .route-address-grid {
-    gap: 6px;
+    gap: 5px;
   }
 
   .route-address-grid div {
-    min-height: 42px;
-    gap: 2px;
-    padding: 5px 8px;
+    min-height: 34px;
+    gap: 1px;
+    padding: 4px 8px;
   }
 
   .route-address-grid span,
@@ -2448,22 +2468,187 @@ h1 {
   }
 
   .route-address-grid strong {
-    font-size: clamp(0.78rem, 1.6vw, 0.95rem);
-    line-height: 1.15;
+    font-size: clamp(0.66rem, 1.35vw, 0.84rem);
+    line-height: 1.1;
   }
 
   .r9-status-stack {
-    gap: 6px;
+    gap: 5px;
     height: 100%;
   }
 
   .r9-status-button {
     min-height: 0;
     height: 100%;
-    padding: 6px 4px;
-    border-radius: 10px;
-    font-size: clamp(0.78rem, 2.1vw, 1.05rem);
+    padding: 5px 4px;
+    border-radius: 9px;
+    font-size: clamp(0.7rem, 1.7vw, 0.95rem);
     line-height: 1.1;
+  }
+}
+
+
+@media (orientation: landscape) and (max-height: 680px) {
+  .r9-meter-shell {
+    padding: 3px 5px max(3px, env(safe-area-inset-bottom));
+  }
+
+  .r9-meter-console {
+    gap: 4px;
+  }
+
+  .r9-left-panel,
+  .r9-center-panel,
+  .r9-right-panel {
+    border-width: 2px;
+    border-radius: 16px;
+    box-shadow:
+      inset 0 0 0 3px #05070c,
+      0 8px 18px rgb(0 0 0 / 42%);
+  }
+
+  .r9-left-panel,
+  .r9-center-panel {
+    gap: 3px;
+    padding: 5px;
+  }
+
+  .r9-right-panel {
+    padding: 5px;
+  }
+
+  .r9-fare-screen {
+    min-height: clamp(66px, 16dvh, 96px);
+    padding: 6px 10px 3px;
+    border-width: 3px;
+    border-radius: 14px;
+  }
+
+  .r9-fare-screen__top {
+    top: 6px;
+    right: 10px;
+    left: 10px;
+    font-size: clamp(0.64rem, 1.35vw, 0.86rem);
+  }
+
+  .r9-fare-screen strong {
+    font-size: clamp(2.15rem, 9.2dvh, 3.95rem);
+  }
+
+  .r9-fare-unit {
+    margin-top: -8px;
+    font-size: 0.8rem;
+  }
+
+  .fare-increase-stack,
+  .meter-state-panel,
+  .r9-metrics-grid,
+  .route-address-grid,
+  .r9-status-stack {
+    gap: 3px;
+  }
+
+  .fare-increase-panel {
+    padding: 3px 6px;
+    border-radius: 8px;
+  }
+
+  .fare-increase-track {
+    height: 10px;
+  }
+
+  .fare-increase-panel small,
+  .fare-increase-panel__label,
+  .r9-metrics-grid span,
+  .route-address-panel__header span,
+  .route-address-grid span,
+  .route-address-grid small {
+    font-size: 0.54rem;
+    line-height: 1.05;
+  }
+
+  .meter-state-panel div,
+  .r9-metrics-grid div,
+  .route-address-grid div {
+    min-height: 28px;
+    padding: 3px 6px;
+  }
+
+  .meter-state-panel span {
+    font-size: 0.54rem;
+  }
+
+  .meter-state-panel strong,
+  .r9-metrics-grid strong {
+    font-size: clamp(0.64rem, 1.35vw, 0.86rem);
+    line-height: 1;
+  }
+
+  .route-address-panel {
+    gap: 3px;
+    padding: 5px;
+  }
+
+  .route-address-panel__header h2,
+  .r9-center-panel .fare-breakdown h2 {
+    font-size: 0.68rem;
+  }
+
+  .route-address-grid strong {
+    font-size: clamp(0.58rem, 1.15vw, 0.76rem);
+  }
+
+  .r9-center-panel .fare-breakdown {
+    padding: 5px;
+  }
+
+  .r9-center-panel .fare-breakdown dl {
+    gap: 3px;
+  }
+
+  .r9-center-panel .fare-breakdown div {
+    min-height: 18px;
+    padding: 1px 6px;
+  }
+
+  .r9-center-panel .fare-breakdown dt,
+  .r9-center-panel .fare-breakdown dd {
+    font-size: clamp(0.58rem, 1.25vw, 0.82rem);
+  }
+
+  .r9-status-button {
+    padding: 4px 3px;
+    border-radius: 8px;
+    font-size: clamp(0.62rem, 1.45vw, 0.82rem);
+  }
+}
+
+
+@media (orientation: landscape) and (max-height: 760px) and (max-width: 1500px) {
+  .r9-meter-page {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.74;
+    width: calc(100% / var(--meter-landscape-scale));
+    height: calc(100dvh / var(--meter-landscape-scale));
+    min-height: 0;
+    transform: scale(var(--meter-landscape-scale));
+    transform-origin: top left;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 680px) and (max-width: 1500px) {
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.68;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 620px) and (max-width: 1500px) {
+  .r9-meter-shell {
+    --meter-landscape-scale: 0.66;
   }
 }
 
