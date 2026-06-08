@@ -5167,3 +5167,355 @@ h1 {
     min-height: 34px;
   }
 }
+
+/* Meter UI refresh: fare-first layout, compact progress, speed circle, and direct time actions. */
+.r9-fare-screen {
+  min-height: clamp(250px, 33vh, 360px);
+  align-content: start;
+  padding: 22px 24px 18px;
+  border-color: #0ea5e9;
+  background:
+    radial-gradient(circle at 42% 48%, rgb(37 99 235 / 34%), transparent 42%),
+    linear-gradient(145deg, #071b43 0%, #03122d 58%, #020617 100%);
+}
+
+.r9-fare-screen__top {
+  position: static;
+  font-size: clamp(1.35rem, 2.3vw, 2.15rem);
+}
+
+.r9-fare-screen__top em {
+  display: none;
+}
+
+.r9-fare-screen strong {
+  width: 100%;
+  margin-top: clamp(18px, 3vh, 38px);
+  text-align: center;
+  font-size: clamp(7.2rem, 16vw, 13rem);
+  letter-spacing: -0.12em;
+}
+
+.r9-fare-unit {
+  margin-top: -18px;
+  padding-right: 7%;
+  font-size: clamp(2rem, 4vw, 3.6rem);
+}
+
+.fare-increase-stack {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 2px solid #0ea5e9;
+  border-radius: 14px;
+  background: rgb(2 6 23 / 92%);
+}
+
+.fare-increase-panel {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 16px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  opacity: 1;
+}
+
+.fare-increase-panel + .fare-increase-panel {
+  border-left: 1px solid #334155;
+}
+
+.fare-increase-panel__icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #2563eb, #0f5bff);
+  box-shadow: inset 0 0 0 10px rgb(255 255 255 / 9%);
+  font-size: 2rem;
+}
+
+.fare-increase-panel__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fare-increase-panel__title {
+  color: #f8fafc;
+  font-size: clamp(1rem, 1.45vw, 1.35rem);
+  font-weight: 1000;
+}
+
+.fare-increase-panel__body strong {
+  color: #fff;
+  font-family: "Roboto Mono", "DIN Alternate", monospace;
+  font-size: clamp(1.25rem, 2vw, 1.85rem);
+  line-height: 1;
+}
+
+.fare-increase-track {
+  height: 16px;
+  border: 0;
+  background: #263241;
+}
+
+.fare-increase-track span {
+  inset: 0 auto 0 0;
+  max-width: 100%;
+  background: linear-gradient(90deg, #2563eb, #0f5bff);
+}
+
+.r9-operation-info {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.75fr) minmax(220px, 1fr);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #64748b;
+  border-radius: 14px;
+  background: rgb(2 6 23 / 86%);
+}
+
+.speed-meter-card,
+.distance-meter-card,
+.operation-time-list {
+  min-width: 0;
+  padding: 16px 20px;
+}
+
+.speed-meter-card,
+.distance-meter-card {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+}
+
+.speed-meter-card {
+  border-right: 1px solid #64748b;
+}
+
+.speed-meter-card > span,
+.distance-meter-card > span,
+.operation-time-list span {
+  color: #f8fafc;
+  font-size: clamp(0.95rem, 1.4vw, 1.25rem);
+  font-weight: 900;
+}
+
+.speed-meter-circle {
+  width: clamp(96px, 10vw, 132px);
+  height: clamp(96px, 10vw, 132px);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  border: 10px solid #ef4444;
+  border-radius: 999px;
+  color: #0f172a;
+  background: radial-gradient(circle, #fff 0%, #f8fafc 62%, #e2e8f0 100%);
+  box-shadow:
+    0 0 0 5px #dc2626,
+    inset 0 8px 14px rgb(15 23 42 / 18%);
+}
+
+.speed-meter-circle strong {
+  font-family: "Roboto Mono", "DIN Alternate", monospace;
+  font-size: clamp(2.4rem, 4.2vw, 4.3rem);
+  line-height: 0.9;
+}
+
+.speed-meter-circle small {
+  font-size: clamp(0.95rem, 1.5vw, 1.3rem);
+  font-weight: 1000;
+}
+
+.distance-meter-card strong {
+  color: #fff;
+  font-family: "Roboto Mono", "DIN Alternate", monospace;
+  font-size: clamp(2.8rem, 5vw, 4.8rem);
+  line-height: 1;
+}
+
+.distance-meter-card small {
+  margin-left: 8px;
+  font-size: 0.48em;
+}
+
+.operation-time-list {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #64748b;
+}
+
+.operation-time-list p {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.operation-time-list p + p {
+  border-left: 1px solid #64748b;
+}
+
+.operation-time-list strong {
+  color: #fff;
+  font-family: "Roboto Mono", "DIN Alternate", monospace;
+  font-size: clamp(1rem, 1.75vw, 1.55rem);
+  white-space: nowrap;
+}
+
+.route-address-panel--meter {
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.route-address-panel--meter .route-address-panel__header {
+  min-height: 0;
+}
+
+.route-address-panel--meter .route-address-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.route-address-panel--meter .route-address-card {
+  min-height: 0;
+  padding: 6px 18px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.route-address-panel--meter .route-address-card + .route-address-card {
+  border-left: 1px solid #334155;
+}
+
+.route-address-panel--meter .route-address-card span {
+  font-size: clamp(0.98rem, 1.45vw, 1.35rem);
+}
+
+.route-address-panel--meter .route-address-card strong {
+  overflow: hidden;
+  font-size: clamp(0.82rem, 1.1vw, 1rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-address-panel--meter .route-address-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.r9-status-stack {
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+}
+
+.r9-status-button--active {
+  outline: 3px solid rgb(248 250 252 / 72%);
+  outline-offset: -7px;
+}
+
+.r9-operation-sections {
+  display: grid;
+  gap: 14px;
+}
+
+@media (max-width: 820px) {
+  .fare-increase-stack,
+  .r9-operation-info,
+  .operation-time-list,
+  .route-address-panel--meter .route-address-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fare-increase-panel + .fare-increase-panel,
+  .speed-meter-card,
+  .operation-time-list p + p,
+  .route-address-panel--meter .route-address-card + .route-address-card {
+    border-left: 0;
+    border-top: 1px solid #334155;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 760px) {
+  .r9-fare-screen {
+    min-height: clamp(100px, 25dvh, 150px);
+    padding: 8px 12px 4px;
+  }
+
+  .r9-fare-screen strong {
+    margin-top: 8px;
+    font-size: clamp(3.8rem, 15dvh, 7.2rem);
+  }
+
+  .r9-fare-unit {
+    margin-top: -12px;
+    font-size: clamp(1rem, 3dvh, 1.6rem);
+  }
+
+  .fare-increase-panel {
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .fare-increase-panel__icon {
+    width: 38px;
+    height: 38px;
+    box-shadow: inset 0 0 0 6px rgb(255 255 255 / 9%);
+    font-size: 1.25rem;
+  }
+
+  .fare-increase-panel__body {
+    gap: 3px;
+  }
+
+  .fare-increase-track {
+    height: 9px;
+  }
+
+  .r9-operation-info {
+    grid-template-columns: minmax(120px, 0.55fr) minmax(180px, 1fr);
+  }
+
+  .speed-meter-card,
+  .distance-meter-card,
+  .operation-time-list {
+    padding: 6px 10px;
+  }
+
+  .speed-meter-circle {
+    width: clamp(58px, 12dvh, 84px);
+    height: clamp(58px, 12dvh, 84px);
+    border-width: 6px;
+    box-shadow: 0 0 0 3px #dc2626;
+  }
+
+  .speed-meter-circle strong {
+    font-size: clamp(1.45rem, 6dvh, 2.7rem);
+  }
+
+  .speed-meter-circle small {
+    font-size: clamp(0.62rem, 1.8dvh, 0.9rem);
+  }
+
+  .distance-meter-card strong {
+    font-size: clamp(1.7rem, 6.6dvh, 3.6rem);
+  }
+
+  .operation-time-list strong {
+    font-size: clamp(0.62rem, 1.3vw, 0.9rem);
+  }
+
+  .route-address-panel--meter {
+    padding: 4px 6px;
+  }
+
+  .route-address-panel--meter .route-address-card {
+    padding: 3px 8px;
+  }
+}
