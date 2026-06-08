@@ -215,9 +215,10 @@ async function migrateLegacySuperAdminStaffMembers() {
   const staffMembers = await fetchStaffMembers()
   const legacySuperAdminStaffMembers = staffMembers.filter(
     (staffMember) =>
-      staffMember.userId === defaultAdminStaffUserId ||
-      staffMember.userId === 'admin' ||
-      staffMember.name === '山本信勝',
+      (staffMember.id === defaultAdminStaffMemberId || staffMember.companyId === defaultCompanyId) &&
+      (staffMember.userId === defaultAdminStaffUserId ||
+        staffMember.userId === 'admin' ||
+        staffMember.name === '山本信勝'),
   )
 
   if (legacySuperAdminStaffMembers.length === 0) {
@@ -284,11 +285,11 @@ export async function authenticateStaff({
     return matchedStaffMember
   }
 
-  const representativeCompany = matchedCompanies.find(
-    (company) =>
-      company.representativeLoginId === normalizedUserId &&
-      company.representativeInitialPassword === normalizedPassword,
-  )
+  const representativeCompany = matchedCompanies.find((company) => {
+    const representativeLoginId = company.representativeLoginId || company.representativeName || company.ownerName
+    const representativePassword = company.representativeInitialPassword || defaultAdminStaffPassword
+    return representativeLoginId === normalizedUserId && representativePassword === normalizedPassword
+  })
 
   if (!representativeCompany) {
     return null
