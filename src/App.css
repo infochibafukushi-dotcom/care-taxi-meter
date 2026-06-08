@@ -2409,6 +2409,10 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .route-address-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .r9-metrics-grid div {
     min-height: 34px;
     padding: 4px 6px;
