@@ -26,7 +26,7 @@ export function useWorkSession() {
   const [currentSession, setCurrentSession] = useState<WorkSession | null>(sharedCurrentSession)
   const [message, setMessage] = useState<WorkSessionStatusMessage>({
     tone: 'idle',
-    text: '会社ID・ユーザーID・パスワードを入力して出勤してください。',
+    text: '会社ID・ユーザーID・パスワードでログイン後、出勤ボタンから勤務を開始してください。',
   })
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function useWorkSession() {
       if (!restoredSession) {
         localStorage.removeItem(workSessionStorageKey)
         updateSharedCurrentSession(null)
-        setMessage({ tone: 'idle', text: '未出勤です。ログイン後に勤務を開始します。' })
+        setMessage({ tone: 'idle', text: '未出勤です。Dashboard TOPの出勤ボタンから勤務を開始してください。' })
         return null
       }
 

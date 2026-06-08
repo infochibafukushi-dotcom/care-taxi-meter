@@ -254,17 +254,15 @@ export function HomePage() {
       const restoredSession = await workSession.restoreWorkingSession(staffMember)
       if (restoredSession) {
         setLoginMessage('ログインしました。勤務中状態を復元しました。')
-        navigate(roleHomePaths[staffMember.role])
+        navigate('/')
         return
       }
 
-      setLoginMessage('ログインしました。出勤位置を取得して勤務を開始しています。')
-      await workSession.clockIn(nextLoggedInUser)
-      setLoginMessage('ログインしました。出勤しました。')
-      navigate(roleHomePaths[staffMember.role])
+      setLoginMessage('ログインしました。Dashboard TOPの出勤ボタンから勤務を開始してください。')
+      navigate('/')
     } catch (error) {
       setLoginMessage(
-        error instanceof Error ? `ログインまたは出勤できませんでした。${error.message}` : 'ログインまたは出勤できませんでした。',
+        error instanceof Error ? `ログインできませんでした。${error.message}` : 'ログインできませんでした。',
       )
     } finally {
       setIsLoginSubmitting(false)
@@ -355,35 +353,41 @@ export function HomePage() {
 
   return (
     <main className="page page--home" aria-labelledby="home-title">
-      <section className="hero-card">
-        <p className="eyebrow">Dashboard</p>
-        <h1 id="home-title">TOP</h1>
-        <div className="work-dashboard-grid">
-          <div><span>会社</span><strong>{dashboardCompanyName}</strong></div>
-          <div><span>店舗</span><strong>{dashboardStoreName}</strong></div>
-          <div><span>担当</span><strong>{dashboardStaffName}</strong></div>
-          <div><span>出勤</span><strong>{currentSession ? formatCaseDateTime(currentSession.clockInAt) : '未出勤'}</strong></div>
-          <div><span>勤務時間</span><strong>{currentSession ? formatElapsedTime(elapsedSeconds) : '00:00:00'}</strong></div>
-          <div><span>出勤状態</span><strong>{currentSession ? '● 出勤中' : '○ 未出勤'}</strong></div>
+      <section className="hero-card dashboard-card">
+        <header className="dashboard-header">
+          <div>
+            <p className="eyebrow">Dashboard</p>
+            <h1 id="home-title">TOP</h1>
+          </div>
+          {!isHqAdmin ? (
+            currentSession ? (
+              <button className="secondary-action home-button dashboard-attendance-button" type="button" onClick={openClockOutSummary}>退勤</button>
+            ) : (
+              <button className="primary-action home-button dashboard-attendance-button" type="button" onClick={handleClockIn}>出勤</button>
+            )
+          ) : null}
+        </header>
+        <div className="dashboard-content">
+          <section className="work-dashboard-grid dashboard-status-grid" aria-label="勤務状況">
+            <div><span>会社</span><strong>{dashboardCompanyName}</strong></div>
+            <div><span>店舗</span><strong>{dashboardStoreName}</strong></div>
+            <div><span>担当</span><strong>{dashboardStaffName}</strong></div>
+            <div><span>出勤</span><strong>{currentSession ? formatCaseDateTime(currentSession.clockInAt) : '未出勤'}</strong></div>
+            <div><span>勤務時間</span><strong>{currentSession ? formatElapsedTime(elapsedSeconds) : '00:00:00'}</strong></div>
+            <div><span>出勤状態</span><strong>{currentSession ? '● 出勤中' : '○ 未出勤'}</strong></div>
+          </section>
+          <section className="work-dashboard-grid dashboard-results-grid" aria-label="本日実績">
+            <div><span>本日件数</span><strong>{dashboardSummary.todayCount}件</strong></div>
+            <div><span>本日売上</span><strong>{formatFareYen(dashboardSummary.todaySalesYen)}円</strong></div>
+            <div><span>本日走行距離</span><strong>{dashboardSummary.todayDistanceKm.toFixed(1)}km</strong></div>
+            <div><span>本日待機時間</span><strong>{formatElapsedTime(dashboardSummary.todayWaitingSeconds)}</strong></div>
+            <div><span>本日付き添い時間</span><strong>{formatElapsedTime(dashboardSummary.todayAccompanyingSeconds)}</strong></div>
+          </section>
         </div>
-        <section className="work-dashboard-grid" aria-label="本日実績">
-          <div><span>本日件数</span><strong>{dashboardSummary.todayCount}件</strong></div>
-          <div><span>本日売上</span><strong>{formatFareYen(dashboardSummary.todaySalesYen)}円</strong></div>
-          <div><span>本日走行距離</span><strong>{dashboardSummary.todayDistanceKm.toFixed(1)}km</strong></div>
-          <div><span>本日待機時間</span><strong>{formatElapsedTime(dashboardSummary.todayWaitingSeconds)}</strong></div>
-          <div><span>本日付き添い時間</span><strong>{formatElapsedTime(dashboardSummary.todayAccompanyingSeconds)}</strong></div>
-        </section>
         {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
         <p className="save-note">{loginMessage}</p>
-        <nav className="home-actions" aria-label="主要メニュー">
-          {currentSession ? (
-            <>
-              {!isHqAdmin ? <Link className="primary-action" to="/case/start">案件開始</Link> : null}
-              {!isHqAdmin ? <button className="secondary-action home-button" type="button" onClick={openClockOutSummary}>退勤</button> : null}
-            </>
-          ) : (
-            <button className="primary-action home-button" type="button" onClick={handleClockIn}>出勤</button>
-          )}
+        <nav className="home-actions dashboard-actions" aria-label="主要メニュー">
+          {currentSession && !isHqAdmin ? <Link className="primary-action" to="/case/start">案件開始</Link> : null}
           {!isHqAdmin ? <Link className="secondary-action" to="/cases">案件一覧</Link> : null}
           {canOpenManagement ? (
             <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : '/owner'}>
