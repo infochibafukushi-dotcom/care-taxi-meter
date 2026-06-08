@@ -39,6 +39,7 @@ const createCompanyDraft = (sortOrder: number): Company => ({
   name: '',
   corporateName: '',
   representativeName: '',
+  representativeLoginId: '',
   area: '',
   status: 'screening',
   plan: '標準プラン',
@@ -85,6 +86,17 @@ type CompanySummary = {
 }
 
 const createOwnerLoginDraft = (): OwnerLoginDraft => ({ password: '', userId: '' })
+
+const getOwnerStaffForCompany = (staffMembers: StaffMember[], companyId: string) =>
+  staffMembers.find((staffMember) => staffMember.companyId === companyId && staffMember.role === 'owner') ?? null
+
+const createOwnerLoginDraftFromCompany = (company: Company, staffMembers: StaffMember[]): OwnerLoginDraft => {
+  const ownerStaff = getOwnerStaffForCompany(staffMembers, company.id)
+  return {
+    password: ownerStaff?.password ?? '',
+    userId: ownerStaff?.loginId || ownerStaff?.userId || company.representativeLoginId || '',
+  }
+}
 
 const normalizeCompanyId = (value: string) =>
   value.trim().toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
@@ -275,11 +287,13 @@ export function HeadquartersPage() {
   const handleCompanySave = async () => {
     const companyId = getCompanyId(draftCompany)
     const companyName = draftCompany.name.trim()
-    const ownerUserId = ownerLoginDraft.userId.trim()
+    const ownerUserId = ownerLoginDraft.userId.trim() || draftCompany.representativeLoginId?.trim() || ''
     const ownerPassword = ownerLoginDraft.password.trim()
+    const existingOwnerStaff = getOwnerStaffForCompany(staffMembers, companyId)
     const isExistingCompany = franchiseCompanies.some((company) => company.id === companyId)
     if (!companyId || !companyName) { setMessage('加盟店IDと加盟店名を入力してください。'); return }
     if (!isExistingCompany && (!ownerUserId || !ownerPassword)) { setMessage('新規加盟店は代表ログインIDと初期パスワードを入力してください。'); return }
+    if (isExistingCompany && ownerUserId && !ownerPassword && !existingOwnerStaff?.password) { setMessage('代表者ログインIDを保存する場合は初期パスワードも入力してください。'); return }
 
     const ownerName = draftCompany.representativeName?.trim() || draftCompany.ownerName.trim() || ownerUserId
     const nextStatus = draftCompany.status ?? 'screening'
@@ -290,17 +304,47 @@ export function HeadquartersPage() {
       name: companyName,
       ownerName,
       representativeName: ownerName,
+      representativeLoginId: ownerUserId,
       enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
       status: nextStatus,
     })
 
+    const initialStoreId = `${companyId}_main-store`
+    const initialStoreName = companyName
+    let ownerStore = stores.find((store) => store.companyId === companyId)
+
     if (!isExistingCompany) {
-      const initialStoreId = `${companyId}_main-store`
-      const initialStoreName = companyName
-      await saveStore({ id: initialStoreId, companyId, franchiseeId: companyId, name: initialStoreName, storeName: initialStoreName, companyName, ownerName, address: draftCompany.address, phoneNumber: draftCompany.phoneNumber, email: draftCompany.email, status: 'active', enabled: true, isActive: true, sortOrder: 1 })
-      await saveStaffMember({ id: `${companyId}_owner`, companyId, franchiseeId: companyId, storeId: initialStoreId, storeName: initialStoreName, userId: ownerUserId, loginId: ownerUserId, password: ownerPassword, name: ownerName, role: 'owner', canDrive: true, isActive: true, status: 'employed', phoneNumber: draftCompany.phoneNumber, email: draftCompany.email, address: draftCompany.address, licenseNumber: '', licenseExpiresAt: '', accidentHistory: '', memo: '加盟店代表者登録・ID発行で作成したオーナーアカウント', enabled: true, sortOrder: 1 })
+      ownerStore = await saveStore({ id: initialStoreId, companyId, franchiseeId: companyId, name: initialStoreName, storeName: initialStoreName, companyName, ownerName, address: draftCompany.address, phoneNumber: draftCompany.phoneNumber, email: draftCompany.email, status: 'active', enabled: true, isActive: true, sortOrder: 1 })
     } else {
       await updateCompanyStatus({ ...draftCompany, id: companyId }, nextStatus)
+    }
+
+    if (ownerUserId || (!isExistingCompany && ownerPassword)) {
+      const ownerStaffId = existingOwnerStaff?.id || `${companyId}_owner`
+      await saveStaffMember({
+        id: ownerStaffId,
+        companyId,
+        franchiseeId: companyId,
+        storeId: existingOwnerStaff?.storeId || ownerStore?.id || initialStoreId,
+        storeName: existingOwnerStaff?.storeName || ownerStore?.name || initialStoreName,
+        userId: ownerUserId || existingOwnerStaff?.userId || ownerStaffId,
+        loginId: ownerUserId || existingOwnerStaff?.loginId || existingOwnerStaff?.userId || ownerStaffId,
+        password: ownerPassword || existingOwnerStaff?.password || '',
+        name: ownerName,
+        role: 'owner',
+        canDrive: existingOwnerStaff?.canDrive ?? true,
+        isActive: true,
+        status: existingOwnerStaff?.status ?? 'employed',
+        phoneNumber: draftCompany.phoneNumber,
+        email: draftCompany.email,
+        address: draftCompany.address,
+        licenseNumber: existingOwnerStaff?.licenseNumber || '',
+        licenseExpiresAt: existingOwnerStaff?.licenseExpiresAt || '',
+        accidentHistory: existingOwnerStaff?.accidentHistory || '',
+        memo: existingOwnerStaff?.memo || '加盟店代表者登録・ID発行で作成したオーナーアカウント',
+        enabled: true,
+        sortOrder: existingOwnerStaff?.sortOrder || 1,
+      })
     }
 
     await loadData()
@@ -398,7 +442,7 @@ export function HeadquartersPage() {
           <Input label="法人名または屋号" value={draftCompany.corporateName ?? ''} onChange={(value) => updateDraftCompany('corporateName', value)} />
           <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
           <Input label="代表者メールアドレス" value={draftCompany.email} onChange={(value) => updateDraftCompany('email', value)} />
-          <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => updateOwnerLoginDraft('userId', value)} />
+          <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
           <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => updateOwnerLoginDraft('password', value)} />
           <Input label="電話番号" value={draftCompany.phoneNumber} onChange={(value) => updateDraftCompany('phoneNumber', value)} />
           <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
@@ -458,7 +502,7 @@ export function HeadquartersPage() {
                   <td>{summary.company.lastLoginAt || '未記録'}</td>
                   <td className="hq-actions">
                     <button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button>
-                    <button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraft()) }}>編集</button>
+                    <button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button>
                   </td>
                 </tr>
               ))}

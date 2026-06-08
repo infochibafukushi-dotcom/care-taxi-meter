@@ -15,6 +15,7 @@ export type Company = {
   name: string
   corporateName?: string
   representativeName?: string
+  representativeLoginId?: string
   area?: string
   status?: CompanyStatus
   plan?: string

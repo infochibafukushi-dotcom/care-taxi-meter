@@ -254,12 +254,15 @@ export async function authenticateStaff({
 }) {
   await ensureDefaultAdminStaffMember()
   await migrateLegacySuperAdminStaffMembers()
+  const normalizedCompanyId = companyId.trim()
+  const normalizedUserId = userId.trim()
+  const normalizedPassword = password.trim()
   const staffMembers = await fetchStaffMembers()
   return staffMembers.find(
     (staffMember) =>
       staffMember.enabled &&
-      staffMember.companyId === companyId &&
-      staffMember.userId === userId &&
-      staffMember.password === password,
+      staffMember.companyId === normalizedCompanyId &&
+      (staffMember.userId === normalizedUserId || staffMember.loginId === normalizedUserId) &&
+      staffMember.password === normalizedPassword,
   ) ?? null
 }
