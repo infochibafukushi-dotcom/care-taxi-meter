@@ -1,6 +1,6 @@
-export type StaffRole = 'superAdmin' | 'owner' | 'manager' | 'driver'
+export type StaffRole = 'hq_admin' | 'owner' | 'manager' | 'driver'
 
-export type CompanyStatus = 'active' | 'suspended' | 'archived'
+export type CompanyStatus = 'screening' | 'preparing' | 'active' | 'suspended' | 'ending' | 'terminated' | 'archived'
 export type StoreStatus = 'active' | 'suspended' | 'archived'
 
 export type VehicleStatus = '稼働中' | '整備中' | '休車' | '売却済'
@@ -13,6 +13,21 @@ export type Company = {
   id: string
   franchiseeId?: string
   name: string
+  corporateName?: string
+  representativeName?: string
+  representativeLoginId?: string
+  area?: string
+  status?: CompanyStatus
+  plan?: string
+  monthlyFee?: number
+  initialFee?: number
+  contractStartDate?: string
+  contractEndDate?: string
+  contractStatus?: string
+  billingStatus?: string
+  lastBillingMonth?: string
+  paymentStatus?: string
+  lastLoginAt?: string
   enabled: boolean
   sortOrder: number
   ownerName: string
@@ -53,6 +68,11 @@ export type StaffMember = {
   password: string
   name: string
   role: StaffRole
+  loginId?: string
+  status?: 'employed' | 'leave' | 'retired' | 'disabled'
+  joinedAt?: string
+  retiredAt?: string
+  lastLoginAt?: string
   canDrive: boolean
   isActive: boolean
   phoneNumber: string
@@ -113,6 +133,6 @@ export type WorkSession = {
 
 export type CurrentWorkSession = WorkSession
 
-export const staffRoles: StaffRole[] = ['driver', 'manager', 'owner', 'superAdmin']
+export const staffRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
 export const vehicleStatuses: VehicleStatus[] = ['稼働中', '整備中', '休車', '売却済']
 export const vehicleFuelTypes: VehicleFuelType[] = ['', 'ガソリン', '軽油', 'EV']

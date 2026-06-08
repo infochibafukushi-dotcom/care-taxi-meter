@@ -65,8 +65,8 @@ const adminCenterCards: Array<{
 }> = [
   {
     id: "staff",
-    label: "スタッフ管理",
-    description: "スタッフの登録・編集・権限管理",
+    label: "従業員管理",
+    description: "従業員の登録・編集・権限管理",
   },
   {
     id: "vehicles",
@@ -298,7 +298,7 @@ export function AdminPage() {
   const currentFranchiseeId = currentScope.franchiseeId;
   const currentStoreId = currentScope.storeId;
   const currentStoreName = workSession.currentSession?.storeName || "本店";
-  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/superadmin") ? "superAdmin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
+  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -319,7 +319,7 @@ export function AdminPage() {
   const [workSummaryMessage, setWorkSummaryMessage] =
     useState("出勤状況を読み込み中です。");
   const [masterMessage, setMasterMessage] = useState(
-    "店舗・スタッフ・車両情報を読み込み中です。",
+    "店舗・従業員・車両情報を読み込み中です。",
   );
   const availableAdminCenterCards = adminCenterCards.filter((card) =>
     canAccessAdminSection(currentRole, card.id),
@@ -393,7 +393,7 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([fetchStores(currentRole === "superAdmin" ? undefined : currentFranchiseeId), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })])
+    Promise.all([fetchStores(currentRole === "hq_admin" ? undefined : currentFranchiseeId), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })])
       .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return;
@@ -402,7 +402,7 @@ export function AdminPage() {
         setStores(loadedStores);
         setStaffMembers(loadedStaffMembers);
         setVehicles(loadedVehicles);
-        setMasterMessage("店舗・スタッフ・車両情報を読み込みました。");
+        setMasterMessage("店舗・従業員・車両情報を読み込みました。");
       })
       .catch((error) => {
         if (!isMounted) {
@@ -411,8 +411,8 @@ export function AdminPage() {
 
         setMasterMessage(
           error instanceof Error
-            ? `店舗・スタッフ・車両情報を読み込めませんでした。${error.message}`
-            : "店舗・スタッフ・車両情報を読み込めませんでした。",
+            ? `店舗・従業員・車両情報を読み込めませんでした。${error.message}`
+            : "店舗・従業員・車両情報を読み込めませんでした。",
         );
       });
 
@@ -758,7 +758,7 @@ export function AdminPage() {
       storeName: primaryStore?.name ?? "",
       userId: "",
       password: "",
-      name: "新しいスタッフ",
+      name: "新しい従業員",
       role: "driver",
       canDrive: true,
       isActive: true,
@@ -843,12 +843,12 @@ export function AdminPage() {
     );
 
     if (hasEmptyName) {
-      setMasterMessage("スタッフ名は空欄にできません。");
+      setMasterMessage("従業員名は空欄にできません。");
       return;
     }
 
-    const invalidSuperAdminAssignment = currentRole !== "superAdmin" && staffMembers.some(
-      (staffMember) => staffMember.role === "superAdmin" && staffMember.userId !== "admin",
+    const invalidSuperAdminAssignment = currentRole !== "hq_admin" && staffMembers.some(
+      (staffMember) => staffMember.role === "hq_admin" && staffMember.userId !== "admin",
     );
 
     if (invalidSuperAdminAssignment) {
@@ -867,12 +867,12 @@ export function AdminPage() {
           }
         : null;
       await Promise.all(staffMembers.map((staffMember) => saveStaffMember(staffMember, auditActor)));
-      setMasterMessage("スタッフ情報を保存しました。");
+      setMasterMessage("従業員情報を保存しました。");
     } catch (error) {
       setMasterMessage(
         error instanceof Error
-          ? `スタッフ情報を保存できませんでした。${error.message}`
-          : "スタッフ情報を保存できませんでした。",
+          ? `従業員情報を保存できませんでした。${error.message}`
+          : "従業員情報を保存できませんでした。",
       );
     }
   };
@@ -946,7 +946,7 @@ export function AdminPage() {
           <div className="case-list-header">
             <div>
               <p className="eyebrow">Admin Center</p>
-              <h1 id="admin-title">{currentRole === "superAdmin" ? `FC本部モード：${currentStoreName}を表示中` : `管理センター：${currentStoreName}`}</h1>
+              <h1 id="admin-title">{currentRole === "hq_admin" ? `FC本部画面は /hq を利用してください` : `管理センター：${currentStoreName}`}</h1>
             </div>
             <Link className="text-link" to="/">
               ホームへ戻る
@@ -966,7 +966,7 @@ export function AdminPage() {
         <div className="case-list-header">
           <div>
             <p className="eyebrow">Admin Center</p>
-            <h1 id="admin-title">{currentRole === "superAdmin" ? `FC本部モード：${currentStoreName}を表示中` : `管理センター：${currentStoreName}`}</h1>
+            <h1 id="admin-title">{currentRole === "hq_admin" ? `FC本部画面は /hq を利用してください` : `管理センター：${currentStoreName}`}</h1>
           </div>
           <div className="admin-header-actions">
             <Link
@@ -1108,7 +1108,7 @@ export function AdminPage() {
               }
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
-              canAssignSuperAdmin={currentRole === "superAdmin"}
+              canAssignHqAdmin={currentRole === "hq_admin"}
             />
           ) : null}
 
@@ -2020,11 +2020,11 @@ export function AdminPage() {
               </section>
               <section>
                 <h3>バージョン情報</h3>
-                <p>管理センター Phase1</p>
+                <p>加盟店運行管理 Phase1</p>
               </section>
               <section>
                 <h3>権限管理</h3>
-                <p>スタッフ管理の role 設定を引き続き利用します。</p>
+                <p>従業員管理の role 設定を利用します。FC本部のロール定義・権限設定は /hq のシステム設定で管理します。</p>
               </section>
               <section>
                 <h3>システム設定</h3>

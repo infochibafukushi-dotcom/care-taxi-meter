@@ -17,7 +17,21 @@ const companiesCollectionName = 'companies'
 
 export const defaultCompany: Company = {
   id: defaultFranchiseeId,
-  name: 'FC本部',
+  name: '株式会社千葉福祉サポート',
+  corporateName: '株式会社千葉福祉サポート',
+  representativeName: '山本信勝',
+  area: '千葉県',
+  status: 'active',
+  plan: 'FC本部',
+  monthlyFee: 0,
+  initialFee: 0,
+  contractStartDate: '',
+  contractEndDate: '',
+  contractStatus: '契約中',
+  billingStatus: '対象外',
+  lastBillingMonth: '',
+  paymentStatus: '対象外',
+  lastLoginAt: '',
   enabled: true,
   sortOrder: 1,
   ownerName: '山本信勝',
@@ -51,6 +65,21 @@ export async function fetchCompanies() {
     return {
       id: snapshot.id,
       name: toString(data.name),
+      corporateName: toString(data.corporateName),
+      representativeName: toString(data.representativeName) || toString(data.ownerName),
+      representativeLoginId: toString(data.representativeLoginId) || toString(data.ownerLoginId),
+      area: toString(data.area),
+      status: ['screening', 'preparing', 'active', 'suspended', 'ending', 'terminated', 'archived'].includes(toString(data.status)) ? data.status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
+      plan: toString(data.plan) || toString(data.planName),
+      monthlyFee: toNumber(data.monthlyFee) || toNumber(data.monthlyPrice),
+      initialFee: toNumber(data.initialFee),
+      contractStartDate: toString(data.contractStartDate),
+      contractEndDate: toString(data.contractEndDate),
+      contractStatus: toString(data.contractStatus),
+      billingStatus: toString(data.billingStatus),
+      lastBillingMonth: toString(data.lastBillingMonth),
+      paymentStatus: toString(data.paymentStatus),
+      lastLoginAt: toString(data.lastLoginAt),
       enabled: toBoolean(data.enabled, true),
       sortOrder: toNumber(data.sortOrder),
       ownerName: toString(data.ownerName),
@@ -74,11 +103,24 @@ export async function saveCompany(company: Company) {
   )
 }
 
-export async function disableCompany(company: Company) {
+export async function updateCompanyStatus(company: Company, status: Company['status']) {
   await updateDoc(getCompanyRef(company.id), {
-    enabled: false,
+    enabled: status === 'active' || status === 'preparing' || status === 'screening' || status === 'ending',
+    status,
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function disableCompany(company: Company) {
+  await updateCompanyStatus(company, 'suspended')
+}
+
+export async function resumeCompany(company: Company) {
+  await updateCompanyStatus(company, 'active')
+}
+
+export async function archiveCompany(company: Company) {
+  await updateCompanyStatus(company, 'terminated')
 }
 
 export async function ensureDefaultCompany() {
