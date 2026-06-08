@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { disableCompany, ensureDefaultCompany, fetchCompanies, saveCompany } from '../services/companies'
 import { fetchCaseRecords } from '../services/caseRecords'
-import { fetchStaffMembers } from '../services/staffMembers'
-import { fetchStores } from '../services/stores'
+import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
+import { fetchStores, saveStore } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { Company, StaffMember, Store, Vehicle } from '../types/work'
@@ -21,6 +21,16 @@ const createCompanyDraft = (sortOrder: number): Company => ({
   email: '',
   address: '',
   memo: '',
+})
+
+type OwnerLoginDraft = {
+  password: string
+  userId: string
+}
+
+const createOwnerLoginDraft = (): OwnerLoginDraft => ({
+  password: '',
+  userId: '',
 })
 
 const normalizeCompanyId = (value: string) =>
@@ -47,6 +57,7 @@ export function HeadquartersPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [draftCompany, setDraftCompany] = useState<Company>(createCompanyDraft(1))
+  const [ownerLoginDraft, setOwnerLoginDraft] = useState<OwnerLoginDraft>(createOwnerLoginDraft())
   const [selectedCompanyId, setSelectedCompanyId] = useState('')
   const [message, setMessage] = useState('加盟店情報を読み込み中です。')
   const [isLoading, setIsLoading] = useState(true)
@@ -69,6 +80,7 @@ export function HeadquartersPage() {
       setCaseRecords(records)
       setSelectedCompanyId((currentCompanyId) => currentCompanyId || companyItems[0]?.id || '')
       setDraftCompany(createCompanyDraft(companyItems.length + 1))
+      setOwnerLoginDraft(createOwnerLoginDraft())
       setMessage('加盟店情報を読み込みました。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '加盟店情報の読み込みに失敗しました。')
@@ -113,18 +125,72 @@ export function HeadquartersPage() {
     setDraftCompany((currentCompany) => ({ ...currentCompany, [key]: value }))
   }
 
+  const updateOwnerLoginDraft = (key: keyof OwnerLoginDraft, value: string) => {
+    setOwnerLoginDraft((currentOwnerLogin) => ({ ...currentOwnerLogin, [key]: value }))
+  }
+
   const handleCompanySave = async () => {
     const companyId = getCompanyId(draftCompany)
-    if (!companyId || !draftCompany.name.trim()) {
+    const companyName = draftCompany.name.trim()
+    const ownerUserId = ownerLoginDraft.userId.trim()
+    const ownerPassword = ownerLoginDraft.password.trim()
+    if (!companyId || !companyName) {
       setMessage('会社IDと加盟店名を入力してください。')
       return
     }
 
-    setMessage('加盟店を保存中です。')
-    await saveCompany({ ...draftCompany, id: companyId })
+    if (!ownerUserId || !ownerPassword) {
+      setMessage('代表ログインIDと代表パスワードを入力してください。')
+      return
+    }
+
+    const initialStoreId = `${companyId}_main-store`
+    const initialStoreName = companyName
+
+    setMessage('加盟店と代表アカウントを保存中です。')
+    await saveCompany({ ...draftCompany, id: companyId, name: companyName })
+    await saveStore({
+      id: initialStoreId,
+      companyId,
+      franchiseeId: companyId,
+      name: initialStoreName,
+      storeName: initialStoreName,
+      companyName,
+      ownerName: draftCompany.ownerName.trim(),
+      address: draftCompany.address,
+      phoneNumber: draftCompany.phoneNumber,
+      email: draftCompany.email,
+      status: 'active',
+      enabled: true,
+      isActive: true,
+      sortOrder: 1,
+    })
+    await saveStaffMember({
+      id: `${companyId}_owner`,
+      companyId,
+      franchiseeId: companyId,
+      storeId: initialStoreId,
+      storeName: initialStoreName,
+      userId: ownerUserId,
+      password: ownerPassword,
+      name: draftCompany.ownerName.trim() || ownerUserId,
+      role: 'owner',
+      canDrive: true,
+      isActive: true,
+      phoneNumber: draftCompany.phoneNumber,
+      email: draftCompany.email,
+      address: draftCompany.address,
+      licenseNumber: '',
+      licenseExpiresAt: '',
+      accidentHistory: '',
+      memo: '加盟店追加時に作成した代表アカウント',
+      enabled: true,
+      sortOrder: 1,
+    })
     await loadData()
     setSelectedCompanyId(companyId)
-    setMessage('加盟店を保存しました。')
+    setOwnerLoginDraft(createOwnerLoginDraft())
+    setMessage('加盟店と代表アカウントを保存しました。')
   }
 
   const handleCompanyDisable = async (company: Company) => {
@@ -200,6 +266,14 @@ export function HeadquartersPage() {
           <label>
             並び順
             <input type="number" value={draftCompany.sortOrder} onChange={(event) => updateDraftCompany('sortOrder', Number(event.target.value))} />
+          </label>
+          <label>
+            代表ログインID
+            <input value={ownerLoginDraft.userId} onChange={(event) => updateOwnerLoginDraft('userId', event.target.value)} placeholder="owner-id" />
+          </label>
+          <label>
+            代表パスワード
+            <input type="password" value={ownerLoginDraft.password} onChange={(event) => updateOwnerLoginDraft('password', event.target.value)} />
           </label>
         </div>
         <label className="settings-textarea-label">
