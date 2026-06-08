@@ -1248,6 +1248,10 @@ export function CasePage() {
     window.location.reload()
   }
 
+  const caseNumberLabel = caseNumberAssignment ? caseNumberAssignment.caseNumber : caseNumber
+  const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
+  const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
+  const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
 
   return (
     <main
@@ -1267,76 +1271,98 @@ export function CasePage() {
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
-            <div className="r9-fare-screen">
-              <div className="r9-fare-screen__top">
-                <span>現在料金</span>
-                <em>支払前</em>
+            <section className="r9-fare-card" aria-label="現在料金">
+              <div className="r9-fare-screen">
+                <h1>現在料金</h1>
+                <div className="r9-fare-amount">
+                  <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
+                  <span className="r9-fare-unit">円</span>
+                </div>
               </div>
-              <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
-              <span className="r9-fare-unit">円</span>
-            </div>
 
-            <div className="fare-increase-stack" aria-label="加算インジケーター">
-              <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
-                <div className="fare-increase-panel__icon" aria-hidden="true">📍</div>
-                <div className="fare-increase-panel__body">
-                  <span className="fare-increase-panel__title">距離加算まで</span>
-                  <strong>{distanceFareElapsedMeters}m / {distanceFareUnitMeters}m</strong>
-                  <div className="fare-increase-track">
-                    <span style={{ width: `${fareIncreasePercent}%` }} />
+              <div className="fare-increase-stack" aria-label="加算インジケーター">
+                <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
+                  <span className="fare-increase-icon" aria-hidden="true">●</span>
+                  <div className="fare-increase-content">
+                    <div className="fare-increase-panel__label">
+                      <span>距離加算まで</span>
+                      <strong>{distanceFareElapsedMeters}m / {distanceFareUnitMeters}m</strong>
+                    </div>
+                    <div className="fare-increase-track">
+                      <span style={{ width: `${fareIncreasePercent}%` }} />
+                      <i />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className={`fare-increase-panel fare-increase-panel--time ${status === '走行中' && gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
-                <div className="fare-increase-panel__icon" aria-hidden="true">🕘</div>
-                <div className="fare-increase-panel__body">
-                  <span className="fare-increase-panel__title">時間加算まで</span>
-                  <strong>{formatMinutesSeconds(timeFareElapsedSeconds)} / {formatMinutesSeconds(currentMeterSettings.meterTimeFare.unitSeconds)}</strong>
-                  <div className="fare-increase-track">
-                    <span style={{ width: `${timeFareIncreasePercent}%` }} />
+                <div className={`fare-increase-panel fare-increase-panel--time ${status === '走行中' && gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
+                  <span className="fare-increase-icon" aria-hidden="true">◷</span>
+                  <div className="fare-increase-content">
+                    <div className="fare-increase-panel__label">
+                      <span>時間加算まで</span>
+                      <strong>{timeFareElapsedLabel}</strong>
+                    </div>
+                    <div className="fare-increase-track">
+                      <span style={{ width: `${timeFareIncreasePercent}%` }} />
+                      <i />
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="r9-operation-info" aria-label="運行情報">
-              <div className="speed-meter-card">
-                <span>現在速度</span>
-                <div className="speed-meter-circle" aria-label={`現在速度 ${currentSpeedValueLabel} km/h`}>
-                  <strong>{currentSpeedValueLabel}</strong>
-                  <small>km/h</small>
-                </div>
-              </div>
-              <div className="distance-meter-card">
-                <span>実走行距離</span>
-                <strong>{gps.totalDistanceKm.toFixed(3)}<small>km</small></strong>
-              </div>
-              <div className="operation-time-list">
-                <p><span>運行時間</span><strong>{elapsedTimers.driving}</strong></p>
-                <p><span>待機時間</span><strong>{elapsedTimers.waiting}</strong></p>
-                <p><span>付き添い時間</span><strong>{elapsedTimers.accompanying}</strong></p>
-              </div>
-            </div>
-
-            <section className="route-address-panel route-address-panel--meter" aria-labelledby="route-address-title">
-              <div className="route-address-panel__header">
-                <span>GPS ADDRESS</span>
-                <h2 id="route-address-title">運行住所</h2>
-              </div>
-              <div className="route-address-grid">
-                <div className="route-address-card">
-                  <span>📍運行開始住所</span>
-                  <strong>{pickupLocation.address || '送迎開始時にGPSから取得します'}</strong>
-                  <small>{pickupLocation.capturedAt ? '送迎開始ログ取得済み' : '送迎開始ログ待ち'}</small>
-                </div>
-                <div className="route-address-card">
-                  <span>🚩到着住所</span>
-                  <strong>{dropoffLocation.address || '精算終了時にGPSから取得します'}</strong>
-                  <small>{dropoffLocation.capturedAt ? '会計時ログ取得済み' : '会計時ログ待ち'}</small>
                 </div>
               </div>
             </section>
+
+            <section className="r9-driving-card" aria-label="走行情報">
+              <div className="r9-drive-summary">
+                <div className="r9-speed-gauge">
+                  <span>現在速度</span>
+                  <strong>{currentSpeedLabel.replace(' km/h', '')}</strong>
+                  <em>km/h</em>
+                </div>
+                <div className="r9-distance-panel">
+                  <span>実走行距離</span>
+                  <strong>{gps.totalDistanceKm.toFixed(3)} <em>km</em></strong>
+                  <small>{movementStateLabel}</small>
+                </div>
+              </div>
+
+              <div className="r9-timer-action-grid" aria-label="時間操作">
+                <div className="r9-timer-display">
+                  <span>運行時間</span>
+                  <strong>{elapsedTimers.driving}</strong>
+                </div>
+                <button
+                  className={`r9-time-action ${status === '待機中' ? 'r9-time-action--active' : ''}`}
+                  type="button"
+                  aria-pressed={status === '待機中'}
+                  disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
+                  onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
+                >
+                  <span>{waitingToggleLabel}</span>
+                  <strong>{elapsedTimers.waiting}</strong>
+                </button>
+                <button
+                  className={`r9-time-action r9-time-action--escort ${status === '院内付き添い中' ? 'r9-time-action--active' : ''}`}
+                  type="button"
+                  aria-pressed={status === '院内付き添い中'}
+                  disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
+                  onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
+                >
+                  <span>{accompanyingToggleLabel}</span>
+                  <strong>{elapsedTimers.accompanying}</strong>
+                </button>
+              </div>
+            </section>
+
+            <div className="r9-case-chip" aria-label="案件情報">
+              <span>案件番号 {caseNumberLabel}</span>
+              <strong>{fareSnapshot ? '料金設定：開始時固定' : '料金設定：未固定'}</strong>
+            </div>
+          </section>
+
+          <section className="r9-center-panel" aria-label="料金内訳">
+            <MeterFareBreakdownPanel
+              breakdown={fareBreakdown}
+            />
           </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
@@ -1353,7 +1379,8 @@ export function CasePage() {
                 disabled={!canStartTrip}
                 onClick={() => { void handleDrivingStart() }}
               >
-                送迎開始
+                <span aria-hidden="true">🚘</span>
+                <strong>送迎開始</strong>
               </button>
               <button
                 className={`r9-status-button r9-status-button--waiting ${status === '待機中' ? 'r9-status-button--active' : ''}`}
@@ -1377,7 +1404,8 @@ export function CasePage() {
                 disabled={!canAddAssistCharge}
                 onClick={() => setIsCareModalOpen(true)}
               >
-                介助
+                <span aria-hidden="true">♿</span>
+                <strong>介助</strong>
               </button>
               <button
                 className="r9-status-button r9-status-button--pickup"
@@ -1385,7 +1413,8 @@ export function CasePage() {
                 disabled={!canOpenDispatchModal}
                 onClick={() => setIsDispatchModalOpen(true)}
               >
-                予約迎車
+                <span aria-hidden="true">▦</span>
+                <strong>予約迎車</strong>
               </button>
               <button
                 className="r9-status-button r9-status-button--expense"
@@ -1393,7 +1422,8 @@ export function CasePage() {
                 disabled={!canAddExpenseCharge}
                 onClick={() => setIsExpenseModalOpen(true)}
               >
-                実費
+                <span aria-hidden="true">￥</span>
+                <strong>実費</strong>
               </button>
               <button
                 className="r9-status-button r9-status-button--settlement"
@@ -1401,7 +1431,8 @@ export function CasePage() {
                 disabled={caseSaveState === 'saving' || !canOpenSettlement}
                 onClick={handleSettlementFlowStart}
               >
-                精算・終了
+                <span aria-hidden="true">▣</span>
+                <strong>精算・終了</strong>
               </button>
             </div>
 
@@ -1506,6 +1537,28 @@ export function CasePage() {
                 </details>
               </div>
             ) : null}
+          </section>
+
+          <section className="route-address-panel" aria-labelledby="route-address-title">
+            <h2 className="sr-only" id="route-address-title">運行住所</h2>
+            <div className="route-address-grid">
+              <div>
+                <span className="route-address-icon" aria-hidden="true">●</span>
+                <div>
+                  <span>運行開始住所</span>
+                  <strong>{pickupLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
+                  <small>{pickupLocation.capturedAt ? '送迎開始ログ取得済み' : '送迎開始時にGPSから取得します / 送迎開始ログ待ち'}</small>
+                </div>
+              </div>
+              <div>
+                <span className="route-address-icon route-address-icon--flag" aria-hidden="true">⚑</span>
+                <div>
+                  <span>到着住所</span>
+                  <strong>{dropoffLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
+                  <small>{dropoffLocation.capturedAt ? '会計時ログ取得済み' : '精算終了時にGPSから取得します / 会計時ログ待ち'}</small>
+                </div>
+              </div>
+            </div>
           </section>
         </div>
       </div>
