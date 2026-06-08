@@ -11,15 +11,16 @@ import {
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { Company } from '../types/work'
+import { defaultFranchiseeId } from './tenancy'
 
 const companiesCollectionName = 'companies'
 
 export const defaultCompany: Company = {
-  id: 'chiba-care-taxi',
-  name: 'ちばケアタクシー',
+  id: defaultFranchiseeId,
+  name: 'FC本部',
   enabled: true,
   sortOrder: 1,
-  ownerName: '',
+  ownerName: '山本信勝',
   phoneNumber: '',
   email: '',
   address: '',
