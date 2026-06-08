@@ -68,6 +68,7 @@ export async function fetchCompanies() {
       corporateName: toString(data.corporateName),
       representativeName: toString(data.representativeName) || toString(data.ownerName),
       representativeLoginId: toString(data.representativeLoginId) || toString(data.ownerLoginId),
+      representativeInitialPassword: toString(data.representativeInitialPassword) || toString(data.ownerPassword) || toString(data.initialPassword),
       area: toString(data.area),
       status: ['screening', 'preparing', 'active', 'suspended', 'ending', 'terminated', 'archived'].includes(toString(data.status)) ? data.status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
       plan: toString(data.plan) || toString(data.planName),

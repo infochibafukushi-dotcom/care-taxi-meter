@@ -40,6 +40,7 @@ const createCompanyDraft = (sortOrder: number): Company => ({
   corporateName: '',
   representativeName: '',
   representativeLoginId: '',
+  representativeInitialPassword: '',
   area: '',
   status: 'screening',
   plan: '標準プラン',
@@ -93,7 +94,7 @@ const getOwnerStaffForCompany = (staffMembers: StaffMember[], companyId: string)
 const createOwnerLoginDraftFromCompany = (company: Company, staffMembers: StaffMember[]): OwnerLoginDraft => {
   const ownerStaff = getOwnerStaffForCompany(staffMembers, company.id)
   return {
-    password: ownerStaff?.password ?? '',
+    password: ownerStaff?.password || company.representativeInitialPassword || '',
     userId: ownerStaff?.loginId || ownerStaff?.userId || company.representativeLoginId || '',
   }
 }
@@ -290,7 +291,8 @@ export function HeadquartersPage() {
     const ownerUserId = ownerLoginDraft.userId.trim() || draftCompany.representativeLoginId?.trim() || ''
     const ownerPassword = ownerLoginDraft.password.trim()
     const existingOwnerStaff = getOwnerStaffForCompany(staffMembers, companyId)
-    const isExistingCompany = franchiseCompanies.some((company) => company.id === companyId)
+    const existingCompany = franchiseCompanies.find((company) => company.id === companyId) ?? null
+    const isExistingCompany = existingCompany !== null
     if (!companyId || !companyName) { setMessage('加盟店IDと加盟店名を入力してください。'); return }
     if (!isExistingCompany && (!ownerUserId || !ownerPassword)) { setMessage('新規加盟店は代表ログインIDと初期パスワードを入力してください。'); return }
     if (isExistingCompany && ownerUserId && !ownerPassword && !existingOwnerStaff?.password) { setMessage('代表者ログインIDを保存する場合は初期パスワードも入力してください。'); return }
@@ -305,6 +307,7 @@ export function HeadquartersPage() {
       ownerName,
       representativeName: ownerName,
       representativeLoginId: ownerUserId,
+      representativeInitialPassword: ownerPassword || draftCompany.representativeInitialPassword || existingCompany?.representativeInitialPassword || '',
       enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
       status: nextStatus,
     })
@@ -443,7 +446,7 @@ export function HeadquartersPage() {
           <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
           <Input label="代表者メールアドレス" value={draftCompany.email} onChange={(value) => updateDraftCompany('email', value)} />
           <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
-          <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => updateOwnerLoginDraft('password', value)} />
+          <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
           <Input label="電話番号" value={draftCompany.phoneNumber} onChange={(value) => updateDraftCompany('phoneNumber', value)} />
           <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
           <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
