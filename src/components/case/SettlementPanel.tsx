@@ -53,7 +53,7 @@ export function SettlementPanel({
         <strong>{formatFareYen(breakdown.totalFareYen)}円</strong>
       </div>
       <label className="settlement-control">
-        宛名
+        宛名（PDF発行時のみ使用・案件ログに保存しません）
         <input
           placeholder="空欄・上様・任意入力可"
           type="text"
