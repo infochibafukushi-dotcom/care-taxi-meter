@@ -19,7 +19,7 @@ const workSessionsCollectionName = 'workSessions'
 
 const createWorkSessionId = () => `work-${Date.now()}-${crypto.randomUUID()}`
 
-const validStaffRoles: StaffRole[] = ['superAdmin', 'owner', 'manager', 'driver']
+const validStaffRoles: StaffRole[] = ['hq_admin', 'owner', 'manager', 'driver']
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toNullableNumber = (value: unknown) =>

@@ -171,10 +171,12 @@ export type CaseRecordDocument = {
   pickupLatitude: number | null
   pickupLongitude: number | null
   pickupAddress: string
+  pickupArea: string
   pickupCapturedAt: string | null
   dropoffLatitude: number | null
   dropoffLongitude: number | null
   dropoffAddress: string
+  dropoffArea: string
   dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
   dispatchCharges: AssistCharge[]
@@ -341,6 +343,15 @@ const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
 
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
+
+const extractAreaFromAddress = (address: string) => {
+  const normalized = address.replace(/^日本、?/, '').trim()
+  const cityMatch = normalized.match(/(?:千葉市|船橋市|市川市|佐倉市|四街道市|習志野市|八千代市|浦安市|成田市|柏市|松戸市|市原市)(?:[^\s、,]*区)?/)
+  if (cityMatch) return cityMatch[0]
+  const wardMatch = normalized.match(/[^\s、,]+区/)
+  if (wardMatch) return wardMatch[0]
+  return ''
+}
 
 const toBoolean = (value: unknown, fallback = false) =>
   typeof value === 'boolean' ? value : fallback
@@ -535,8 +546,8 @@ const toStoredCaseRecord = (
     taxiTickets: toTaxiTickets(data.taxiTickets),
     paymentMethod: toPaymentMethod(data.paymentMethod),
     payments: toPaymentAllocations(data.payments),
-    receiptName: toString(data.receiptName),
-    customerName: toString(data.customerName),
+    receiptName: '',
+    customerName: '',
     remarks: toString(data.remarks),
     status: toCaseRecordStatus(data.status),
     deleted: data.deleted === true,
@@ -553,10 +564,12 @@ const toStoredCaseRecord = (
     pickupLatitude: toNullableNumber(data.pickupLatitude),
     pickupLongitude: toNullableNumber(data.pickupLongitude),
     pickupAddress: toString(data.pickupAddress),
+    pickupArea: toString(data.pickupArea) || extractAreaFromAddress(toString(data.pickupAddress)),
     pickupCapturedAt: toString(data.pickupCapturedAt) || null,
     dropoffLatitude: toNullableNumber(data.dropoffLatitude),
     dropoffLongitude: toNullableNumber(data.dropoffLongitude),
     dropoffAddress: toString(data.dropoffAddress),
+    dropoffArea: toString(data.dropoffArea) || extractAreaFromAddress(toString(data.dropoffAddress)),
     dropoffCapturedAt: toString(data.dropoffCapturedAt) || null,
     assistCharges: toAssistCharges(data.assistCharges),
     dispatchCharges: toAssistCharges(data.dispatchCharges),
@@ -653,7 +666,6 @@ export async function saveCaseRecord({
   fareBreakdown,
   paymentMethod,
   payments = [],
-  receiptName = '',
   taxiTickets = [],
   pickupLocation,
   selectedCareOptions,
@@ -706,8 +718,8 @@ export async function saveCaseRecord({
     taxiTickets,
     paymentMethod,
     payments,
-    receiptName,
-    customerName: receiptName,
+    receiptName: '',
+    customerName: '',
     remarks: '',
     status: 'completed',
     deleted: false,
@@ -724,10 +736,12 @@ export async function saveCaseRecord({
     pickupLatitude: pickupLocation.latitude,
     pickupLongitude: pickupLocation.longitude,
     pickupAddress: pickupLocation.address,
+    pickupArea: extractAreaFromAddress(pickupLocation.address),
     pickupCapturedAt: pickupLocation.capturedAt,
     dropoffLatitude: dropoffLocation.latitude,
     dropoffLongitude: dropoffLocation.longitude,
     dropoffAddress: dropoffLocation.address,
+    dropoffArea: extractAreaFromAddress(dropoffLocation.address),
     dropoffCapturedAt: dropoffLocation.capturedAt,
     assistCharges: selectedCareOptions.map((careOption) => ({
       id: careOption.masterId,

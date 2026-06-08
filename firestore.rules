@@ -78,7 +78,7 @@ service cloud.firestore {
       allow read: if isStoreManager() && sameStore(resource.data);
       allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data) && preventsHqGrant();
       allow read: if isDriver() && staffMemberId == staffId() && sameStore(resource.data);
-      allow delete: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow delete: if false;
     }
 
     match /vehicles/{vehicleId} {

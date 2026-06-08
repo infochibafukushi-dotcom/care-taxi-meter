@@ -62,6 +62,11 @@ import type {
   TimerKey,
 } from '../types/case'
 
+const extractAreaFromAddress = (address: string) => {
+  const match = address.match(/(?:千葉市|船橋市|市川市|佐倉市|四街道市|習志野市|八千代市|浦安市|成田市|柏市|松戸市|市原市)(?:[^\s、,]*区)?|[^\s、,]+区/)
+  return match?.[0] ?? ''
+}
+
 type KeypadTarget = {
   amountYen: number
   mode: 'care' | 'expense'
@@ -1098,8 +1103,8 @@ export function CasePage() {
         taxiTickets,
         paymentMethod,
         payments,
-        receiptName,
-        customerName: receiptName,
+        receiptName: '',
+        customerName: '',
         remarks: '',
         status: 'completed',
         deleted: false,
@@ -1116,10 +1121,12 @@ export function CasePage() {
         pickupLatitude: pickupLocationRef.current.latitude,
         pickupLongitude: pickupLocationRef.current.longitude,
         pickupAddress: pickupLocationRef.current.address,
+        pickupArea: extractAreaFromAddress(pickupLocationRef.current.address),
         pickupCapturedAt: pickupLocationRef.current.capturedAt,
         dropoffLatitude: dropoffLocationRef.current.latitude,
         dropoffLongitude: dropoffLocationRef.current.longitude,
         dropoffAddress: dropoffLocationRef.current.address,
+        dropoffArea: extractAreaFromAddress(dropoffLocationRef.current.address),
         dropoffCapturedAt: dropoffLocationRef.current.capturedAt,
         assistCharges: selectedCareOptions.map((careOption) => ({
           id: careOption.masterId,
