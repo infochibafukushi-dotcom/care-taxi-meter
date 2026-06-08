@@ -4420,3 +4420,167 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+/* FC headquarters is primarily operated on desktop, so use the available width. */
+.page--hq {
+  display: block;
+  width: 100%;
+  padding: max(18px, env(safe-area-inset-top)) 8px max(24px, env(safe-area-inset-bottom));
+}
+
+.page--hq .admin-section {
+  width: 100%;
+  margin: 0 0 28px;
+}
+
+.page--hq .admin-section:first-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px 24px;
+}
+
+.page--hq .admin-section:first-child .eyebrow,
+.page--hq .admin-section:first-child h1,
+.page--hq .admin-section:first-child .lead,
+.page--hq .admin-section:first-child .save-note {
+  grid-column: 1;
+}
+
+.page--hq .admin-section:first-child .secondary-action {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+  align-self: center;
+  min-width: 150px;
+  padding: 0 18px;
+}
+
+.page--hq h1 {
+  font-size: clamp(2.4rem, 4.2vw, 4rem);
+}
+
+.page--hq .lead {
+  max-width: none;
+}
+
+.page--hq .settings-grid {
+  grid-template-columns: repeat(6, minmax(140px, 1fr));
+  align-items: end;
+}
+
+.page--hq .settings-textarea-label {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  color: #475569;
+  font-weight: 900;
+}
+
+.page--hq .settings-textarea-label textarea {
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-weight: 800;
+  resize: vertical;
+}
+
+.page--hq .admin-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgb(14 165 233 / 18%);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 72%);
+}
+
+.page--hq .admin-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.page--hq .admin-table th,
+.page--hq .admin-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgb(15 23 42 / 10%);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.page--hq .admin-table th {
+  color: #075985;
+  background: rgb(240 249 255 / 82%);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.page--hq .admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.page--hq .admin-table td {
+  overflow: hidden;
+  color: #0f172a;
+  font-weight: 800;
+  text-overflow: ellipsis;
+}
+
+.page--hq .admin-table td:nth-child(4),
+.page--hq .admin-table td:nth-child(5),
+.page--hq .admin-table td:nth-child(6),
+.page--hq .admin-table td:nth-child(7),
+.page--hq .admin-table td:nth-child(8) {
+  text-align: right;
+}
+
+.page--hq .admin-table td:last-child {
+  overflow: visible;
+}
+
+.page--hq .admin-table td:last-child button + button {
+  margin-left: 8px;
+}
+
+.page--hq .admin-table button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgb(14 165 233 / 28%);
+  border-radius: 10px;
+  color: #075985;
+  background: #f0f9ff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.page--hq .work-dashboard-grid {
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+}
+
+@media (min-width: 1280px) {
+  .page--hq {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page--hq .admin-section:first-child {
+    grid-template-columns: 1fr;
+  }
+
+  .page--hq .admin-section:first-child .secondary-action {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .page--hq .settings-grid,
+  .page--hq .work-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}

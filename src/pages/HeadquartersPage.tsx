@@ -9,6 +9,7 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import type { Company, StaffMember, Store, Vehicle } from '../types/work'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
+import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
 
 const createCompanyDraft = (sortOrder: number): Company => ({
   id: '',
@@ -23,9 +24,20 @@ const createCompanyDraft = (sortOrder: number): Company => ({
 })
 
 const normalizeCompanyId = (value: string) =>
-  value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\//g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 
 const getCompanyId = (company: Company) => normalizeCompanyId(company.id || company.name)
+
+const isPlaceholderCompanyId = (value: string) => /^-+$/.test(value)
+
+const getCompanyDisplayId = (company: Company) =>
+  isPlaceholderCompanyId(company.id) && company.name.trim() ? company.name : company.id
 
 export function HeadquartersPage() {
   const workSession = useWorkSession()
@@ -122,9 +134,26 @@ export function HeadquartersPage() {
     setMessage(`${company.name} を停止しました。`)
   }
 
+  const handleDevelopmentDataReset = async () => {
+    const confirmed = window.confirm('加盟店・売上・勤務・スタッフ・車両データを削除し、FC本部の初期データのみ再作成します。実行しますか？')
+    if (!confirmed) {
+      return
+    }
+
+    setMessage('データをリセット中です。')
+    try {
+      const summary = await resetHeadquartersDevelopmentData()
+      await loadData()
+      setSelectedCompanyId('default-franchisee')
+      setMessage(`データをリセットしました。削除件数: ${Object.values(summary.deletedByCollection).reduce((total, count) => total + count, 0)}件`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `データリセットに失敗しました。${error.message}` : 'データリセットに失敗しました。')
+    }
+  }
+
   if (!isSuperAdmin) {
     return (
-      <main className="page page--admin" aria-labelledby="hq-title">
+      <main className="page page--admin page--hq" aria-labelledby="hq-title">
         <section className="admin-section">
           <p className="eyebrow">Headquarters</p>
           <h1 id="hq-title">FC本部管理画面</h1>
@@ -136,12 +165,13 @@ export function HeadquartersPage() {
   }
 
   return (
-    <main className="page page--admin" aria-labelledby="hq-title">
+    <main className="page page--admin page--hq" aria-labelledby="hq-title">
       <section className="admin-section">
         <p className="eyebrow">Headquarters</p>
         <h1 id="hq-title">FC本部管理画面</h1>
         <p className="lead">会社ID管理・加盟店追加・加盟店停止・加盟店詳細を管理します。</p>
         <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
+        <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>データリセット</button>
       </section>
 
       <section className="admin-section">
@@ -203,7 +233,7 @@ export function HeadquartersPage() {
             <tbody>
               {companySummaries.map((summary) => (
                 <tr key={summary.company.id}>
-                  <td>{summary.company.id}</td>
+                  <td>{getCompanyDisplayId(summary.company)}</td>
                   <td>{summary.company.name}</td>
                   <td>{summary.company.enabled ? '稼働中' : '停止中'}</td>
                   <td>{summary.storeCount}</td>
@@ -228,7 +258,7 @@ export function HeadquartersPage() {
         <h2>加盟店詳細</h2>
         {selectedCompany && selectedSummary ? (
           <div className="work-dashboard-grid">
-            <div><span>会社ID</span><strong>{selectedCompany.id}</strong></div>
+            <div><span>会社ID</span><strong>{getCompanyDisplayId(selectedCompany)}</strong></div>
             <div><span>加盟店名</span><strong>{selectedCompany.name}</strong></div>
             <div><span>状態</span><strong>{selectedCompany.enabled ? '稼働中' : '停止中'}</strong></div>
             <div><span>店舗数</span><strong>{selectedSummary.storeCount}</strong></div>
