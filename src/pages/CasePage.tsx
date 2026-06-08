@@ -38,6 +38,7 @@ import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
+import { formatMinutesSeconds } from '../utils/time'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
   captureAddressLocationFromCoordinates,
@@ -61,6 +62,11 @@ import type {
   StatusTone,
   TimerKey,
 } from '../types/case'
+
+const extractAreaFromAddress = (address: string) => {
+  const match = address.match(/(?:千葉市|船橋市|市川市|佐倉市|四街道市|習志野市|八千代市|浦安市|成田市|柏市|松戸市|市原市)(?:[^\s、,]*区)?|[^\s、,]+区/)
+  return match?.[0] ?? ''
+}
 
 type KeypadTarget = {
   amountYen: number
@@ -263,9 +269,6 @@ export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const [caseNumber, setCaseNumber] = useState('未採番')
-  const [caseNumberAssignment, setCaseNumberAssignment] =
-    useState<CaseNumberAssignment | null>(null)
-  const [fareSnapshot, setFareSnapshot] = useState<FareSnapshot | null>(null)
   const fareSnapshotRef = useRef<FareSnapshot | null>(null)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
@@ -380,11 +383,12 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中'
   const canEndAccompanying = status === '院内付き添い中'
   const canOpenSettlement = status === '走行中'
-  const canAddAssistCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddExpenseCharge = ['走行中', '待機中', '院内付き添い中'].includes(status)
-  const canAddDispatchCharge = status === '走行中' && selectedDispatchCharges.length === 0
-  const canAddSpecialVehicleCharge = status === '走行中' && selectedSpecialVehicleCharges.length === 0
-  const canOpenDispatchModal = status === '走行中' && !isCaseClosed
+  const canEditCharges = !isCaseClosed && status !== '精算前' && caseSaveState !== 'saving'
+  const canAddAssistCharge = canEditCharges
+  const canAddExpenseCharge = canEditCharges
+  const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
+  const canAddSpecialVehicleCharge = canEditCharges && selectedSpecialVehicleCharges.length === 0
+  const canOpenDispatchModal = canEditCharges
 
   useEffect(() => {
     let isMounted = true
@@ -533,14 +537,8 @@ export function CasePage() {
     0,
     Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
   )
-  const currentSpeedLabel =
-    gps.currentSpeedKmh == null ? '取得中...' : `${gps.currentSpeedKmh.toFixed(1)}km/h`
-  const movementStateLabel =
-    gps.movementState === 'low-speed'
-      ? '低速走行中'
-      : gps.movementState === 'normal'
-        ? '通常走行中'
-        : '速度判定待ち'
+  const currentSpeedValueLabel =
+    gps.currentSpeedKmh == null ? '0' : Math.round(gps.currentSpeedKmh).toString()
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -856,8 +854,6 @@ export function CasePage() {
 
       caseNumberAssignmentRef.current = assignment
       fareSnapshotRef.current = snapshot
-      setCaseNumberAssignment(assignment)
-      setFareSnapshot(snapshot)
       setCaseNumber(assignment.caseNumber)
       markOperationStarted()
 
@@ -1098,8 +1094,8 @@ export function CasePage() {
         taxiTickets,
         paymentMethod,
         payments,
-        receiptName,
-        customerName: receiptName,
+        receiptName: '',
+        customerName: '',
         remarks: '',
         status: 'completed',
         deleted: false,
@@ -1116,10 +1112,12 @@ export function CasePage() {
         pickupLatitude: pickupLocationRef.current.latitude,
         pickupLongitude: pickupLocationRef.current.longitude,
         pickupAddress: pickupLocationRef.current.address,
+        pickupArea: extractAreaFromAddress(pickupLocationRef.current.address),
         pickupCapturedAt: pickupLocationRef.current.capturedAt,
         dropoffLatitude: dropoffLocationRef.current.latitude,
         dropoffLongitude: dropoffLocationRef.current.longitude,
         dropoffAddress: dropoffLocationRef.current.address,
+        dropoffArea: extractAreaFromAddress(dropoffLocationRef.current.address),
         dropoffCapturedAt: dropoffLocationRef.current.capturedAt,
         assistCharges: selectedCareOptions.map((careOption) => ({
           id: careOption.masterId,
@@ -1367,6 +1365,12 @@ export function CasePage() {
             />
           </section>
 
+          <section className="r9-center-panel" aria-label="料金内訳">
+            <MeterFareBreakdownPanel
+              breakdown={fareBreakdown}
+            />
+          </section>
+
           <section className="r9-right-panel" aria-label="状態操作">
             <div className="r9-status-stack">
               <button
@@ -1377,6 +1381,22 @@ export function CasePage() {
               >
                 <span aria-hidden="true">🚘</span>
                 <strong>送迎開始</strong>
+              </button>
+              <button
+                className={`r9-status-button r9-status-button--waiting ${status === '待機中' ? 'r9-status-button--active' : ''}`}
+                type="button"
+                disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
+                onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
+              >
+                {status === '待機中' ? '待機終了' : '待機開始'}
+              </button>
+              <button
+                className={`r9-status-button r9-status-button--accompanying ${status === '院内付き添い中' ? 'r9-status-button--active' : ''}`}
+                type="button"
+                disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
+                onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
+              >
+                {status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'}
               </button>
               <button
                 className="r9-status-button r9-status-button--assist"
@@ -1766,36 +1786,6 @@ export function CasePage() {
                 </div>
               </section>
 
-              <section className="r9-operation-section" aria-labelledby="time-addition-title">
-                <div className="r9-operation-section__header">
-                  <h3 id="time-addition-title">時間加算</h3>
-                  <span>待機・付き添いはタイマー加算です</span>
-                </div>
-                <div className="r9-time-toggle-grid">
-                  <button
-                    className={`r9-time-toggle ${status === '待機中' ? 'r9-time-toggle--active' : ''}`}
-                    type="button"
-                    aria-pressed={status === '待機中'}
-                    disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
-                    onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
-                  >
-                    <span>待機 {status === '待機中' ? 'ON' : 'OFF'}</span>
-                    <strong>{elapsedTimers.waiting}</strong>
-                    <em>{formatFareYen(fareBreakdown.waitingFareYen)}円</em>
-                  </button>
-                  <button
-                    className={`r9-time-toggle ${status === '院内付き添い中' ? 'r9-time-toggle--active' : ''}`}
-                    type="button"
-                    aria-pressed={status === '院内付き添い中'}
-                    disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
-                    onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
-                  >
-                    <span>付き添い {status === '院内付き添い中' ? 'ON' : 'OFF'}</span>
-                    <strong>{elapsedTimers.accompanying}</strong>
-                    <em>{formatFareYen(fareBreakdown.escortFareYen)}円</em>
-                  </button>
-                </div>
-              </section>
             </div>
           </section>
         </div>

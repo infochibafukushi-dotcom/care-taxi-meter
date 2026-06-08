@@ -53,7 +53,8 @@ service cloud.firestore {
         && ('userId' in request.resource.data)
         && ('beforeData' in request.resource.data)
         && ('afterData' in request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isHqAdmin();
     }
 
     match /companies/{companyDocumentId} {
@@ -77,7 +78,7 @@ service cloud.firestore {
       allow read: if isStoreManager() && sameStore(resource.data);
       allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data) && preventsHqGrant();
       allow read: if isDriver() && staffMemberId == staffId() && sameStore(resource.data);
-      allow delete: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow delete: if false;
     }
 
     match /vehicles/{vehicleId} {

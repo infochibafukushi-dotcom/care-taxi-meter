@@ -212,7 +212,7 @@ export function CaseDetailPage() {
 
   const openReceiptDialog = () => {
     setReceiptDialog({
-      customerName: caseRecord?.receiptName || caseRecord?.customerName || '',
+      customerName: '',
       issuerName: state.meterSettings.receipt.issuerName,
       receiptNote: state.meterSettings.receipt.defaultReceiptNote,
       reissueReason: '領収書再発行',
@@ -505,12 +505,8 @@ export function CaseDetailPage() {
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
               </div>
               <div>
-                <span>顧客名</span>
-                <strong>{formatOptionalText(caseRecord.customerName)}</strong>
-              </div>
-              <div>
-                <span>領収書宛名</span>
-                <strong>{formatOptionalText(caseRecord.receiptName)}</strong>
+                <span>個人情報</span>
+                <strong>顧客氏名・電話番号・介護情報は保存しません</strong>
               </div>
               {caseAddressItems.map((addressItem) => (
                 <div className="case-detail-address" key={addressItem.label}>
@@ -697,7 +693,7 @@ export function CaseDetailPage() {
             </header>
 
             <label>
-              宛名（任意）
+              宛名（任意・保存しません）
               <input placeholder="空欄でも発行できます" value={receiptDialog.customerName} onChange={(event) => setReceiptDialog((currentDialog) => ({ ...currentDialog, customerName: event.target.value }))} />
             </label>
 
