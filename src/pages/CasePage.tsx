@@ -38,7 +38,6 @@ import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
-import { formatMinutesSeconds } from '../utils/time'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
   captureAddressLocationFromCoordinates,
