@@ -1259,7 +1259,7 @@ export function CasePage() {
   }
 
   const caseNumberLabel = displayedCaseNumber || caseNumber
-  const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
+  const timeFareElapsedLabel = formatMinutesSeconds(timeFareElapsedSeconds)
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
 
