@@ -269,6 +269,8 @@ export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const [caseNumber, setCaseNumber] = useState('未採番')
+  const [displayedCaseNumber, setDisplayedCaseNumber] = useState('未採番')
+  const [isFareSnapshotLocked, setIsFareSnapshotLocked] = useState(false)
   const fareSnapshotRef = useRef<FareSnapshot | null>(null)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
@@ -861,6 +863,8 @@ export function CasePage() {
       caseNumberAssignmentRef.current = assignment
       fareSnapshotRef.current = snapshot
       setCaseNumber(assignment.caseNumber)
+      setDisplayedCaseNumber(assignment.caseNumber)
+      setIsFareSnapshotLocked(true)
       markOperationStarted()
 
       if (!handleStatusChange('走行中')) {
@@ -1254,7 +1258,7 @@ export function CasePage() {
     window.location.reload()
   }
 
-  const caseNumberLabel = caseNumberAssignment ? caseNumberAssignment.caseNumber : caseNumber
+  const caseNumberLabel = displayedCaseNumber || caseNumber
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
@@ -1361,7 +1365,7 @@ export function CasePage() {
 
             <div className="r9-case-chip" aria-label="案件情報">
               <span>案件番号 {caseNumberLabel}</span>
-              <strong>{fareSnapshot ? '料金設定：開始時固定' : '料金設定：未固定'}</strong>
+              <strong>{isFareSnapshotLocked ? '料金設定：開始時固定' : '料金設定：未固定'}</strong>
             </div>
           </section>
 
