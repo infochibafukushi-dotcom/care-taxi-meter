@@ -538,7 +538,13 @@ export function CasePage() {
     Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
   )
   const currentSpeedValueLabel =
-    gps.currentSpeedKmh == null ? '0' : Math.round(gps.currentSpeedKmh).toString()
+    gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
+  const movementStateLabel =
+    gps.movementState === 'low-speed'
+      ? '低速走行中'
+      : gps.movementState === 'normal'
+        ? '通常走行中'
+        : '速度判定待ち'
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -1315,7 +1321,7 @@ export function CasePage() {
               <div className="r9-drive-summary">
                 <div className="r9-speed-gauge">
                   <span>現在速度</span>
-                  <strong>{currentSpeedLabel.replace(' km/h', '')}</strong>
+                  <strong>{currentSpeedValueLabel}</strong>
                   <em>km/h</em>
                 </div>
                 <div className="r9-distance-panel">
@@ -1365,12 +1371,6 @@ export function CasePage() {
             />
           </section>
 
-          <section className="r9-center-panel" aria-label="料金内訳">
-            <MeterFareBreakdownPanel
-              breakdown={fareBreakdown}
-            />
-          </section>
-
           <section className="r9-right-panel" aria-label="状態操作">
             <div className="r9-status-stack">
               <button
@@ -1381,22 +1381,6 @@ export function CasePage() {
               >
                 <span aria-hidden="true">🚘</span>
                 <strong>送迎開始</strong>
-              </button>
-              <button
-                className={`r9-status-button r9-status-button--waiting ${status === '待機中' ? 'r9-status-button--active' : ''}`}
-                type="button"
-                disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
-                onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
-              >
-                {status === '待機中' ? '待機終了' : '待機開始'}
-              </button>
-              <button
-                className={`r9-status-button r9-status-button--accompanying ${status === '院内付き添い中' ? 'r9-status-button--active' : ''}`}
-                type="button"
-                disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
-                onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
-              >
-                {status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'}
               </button>
               <button
                 className="r9-status-button r9-status-button--assist"
