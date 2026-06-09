@@ -53,7 +53,7 @@ const router = createBrowserRouter([
         element: <AdminPage />,
       },
       {
-        path: 'superadmin',
+        path: 'hq',
         element: <HeadquartersPage />,
       },
       {
@@ -65,7 +65,7 @@ const router = createBrowserRouter([
         element: <SalesAnalyticsPage />,
       },
       {
-        path: 'hq',
+        path: 'superadmin',
         element: <HeadquartersPage />,
       },
     ],
