@@ -4,27 +4,27 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   driver: 'ドライバー',
   manager: 'マネージャー',
   owner: 'オーナー',
-  superAdmin: '本部管理者',
+  hq_admin: 'FC本部管理者',
 }
 
 export const assignableStaffRoles: StaffRole[] = ['driver', 'manager', 'owner']
 export const staffRoleSelectGroups: Array<{ label?: string; roles: StaffRole[] }> = [
   { roles: assignableStaffRoles },
-  { label: '本部管理者（FC）', roles: ['superAdmin'] },
+  { label: 'FC本部管理者', roles: ['hq_admin'] },
 ]
 
 export const roleHomePaths: Record<StaffRole, string> = {
   driver: '/driver',
   manager: '/manager',
   owner: '/owner',
-  superAdmin: '/superadmin',
+  hq_admin: '/hq',
 }
 
-export const managementRoles: StaffRole[] = ['manager', 'owner', 'superAdmin']
+export const managementRoles: StaffRole[] = ['manager', 'owner', 'hq_admin']
 
 export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) => {
-  if (role === 'superAdmin') {
-    return true
+  if (role === 'hq_admin') {
+    return false
   }
 
   if (role === 'owner') {
@@ -37,7 +37,6 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
       'vehicles',
       'analytics',
       'personalOperations',
-      'system',
     ].includes(sectionId)
   }
 
@@ -49,10 +48,10 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
 }
 
 export const canManageCaseRecord = (role: StaffRole | '') =>
-  ['manager', 'owner', 'superAdmin'].includes(role)
+  ['manager', 'owner', 'hq_admin'].includes(role)
 
 export const canCancelCaseRecord = (role: StaffRole | '') =>
-  ['driver', 'manager', 'owner', 'superAdmin'].includes(role)
+  ['driver', 'manager', 'owner', 'hq_admin'].includes(role)
 
 export const canDeleteCaseRecord = canManageCaseRecord
 export const canRestoreCaseRecord = canManageCaseRecord

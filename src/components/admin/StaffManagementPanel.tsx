@@ -8,7 +8,7 @@ type StaffManagementPanelProps = {
   onAdd: () => void
   onSave: () => void
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
-  canAssignSuperAdmin?: boolean
+  canAssignHqAdmin?: boolean
 }
 
 export function StaffManagementPanel({
@@ -18,7 +18,7 @@ export function StaffManagementPanel({
   onAdd,
   onSave,
   onUpdate,
-  canAssignSuperAdmin = false,
+  canAssignHqAdmin = false,
 }: StaffManagementPanelProps) {
   const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -33,10 +33,10 @@ export function StaffManagementPanel({
       <div className="admin-master-panel__header">
         <div>
           <p className="eyebrow">Staff</p>
-          <h2 id="staff-management-title">スタッフ管理</h2>
+          <h2 id="staff-management-title">従業員管理</h2>
         </div>
         <div className="admin-master-actions">
-          <button type="button" onClick={onAdd}>+ スタッフ追加</button>
+          <button type="button" onClick={onAdd}>+ 従業員追加</button>
           <button type="button" onClick={onSave}>保存</button>
         </div>
       </div>
@@ -45,14 +45,15 @@ export function StaffManagementPanel({
         <table className="admin-master-table admin-master-table--wide">
           <thead>
             <tr>
-              <th>表示</th>
+              <th>有効</th>
               <th>順</th>
               <th>会社ID</th>
               <th>店舗</th>
-              <th>スタッフ名</th>
-              <th>ユーザーID</th>
+              <th>氏名</th>
+              <th>ログインID</th>
               <th>パスワード</th>
-              <th>role</th>
+              <th>権限</th>
+              <th>状態</th>
               <th>電話番号</th>
               <th>メール</th>
               <th>住所</th>
@@ -83,14 +84,14 @@ export function StaffManagementPanel({
                   <td>
                     <select
                       value={staffMember.role}
-                      disabled={staffMember.role === 'superAdmin' && !canAssignSuperAdmin}
+                      disabled={staffMember.role === 'hq_admin' && !canAssignHqAdmin}
                       onChange={(event) => onUpdate(staffMember.id, { role: event.target.value as StaffRole })}
                     >
                       {staffRoleSelectGroups.map((group, groupIndex) =>
                         group.label ? (
                           <optgroup key={group.label} label={group.label}>
                             {group.roles.map((role) => (
-                              <option key={role} value={role} disabled={!canAssignSuperAdmin}>
+                              <option key={role} value={role} disabled={role === 'hq_admin' && !canAssignHqAdmin}>
                                 {ROLE_LABELS[role]}
                               </option>
                             ))}
@@ -105,6 +106,14 @@ export function StaffManagementPanel({
                       )}
                     </select>
                   </td>
+                  <td>
+                    <select value={staffMember.status ?? (staffMember.enabled ? 'employed' : 'disabled')} onChange={(event) => onUpdate(staffMember.id, { status: event.target.value as StaffMember['status'], enabled: event.target.value !== 'disabled' && event.target.value !== 'retired', isActive: event.target.value !== 'disabled' && event.target.value !== 'retired' })}>
+                      <option value="employed">在籍中</option>
+                      <option value="leave">休職中</option>
+                      <option value="retired">退職</option>
+                      <option value="disabled">無効</option>
+                    </select>
+                  </td>
                   <td><input value={staffMember.phoneNumber} onChange={(event) => onUpdate(staffMember.id, { phoneNumber: event.target.value })} /></td>
                   <td><input value={staffMember.email} onChange={(event) => onUpdate(staffMember.id, { email: event.target.value })} /></td>
                   <td><input value={staffMember.address} onChange={(event) => onUpdate(staffMember.id, { address: event.target.value })} /></td>
@@ -115,7 +124,7 @@ export function StaffManagementPanel({
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={15}>スタッフが未登録です。</td></tr>
+              <tr><td colSpan={16}>従業員が未登録です。</td></tr>
             )}
           </tbody>
         </table>
