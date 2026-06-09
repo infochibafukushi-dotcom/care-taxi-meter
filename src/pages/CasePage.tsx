@@ -126,6 +126,18 @@ const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUI
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+const formatClockSegment = (value: number) => value.toString().padStart(2, '0')
+
+const formatTimerClock = (totalSeconds: number, includesHours = false) => {
+  const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
+  const hours = Math.floor(normalizedSeconds / 3600)
+  const minutes = Math.floor((normalizedSeconds % 3600) / 60)
+  const seconds = normalizedSeconds % 60
+
+  return includesHours
+    ? `${formatClockSegment(hours)}:${formatClockSegment(minutes)}:${formatClockSegment(seconds)}`
+    : `${formatClockSegment(minutes + hours * 60)}:${formatClockSegment(seconds)}`
+}
 
 const createFareSnapshot = ({
   assistItems,
@@ -1259,6 +1271,9 @@ export function CasePage() {
 
   const caseNumberLabel = displayedCaseNumber || caseNumber
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
+  const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
+  const waitingClockLabel = formatTimerClock(elapsedTimers.seconds.waiting, true)
+  const accompanyingClockLabel = formatTimerClock(elapsedTimers.seconds.accompanying, true)
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
 
@@ -1337,7 +1352,7 @@ export function CasePage() {
               <div className="r9-timer-action-grid" aria-label="時間操作">
                 <div className="r9-timer-display">
                   <span>運行時間</span>
-                  <strong>{elapsedTimers.driving}</strong>
+                  <strong>{drivingClockLabel}</strong>
                 </div>
                 <button
                   className={`r9-time-action ${status === '待機中' ? 'r9-time-action--active' : ''}`}
@@ -1347,7 +1362,7 @@ export function CasePage() {
                   onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
                 >
                   <span>{waitingToggleLabel}</span>
-                  <strong>{elapsedTimers.waiting}</strong>
+                  <small>（待機時間 {waitingClockLabel}）</small>
                 </button>
                 <button
                   className={`r9-time-action r9-time-action--escort ${status === '院内付き添い中' ? 'r9-time-action--active' : ''}`}
@@ -1357,7 +1372,7 @@ export function CasePage() {
                   onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
                 >
                   <span>{accompanyingToggleLabel}</span>
-                  <strong>{elapsedTimers.accompanying}</strong>
+                  <small>（付き添い時間 {accompanyingClockLabel}）</small>
                 </button>
               </div>
             </section>

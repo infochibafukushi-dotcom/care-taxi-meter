@@ -6015,3 +6015,98 @@ h1 {
     padding: 3px 8px;
   }
 }
+
+/* Screenshot-matched meter UI refinements */
+.r9-meter-page {
+  background: #02070d;
+}
+
+.r9-meter-shell {
+  min-height: 100dvh;
+  padding: clamp(10px, 1.2vw, 18px);
+  border: 0;
+  border-radius: 0;
+  background: #02070d;
+  box-shadow: none;
+}
+
+.meter-screw {
+  display: none;
+}
+
+.r9-meter-console {
+  grid-template-columns: minmax(560px, 1.42fr) minmax(340px, 0.86fr) minmax(170px, 0.42fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: clamp(12px, 1.2vw, 20px);
+}
+
+.r9-left-panel,
+.r9-center-panel,
+.route-address-panel {
+  border-width: 1px;
+  border-color: rgb(59 130 246 / 86%);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at top left, rgb(30 64 175 / 28%), transparent 46%),
+    linear-gradient(135deg, #071426 0%, #03101b 52%, #010711 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+}
+
+.r9-fare-card {
+  grid-template-rows: minmax(230px, 1fr) auto;
+}
+
+.r9-fare-screen {
+  padding: clamp(16px, 1.8vw, 24px) clamp(22px, 2vw, 30px) 10px;
+}
+
+.r9-fare-screen strong {
+  font-size: clamp(7.5rem, 15vw, 13.8rem);
+}
+
+.r9-driving-card {
+  grid-template-rows: minmax(170px, 1fr) auto;
+}
+
+.r9-timer-action-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.r9-time-action {
+  min-height: 94px;
+  gap: 10px;
+}
+
+.r9-time-action small {
+  color: #f8fafc;
+  font-family: "Roboto Mono", "Noto Sans JP", monospace;
+  font-size: clamp(0.68rem, 1vw, 1rem);
+  font-weight: 1000;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.r9-time-action--active small {
+  color: #111827;
+}
+
+.r9-status-stack {
+  display: grid;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  gap: clamp(10px, 1.1vw, 16px);
+}
+
+.r9-status-button {
+  border-radius: 10px;
+}
+
+@media (max-width: 1100px) and (orientation: landscape) {
+  .r9-meter-console {
+    grid-template-columns: minmax(0, 1.24fr) minmax(0, 0.76fr) clamp(108px, 15vw, 150px);
+  }
+
+  .r9-time-action small {
+    font-size: clamp(0.72rem, 1.2vw, 1rem);
+  }
+}
