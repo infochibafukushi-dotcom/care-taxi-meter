@@ -17,14 +17,14 @@ export type TenantAccessScope = Partial<TenantScope> & {
 }
 
 export const toFranchiseRole = (role: StaffRole | ''): FranchiseRole | '' => {
-  if (role === 'superAdmin') return 'hq_admin'
+  if (role === 'hq_admin') return 'hq_admin'
   if (role === 'owner') return 'franchisee_owner'
   if (role === 'manager') return 'store_manager'
   if (role === 'driver') return 'driver'
   return ''
 }
 
-export const isHqRole = (role: StaffRole | '') => role === 'superAdmin'
+export const isHqRole = (role: StaffRole | '') => role === 'hq_admin'
 
 export const getFranchiseeId = (data: Record<string, unknown>) =>
   typeof data.franchiseeId === 'string' && data.franchiseeId
