@@ -6015,3 +6015,434 @@ h1 {
     padding: 3px 8px;
   }
 }
+
+/* Screenshot-matched meter UI refinements */
+.r9-meter-page {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  background: #02070d;
+  overflow: hidden;
+}
+
+.r9-meter-shell {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100vh;
+  max-height: 100dvh;
+  padding: clamp(6px, 1.1vh, 18px) clamp(8px, 1.1vw, 18px);
+  transform: none;
+  transform-origin: initial;
+  border: 0;
+  border-radius: 0;
+  background: #02070d;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.meter-screw {
+  display: none;
+}
+
+.r9-meter-console {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.42fr) minmax(260px, 0.86fr) clamp(120px, 15vw, 230px);
+  grid-template-rows: minmax(0, 1fr) minmax(74px, 16vh);
+  gap: clamp(6px, 1.2vh, 16px) clamp(8px, 1.1vw, 20px);
+  overflow: hidden;
+}
+
+.r9-left-panel,
+.r9-center-panel,
+.route-address-panel {
+  border-width: 1px;
+  border-color: rgb(59 130 246 / 86%);
+  border-radius: clamp(8px, 1.1vw, 12px);
+  background:
+    radial-gradient(circle at top left, rgb(30 64 175 / 28%), transparent 46%),
+    linear-gradient(135deg, #071426 0%, #03101b 52%, #010711 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+  overflow: hidden;
+}
+
+.r9-left-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 43fr) minmax(0, 47fr) auto;
+  gap: 0;
+}
+
+.r9-center-panel {
+  display: grid;
+  min-height: 0;
+}
+
+.r9-fare-card {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 70fr) minmax(0, 30fr);
+}
+
+.r9-fare-screen {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: clamp(8px, 1.8vh, 24px) clamp(12px, 1.8vw, 30px) clamp(4px, 0.8vh, 10px);
+}
+
+.r9-fare-screen h1 {
+  font-size: clamp(1rem, 2.3vh, 2.05rem);
+}
+
+.r9-fare-amount {
+  min-height: 0;
+  align-items: center;
+}
+
+.r9-fare-screen strong {
+  font-size: clamp(4.4rem, min(20vh, 12vw), 13.8rem);
+}
+
+.r9-fare-unit {
+  font-size: clamp(1.7rem, min(6vh, 4vw), 3.6rem);
+}
+
+.fare-increase-stack {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fare-increase-panel {
+  min-height: 0;
+  gap: clamp(8px, 1.1vw, 16px);
+  padding: clamp(6px, 1.2vh, 18px) clamp(8px, 1.6vw, 24px);
+}
+
+.fare-increase-icon,
+.route-address-icon {
+  width: clamp(36px, min(7vh, 4.2vw), 58px);
+  height: clamp(36px, min(7vh, 4.2vw), 58px);
+  font-size: clamp(1.05rem, min(3vh, 2vw), 1.7rem);
+}
+
+.fare-increase-icon::before {
+  width: clamp(12px, 2vh, 18px);
+  height: clamp(12px, 2vh, 18px);
+  border-width: clamp(4px, 0.8vh, 7px);
+}
+
+.fare-increase-panel--time .fare-increase-icon::before {
+  width: clamp(18px, 3.3vh, 28px);
+  height: clamp(18px, 3.3vh, 28px);
+  border-width: clamp(4px, 0.8vh, 7px);
+}
+
+.fare-increase-panel--time .fare-increase-icon::after {
+  width: clamp(10px, 2vh, 18px);
+  height: clamp(10px, 2vh, 18px);
+  border-left-width: clamp(3px, 0.55vh, 5px);
+  border-bottom-width: clamp(3px, 0.55vh, 5px);
+}
+
+.fare-increase-content {
+  gap: clamp(4px, 1vh, 14px);
+}
+
+.fare-increase-panel__label span,
+.fare-increase-panel__label strong {
+  font-size: clamp(0.78rem, min(2.5vh, 1.6vw), 1.7rem);
+}
+
+.fare-increase-track {
+  height: clamp(6px, 1.5vh, 12px);
+}
+
+.r9-driving-card {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 62fr) minmax(0, 38fr);
+  padding: clamp(8px, 1.4vh, 16px) clamp(10px, 1.1vw, 16px);
+}
+
+.r9-drive-summary {
+  min-height: 0;
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1fr);
+  gap: clamp(8px, 1.2vw, 22px);
+  padding-bottom: clamp(6px, 1.2vh, 14px);
+}
+
+.r9-speed-gauge,
+.r9-distance-panel {
+  gap: clamp(3px, 0.8vh, 10px);
+}
+
+.r9-speed-gauge {
+  padding-right: clamp(8px, 1.2vw, 18px);
+}
+
+.r9-speed-gauge span,
+.r9-distance-panel span,
+.r9-timer-display span,
+.r9-time-action span {
+  font-size: clamp(0.78rem, min(2.4vh, 1.45vw), 1.45rem);
+}
+
+.r9-speed-gauge strong {
+  width: clamp(58px, min(13.5vh, 8.5vw), 130px);
+  height: clamp(58px, min(13.5vh, 8.5vw), 130px);
+  border-width: clamp(5px, 1.3vh, 10px);
+  font-size: clamp(1.5rem, min(6.5vh, 4vw), 4.5rem);
+}
+
+.r9-speed-gauge em {
+  margin-top: clamp(-38px, -4vh, -20px);
+  font-size: clamp(0.65rem, 1.6vh, 1rem);
+}
+
+.r9-distance-panel strong {
+  font-size: clamp(1.7rem, min(6.8vh, 4vw), 4.2rem);
+}
+
+.r9-distance-panel small {
+  font-size: clamp(0.58rem, 1.4vh, 0.85rem);
+}
+
+.r9-timer-action-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-top: clamp(6px, 1.2vh, 14px);
+}
+
+.r9-timer-display,
+.r9-time-action {
+  min-height: 0;
+  gap: clamp(3px, 0.8vh, 10px);
+  padding: clamp(4px, 0.9vh, 8px) clamp(5px, 0.7vw, 10px);
+}
+
+.r9-timer-display strong,
+.r9-time-action strong {
+  font-size: clamp(1.35rem, min(5.5vh, 3vw), 3.1rem);
+}
+
+.r9-time-action small {
+  color: #f8fafc;
+  font-family: "Roboto Mono", "Noto Sans JP", monospace;
+  font-size: clamp(0.56rem, min(1.85vh, 0.95vw), 1rem);
+  font-weight: 1000;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.r9-time-action--active small {
+  color: #111827;
+}
+
+.r9-case-chip {
+  min-height: 0;
+  padding: clamp(4px, 0.8vh, 14px) clamp(8px, 1.1vw, 16px);
+  font-size: clamp(0.58rem, min(1.7vh, 0.95vw), 0.95rem);
+}
+
+.r9-center-panel .fare-breakdown {
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: clamp(8px, 1.5vh, 18px);
+}
+
+.r9-center-panel .fare-breakdown h2 {
+  margin-bottom: clamp(6px, 1.2vh, 14px);
+  padding-bottom: clamp(6px, 1.2vh, 14px);
+  font-size: clamp(1rem, min(3.3vh, 2vw), 2rem);
+}
+
+.r9-center-panel .fare-breakdown dl {
+  min-height: 0;
+  grid-template-rows: repeat(9, minmax(0, 1fr)) minmax(0, 2.4fr);
+}
+
+.r9-center-panel .fare-breakdown div {
+  padding: clamp(2px, 0.65vh, 6px) clamp(4px, 0.5vw, 6px);
+}
+
+.r9-center-panel .fare-breakdown dt,
+.r9-center-panel .fare-breakdown dd {
+  font-size: clamp(0.76rem, min(2.6vh, 1.45vw), 1.55rem);
+}
+
+.r9-center-panel .fare-breakdown__total {
+  margin: clamp(4px, 0.8vh, 10px) 0 0;
+  padding: clamp(6px, 1.7vh, 18px) clamp(10px, 1.5vw, 24px) !important;
+}
+
+.r9-center-panel .fare-breakdown__total dt,
+.r9-center-panel .fare-breakdown__total dd {
+  font-size: clamp(1.2rem, min(5vh, 2.7vw), 2.5rem);
+}
+
+.r9-status-stack {
+  display: grid;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  gap: clamp(6px, 1.3vh, 16px);
+  height: 100%;
+  min-height: 0;
+}
+
+.r9-status-button {
+  min-height: 0;
+  gap: clamp(4px, 1vh, 12px);
+  padding: clamp(4px, 1.2vh, 12px) clamp(5px, 0.8vw, 8px);
+  border-radius: clamp(7px, 1vw, 10px);
+  font-size: clamp(0.9rem, min(3.2vh, 1.7vw), 1.9rem);
+}
+
+.r9-status-button span {
+  font-size: clamp(1.3rem, min(6.2vh, 3.4vw), 3.6rem);
+}
+
+.r9-side-tools {
+  display: none;
+}
+
+.route-address-panel {
+  min-height: 0;
+  padding: clamp(8px, 1.4vh, 14px) clamp(10px, 1.8vw, 28px);
+}
+
+.route-address-grid {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(10px, 1.8vw, 28px);
+}
+
+.route-address-grid > div {
+  min-height: 0;
+  gap: clamp(8px, 1.4vw, 22px);
+  padding-right: clamp(8px, 1.4vw, 20px);
+}
+
+.route-address-grid > div > div {
+  gap: clamp(2px, 0.7vh, 6px);
+}
+
+.route-address-icon--flag {
+  font-size: clamp(2rem, min(8vh, 4vw), 4rem);
+}
+
+.route-address-grid span:not(.route-address-icon) {
+  font-size: clamp(0.88rem, min(2.8vh, 1.45vw), 1.6rem);
+}
+
+.route-address-grid strong {
+  overflow: hidden;
+  font-size: clamp(0.76rem, min(2.3vh, 1.25vw), 1.4rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-address-grid small {
+  overflow: hidden;
+  font-size: clamp(0.62rem, min(1.9vh, 0.95vw), 1.05rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) and (orientation: landscape) {
+  .r9-meter-shell {
+    padding: 6px 8px;
+  }
+
+  .r9-meter-console {
+    grid-template-columns: minmax(0, 1.38fr) minmax(220px, 0.84fr) clamp(98px, 14vw, 150px);
+    grid-template-rows: minmax(0, 1fr) minmax(66px, 15vh);
+    gap: 6px 8px;
+  }
+
+  .r9-fare-screen strong {
+    font-size: clamp(4rem, min(18vh, 12vw), 8rem);
+  }
+
+  .fare-increase-panel__label {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .r9-center-panel .fare-breakdown div {
+    align-items: center;
+  }
+
+  .route-address-grid strong {
+    letter-spacing: 0.08em;
+  }
+}
+
+/* Meter compacting requested for smartphone visibility */
+.r9-left-panel {
+  grid-template-rows: minmax(0, 43fr) minmax(0, 57fr);
+}
+
+.r9-speed-gauge strong {
+  width: clamp(48px, min(11vh, 7.2vw), 108px);
+  height: clamp(48px, min(11vh, 7.2vw), 108px);
+  border-width: clamp(4px, 1vh, 8px);
+  font-size: clamp(1.25rem, min(5vh, 3.4vw), 3.8rem);
+}
+
+.r9-speed-gauge em {
+  margin-top: clamp(-30px, -3.2vh, -16px);
+  font-size: clamp(0.58rem, 1.4vh, 0.9rem);
+}
+
+.r9-distance-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1vw, 14px);
+  min-width: 0;
+}
+
+.r9-distance-panel__header small {
+  color: #94a3b8;
+  font-size: clamp(0.58rem, min(1.7vh, 0.9vw), 0.9rem);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.r9-center-panel .fare-breakdown dl {
+  grid-template-rows: repeat(9, minmax(0, 1fr));
+}
+
+.r9-center-panel .fare-breakdown__total {
+  display: none;
+}
+
+.route-address-heading {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(8px, 1.4vw, 18px);
+  min-width: 0;
+}
+
+.route-address-heading small {
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: clamp(0.58rem, min(1.75vh, 0.95vw), 0.95rem);
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-address-content {
+  min-width: 0;
+  display: grid;
+  gap: clamp(2px, 0.7vh, 6px);
+}

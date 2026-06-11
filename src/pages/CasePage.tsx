@@ -126,6 +126,18 @@ const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUI
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
 
+const formatClockSegment = (value: number) => value.toString().padStart(2, '0')
+
+const formatTimerClock = (totalSeconds: number, includesHours = false) => {
+  const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
+  const hours = Math.floor(normalizedSeconds / 3600)
+  const minutes = Math.floor((normalizedSeconds % 3600) / 60)
+  const seconds = normalizedSeconds % 60
+
+  return includesHours
+    ? `${formatClockSegment(hours)}:${formatClockSegment(minutes)}:${formatClockSegment(seconds)}`
+    : `${formatClockSegment(minutes + hours * 60)}:${formatClockSegment(seconds)}`
+}
 
 const createFareSnapshot = ({
   assistItems,
@@ -268,8 +280,7 @@ export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const [caseNumber, setCaseNumber] = useState('未採番')
-  const [displayedCaseNumber, setDisplayedCaseNumber] = useState('未採番')
-  const [isFareSnapshotLocked, setIsFareSnapshotLocked] = useState(false)
+  const [, setIsFareSnapshotLocked] = useState(false)
   const fareSnapshotRef = useRef<FareSnapshot | null>(null)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
@@ -862,7 +873,6 @@ export function CasePage() {
       caseNumberAssignmentRef.current = assignment
       fareSnapshotRef.current = snapshot
       setCaseNumber(assignment.caseNumber)
-      setDisplayedCaseNumber(assignment.caseNumber)
       setIsFareSnapshotLocked(true)
       markOperationStarted()
 
@@ -1257,8 +1267,10 @@ export function CasePage() {
     window.location.reload()
   }
 
-  const caseNumberLabel = displayedCaseNumber || caseNumber
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
+  const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
+  const waitingClockLabel = formatTimerClock(elapsedTimers.seconds.waiting, true)
+  const accompanyingClockLabel = formatTimerClock(elapsedTimers.seconds.accompanying, true)
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
 
@@ -1282,7 +1294,7 @@ export function CasePage() {
           <section className="r9-left-panel" aria-label="料金メーター">
             <section className="r9-fare-card" aria-label="現在料金">
               <div className="r9-fare-screen">
-                <h1>現在料金</h1>
+                <h1>合計金額</h1>
                 <div className="r9-fare-amount">
                   <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
                   <span className="r9-fare-unit">円</span>
@@ -1328,16 +1340,18 @@ export function CasePage() {
                   <em>km/h</em>
                 </div>
                 <div className="r9-distance-panel">
-                  <span>実走行距離</span>
+                  <div className="r9-distance-panel__header">
+                    <span>実走行距離</span>
+                    <small>{movementStateLabel}</small>
+                  </div>
                   <strong>{gps.totalDistanceKm.toFixed(3)} <em>km</em></strong>
-                  <small>{movementStateLabel}</small>
                 </div>
               </div>
 
               <div className="r9-timer-action-grid" aria-label="時間操作">
                 <div className="r9-timer-display">
                   <span>運行時間</span>
-                  <strong>{elapsedTimers.driving}</strong>
+                  <strong>{drivingClockLabel}</strong>
                 </div>
                 <button
                   className={`r9-time-action ${status === '待機中' ? 'r9-time-action--active' : ''}`}
@@ -1347,7 +1361,7 @@ export function CasePage() {
                   onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
                 >
                   <span>{waitingToggleLabel}</span>
-                  <strong>{elapsedTimers.waiting}</strong>
+                  <small>（待機時間 {waitingClockLabel}）</small>
                 </button>
                 <button
                   className={`r9-time-action r9-time-action--escort ${status === '院内付き添い中' ? 'r9-time-action--active' : ''}`}
@@ -1357,20 +1371,17 @@ export function CasePage() {
                   onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
                 >
                   <span>{accompanyingToggleLabel}</span>
-                  <strong>{elapsedTimers.accompanying}</strong>
+                  <small>（付き添い時間 {accompanyingClockLabel}）</small>
                 </button>
               </div>
             </section>
 
-            <div className="r9-case-chip" aria-label="案件情報">
-              <span>案件番号 {caseNumberLabel}</span>
-              <strong>{isFareSnapshotLocked ? '料金設定：開始時固定' : '料金設定：未固定'}</strong>
-            </div>
           </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
+              hideTotal
             />
           </section>
 
@@ -1531,18 +1542,22 @@ export function CasePage() {
             <div className="route-address-grid">
               <div>
                 <span className="route-address-icon" aria-hidden="true">●</span>
-                <div>
-                  <span>運行開始住所</span>
+                <div className="route-address-content">
+                  <div className="route-address-heading">
+                    <span>運行開始住所</span>
+                    <small>送迎開始時にGPSから取得します</small>
+                  </div>
                   <strong>{pickupLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
-                  <small>{pickupLocation.capturedAt ? '送迎開始ログ取得済み' : '送迎開始時にGPSから取得します / 送迎開始ログ待ち'}</small>
                 </div>
               </div>
               <div>
                 <span className="route-address-icon route-address-icon--flag" aria-hidden="true">⚑</span>
-                <div>
-                  <span>到着住所</span>
+                <div className="route-address-content">
+                  <div className="route-address-heading">
+                    <span>到着住所</span>
+                    <small>精算終了時にGPSから取得します</small>
+                  </div>
                   <strong>{dropoffLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
-                  <small>{dropoffLocation.capturedAt ? '会計時ログ取得済み' : '精算終了時にGPSから取得します / 会計時ログ待ち'}</small>
                 </div>
               </div>
             </div>

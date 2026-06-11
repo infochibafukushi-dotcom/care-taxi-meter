@@ -4,11 +4,13 @@ import type { PaymentMethod } from '../../types/case'
 
 type FareBreakdownPanelProps = {
   breakdown: FareBreakdown
+  hideTotal?: boolean
   paymentMethod?: PaymentMethod
 }
 
 export function FareBreakdownPanel({
   breakdown,
+  hideTotal = false,
   paymentMethod,
 }: FareBreakdownPanelProps) {
   return (
@@ -27,10 +29,12 @@ export function FareBreakdownPanel({
             <dd>{paymentMethod}</dd>
           </div>
         ) : null}
-        <div className="fare-breakdown__total">
-          <dt>合計金額</dt>
-          <dd>{formatFareYen(breakdown.totalFareYen)}円</dd>
-        </div>
+        {!hideTotal ? (
+          <div className="fare-breakdown__total">
+            <dt>合計金額</dt>
+            <dd>{formatFareYen(breakdown.totalFareYen)}円</dd>
+          </div>
+        ) : null}
       </dl>
     </section>
   )
