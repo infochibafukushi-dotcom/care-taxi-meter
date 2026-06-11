@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Generated visual verification artifacts (binary files are not accepted in PRs)
+docs/screenshots/
