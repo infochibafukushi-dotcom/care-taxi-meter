@@ -1544,8 +1544,7 @@ export function CasePage() {
                 <span className="route-address-icon" aria-hidden="true">●</span>
                 <div className="route-address-content">
                   <div className="route-address-heading">
-                    <span>運行開始住所</span>
-                    <small>送迎開始時にGPSから取得します</small>
+                    <span>運行開始住所 送迎開始時にGPSから取得します</span>
                   </div>
                   <strong>{pickupLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
                 </div>
@@ -1554,8 +1553,7 @@ export function CasePage() {
                 <span className="route-address-icon route-address-icon--flag" aria-hidden="true">⚑</span>
                 <div className="route-address-content">
                   <div className="route-address-heading">
-                    <span>到着住所</span>
-                    <small>精算終了時にGPSから取得します</small>
+                    <span>到着住所 精算終了時にGPSから取得します</span>
                   </div>
                   <strong>{dropoffLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
                 </div>

@@ -6446,3 +6446,101 @@ h1 {
   display: grid;
   gap: clamp(2px, 0.7vh, 6px);
 }
+
+/* Smartphone meter visibility adjustments */
+.r9-meter-console {
+  grid-template-rows: minmax(0, 1fr) minmax(58px, 13.5vh);
+}
+
+.r9-fare-card {
+  grid-template-rows: minmax(0, 66fr) minmax(0, 34fr);
+}
+
+.fare-increase-panel {
+  gap: clamp(5px, 0.8vw, 12px);
+  padding: clamp(3px, 0.65vh, 10px) clamp(6px, 1vw, 14px);
+}
+
+.fare-increase-icon {
+  width: clamp(28px, min(5.6vh, 3.5vw), 46px);
+  height: clamp(28px, min(5.6vh, 3.5vw), 46px);
+}
+
+.fare-increase-icon::before {
+  width: clamp(9px, 1.5vh, 14px);
+  height: clamp(9px, 1.5vh, 14px);
+  border-width: clamp(3px, 0.55vh, 5px);
+}
+
+.fare-increase-panel--time .fare-increase-icon::before {
+  width: clamp(14px, 2.5vh, 22px);
+  height: clamp(14px, 2.5vh, 22px);
+  border-width: clamp(3px, 0.55vh, 5px);
+}
+
+.fare-increase-panel--time .fare-increase-icon::after {
+  width: clamp(8px, 1.5vh, 13px);
+  height: clamp(8px, 1.5vh, 13px);
+  border-left-width: clamp(2px, 0.4vh, 4px);
+  border-bottom-width: clamp(2px, 0.4vh, 4px);
+}
+
+.fare-increase-content {
+  gap: clamp(2px, 0.45vh, 8px);
+}
+
+.fare-increase-panel__label span,
+.fare-increase-panel__label strong {
+  font-size: clamp(0.68rem, min(2.1vh, 1.25vw), 1.25rem);
+  line-height: 1.05;
+}
+
+.fare-increase-track {
+  height: clamp(4px, 0.95vh, 8px);
+}
+
+.route-address-panel {
+  padding: clamp(5px, 0.9vh, 10px) clamp(8px, 1.2vw, 18px);
+}
+
+.route-address-grid > div {
+  gap: clamp(6px, 1vw, 14px);
+}
+
+.route-address-icon--flag {
+  width: clamp(36px, min(7vh, 4.2vw), 58px);
+  height: clamp(36px, min(7vh, 4.2vw), 58px);
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(145deg, #2563eb, #0347ff);
+  box-shadow: inset 0 -7px 14px rgb(0 0 0 / 20%);
+  font-size: clamp(1.25rem, min(4vh, 2.5vw), 2.2rem);
+}
+
+.route-address-heading {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.route-address-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) and (orientation: landscape) {
+  .r9-meter-console {
+    grid-template-rows: minmax(0, 1fr) minmax(54px, 13vh);
+  }
+
+  .fare-increase-panel {
+    padding: 2px 6px;
+  }
+
+  .fare-increase-panel__label span,
+  .fare-increase-panel__label strong {
+    font-size: clamp(0.62rem, 1.75vh, 0.9rem);
+  }
+}
