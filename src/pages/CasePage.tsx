@@ -280,8 +280,7 @@ export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const [caseNumber, setCaseNumber] = useState('未採番')
-  const [displayedCaseNumber, setDisplayedCaseNumber] = useState('未採番')
-  const [isFareSnapshotLocked, setIsFareSnapshotLocked] = useState(false)
+  const [, setIsFareSnapshotLocked] = useState(false)
   const fareSnapshotRef = useRef<FareSnapshot | null>(null)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
   const [status, setStatus] = useState<OperationStatus>('空車')
@@ -874,7 +873,6 @@ export function CasePage() {
       caseNumberAssignmentRef.current = assignment
       fareSnapshotRef.current = snapshot
       setCaseNumber(assignment.caseNumber)
-      setDisplayedCaseNumber(assignment.caseNumber)
       setIsFareSnapshotLocked(true)
       markOperationStarted()
 
@@ -1269,7 +1267,6 @@ export function CasePage() {
     window.location.reload()
   }
 
-  const caseNumberLabel = displayedCaseNumber || caseNumber
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
   const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
   const waitingClockLabel = formatTimerClock(elapsedTimers.seconds.waiting, true)
@@ -1297,7 +1294,7 @@ export function CasePage() {
           <section className="r9-left-panel" aria-label="料金メーター">
             <section className="r9-fare-card" aria-label="現在料金">
               <div className="r9-fare-screen">
-                <h1>現在料金</h1>
+                <h1>合計金額</h1>
                 <div className="r9-fare-amount">
                   <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
                   <span className="r9-fare-unit">円</span>
@@ -1343,9 +1340,11 @@ export function CasePage() {
                   <em>km/h</em>
                 </div>
                 <div className="r9-distance-panel">
-                  <span>実走行距離</span>
+                  <div className="r9-distance-panel__header">
+                    <span>実走行距離</span>
+                    <small>{movementStateLabel}</small>
+                  </div>
                   <strong>{gps.totalDistanceKm.toFixed(3)} <em>km</em></strong>
-                  <small>{movementStateLabel}</small>
                 </div>
               </div>
 
@@ -1377,15 +1376,12 @@ export function CasePage() {
               </div>
             </section>
 
-            <div className="r9-case-chip" aria-label="案件情報">
-              <span>案件番号 {caseNumberLabel}</span>
-              <strong>{isFareSnapshotLocked ? '料金設定：開始時固定' : '料金設定：未固定'}</strong>
-            </div>
           </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
+              hideTotal
             />
           </section>
 
@@ -1546,18 +1542,22 @@ export function CasePage() {
             <div className="route-address-grid">
               <div>
                 <span className="route-address-icon" aria-hidden="true">●</span>
-                <div>
-                  <span>運行開始住所</span>
+                <div className="route-address-content">
+                  <div className="route-address-heading">
+                    <span>運行開始住所</span>
+                    <small>送迎開始時にGPSから取得します</small>
+                  </div>
                   <strong>{pickupLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
-                  <small>{pickupLocation.capturedAt ? '送迎開始ログ取得済み' : '送迎開始時にGPSから取得します / 送迎開始ログ待ち'}</small>
                 </div>
               </div>
               <div>
                 <span className="route-address-icon route-address-icon--flag" aria-hidden="true">⚑</span>
-                <div>
-                  <span>到着住所</span>
+                <div className="route-address-content">
+                  <div className="route-address-heading">
+                    <span>到着住所</span>
+                    <small>精算終了時にGPSから取得します</small>
+                  </div>
                   <strong>{dropoffLocation.address || '・・・・・・・・・・・・・・・・'}</strong>
-                  <small>{dropoffLocation.capturedAt ? '会計時ログ取得済み' : '精算終了時にGPSから取得します / 会計時ログ待ち'}</small>
                 </div>
               </div>
             </div>
