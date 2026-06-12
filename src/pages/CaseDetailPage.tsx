@@ -515,8 +515,12 @@ export function CaseDetailPage() {
                 </div>
               ))}
               <div>
-                <span>距離</span>
-                <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
+                <span>運賃距離</span>
+                <strong>{caseRecord.chargeableDistanceKm.toFixed(3)} km</strong>
+              </div>
+              <div>
+                <span>営業距離</span>
+                <strong>{caseRecord.businessDistanceKm.toFixed(3)} km</strong>
               </div>
               <div>
                 <span>運行時間</span>

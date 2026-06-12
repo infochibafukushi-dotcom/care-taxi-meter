@@ -329,7 +329,8 @@ function StaffSummaryTable({ rows }: { rows: StaffAnalyticsItem[] }) {
             <th>件数</th>
             <th>平均単価</th>
             <th>稼働日数</th>
-            <th>総距離</th>
+            <th>運賃距離</th>
+            <th>営業距離</th>
             <th>総運転時間</th>
           </tr>
         </thead>
@@ -342,13 +343,14 @@ function StaffSummaryTable({ rows }: { rows: StaffAnalyticsItem[] }) {
                 <td>{row.count}件</td>
                 <td>{formatFareYen(row.averageYen)}円</td>
                 <td>{row.activeDayCount}日</td>
-                <td>{row.distanceKm.toFixed(3)}km</td>
+                <td>{row.chargeableDistanceKm.toFixed(3)}km</td>
+                <td>{row.businessDistanceKm.toFixed(3)}km</td>
                 <td>{formatAnalyticsDuration(row.drivingSeconds)}</td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={7}>スタッフ別データがありません。</td>
+              <td colSpan={8}>スタッフ別データがありません。</td>
             </tr>
           )}
         </tbody>
@@ -370,7 +372,8 @@ function VehicleSummaryTable({ rows }: { rows: VehicleAnalyticsItem[] }) {
             <th>件数</th>
             <th>平均単価</th>
             <th>稼働日数</th>
-            <th>総距離</th>
+            <th>運賃距離</th>
+            <th>営業距離</th>
             <th>総運転時間</th>
           </tr>
         </thead>
@@ -383,13 +386,14 @@ function VehicleSummaryTable({ rows }: { rows: VehicleAnalyticsItem[] }) {
                 <td>{row.count}件</td>
                 <td>{formatFareYen(row.averageYen)}円</td>
                 <td>{row.activeDayCount}日</td>
-                <td>{row.distanceKm.toFixed(3)}km</td>
+                <td>{row.chargeableDistanceKm.toFixed(3)}km</td>
+                <td>{row.businessDistanceKm.toFixed(3)}km</td>
                 <td>{formatAnalyticsDuration(row.drivingSeconds)}</td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={7}>車両別データがありません。</td>
+              <td colSpan={8}>車両別データがありません。</td>
             </tr>
           )}
         </tbody>
@@ -467,7 +471,8 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
             <th>案件番号</th>
             <th>乗車エリア</th>
             <th>降車エリア</th>
-            <th>距離</th>
+            <th>運賃距離</th>
+            <th>営業距離</th>
             <th>運転時間</th>
             <th>基本運賃</th>
             <th>待機料金</th>
@@ -489,7 +494,8 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
                 </td>
                 <td>{caseRecord.pickupAreaName}</td>
                 <td>{caseRecord.dropoffAreaName}</td>
-                <td>{caseRecord.distanceKm.toFixed(3)}km</td>
+                <td>{caseRecord.chargeableDistanceKm.toFixed(3)}km</td>
+                <td>{caseRecord.businessDistanceKm.toFixed(3)}km</td>
                 <td>{formatAnalyticsDuration(caseRecord.drivingSeconds)}</td>
                 <td>{formatFareYen(caseRecord.basicFareYen)}円</td>
                 <td>{formatFareYen(caseRecord.waitingFareYen)}円</td>
@@ -501,7 +507,7 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
             ))
           ) : (
             <tr>
-              <td colSpan={12}>ランキング対象の案件がありません。</td>
+              <td colSpan={13}>ランキング対象の案件がありません。</td>
             </tr>
           )}
         </tbody>
@@ -607,7 +613,8 @@ export function SalesAnalyticsPage() {
       '車両名',
       '乗車エリア',
       '降車エリア',
-      '距離',
+      '運賃距離',
+      '営業距離',
       '運転時間',
       '基本運賃',
       '待機料金',
@@ -628,7 +635,8 @@ export function SalesAnalyticsPage() {
       row.vehicleName,
       row.pickupAreaName,
       row.dropoffAreaName,
-      row.distanceKm.toFixed(3),
+      row.chargeableDistanceKm.toFixed(3),
+      row.businessDistanceKm.toFixed(3),
       formatAnalyticsDuration(row.drivingSeconds),
       row.basicFareYen,
       row.waitingFareYen,
@@ -814,8 +822,12 @@ export function SalesAnalyticsPage() {
             <strong>{formatAnalyticsDuration(analyticsSummary.totalDrivingSeconds)}</strong>
           </div>
           <div>
-            <span>総距離</span>
-            <strong>{analyticsSummary.totalDistanceKm.toFixed(3)}km</strong>
+            <span>総運賃距離</span>
+            <strong>{analyticsSummary.totalChargeableDistanceKm.toFixed(3)}km</strong>
+          </div>
+          <div>
+            <span>総営業距離</span>
+            <strong>{analyticsSummary.totalBusinessDistanceKm.toFixed(3)}km</strong>
           </div>
         </section>
 
@@ -944,7 +956,8 @@ export function SalesAnalyticsPage() {
                   <th>売上</th>
                   <th>件数</th>
                   <th>平均単価</th>
-                  <th>距離</th>
+                  <th>運賃距離</th>
+                  <th>営業距離</th>
                   <th>運転時間</th>
                 </tr>
               </thead>
@@ -955,7 +968,8 @@ export function SalesAnalyticsPage() {
                     <td>{formatFareYen(month.salesYen)}円</td>
                     <td>{month.count}件</td>
                     <td>{formatFareYen(month.averageYen)}円</td>
-                    <td>{month.distanceKm.toFixed(3)}km</td>
+                    <td>{month.chargeableDistanceKm.toFixed(3)}km</td>
+                    <td>{month.businessDistanceKm.toFixed(3)}km</td>
                     <td>{formatAnalyticsDuration(month.drivingSeconds)}</td>
                   </tr>
                 ))}

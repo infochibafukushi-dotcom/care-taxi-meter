@@ -34,6 +34,8 @@ export type CaseRecordInput = {
   startedAt: string
   endedAt: string
   distanceKm: number
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   drivingSeconds: number
   waitingSeconds?: number
   accompanyingSeconds?: number
@@ -119,6 +121,8 @@ export type CaseRecordDocument = {
   startedAt: string
   endedAt: string
   distanceKm: number
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   drivingSeconds: number
   waitingSeconds: number
   accompanyingSeconds: number
@@ -512,6 +516,8 @@ const toStoredCaseRecord = (
     startedAt: toString(data.startedAt),
     endedAt: toString(data.endedAt),
     distanceKm: toNumber(data.distanceKm),
+    chargeableDistanceKm: toNumber(data.chargeableDistanceKm ?? data.distanceKm),
+    businessDistanceKm: toNumber(data.businessDistanceKm ?? data.distanceKm),
     drivingSeconds: toNumber(data.drivingSeconds),
     waitingSeconds: toNumber(data.waitingSeconds),
     accompanyingSeconds: toNumber(data.accompanyingSeconds),
@@ -658,6 +664,8 @@ export async function saveCaseRecord({
   startedAt,
   endedAt,
   distanceKm,
+  chargeableDistanceKm,
+  businessDistanceKm,
   drivingSeconds,
   waitingSeconds = 0,
   accompanyingSeconds = 0,
@@ -684,6 +692,8 @@ export async function saveCaseRecord({
     startedAt,
     endedAt,
     distanceKm: Number(distanceKm.toFixed(3)),
+    chargeableDistanceKm: Number(chargeableDistanceKm.toFixed(3)),
+    businessDistanceKm: Number(businessDistanceKm.toFixed(3)),
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
     waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
     accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
