@@ -16,6 +16,16 @@ type GpsLogState = {
   speedSource: SpeedSource
 }
 
+type InitialGpsState = Partial<{
+  businessDistanceKm: number
+  chargeableDistanceKm: number
+  currentSpeedKmh: number | null
+  lowSpeedSeconds: number
+  movementState: MeterMovementState
+  position: GpsPosition | null
+  speedSource: SpeedSource
+}>
+
 const GPS_INTERVAL_MS = 5000
 export const MAX_DISTANCE_ACCURACY_METERS = 30
 const MIN_SEGMENT_DISTANCE_METERS = 5
@@ -74,18 +84,19 @@ export function useCurrentPosition(
   lowSpeedThresholdKmh = 10,
   isFareMeterActive = isActive,
   isBusinessDistanceActive = isActive,
+  initialGpsState: InitialGpsState = {},
 ) {
-  const [position, setPosition] = useState<GpsPosition | null>(null)
+  const [position, setPosition] = useState<GpsPosition | null>(initialGpsState.position ?? null)
   const [status, setStatus] = useState<GpsStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [gpsLogState, setGpsLogState] = useState<GpsLogState>({
-    businessDistanceMeters: 0,
-    chargeableDistanceMeters: 0,
-    currentSpeedKmh: null,
+    businessDistanceMeters: Math.max(initialGpsState.businessDistanceKm ?? 0, 0) * 1000,
+    chargeableDistanceMeters: Math.max(initialGpsState.chargeableDistanceKm ?? 0, 0) * 1000,
+    currentSpeedKmh: initialGpsState.currentSpeedKmh ?? null,
     logs: [],
-    lowSpeedSeconds: 0,
-    movementState: 'unknown',
-    speedSource: 'unavailable',
+    lowSpeedSeconds: Math.max(initialGpsState.lowSpeedSeconds ?? 0, 0),
+    movementState: initialGpsState.movementState ?? 'unknown',
+    speedSource: initialGpsState.speedSource ?? 'unavailable',
   })
   const isUnsupported = !('geolocation' in navigator)
 
