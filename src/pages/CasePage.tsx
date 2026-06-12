@@ -294,6 +294,7 @@ export function CasePage() {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
+  const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -1383,13 +1384,25 @@ export function CasePage() {
                   <strong>{currentSpeedValueLabel}</strong>
                   <em>km/h</em>
                 </div>
-                <div className="r9-distance-panel">
-                  <div className="r9-distance-panel__header">
-                    <span>運賃距離</span>
-                    <small>{movementStateLabel}</small>
-                  </div>
-                  <strong>{gps.chargeableDistanceKm.toFixed(3)} <em>km</em></strong>
-                </div>
+                <button
+                  className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
+                  type="button"
+                  aria-expanded={isBusinessDistanceVisible}
+                  onClick={() => setIsBusinessDistanceVisible((current) => !current)}
+                >
+                  {isBusinessDistanceVisible ? (
+                    <>
+                      <span>実走行距離（営業距離）：</span>
+                      <strong>{gps.businessDistanceKm.toFixed(3)}<em>km</em></strong>
+                      <small>{movementStateLabel}・タップで非表示</small>
+                    </>
+                  ) : (
+                    <>
+                      <span>実走行距離（営業距離）を表示</span>
+                      <small>{movementStateLabel}・タップで確認</small>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="r9-timer-action-grid" aria-label="時間操作">

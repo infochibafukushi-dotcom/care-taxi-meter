@@ -2475,6 +2475,58 @@ h1 {
   font-weight: 900;
 }
 
+
+.r9-business-distance-toggle {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px dashed rgb(148 163 184 / 55%);
+  border-radius: 16px;
+  color: #f8fafc;
+  background: rgb(15 23 42 / 46%);
+  font: inherit;
+  cursor: pointer;
+}
+
+.r9-business-distance-toggle:hover,
+.r9-business-distance-toggle:focus-visible {
+  border-color: rgb(56 189 248 / 78%);
+  background: rgb(14 116 144 / 28%);
+}
+
+.r9-business-distance-toggle--open {
+  border-style: solid;
+  background: rgb(8 47 73 / 62%);
+}
+
+.r9-business-distance-toggle span {
+  color: #f8fafc;
+  font-size: clamp(0.9rem, 1.45vw, 1.25rem);
+  font-weight: 900;
+  text-align: center;
+}
+
+.r9-business-distance-toggle strong {
+  font-family: "Roboto Mono", monospace;
+  font-size: clamp(1.65rem, 3.1vw, 3.1rem);
+  line-height: 1;
+}
+
+.r9-business-distance-toggle strong em {
+  font-size: 0.45em;
+  font-style: normal;
+}
+
+.r9-business-distance-toggle small {
+  color: #94a3b8;
+  font-size: clamp(0.7rem, 1vw, 0.9rem);
+  font-weight: 900;
+  text-align: center;
+}
+
 .r9-timer-action-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6178,7 +6230,8 @@ h1 {
 }
 
 .r9-speed-gauge,
-.r9-distance-panel {
+.r9-distance-panel,
+.r9-business-distance-toggle {
   gap: clamp(3px, 0.8vh, 10px);
 }
 
@@ -6211,6 +6264,22 @@ h1 {
 
 .r9-distance-panel small {
   font-size: clamp(0.58rem, 1.4vh, 0.85rem);
+}
+
+.r9-business-distance-toggle {
+  padding: clamp(8px, 1.4vh, 14px) clamp(8px, 1.2vw, 16px);
+}
+
+.r9-business-distance-toggle span {
+  font-size: clamp(0.74rem, min(2.2vh, 1.25vw), 1.25rem);
+}
+
+.r9-business-distance-toggle strong {
+  font-size: clamp(1.35rem, min(5vh, 3vw), 3.1rem);
+}
+
+.r9-business-distance-toggle small {
+  font-size: clamp(0.56rem, 1.3vh, 0.82rem);
 }
 
 .r9-timer-action-grid {
