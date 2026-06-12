@@ -6544,3 +6544,37 @@ h1 {
     font-size: clamp(0.62rem, 1.75vh, 0.9rem);
   }
 }
+
+.r9-status-button--hold {
+  touch-action: none;
+  user-select: none;
+}
+
+.r9-status-button--hold small {
+  color: rgb(255 255 255 / 84%);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.r9-settlement-confirm {
+  width: min(620px, 100%);
+}
+
+.r9-confirm-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.r9-confirm-actions .secondary-action {
+  min-height: 58px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 1000;
+}
