@@ -9,7 +9,47 @@ import { captureWorkLocation } from '../utils/workLocation'
 
 const workSessionStorageKey = 'careTaxiMeterCurrentWorkSession'
 
-let sharedCurrentSession: WorkSession | null = null
+const loadStoredWorkSession = (): WorkSession | null => {
+  try {
+    const sessionJson = localStorage.getItem(workSessionStorageKey)
+
+    if (!sessionJson) {
+      return null
+    }
+
+    const session = JSON.parse(sessionJson) as Partial<WorkSession>
+
+    if (!session.id || session.status !== 'working') {
+      return null
+    }
+
+    return {
+      clockInAccuracy: session.clockInAccuracy ?? null,
+      clockInAt: session.clockInAt ?? '',
+      clockInLatitude: session.clockInLatitude ?? null,
+      clockInLongitude: session.clockInLongitude ?? null,
+      clockOutAccuracy: session.clockOutAccuracy ?? null,
+      clockOutAt: session.clockOutAt ?? null,
+      clockOutLatitude: session.clockOutLatitude ?? null,
+      clockOutLongitude: session.clockOutLongitude ?? null,
+      companyId: session.companyId ?? '',
+      companyName: session.companyName ?? '',
+      franchiseeId: session.franchiseeId || session.companyId || '',
+      id: session.id,
+      staffId: session.staffId ?? '',
+      staffName: session.staffName ?? '',
+      staffRole: session.staffRole ?? 'driver',
+      status: 'working',
+      storeId: session.storeId ?? '',
+      storeName: session.storeName ?? '',
+      workSeconds: session.workSeconds ?? 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+let sharedCurrentSession: WorkSession | null = loadStoredWorkSession()
 const workSessionListeners = new Set<(workSession: WorkSession | null) => void>()
 
 const updateSharedCurrentSession = (workSession: WorkSession | null) => {

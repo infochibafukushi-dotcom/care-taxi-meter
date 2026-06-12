@@ -5,6 +5,8 @@ import { authenticateStaff } from '../services/staffMembers'
 import { defaultCompany, fetchCompanies } from '../services/companies'
 import { defaultCompanyId, fetchStores } from '../services/stores'
 import { fetchCaseRecords } from '../services/caseRecords'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store } from '../types/work'
@@ -128,6 +130,8 @@ export function HomePage() {
     isOpen: false,
     records: [],
   })
+  const [activeTripSnapshot, setActiveTripSnapshot] =
+    useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
 
   const currentSession = workSession.currentSession
   const currentStaffId = currentSession?.staffId ?? loggedInUser?.staffMember.id ?? ''
@@ -158,6 +162,20 @@ export function HomePage() {
     const timerId = window.setInterval(updateElapsedSeconds, 1000)
     return () => window.clearInterval(timerId)
   }, [currentSession])
+
+  useEffect(() => {
+    const refreshActiveTripSnapshot = () => {
+      setActiveTripSnapshot(readActiveTripSnapshot())
+    }
+
+    window.addEventListener('focus', refreshActiveTripSnapshot)
+    window.addEventListener('storage', refreshActiveTripSnapshot)
+
+    return () => {
+      window.removeEventListener('focus', refreshActiveTripSnapshot)
+      window.removeEventListener('storage', refreshActiveTripSnapshot)
+    }
+  }, [])
 
   useEffect(() => {
     if (!currentStaffId) {
@@ -209,6 +227,21 @@ export function HomePage() {
       }),
     [currentSessionId, currentStaffId, summaryDialog.records],
   )
+
+  const handleRestoreActiveTrip = () => {
+    navigate('/case')
+  }
+
+  const activeTripRestoreNotice = activeTripSnapshot ? (
+    <section className="hero-card active-trip-restore-card" aria-labelledby="active-trip-restore-title">
+      <p className="eyebrow">Trip Restore</p>
+      <h2 id="active-trip-restore-title">未終了の運行があります。</h2>
+      <p className="lead">案件番号 {activeTripSnapshot.caseNumber} / 状態 {activeTripSnapshot.status} の運行データを復元できます。</p>
+      <button className="primary-action home-button" type="button" onClick={handleRestoreActiveTrip}>
+        運行を復元
+      </button>
+    </section>
+  ) : null
 
   const handleLoginChange = (key: keyof LoginForm, value: string) => {
     setLoginForm((currentForm) => ({ ...currentForm, [key]: value }))
@@ -315,6 +348,7 @@ export function HomePage() {
   if (!loggedInUser && !currentSession) {
     return (
       <main className="page page--home page--login" aria-labelledby="home-title">
+        {activeTripRestoreNotice}
         <section className="hero-card login-card">
           <div className="login-intro">
             <p className="eyebrow">Login</p>
@@ -346,6 +380,7 @@ export function HomePage() {
 
   return (
     <main className="page page--home" aria-labelledby="home-title">
+      {activeTripRestoreNotice}
       <section className="hero-card dashboard-card">
         <header className="dashboard-header">
           <div>
