@@ -8,6 +8,7 @@ import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useCurrentPosition } from '../hooks/useCurrentPosition'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
+import type { TimerSeconds } from '../hooks/useOperationTimers'
 import { useWorkSession } from '../hooks/useWorkSession'
 import {
   basicFareSettings,
@@ -56,6 +57,7 @@ import type {
   PaymentAllocation,
   PaymentMethod,
   GpsPosition,
+  MeterMovementState,
   SelectedCareOption,
   TaxiTicket,
   StatusTone,
@@ -86,6 +88,7 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
+const activeTripSnapshotStorageKey = 'careTaxiMeterActiveTripSnapshot'
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
   空車: 'vacant',
@@ -111,6 +114,153 @@ const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
   現金: 0,
   請求書: 0,
 })
+
+
+type ActiveTripSnapshot = {
+  activeTimer: TimerKey | null
+  billableTimeStarted: {
+    accompanying: boolean
+    waiting: boolean
+  }
+  caseNumber: string
+  caseNumberAssignment: CaseNumberAssignment | null
+  capturedAt: string
+  distances: {
+    businessDistanceKm: number
+    chargeableDistanceKm: number
+  }
+  dropoffLocation: CapturedAddressLocation
+  fareSnapshot: FareSnapshot | null
+  fareTotalYen: number
+  gps: {
+    currentSpeedKmh: number | null
+    gpsLogCount: number
+    lowSpeedSeconds: number
+    movementState: MeterMovementState
+    position: GpsPosition | null
+    speedSource: string
+  }
+  isDisabilityDiscount: boolean
+  operationEndedAt: string
+  operationStartedAt: string
+  paymentAmounts: Record<PaymentMethod, number>
+  paymentMethod: PaymentMethod
+  pickupLocation: CapturedAddressLocation
+  selectedCareOptions: SelectedCareOption[]
+  selectedDispatchCharges: SelectedCareOption[]
+  selectedExpenses: ExpenseItem[]
+  selectedSpecialVehicleCharges: SelectedCareOption[]
+  selectedVehicleId: string
+  status: OperationStatus
+  taxiTickets: TaxiTicket[]
+  timers: TimerSeconds
+}
+
+const emptyTimerSeconds: TimerSeconds = {
+  accompanying: 0,
+  driving: 0,
+  waiting: 0,
+}
+
+const protectedOperationStatuses = new Set<OperationStatus>([
+  '走行中',
+  '待機中',
+  '院内付き添い中',
+  '精算前',
+])
+
+const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
+  typeof value === 'string' && protectedOperationStatuses.has(value as OperationStatus)
+
+const toFiniteSnapshotNumber = (value: unknown, fallback = 0) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+const normalizeSnapshotTimerSeconds = (value: unknown): TimerSeconds => {
+  const source = value && typeof value === 'object' ? value as Partial<TimerSeconds> : {}
+
+  return {
+    accompanying: Math.max(Math.floor(toFiniteSnapshotNumber(source.accompanying)), 0),
+    driving: Math.max(Math.floor(toFiniteSnapshotNumber(source.driving)), 0),
+    waiting: Math.max(Math.floor(toFiniteSnapshotNumber(source.waiting)), 0),
+  }
+}
+
+const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
+  try {
+    const snapshotJson = localStorage.getItem(activeTripSnapshotStorageKey)
+
+    if (!snapshotJson) {
+      return null
+    }
+
+    const snapshot = JSON.parse(snapshotJson) as Partial<ActiveTripSnapshot>
+
+    if (!isProtectedOperationStatus(snapshot.status)) {
+      return null
+    }
+
+    return {
+      activeTimer: snapshot.activeTimer ?? activeTimerMap[snapshot.status] ?? null,
+      billableTimeStarted: {
+        accompanying: Boolean(snapshot.billableTimeStarted?.accompanying),
+        waiting: Boolean(snapshot.billableTimeStarted?.waiting),
+      },
+      caseNumber: typeof snapshot.caseNumber === 'string' && snapshot.caseNumber
+        ? snapshot.caseNumber
+        : '未採番',
+      caseNumberAssignment: snapshot.caseNumberAssignment ?? null,
+      capturedAt: typeof snapshot.capturedAt === 'string' ? snapshot.capturedAt : '',
+      distances: {
+        businessDistanceKm: Math.max(toFiniteSnapshotNumber(snapshot.distances?.businessDistanceKm), 0),
+        chargeableDistanceKm: Math.max(toFiniteSnapshotNumber(snapshot.distances?.chargeableDistanceKm), 0),
+      },
+      dropoffLocation: snapshot.dropoffLocation ?? emptyCapturedAddressLocation,
+      fareSnapshot: snapshot.fareSnapshot ?? null,
+      fareTotalYen: Math.max(Math.round(toFiniteSnapshotNumber(snapshot.fareTotalYen)), 0),
+      gps: {
+        currentSpeedKmh: snapshot.gps?.currentSpeedKmh ?? null,
+        gpsLogCount: Math.max(Math.floor(toFiniteSnapshotNumber(snapshot.gps?.gpsLogCount)), 0),
+        lowSpeedSeconds: Math.max(Math.floor(toFiniteSnapshotNumber(snapshot.gps?.lowSpeedSeconds)), 0),
+        movementState: snapshot.gps?.movementState ?? 'unknown',
+        position: snapshot.gps?.position ?? null,
+        speedSource: snapshot.gps?.speedSource ?? 'unavailable',
+      },
+      isDisabilityDiscount: Boolean(snapshot.isDisabilityDiscount),
+      operationEndedAt: typeof snapshot.operationEndedAt === 'string' ? snapshot.operationEndedAt : '',
+      operationStartedAt: typeof snapshot.operationStartedAt === 'string' ? snapshot.operationStartedAt : '',
+      paymentAmounts: snapshot.paymentAmounts ?? createEmptyPaymentAmounts(),
+      paymentMethod: snapshot.paymentMethod ?? '現金',
+      pickupLocation: snapshot.pickupLocation ?? emptyCapturedAddressLocation,
+      selectedCareOptions: Array.isArray(snapshot.selectedCareOptions) ? snapshot.selectedCareOptions : [],
+      selectedDispatchCharges: Array.isArray(snapshot.selectedDispatchCharges) ? snapshot.selectedDispatchCharges : [],
+      selectedExpenses: Array.isArray(snapshot.selectedExpenses) ? snapshot.selectedExpenses : [],
+      selectedSpecialVehicleCharges: Array.isArray(snapshot.selectedSpecialVehicleCharges) ? snapshot.selectedSpecialVehicleCharges : [],
+      selectedVehicleId: typeof snapshot.selectedVehicleId === 'string' ? snapshot.selectedVehicleId : '',
+      status: snapshot.status,
+      taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
+      timers: normalizeSnapshotTimerSeconds(snapshot.timers),
+    }
+  } catch (error) {
+    console.warn('Failed to read active trip snapshot.', error)
+    return null
+  }
+}
+
+const saveActiveTripSnapshot = (snapshot: ActiveTripSnapshot) => {
+  try {
+    localStorage.setItem(activeTripSnapshotStorageKey, JSON.stringify(snapshot))
+  } catch (error) {
+    console.warn('Failed to save active trip snapshot.', error)
+  }
+}
+
+const clearActiveTripSnapshot = () => {
+  try {
+    localStorage.removeItem(activeTripSnapshotStorageKey)
+  } catch (error) {
+    console.warn('Failed to clear active trip snapshot.', error)
+  }
+}
 
 const loadInputHistory = () => {
   try {
@@ -279,90 +429,110 @@ const getReverseGeocodeCauseLabel = ({
 export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
-  const [caseNumber, setCaseNumber] = useState('未採番')
-  const [, setIsFareSnapshotLocked] = useState(false)
-  const fareSnapshotRef = useRef<FareSnapshot | null>(null)
-  const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(null)
-  const [status, setStatus] = useState<OperationStatus>('空車')
-  const [activeTimer, setActiveTimer] = useState<TimerKey | null>(null)
+  const [restoredTripSnapshot] = useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
+  const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
+  const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
+  const fareSnapshotRef = useRef<FareSnapshot | null>(restoredTripSnapshot?.fareSnapshot ?? null)
+  const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(
+    restoredTripSnapshot?.caseNumberAssignment ?? null,
+  )
+  const [status, setStatus] = useState<OperationStatus>(restoredTripSnapshot?.status ?? '空車')
+  const [activeTimer, setActiveTimer] = useState<TimerKey | null>(restoredTripSnapshot?.activeTimer ?? null)
   const [billableTimeStarted, setBillableTimeStarted] = useState({
-    accompanying: false,
-    waiting: false,
+    accompanying: restoredTripSnapshot?.billableTimeStarted.accompanying ?? false,
+    waiting: restoredTripSnapshot?.billableTimeStarted.waiting ?? false,
   })
-  const [isGpsActive, setIsGpsActive] = useState(false)
+  const [isGpsActive, setIsGpsActive] = useState(Boolean(restoredTripSnapshot))
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
+  const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [settingsMessage, setSettingsMessage] = useState('Firestore設定を確認中です。')
+  const [settingsMessage, setSettingsMessage] = useState(
+    restoredTripSnapshot
+      ? '未終了の運行データを復元しました。'
+      : 'Firestore設定を確認中です。',
+  )
   const [keypadTarget, setKeypadTarget] = useState<KeypadTarget | null>(null)
   const [inputHistory, setInputHistory] = useState<InputHistory[]>(loadInputHistory)
   const [selectedCareOptions, setSelectedCareOptions] = useState<
     SelectedCareOption[]
-  >([])
+  >(restoredTripSnapshot?.selectedCareOptions ?? [])
   const [selectedDispatchCharges, setSelectedDispatchCharges] = useState<
     SelectedCareOption[]
-  >([])
+  >(restoredTripSnapshot?.selectedDispatchCharges ?? [])
   const [selectedSpecialVehicleCharges, setSelectedSpecialVehicleCharges] = useState<
     SelectedCareOption[]
-  >([])
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([])
-  const [isDisabilityDiscount, setIsDisabilityDiscount] = useState(false)
-  const [taxiTickets, setTaxiTickets] = useState<TaxiTicket[]>([])
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('現金')
+  >(restoredTripSnapshot?.selectedSpecialVehicleCharges ?? [])
+  const [expenses, setExpenses] = useState<ExpenseItem[]>(restoredTripSnapshot?.selectedExpenses ?? [])
+  const [isDisabilityDiscount, setIsDisabilityDiscount] = useState(restoredTripSnapshot?.isDisabilityDiscount ?? false)
+  const [taxiTickets, setTaxiTickets] = useState<TaxiTicket[]>(restoredTripSnapshot?.taxiTickets ?? [])
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(restoredTripSnapshot?.paymentMethod ?? '現金')
   const [paymentAmounts, setPaymentAmounts] = useState<Record<PaymentMethod, number>>(
-    createEmptyPaymentAmounts,
+    restoredTripSnapshot?.paymentAmounts ?? createEmptyPaymentAmounts,
   )
   const [receiptName, setReceiptName] = useState('')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
-    isFirebaseConfigured
-      ? '精算・終了で支払方法を選択して保存します。'
-      : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
+    restoredTripSnapshot
+      ? '未終了の運行データを復元しました。'
+      : isFirebaseConfigured
+        ? '精算・終了で支払方法を選択して保存します。'
+        : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
   )
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
-    useState<BasicFareSettings>(basicFareSettings)
+    useState<BasicFareSettings>(restoredTripSnapshot?.fareSnapshot?.basicFare ?? basicFareSettings)
   const [currentWaitingFareSettings, setCurrentWaitingFareSettings] =
-    useState<TimeFareSettings>(waitingFareSettings)
+    useState<TimeFareSettings>(restoredTripSnapshot?.fareSnapshot?.waitingFare ?? waitingFareSettings)
   const [currentEscortFareSettings, setCurrentEscortFareSettings] =
-    useState<TimeFareSettings>(escortFareSettings)
+    useState<TimeFareSettings>(restoredTripSnapshot?.fareSnapshot?.escortFare ?? escortFareSettings)
   const [currentCareOptionMaster, setCurrentCareOptionMaster] =
-    useState<CareOptionMasterItem[]>(careOptionMaster)
+    useState<CareOptionMasterItem[]>(restoredTripSnapshot?.fareSnapshot?.assistItems ?? careOptionMaster)
   const [currentDispatchMenuItems, setCurrentDispatchMenuItems] = useState<DispatchMenuItem[]>(
-    defaultMeterSettings.dispatchMenuItems,
+    restoredTripSnapshot?.fareSnapshot?.dispatchMenuItems ?? defaultMeterSettings.dispatchMenuItems,
   )
   const [currentSpecialVehicleMenuItems, setCurrentSpecialVehicleMenuItems] = useState<SpecialVehicleMenuItem[]>(
-    defaultMeterSettings.specialVehicleMenuItems,
+    restoredTripSnapshot?.fareSnapshot?.specialVehicleMenuItems ?? defaultMeterSettings.specialVehicleMenuItems,
   )
   const [currentExpensePresets, setCurrentExpensePresets] = useState<ExpensePreset[]>(
-    defaultMeterSettings.expensePresets,
+    restoredTripSnapshot?.fareSnapshot?.expensePresets ?? defaultMeterSettings.expensePresets,
   )
   const [currentMeterSettings, setCurrentMeterSettings] =
-    useState<MeterSettings>(defaultMeterSettings)
+    useState<MeterSettings>({
+      ...defaultMeterSettings,
+      assistItems: restoredTripSnapshot?.fareSnapshot?.assistItems ?? defaultMeterSettings.assistItems,
+      basicFare: restoredTripSnapshot?.fareSnapshot?.basicFare ?? defaultMeterSettings.basicFare,
+      dispatchMenuItems: restoredTripSnapshot?.fareSnapshot?.dispatchMenuItems ?? defaultMeterSettings.dispatchMenuItems,
+      escortFare: restoredTripSnapshot?.fareSnapshot?.escortFare ?? defaultMeterSettings.escortFare,
+      expensePresets: restoredTripSnapshot?.fareSnapshot?.expensePresets ?? defaultMeterSettings.expensePresets,
+      meterTimeFare: restoredTripSnapshot?.fareSnapshot?.meterTimeFare ?? defaultMeterSettings.meterTimeFare,
+      specialVehicleMenuItems: restoredTripSnapshot?.fareSnapshot?.specialVehicleMenuItems ?? defaultMeterSettings.specialVehicleMenuItems,
+      waitingFare: restoredTripSnapshot?.fareSnapshot?.waitingFare ?? defaultMeterSettings.waitingFare,
+    })
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
-  const operationStartedAtRef = useRef('')
-  const operationEndedAtRef = useRef('')
+  const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
+  const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const settlementHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
-    emptyCapturedAddressLocation,
+    restoredTripSnapshot?.pickupLocation ?? emptyCapturedAddressLocation,
   )
   const [dropoffLocation, setDropoffLocation] = useState<CapturedAddressLocation>(
-    emptyCapturedAddressLocation,
+    restoredTripSnapshot?.dropoffLocation ?? emptyCapturedAddressLocation,
   )
   const pickupLocationRef = useRef<CapturedAddressLocation>(
-    emptyCapturedAddressLocation,
+    restoredTripSnapshot?.pickupLocation ?? emptyCapturedAddressLocation,
   )
   const dropoffLocationRef = useRef<CapturedAddressLocation>(
-    emptyCapturedAddressLocation,
+    restoredTripSnapshot?.dropoffLocation ?? emptyCapturedAddressLocation,
   )
   const pickupCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
     null,
@@ -372,11 +542,25 @@ export function CasePage() {
   )
   const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
     useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
-  const elapsedTimers = useOperationTimers(activeTimer)
+  const elapsedTimers = useOperationTimers(activeTimer, restoredTripSnapshot?.timers ?? emptyTimerSeconds)
   const gps = useCurrentPosition(
     isGpsActive,
     currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     status === '走行中',
+    status !== '精算前' && status !== '案件終了',
+    restoredTripSnapshot
+      ? {
+          businessDistanceKm: restoredTripSnapshot.distances.businessDistanceKm,
+          chargeableDistanceKm: restoredTripSnapshot.distances.chargeableDistanceKm,
+          currentSpeedKmh: restoredTripSnapshot.gps.currentSpeedKmh,
+          lowSpeedSeconds: restoredTripSnapshot.gps.lowSpeedSeconds,
+          movementState: restoredTripSnapshot.gps.movementState,
+          position: restoredTripSnapshot.gps.position,
+          speedSource: restoredTripSnapshot.gps.speedSource === 'gps' || restoredTripSnapshot.gps.speedSource === 'fallback'
+            ? restoredTripSnapshot.gps.speedSource
+            : 'unavailable',
+        }
+      : undefined,
   )
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
@@ -392,6 +576,8 @@ export function CasePage() {
   const isTripStarted = status !== '空車'
   const isCaseClosed = status === '案件終了'
   const isOperationLocked = isTripStarted && !isCaseClosed
+  const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
+  const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
   const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
   const canStartWaiting = false
   const canEndWaiting = false
@@ -410,6 +596,63 @@ export function CasePage() {
       window.clearTimeout(settlementHoldTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isOperationProtected) {
+      return undefined
+    }
+
+    const moveMessage = '運行中です。精算終了後に画面移動できます。'
+    const reloadMessage = '運行中です。精算終了後に更新できます。'
+    const leaveMessage = '運行中のデータがあります。終了するとメーター情報が失われる可能性があります。'
+    const guardedHistoryState = {
+      ...(window.history.state && typeof window.history.state === 'object'
+        ? window.history.state
+        : {}),
+      careTaxiMeterGuard: true,
+    }
+    const previousHtmlOverscrollBehaviorY = document.documentElement.style.overscrollBehaviorY
+    const previousBodyOverscrollBehaviorY = document.body.style.overscrollBehaviorY
+
+    window.history.pushState(guardedHistoryState, '', window.location.href)
+    document.documentElement.style.overscrollBehaviorY = 'none'
+    document.body.style.overscrollBehaviorY = 'none'
+
+    const handlePopState = () => {
+      window.alert(moveMessage)
+      window.history.pushState(guardedHistoryState, '', window.location.href)
+    }
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = leaveMessage
+      return leaveMessage
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isReloadShortcut =
+        event.key === 'F5' ||
+        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r')
+
+      if (!isReloadShortcut) {
+        return
+      }
+
+      event.preventDefault()
+      window.alert(reloadMessage)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+      document.documentElement.style.overscrollBehaviorY = previousHtmlOverscrollBehaviorY
+      document.body.style.overscrollBehaviorY = previousBodyOverscrollBehaviorY
+    }
+  }, [isOperationProtected])
+
 
   useEffect(() => {
     let isMounted = true
@@ -483,7 +726,19 @@ export function CasePage() {
               (vehicle.companyId === workSession.currentSession.companyId &&
                 vehicle.storeId === workSession.currentSession.storeId)),
         )
-        setSelectedVehicleId(matchedVehicle?.id ?? fallbackVehicle?.id ?? '')
+        setSelectedVehicleId((currentVehicleId) => {
+          const currentVehicle = loadedVehicles.find(
+            (vehicle) =>
+              vehicle.enabled &&
+              vehicle.status === '稼働中' &&
+              vehicle.id === currentVehicleId &&
+              (!workSession.currentSession ||
+                (vehicle.companyId === workSession.currentSession.companyId &&
+                  vehicle.storeId === workSession.currentSession.storeId)),
+          )
+
+          return currentVehicle?.id ?? matchedVehicle?.id ?? fallbackVehicle?.id ?? ''
+        })
       })
       .catch((error) => {
         console.error('Failed to load vehicles', error)
@@ -534,6 +789,76 @@ export function CasePage() {
       type: method,
     }))
     .filter((payment) => payment.amount > 0)
+
+  useEffect(() => {
+    if (!shouldPersistTripSnapshot) {
+      return
+    }
+
+    saveActiveTripSnapshot({
+      activeTimer,
+      billableTimeStarted,
+      caseNumber,
+      caseNumberAssignment: caseNumberAssignmentRef.current,
+      capturedAt: new Date().toISOString(),
+      distances: {
+        businessDistanceKm: gps.businessDistanceKm,
+        chargeableDistanceKm: gps.chargeableDistanceKm,
+      },
+      dropoffLocation,
+      fareSnapshot: fareSnapshotRef.current,
+      fareTotalYen: fareBreakdown.totalFareYen,
+      gps: {
+        currentSpeedKmh: gps.currentSpeedKmh,
+        gpsLogCount: gps.gpsLogCount,
+        lowSpeedSeconds: gps.lowSpeedSeconds,
+        movementState: gps.movementState,
+        position: gps.position,
+        speedSource: gps.speedSource,
+      },
+      isDisabilityDiscount,
+      operationEndedAt: operationEndedAtRef.current,
+      operationStartedAt: operationStartedAtRef.current,
+      paymentAmounts,
+      paymentMethod,
+      pickupLocation,
+      selectedCareOptions,
+      selectedDispatchCharges,
+      selectedExpenses: expenses,
+      selectedSpecialVehicleCharges,
+      selectedVehicleId,
+      status,
+      taxiTickets,
+      timers: elapsedTimers.seconds,
+    })
+  }, [
+    activeTimer,
+    billableTimeStarted,
+    caseNumber,
+    dropoffLocation,
+    elapsedTimers.seconds,
+    expenses,
+    fareBreakdown.totalFareYen,
+    gps.businessDistanceKm,
+    gps.chargeableDistanceKm,
+    gps.currentSpeedKmh,
+    gps.gpsLogCount,
+    gps.lowSpeedSeconds,
+    gps.movementState,
+    gps.position,
+    gps.speedSource,
+    isDisabilityDiscount,
+    shouldPersistTripSnapshot,
+    paymentAmounts,
+    paymentMethod,
+    pickupLocation,
+    selectedCareOptions,
+    selectedDispatchCharges,
+    selectedSpecialVehicleCharges,
+    selectedVehicleId,
+    status,
+    taxiTickets,
+  ])
 
   const fareIncrease = calculateFareIncreaseProgress(
     gps.chargeableDistanceKm,
@@ -1019,6 +1344,7 @@ export function CasePage() {
 
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
+      clearActiveTripSnapshot()
       handleStatusChange('案件終了')
       return savedCaseRecord
     }
@@ -1089,7 +1415,9 @@ export function CasePage() {
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
-        distanceKm: gps.totalDistanceKm,
+        distanceKm: gps.chargeableDistanceKm,
+        chargeableDistanceKm: gps.chargeableDistanceKm,
+        businessDistanceKm: gps.businessDistanceKm,
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
@@ -1117,7 +1445,9 @@ export function CasePage() {
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
-        distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
+        distanceKm: Number(gps.chargeableDistanceKm.toFixed(3)),
+        chargeableDistanceKm: Number(gps.chargeableDistanceKm.toFixed(3)),
+        businessDistanceKm: Number(gps.businessDistanceKm.toFixed(3)),
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
@@ -1199,6 +1529,7 @@ export function CasePage() {
         })),
       }
 
+      clearActiveTripSnapshot()
       setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
       setCaseSaveMessage('Firestoreへ保存しました。レシートまたは領収書を発行できます。')
@@ -1378,13 +1709,25 @@ export function CasePage() {
                   <strong>{currentSpeedValueLabel}</strong>
                   <em>km/h</em>
                 </div>
-                <div className="r9-distance-panel">
-                  <div className="r9-distance-panel__header">
-                    <span>実走行距離</span>
-                    <small>{movementStateLabel}</small>
-                  </div>
-                  <strong>{gps.totalDistanceKm.toFixed(3)} <em>km</em></strong>
-                </div>
+                <button
+                  className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
+                  type="button"
+                  aria-expanded={isBusinessDistanceVisible}
+                  onClick={() => setIsBusinessDistanceVisible((current) => !current)}
+                >
+                  {isBusinessDistanceVisible ? (
+                    <>
+                      <span>実走行距離（営業距離）：</span>
+                      <strong>{gps.businessDistanceKm.toFixed(3)}<em>km</em></strong>
+                      <small>{movementStateLabel}・タップで非表示</small>
+                    </>
+                  ) : (
+                    <>
+                      <span>実走行距離（営業距離）を表示</span>
+                      <small>{movementStateLabel}・タップで確認</small>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="r9-timer-action-grid" aria-label="時間操作">
@@ -1497,7 +1840,7 @@ export function CasePage() {
                     position={gps.position}
                     status={gps.status}
                     speedSource={gps.speedSource}
-                    totalDistanceKm={gps.totalDistanceKm}
+                    totalDistanceKm={gps.chargeableDistanceKm}
                   />
                 </details>
 
@@ -2051,6 +2394,8 @@ export function CasePage() {
                 </div>
                 <SettlementPanel
                   breakdown={fareBreakdown}
+                  businessDistanceKm={gps.businessDistanceKm}
+                  chargeableDistanceKm={gps.chargeableDistanceKm}
                   isDisabilityDiscount={isDisabilityDiscount}
                   paymentAmounts={paymentAmounts}
                   paymentMethod={paymentMethod}

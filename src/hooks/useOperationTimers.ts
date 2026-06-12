@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TimerKey } from '../types/case'
 import { formatElapsedTime } from '../utils/time'
 
-type TimerSeconds = Record<TimerKey, number>
+export type TimerSeconds = Record<TimerKey, number>
 
 const initialTimerSeconds: TimerSeconds = {
   driving: 0,
@@ -10,9 +10,12 @@ const initialTimerSeconds: TimerSeconds = {
   accompanying: 0,
 }
 
-export function useOperationTimers(activeTimer: TimerKey | null) {
+export function useOperationTimers(
+  activeTimer: TimerKey | null,
+  initialSeconds: TimerSeconds = initialTimerSeconds,
+) {
   const [timerSeconds, setTimerSeconds] =
-    useState<TimerSeconds>(initialTimerSeconds)
+    useState<TimerSeconds>(initialSeconds)
   const lastTickAtRef = useRef<number | null>(null)
 
   useEffect(() => {
