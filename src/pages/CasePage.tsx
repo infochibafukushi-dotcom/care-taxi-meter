@@ -294,6 +294,7 @@ export function CasePage() {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
+  const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -377,6 +378,7 @@ export function CasePage() {
     isGpsActive,
     currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     status === '走行中',
+    status !== '精算前' && status !== '案件終了',
   )
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
@@ -1089,7 +1091,9 @@ export function CasePage() {
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
-        distanceKm: gps.totalDistanceKm,
+        distanceKm: gps.chargeableDistanceKm,
+        chargeableDistanceKm: gps.chargeableDistanceKm,
+        businessDistanceKm: gps.businessDistanceKm,
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
@@ -1117,7 +1121,9 @@ export function CasePage() {
         closedAt,
         startedAt: operationStartedAtRef.current,
         endedAt: operationEndedAtRef.current,
-        distanceKm: Number(gps.totalDistanceKm.toFixed(3)),
+        distanceKm: Number(gps.chargeableDistanceKm.toFixed(3)),
+        chargeableDistanceKm: Number(gps.chargeableDistanceKm.toFixed(3)),
+        businessDistanceKm: Number(gps.businessDistanceKm.toFixed(3)),
         drivingSeconds: finalDrivingSeconds,
         waitingSeconds: elapsedTimers.seconds.waiting,
         accompanyingSeconds: elapsedTimers.seconds.accompanying,
@@ -1378,13 +1384,25 @@ export function CasePage() {
                   <strong>{currentSpeedValueLabel}</strong>
                   <em>km/h</em>
                 </div>
-                <div className="r9-distance-panel">
-                  <div className="r9-distance-panel__header">
-                    <span>実走行距離</span>
-                    <small>{movementStateLabel}</small>
-                  </div>
-                  <strong>{gps.totalDistanceKm.toFixed(3)} <em>km</em></strong>
-                </div>
+                <button
+                  className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
+                  type="button"
+                  aria-expanded={isBusinessDistanceVisible}
+                  onClick={() => setIsBusinessDistanceVisible((current) => !current)}
+                >
+                  {isBusinessDistanceVisible ? (
+                    <>
+                      <span>実走行距離（営業距離）：</span>
+                      <strong>{gps.businessDistanceKm.toFixed(3)}<em>km</em></strong>
+                      <small>{movementStateLabel}・タップで非表示</small>
+                    </>
+                  ) : (
+                    <>
+                      <span>実走行距離（営業距離）を表示</span>
+                      <small>{movementStateLabel}・タップで確認</small>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="r9-timer-action-grid" aria-label="時間操作">
@@ -1497,7 +1515,7 @@ export function CasePage() {
                     position={gps.position}
                     status={gps.status}
                     speedSource={gps.speedSource}
-                    totalDistanceKm={gps.totalDistanceKm}
+                    totalDistanceKm={gps.chargeableDistanceKm}
                   />
                 </details>
 
@@ -2051,6 +2069,8 @@ export function CasePage() {
                 </div>
                 <SettlementPanel
                   breakdown={fareBreakdown}
+                  businessDistanceKm={gps.businessDistanceKm}
+                  chargeableDistanceKm={gps.chargeableDistanceKm}
                   isDisabilityDiscount={isDisabilityDiscount}
                   paymentAmounts={paymentAmounts}
                   paymentMethod={paymentMethod}

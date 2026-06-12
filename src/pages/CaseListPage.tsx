@@ -194,8 +194,8 @@ export function CaseListPage() {
                 <strong>{caseRecord.paymentMethod}</strong>
               </span>
               <span>
-                <small>距離</small>
-                <strong>{caseRecord.distanceKm.toFixed(3)} km</strong>
+                <small>運賃/営業距離</small>
+                <strong>{caseRecord.chargeableDistanceKm.toFixed(3)} / {caseRecord.businessDistanceKm.toFixed(3)} km</strong>
               </span>
               <span>
                 <small>合計金額</small>

@@ -4,6 +4,8 @@ import type { PaymentMethod, TaxiTicket } from '../../types/case'
 
 type SettlementPanelProps = {
   breakdown: FareBreakdown
+  businessDistanceKm: number
+  chargeableDistanceKm: number
   isDisabilityDiscount: boolean
   paymentAmounts: Record<PaymentMethod, number>
   paymentMethod: PaymentMethod
@@ -24,6 +26,8 @@ const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済'
 
 export function SettlementPanel({
   breakdown,
+  businessDistanceKm,
+  chargeableDistanceKm,
   isDisabilityDiscount,
   paymentAmounts,
   paymentMethod,
@@ -51,6 +55,16 @@ export function SettlementPanel({
       <div className="settlement-total">
         <span>請求額</span>
         <strong>{formatFareYen(breakdown.totalFareYen)}円</strong>
+      </div>
+      <div className="settlement-lines" aria-label="距離内訳">
+        <div>
+          <span>運賃距離</span>
+          <strong>{chargeableDistanceKm.toFixed(3)}km</strong>
+        </div>
+        <div>
+          <span>営業距離</span>
+          <strong>{businessDistanceKm.toFixed(3)}km</strong>
+        </div>
       </div>
       <label className="settlement-control">
         宛名（PDF発行時のみ使用・案件ログに保存しません）

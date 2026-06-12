@@ -25,6 +25,8 @@ export type PaymentAnalyticsItem = {
 export type MonthlyAnalyticsItem = {
   averageYen: number
   count: number
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   distanceKm: number
   drivingSeconds: number
   monthKey: string
@@ -37,6 +39,8 @@ export type TopCaseAnalyticsItem = {
   careOptionFareYen: number
   caseNumber: string
   dateLabel: string
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   distanceKm: number
   drivingSeconds: number
   dropoffAreaName: string
@@ -91,6 +95,8 @@ export type AnalyticsCsvRow = {
   caseNumber: string
   dateLabel: string
   dropoffAreaName: string
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   distanceKm: number
   drivingSeconds: number
   escortFareYen: number
@@ -111,6 +117,8 @@ export type StaffAnalyticsItem = {
   activeDayCount: number
   averageYen: number
   count: number
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   distanceKm: number
   drivingSeconds: number
   staffId: string
@@ -123,6 +131,8 @@ export type VehicleAnalyticsItem = {
   activeDayCount: number
   averageYen: number
   count: number
+  chargeableDistanceKm: number
+  businessDistanceKm: number
   distanceKm: number
   drivingSeconds: number
   salesYen: number
@@ -175,6 +185,8 @@ export type SalesAnalyticsSummary = {
   totalTaxiTicketYen: number
   totalClaimYen: number
   totalActualPaymentYen: number
+  totalChargeableDistanceKm: number
+  totalBusinessDistanceKm: number
   totalDistanceKm: number
   totalDrivingSeconds: number
   totalSalesYen: number
@@ -204,6 +216,12 @@ const monthInputFormatter = new Intl.DateTimeFormat('sv-SE', {
 
 const toFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0
+
+const getChargeableDistanceKm = (caseRecord: StoredCaseRecord) =>
+  toFiniteNumber(caseRecord.chargeableDistanceKm) || toFiniteNumber(caseRecord.distanceKm)
+
+const getBusinessDistanceKm = (caseRecord: StoredCaseRecord) =>
+  toFiniteNumber(caseRecord.businessDistanceKm) || toFiniteNumber(caseRecord.distanceKm)
 
 const staffUnknownId = '__staff_unknown__'
 const vehicleUnknownId = '__vehicle_unknown__'
@@ -395,6 +413,8 @@ function calculateVehicleSummary(
     {
       activeDayKeys: Set<string>
       count: number
+      chargeableDistanceKm: number
+      businessDistanceKm: number
       distanceKm: number
       drivingSeconds: number
       salesYen: number
@@ -408,6 +428,8 @@ function calculateVehicleSummary(
     const current = vehicleMap.get(vehicleId) ?? {
       activeDayKeys: new Set<string>(),
       count: 0,
+      chargeableDistanceKm: 0,
+      businessDistanceKm: 0,
       distanceKm: 0,
       drivingSeconds: 0,
       salesYen: 0,
@@ -421,7 +443,9 @@ function calculateVehicleSummary(
     }
 
     current.count += 1
-    current.distanceKm += toFiniteNumber(caseRecord.distanceKm)
+    current.chargeableDistanceKm += getChargeableDistanceKm(caseRecord)
+    current.businessDistanceKm += getBusinessDistanceKm(caseRecord)
+    current.distanceKm += getBusinessDistanceKm(caseRecord)
     current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
     current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
     vehicleMap.set(vehicleId, current)
@@ -432,6 +456,8 @@ function calculateVehicleSummary(
       activeDayCount: vehicleSummary.activeDayKeys.size,
       averageYen: toAverageYen(vehicleSummary.salesYen, vehicleSummary.count),
       count: vehicleSummary.count,
+      chargeableDistanceKm: vehicleSummary.chargeableDistanceKm,
+      businessDistanceKm: vehicleSummary.businessDistanceKm,
       distanceKm: vehicleSummary.distanceKm,
       drivingSeconds: vehicleSummary.drivingSeconds,
       salesYen: vehicleSummary.salesYen,
@@ -460,6 +486,8 @@ function calculateStaffSummary(
     {
       activeDayKeys: Set<string>
       count: number
+      chargeableDistanceKm: number
+      businessDistanceKm: number
       distanceKm: number
       drivingSeconds: number
       staffId: string
@@ -473,6 +501,8 @@ function calculateStaffSummary(
     const current = staffMap.get(staffId) ?? {
       activeDayKeys: new Set<string>(),
       count: 0,
+      chargeableDistanceKm: 0,
+      businessDistanceKm: 0,
       distanceKm: 0,
       drivingSeconds: 0,
       staffId,
@@ -486,7 +516,9 @@ function calculateStaffSummary(
     }
 
     current.count += 1
-    current.distanceKm += toFiniteNumber(caseRecord.distanceKm)
+    current.chargeableDistanceKm += getChargeableDistanceKm(caseRecord)
+    current.businessDistanceKm += getBusinessDistanceKm(caseRecord)
+    current.distanceKm += getBusinessDistanceKm(caseRecord)
     current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
     current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
     staffMap.set(staffId, current)
@@ -497,6 +529,8 @@ function calculateStaffSummary(
       activeDayCount: staffSummary.activeDayKeys.size,
       averageYen: toAverageYen(staffSummary.salesYen, staffSummary.count),
       count: staffSummary.count,
+      chargeableDistanceKm: staffSummary.chargeableDistanceKm,
+      businessDistanceKm: staffSummary.businessDistanceKm,
       distanceKm: staffSummary.distanceKm,
       drivingSeconds: staffSummary.drivingSeconds,
       staffId: staffSummary.staffId,
@@ -587,7 +621,7 @@ function calculateAreaAnalytics(caseRecords: StoredCaseRecord[]) {
     const pickupArea = extractAreaName(caseRecord.pickupAddress)
     const dropoffArea = extractAreaName(caseRecord.dropoffAddress)
     const salesYen = toFiniteNumber(caseRecord.totalFareYen)
-    const distanceKm = toFiniteNumber(caseRecord.distanceKm)
+    const distanceKm = getBusinessDistanceKm(caseRecord)
 
     addDirectionalArea(pickupMap, pickupArea, salesYen, distanceKm)
     addDirectionalArea(dropoffMap, dropoffArea, salesYen, distanceKm)
@@ -655,7 +689,7 @@ function calculateDistanceRangeSummary(caseRecords: StoredCaseRecord[]) {
 
   return distanceRanges.map((range) => {
     const rangeRecords = caseRecords.filter((caseRecord) => {
-      const distanceKm = toFiniteNumber(caseRecord.distanceKm)
+      const distanceKm = getBusinessDistanceKm(caseRecord)
       return distanceKm >= range.minKm && distanceKm < range.maxKm
     })
     const salesYen = rangeRecords.reduce(
@@ -663,7 +697,7 @@ function calculateDistanceRangeSummary(caseRecords: StoredCaseRecord[]) {
       0,
     )
     const distanceKm = rangeRecords.reduce(
-      (total, caseRecord) => total + toFiniteNumber(caseRecord.distanceKm),
+      (total, caseRecord) => total + getBusinessDistanceKm(caseRecord),
       0,
     )
 
@@ -691,7 +725,7 @@ function calculateSalesRangeSummary(caseRecords: StoredCaseRecord[]) {
       0,
     )
     const distanceKm = rangeRecords.reduce(
-      (total, caseRecord) => total + toFiniteNumber(caseRecord.distanceKm),
+      (total, caseRecord) => total + getBusinessDistanceKm(caseRecord),
       0,
     )
 
@@ -791,7 +825,7 @@ function calculateDistanceSummary(
   caseRecords: StoredCaseRecord[],
 ): DistanceAnalyticsSummary {
   const distances = caseRecords.map((caseRecord) =>
-    toFiniteNumber(caseRecord.distanceKm),
+    getBusinessDistanceKm(caseRecord),
   )
   const totalDistanceKm = distances.reduce(
     (total, distanceKm) => total + distanceKm,
@@ -845,6 +879,8 @@ export function calculateSalesAnalyticsSummary(
       monthKey,
       {
         count: 0,
+        chargeableDistanceKm: 0,
+        businessDistanceKm: 0,
         distanceKm: 0,
         drivingSeconds: 0,
         salesYen: 0,
@@ -912,12 +948,16 @@ export function calculateSalesAnalyticsSummary(
   const assistItemMap = new Map<string, { count: number; salesYen: number }>()
   const expenseMap = new Map<string, { count: number; salesYen: number }>()
 
+  let totalChargeableDistanceKm = 0
+  let totalBusinessDistanceKm = 0
   let totalDistanceKm = 0
   let totalDrivingSeconds = 0
 
   filteredRecords.forEach((caseRecord) => {
     const salesYen = toFiniteNumber(caseRecord.totalFareYen)
-    const distanceKm = toFiniteNumber(caseRecord.distanceKm)
+    const chargeableDistanceKm = getChargeableDistanceKm(caseRecord)
+    const businessDistanceKm = getBusinessDistanceKm(caseRecord)
+    const distanceKm = businessDistanceKm
     const drivingSeconds = toFiniteNumber(caseRecord.drivingSeconds)
     const dateLabel = toCaseRecordDateLabel(caseRecord)
     const monthKey = toMonthKey(getCaseRecordDateValue(caseRecord))
@@ -927,11 +967,15 @@ export function calculateSalesAnalyticsSummary(
       activeDayKeys.add(dateLabel)
     }
 
+    totalChargeableDistanceKm += chargeableDistanceKm
+    totalBusinessDistanceKm += businessDistanceKm
     totalDistanceKm += distanceKm
     totalDrivingSeconds += drivingSeconds
 
     if (monthly) {
       monthly.count += 1
+      monthly.chargeableDistanceKm += chargeableDistanceKm
+      monthly.businessDistanceKm += businessDistanceKm
       monthly.distanceKm += distanceKm
       monthly.drivingSeconds += drivingSeconds
       monthly.salesYen += salesYen
@@ -1018,7 +1062,9 @@ export function calculateSalesAnalyticsSummary(
       caseNumber: caseRecord.caseNumber,
       dateLabel: toCaseRecordDateLabel(caseRecord),
       dropoffAreaName: extractAreaName(caseRecord.dropoffAddress),
-      distanceKm: toFiniteNumber(caseRecord.distanceKm),
+      chargeableDistanceKm: getChargeableDistanceKm(caseRecord),
+      businessDistanceKm: getBusinessDistanceKm(caseRecord),
+      distanceKm: getBusinessDistanceKm(caseRecord),
       drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
       escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
       expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
@@ -1050,6 +1096,8 @@ export function calculateSalesAnalyticsSummary(
     monthlySummary: monthKeys.map((monthKey) => {
       const monthly = monthlyMap.get(monthKey) ?? {
         count: 0,
+        chargeableDistanceKm: 0,
+        businessDistanceKm: 0,
         distanceKm: 0,
         drivingSeconds: 0,
         salesYen: 0,
@@ -1058,6 +1106,8 @@ export function calculateSalesAnalyticsSummary(
       return {
         averageYen: toAverageYen(monthly.salesYen, monthly.count),
         count: monthly.count,
+        chargeableDistanceKm: monthly.chargeableDistanceKm,
+        businessDistanceKm: monthly.businessDistanceKm,
         distanceKm: monthly.distanceKm,
         drivingSeconds: monthly.drivingSeconds,
         monthKey,
@@ -1096,7 +1146,9 @@ export function calculateSalesAnalyticsSummary(
         careOptionFareYen: toFiniteNumber(caseRecord.careOptionFareYen),
         caseNumber: caseRecord.caseNumber,
         dateLabel: toCaseRecordDateLabel(caseRecord),
-        distanceKm: toFiniteNumber(caseRecord.distanceKm),
+        chargeableDistanceKm: getChargeableDistanceKm(caseRecord),
+        businessDistanceKm: getBusinessDistanceKm(caseRecord),
+        distanceKm: getBusinessDistanceKm(caseRecord),
         drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
         dropoffAreaName: extractAreaName(caseRecord.dropoffAddress),
         escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
@@ -1112,6 +1164,8 @@ export function calculateSalesAnalyticsSummary(
     totalTaxiTicketYen,
     totalClaimYen: totalSalesYen,
     totalActualPaymentYen,
+    totalChargeableDistanceKm,
+    totalBusinessDistanceKm,
     totalDistanceKm,
     totalDrivingSeconds,
     totalSalesYen,
