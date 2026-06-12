@@ -251,13 +251,6 @@ export function HomePage() {
         return
       }
 
-      const restoredSession = await workSession.restoreWorkingSession(staffMember)
-      if (restoredSession) {
-        setLoginMessage('ログインしました。勤務中状態を復元しました。')
-        navigate('/')
-        return
-      }
-
       setLoginMessage('ログインしました。Dashboard TOPの出勤ボタンから勤務を開始してください。')
       navigate('/')
     } catch (error) {

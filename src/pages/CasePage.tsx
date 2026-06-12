@@ -295,6 +295,7 @@ export function CasePage() {
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
+  const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState('Firestore設定を確認中です。')
   const [keypadTarget, setKeypadTarget] = useState<KeypadTarget | null>(null)
@@ -350,6 +351,7 @@ export function CasePage() {
     useState<SettlementFlowStep>('receipt')
   const operationStartedAtRef = useRef('')
   const operationEndedAtRef = useRef('')
+  const settlementHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
     emptyCapturedAddressLocation,
   )
@@ -389,18 +391,25 @@ export function CasePage() {
 
   const isTripStarted = status !== '空車'
   const isCaseClosed = status === '案件終了'
+  const isOperationLocked = isTripStarted && !isCaseClosed
   const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
-  const canStartWaiting = status === '走行中'
-  const canEndWaiting = status === '待機中'
-  const canStartAccompanying = status === '走行中'
-  const canEndAccompanying = status === '院内付き添い中'
+  const canStartWaiting = false
+  const canEndWaiting = false
+  const canStartAccompanying = false
+  const canEndAccompanying = false
   const canOpenSettlement = status === '走行中'
-  const canEditCharges = !isCaseClosed && status !== '精算前' && caseSaveState !== 'saving'
+  const canEditCharges = !isOperationLocked && !isCaseClosed && caseSaveState !== 'saving'
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
   const canAddSpecialVehicleCharge = canEditCharges && selectedSpecialVehicleCharges.length === 0
   const canOpenDispatchModal = canEditCharges
+
+  useEffect(() => () => {
+    if (settlementHoldTimerRef.current !== null) {
+      window.clearTimeout(settlementHoldTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -944,8 +953,38 @@ export function CasePage() {
       })
     }
 
+    setIsSettlementConfirmOpen(false)
     setIsSettlementFlowOpen(true)
     setSettlementFlowStep('receipt')
+  }
+
+  const clearSettlementHoldTimer = () => {
+    if (settlementHoldTimerRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(settlementHoldTimerRef.current)
+    settlementHoldTimerRef.current = null
+  }
+
+  const beginSettlementHold = () => {
+    if (caseSaveState === 'saving' || !canOpenSettlement || settlementHoldTimerRef.current !== null) {
+      return
+    }
+
+    settlementHoldTimerRef.current = window.setTimeout(() => {
+      settlementHoldTimerRef.current = null
+      setIsSettlementConfirmOpen(true)
+    }, 900)
+  }
+
+  const cancelSettlementHold = () => {
+    clearSettlementHoldTimer()
+  }
+
+  const confirmSettlementFlowStart = () => {
+    clearSettlementHoldTimer()
+    handleSettlementFlowStart()
   }
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
@@ -1424,13 +1463,19 @@ export function CasePage() {
                 <strong>実費</strong>
               </button>
               <button
-                className="r9-status-button r9-status-button--settlement"
+                className="r9-status-button r9-status-button--settlement r9-status-button--hold"
                 type="button"
+                aria-describedby="settlement-hold-help"
                 disabled={caseSaveState === 'saving' || !canOpenSettlement}
-                onClick={handleSettlementFlowStart}
+                onPointerDown={beginSettlementHold}
+                onPointerUp={cancelSettlementHold}
+                onPointerLeave={cancelSettlementHold}
+                onPointerCancel={cancelSettlementHold}
+                onContextMenu={(event) => event.preventDefault()}
               >
                 <span aria-hidden="true">▣</span>
                 <strong>精算・終了</strong>
+                <small id="settlement-hold-help">長押し後に確認</small>
               </button>
             </div>
 
@@ -1921,6 +1966,38 @@ export function CasePage() {
                   </div>
                 )}
               </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isSettlementConfirmOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="settlement-confirm-title"
+            aria-modal="true"
+            className="settings-modal r9-settlement-confirm"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>CONFIRM</span>
+                <h2 id="settlement-confirm-title">精算・終了の確認</h2>
+              </div>
+              <button type="button" onClick={() => setIsSettlementConfirmOpen(false)}>
+                戻る
+              </button>
+            </header>
+            <p className="lead">
+              送迎を終了して精算画面へ進みます。GPS計測とメーターは精算処理へ切り替わり、以後は保存・発行完了まで他の運行操作はできません。
+            </p>
+            <div className="r9-confirm-actions">
+              <button className="r9-flow-primary" type="button" onClick={confirmSettlementFlowStart}>
+                精算へ進む
+              </button>
+              <button className="secondary-action" type="button" onClick={() => setIsSettlementConfirmOpen(false)}>
+                キャンセル
+              </button>
             </div>
           </section>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TimerKey } from '../types/case'
 import { formatElapsedTime } from '../utils/time'
 
@@ -13,20 +13,41 @@ const initialTimerSeconds: TimerSeconds = {
 export function useOperationTimers(activeTimer: TimerKey | null) {
   const [timerSeconds, setTimerSeconds] =
     useState<TimerSeconds>(initialTimerSeconds)
+  const lastTickAtRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!activeTimer) {
+      lastTickAtRef.current = null
       return undefined
     }
 
-    const timerId = window.setInterval(() => {
+    lastTickAtRef.current = Date.now()
+    const updateElapsedSeconds = () => {
+      const currentTickAt = Date.now()
+      const lastTickAt = lastTickAtRef.current ?? currentTickAt
+      const elapsedSeconds = Math.floor((currentTickAt - lastTickAt) / 1000)
+
+      if (elapsedSeconds <= 0) {
+        return
+      }
+
+      lastTickAtRef.current = lastTickAt + elapsedSeconds * 1000
       setTimerSeconds((currentSeconds) => ({
         ...currentSeconds,
-        [activeTimer]: currentSeconds[activeTimer] + 1,
+        [activeTimer]: currentSeconds[activeTimer] + elapsedSeconds,
       }))
-    }, 1000)
+    }
 
-    return () => window.clearInterval(timerId)
+    const timerId = window.setInterval(updateElapsedSeconds, 250)
+    window.addEventListener('focus', updateElapsedSeconds)
+    document.addEventListener('visibilitychange', updateElapsedSeconds)
+
+    return () => {
+      updateElapsedSeconds()
+      window.clearInterval(timerId)
+      window.removeEventListener('focus', updateElapsedSeconds)
+      document.removeEventListener('visibilitychange', updateElapsedSeconds)
+    }
   }, [activeTimer])
 
   const formattedTimers = useMemo(
