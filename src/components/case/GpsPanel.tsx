@@ -71,13 +71,13 @@ export function GpsPanel({
           <strong>{gpsLogCount}件</strong>
         </div>
         <div>
-          <span>累計走行距離</span>
+          <span>運賃距離</span>
           <strong>{totalDistanceKm.toFixed(3)}km</strong>
         </div>
       </div>
       {errorMessage ? <p className="gps-error">{errorMessage}</p> : null}
       <p className="gps-note">
-        運行開始で5秒ごとに取得し、案件終了で停止します。GPS精度50m超と5秒500m以上の移動は距離計算から除外します。
+        運行開始で5秒ごとに取得し、案件終了で停止します。GPS精度30m超と5秒500m以上の移動は距離計算から除外します。
       </p>
     </section>
   )
