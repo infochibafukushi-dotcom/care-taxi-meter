@@ -275,8 +275,7 @@ export function calculateFareBreakdown({
     taxiTicketAmountYen,
     totalFareYen,
     lineItems: [
-      { label: "基本運賃", amountYen: basicFareYen },
-      { label: "時間距離併用運賃", amountYen: meterTimeFareYen },
+      { label: "基本運賃（時間距離併用含む）", amountYen: basicFareYen + meterTimeFareYen },
       { label: "障害者割引", amountYen: -disabilityDiscountAmount },
       { label: "タクシー券", amountYen: -taxiTicketAmountYen },
       { label: "予約・迎車料金", amountYen: dispatchFareYen },

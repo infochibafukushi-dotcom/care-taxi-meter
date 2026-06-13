@@ -235,11 +235,12 @@ export function CaseDetailPage() {
     const reason = receiptDialog.reissueReason.trim() || '領収書再発行'
     const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '領収書再発行履歴を保存しました。' }))
-    await downloadReceiptPdf(updatedRecord, state.meterSettings, {
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    await downloadReceiptPdf(updatedRecord, latestMeterSettings, {
       customerName: receiptDialog.customerName,
-      issuerName: receiptDialog.issuerName,
+      issuerName: receiptDialog.issuerName || latestMeterSettings.receipt.issuerName,
       isReissue: true,
-      receiptNote: receiptDialog.receiptNote,
+      receiptNote: receiptDialog.receiptNote || latestMeterSettings.receipt.defaultReceiptNote,
     })
     closeReceiptDialog()
   }
@@ -252,9 +253,10 @@ export function CaseDetailPage() {
     const reason = receiptDialog.reissueReason.trim() || '利用明細再発行'
     const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '利用明細再発行履歴を保存しました。' }))
-    await downloadStatementPdf(updatedRecord, state.meterSettings, {
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    await downloadStatementPdf(updatedRecord, latestMeterSettings, {
       customerName: receiptDialog.customerName,
-      issuerName: receiptDialog.issuerName,
+      issuerName: receiptDialog.issuerName || latestMeterSettings.receipt.issuerName,
       isReissue: true,
     })
     closeReceiptDialog()

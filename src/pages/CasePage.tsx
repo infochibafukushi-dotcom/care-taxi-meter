@@ -33,6 +33,7 @@ import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
+  fetchMeterSettings,
   fixedTimeFareUnitSeconds,
   subscribeMeterSettings,
 } from '../services/meterSettings'
@@ -1545,11 +1546,12 @@ export function CasePage() {
       return
     }
 
-    await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
       customerName: savedCaseRecord.receiptName || receiptName,
       expenseItems: expenses,
-      issuerName: currentMeterSettings.receipt.issuerName,
-      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+      issuerName: latestMeterSettings.receipt.issuerName,
+      receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
     })
     setSettlementFlowStep('saved')
   }
@@ -1559,10 +1561,11 @@ export function CasePage() {
       return
     }
 
-    await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    await downloadReceiptPdf(savedCaseRecord, latestMeterSettings, {
       customerName: savedCaseRecord.receiptName || receiptName,
-      issuerName: currentMeterSettings.receipt.issuerName,
-      receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
+      issuerName: latestMeterSettings.receipt.issuerName,
+      receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
     })
     setSettlementFlowStep('saved')
   }

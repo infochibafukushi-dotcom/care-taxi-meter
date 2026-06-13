@@ -31,8 +31,11 @@ export type ExpensePreset = {
 
 export type CompanySettings = {
   companyName: string
+  corporateName: string
+  tradeName: string
   phoneNumber: string
   email: string
+  postalCode: string
   address: string
 }
 
@@ -81,7 +84,10 @@ export const defaultMeterSettings: MeterSettings = {
   company: {
     address: '',
     companyName: '',
+    corporateName: '',
+    tradeName: '',
     email: '',
+    postalCode: '',
     phoneNumber: '',
   },
   receipt: {
@@ -329,10 +335,15 @@ function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
 function sanitizeCompany(value: unknown): CompanySettings {
   const source = toObject(value)
 
+  const legacyCompanyName = toStringValue(source.companyName)
+
   return {
     address: toStringValue(source.address),
-    companyName: toStringValue(source.companyName),
+    companyName: legacyCompanyName,
+    corporateName: toStringValue(source.corporateName, legacyCompanyName),
+    tradeName: toStringValue(source.tradeName, legacyCompanyName),
     email: toStringValue(source.email),
+    postalCode: toStringValue(source.postalCode) || toStringValue(source.zipCode),
     phoneNumber: toStringValue(source.phoneNumber),
   }
 }
