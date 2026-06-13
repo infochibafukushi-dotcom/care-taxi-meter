@@ -11,8 +11,9 @@ import {
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
-import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import { getFranchiseeId, getStoreId, isHqRole, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+import type { QueryConstraint } from 'firebase/firestore'
 import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
@@ -84,6 +85,9 @@ function getWorkSessionsCollection() {
   return collection(db, workSessionsCollectionName)
 }
 
+const createWorkingWorkSessionsQuery = (constraints: QueryConstraint[] = []) =>
+  query(getWorkSessionsCollection(), where('status', '==', 'working'), ...constraints)
+
 const toTenantCompanyId = (staffMember: Pick<StaffMember, 'companyId' | 'franchiseeId'>) =>
   staffMember.franchiseeId || staffMember.companyId
 
@@ -110,9 +114,22 @@ const findLatestOpenWorkingSession = (workSessions: WorkSession[]) =>
     )[0] ?? null
 
 export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
-  const snapshots = await getDocs(
-    query(getWorkSessionsCollection(), where('status', '==', 'working')),
-  )
+  const constraints: QueryConstraint[] = []
+
+  if (scope && !isHqRole(scope.role ?? '')) {
+    const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+    if (franchiseeId) {
+      constraints.push(where('companyId', '==', franchiseeId))
+    }
+    if (scope.storeId) {
+      constraints.push(where('storeId', '==', scope.storeId))
+    }
+    if (scope.role === 'driver' && scope.staffId) {
+      constraints.push(where('staffId', '==', scope.staffId))
+    }
+  }
+
+  const snapshots = await getDocs(createWorkingWorkSessionsQuery(constraints))
 
   return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).filter((session) => matchesTenantScope(session, scope)).length
 }
@@ -126,9 +143,16 @@ export async function fetchOpenWorkingWorkSession({
   staffId: string
   storeId?: string
 }) {
-  const snapshots = await getDocs(
-    query(getWorkSessionsCollection(), where('status', '==', 'working')),
-  )
+  const constraints: QueryConstraint[] = [
+    where('companyId', '==', companyId),
+    where('staffId', '==', staffId),
+  ]
+
+  if (storeId) {
+    constraints.push(where('storeId', '==', storeId))
+  }
+
+  const snapshots = await getDocs(createWorkingWorkSessionsQuery(constraints))
 
   return findLatestOpenWorkingSession(
     snapshots.docs
@@ -152,8 +176,17 @@ export function subscribeOpenWorkingWorkSession({
   staffId: string
   storeId?: string
 }) {
+  const constraints: QueryConstraint[] = [
+    where('companyId', '==', companyId),
+    where('staffId', '==', staffId),
+  ]
+
+  if (storeId) {
+    constraints.push(where('storeId', '==', storeId))
+  }
+
   return onSnapshot(
-    query(getWorkSessionsCollection(), where('status', '==', 'working')),
+    createWorkingWorkSessionsQuery(constraints),
     (snapshots) => {
       const latestSession = findLatestOpenWorkingSession(
         snapshots.docs

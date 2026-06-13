@@ -43,6 +43,21 @@ service cloud.firestore {
         || (request.resource.data.role != 'hq_admin' && request.resource.data.role != 'superAdmin')
         || isHqAdmin();
     }
+    function preservesStaffTenantIdentity() {
+      return docFranchisee(request.resource.data) == docFranchisee(resource.data)
+        && request.resource.data.storeId == resource.data.storeId
+        && request.resource.data.staffId == resource.data.staffId;
+    }
+    function driverOwnCreate() {
+      return isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
+    }
+    function driverOwnUpdate() {
+      return isDriver()
+        && ownStaffData(resource.data)
+        && ownStaffData(request.resource.data)
+        && hasTenant(request.resource.data)
+        && preservesStaffTenantIdentity();
+    }
 
     match /auditLogs/{auditLogId} {
       allow read: if isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(resource.data)) || (isStoreManager() && sameStore(resource.data));
@@ -91,13 +106,30 @@ service cloud.firestore {
     }
 
     match /workSessions/{workSessionId} {
-      allow read, write: if isHqAdmin();
+      allow read, create, update: if isHqAdmin();
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
-      allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow create: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow update: if isFranchiseeOwner() && sameFranchisee(resource.data) && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
       allow read: if isStoreManager() && sameStore(resource.data);
-      allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow create: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow update: if isStoreManager() && sameStore(resource.data) && sameStore(request.resource.data) && hasTenant(request.resource.data);
       allow read: if isDriver() && ownStaffData(resource.data);
-      allow create, update: if isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
+      allow create: if driverOwnCreate();
+      allow update: if driverOwnUpdate();
+      allow delete: if false;
+    }
+
+    match /staffAttendance/{attendanceId} {
+      allow read, create, update: if isHqAdmin();
+      allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow create: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow update: if isFranchiseeOwner() && sameFranchisee(resource.data) && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isStoreManager() && sameStore(resource.data);
+      allow create: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow update: if isStoreManager() && sameStore(resource.data) && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      allow read: if isDriver() && ownStaffData(resource.data);
+      allow create: if driverOwnCreate();
+      allow update: if driverOwnUpdate();
       allow delete: if false;
     }
 

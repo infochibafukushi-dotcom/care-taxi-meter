@@ -128,6 +128,7 @@ export function useWorkSession() {
       const restoredSession = await fetchOpenWorkingWorkSession({
         companyId: getStaffTenantCompanyId(staffMember),
         staffId: staffMember.id,
+        storeId: staffMember.storeId,
       })
 
       if (!restoredSession) {
