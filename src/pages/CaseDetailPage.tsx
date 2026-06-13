@@ -211,11 +211,13 @@ export function CaseDetailPage() {
     : '案件IDが指定されていません。'
   const isLoading = caseRecordId ? state.isLoading : false
 
-  const openReceiptDialog = () => {
+  const openReceiptDialog = async () => {
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    setState((currentState) => ({ ...currentState, meterSettings: latestMeterSettings }))
     setReceiptDialog({
       customerName: '',
-      issuerName: state.meterSettings.receipt.issuerName,
-      receiptNote: state.meterSettings.receipt.defaultReceiptNote,
+      issuerName: latestMeterSettings.receipt.issuerName,
+      receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
       reissueReason: '領収書再発行',
       isOpen: true,
     })
