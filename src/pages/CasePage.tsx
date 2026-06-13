@@ -29,7 +29,6 @@ import {
   saveActiveTripSnapshot,
 } from '../services/activeTripSnapshot'
 import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
-import { fetchCompany } from '../services/companies'
 import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {

@@ -9,7 +9,6 @@ import {
   updateCaseRecordEditableValues,
 } from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
-import { fetchCompany } from '../services/companies'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantScopeFromSession } from '../services/tenancy'
 import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
@@ -261,6 +260,7 @@ export function CaseDetailPage() {
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName || latestMeterSettings.receipt.issuerName,
       isReissue: true,
+      receiptNote: receiptDialog.receiptNote || latestMeterSettings.receipt.defaultReceiptNote,
     })
     closeReceiptDialog()
   }
