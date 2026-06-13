@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   clockInWorkSession,
   clockOutWorkSession,
   fetchOpenWorkingWorkSession,
+  subscribeOpenWorkingWorkSession,
 } from '../services/workSessions'
 import type { StaffMember, Store, WorkSession } from '../types/work'
 import { captureWorkLocation } from '../utils/workLocation'
@@ -57,6 +58,19 @@ const updateSharedCurrentSession = (workSession: WorkSession | null) => {
   workSessionListeners.forEach((listener) => listener(workSession))
 }
 
+const persistCurrentSession = (workSession: WorkSession | null) => {
+  if (workSession) {
+    localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
+  } else {
+    localStorage.removeItem(workSessionStorageKey)
+  }
+
+  updateSharedCurrentSession(workSession)
+}
+
+const getStaffTenantCompanyId = (staffMember: StaffMember) =>
+  staffMember.franchiseeId || staffMember.companyId
+
 type WorkSessionStatusMessage = {
   tone: 'error' | 'idle' | 'saved' | 'saving'
   text: string
@@ -97,8 +111,7 @@ export function useWorkSession() {
       store,
     })
 
-    localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
-    updateSharedCurrentSession(workSession)
+    persistCurrentSession(workSession)
     setMessage({
       tone: 'saved',
       text: location.latitude === null
@@ -113,27 +126,25 @@ export function useWorkSession() {
 
     try {
       const restoredSession = await fetchOpenWorkingWorkSession({
-        companyId: staffMember.companyId,
+        companyId: getStaffTenantCompanyId(staffMember),
         staffId: staffMember.id,
+        storeId: staffMember.storeId,
       })
 
       if (!restoredSession) {
-        localStorage.removeItem(workSessionStorageKey)
-        updateSharedCurrentSession(null)
+        persistCurrentSession(null)
         setMessage({ tone: 'idle', text: '未出勤です。Dashboard TOPの出勤ボタンから勤務を開始してください。' })
         return null
       }
 
-      localStorage.setItem(workSessionStorageKey, JSON.stringify(restoredSession))
-      updateSharedCurrentSession(restoredSession)
+      persistCurrentSession(restoredSession)
       setMessage({
         tone: 'saved',
         text: '勤務中状態を復元しました。',
       })
       return restoredSession
     } catch (error) {
-      localStorage.removeItem(workSessionStorageKey)
-      updateSharedCurrentSession(null)
+      persistCurrentSession(null)
       throw error
     }
   }
@@ -150,8 +161,7 @@ export function useWorkSession() {
       workSession: currentSession,
     })
 
-    localStorage.removeItem(workSessionStorageKey)
-    updateSharedCurrentSession(null)
+    persistCurrentSession(null)
     setMessage({
       tone: 'saved',
       text: location.latitude === null
@@ -162,10 +172,31 @@ export function useWorkSession() {
   }
 
   const logout = () => {
-    localStorage.removeItem(workSessionStorageKey)
-    updateSharedCurrentSession(null)
+    persistCurrentSession(null)
     setMessage({ tone: 'idle', text: '退勤しました。再度出勤してください。' })
   }
+
+  const subscribeToWorkingSession = useCallback((staffMember: StaffMember) => {
+    setMessage({ tone: 'saving', text: '勤務中状態を同期しています。' })
+
+    return subscribeOpenWorkingWorkSession({
+      companyId: getStaffTenantCompanyId(staffMember),
+      staffId: staffMember.id,
+      storeId: staffMember.storeId,
+      onChange: (workSession) => {
+        persistCurrentSession(workSession)
+        setMessage({
+          tone: workSession ? 'saved' : 'idle',
+          text: workSession
+            ? '勤務中状態を同期しました。'
+            : '未出勤です。Dashboard TOPの出勤ボタンから勤務を開始してください。',
+        })
+      },
+      onError: (error) => {
+        setMessage({ tone: 'error', text: `勤務中状態を同期できませんでした。${error.message}` })
+      },
+    })
+  }, [])
 
   return {
     clockIn,
@@ -175,5 +206,6 @@ export function useWorkSession() {
     logout,
     message,
     restoreWorkingSession,
+    subscribeToWorkingSession,
   }
 }
