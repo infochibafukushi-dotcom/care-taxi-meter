@@ -5,6 +5,8 @@ import { authenticateStaff } from '../services/staffMembers'
 import { defaultCompany, fetchCompanies } from '../services/companies'
 import { defaultCompanyId, fetchStores } from '../services/stores'
 import { fetchCaseRecords } from '../services/caseRecords'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store } from '../types/work'
@@ -128,6 +130,8 @@ export function HomePage() {
     isOpen: false,
     records: [],
   })
+  const [activeTripSnapshot, setActiveTripSnapshot] =
+    useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
 
   const currentSession = workSession.currentSession
   const currentStaffId = currentSession?.staffId ?? loggedInUser?.staffMember.id ?? ''
@@ -139,6 +143,7 @@ export function HomePage() {
   const isHqAdmin = dashboardRole === 'hq_admin'
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
+  const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
 
   useEffect(() => {
     if (!currentSession) {
@@ -158,6 +163,20 @@ export function HomePage() {
     const timerId = window.setInterval(updateElapsedSeconds, 1000)
     return () => window.clearInterval(timerId)
   }, [currentSession])
+
+  useEffect(() => {
+    const refreshActiveTripSnapshot = () => {
+      setActiveTripSnapshot(readActiveTripSnapshot())
+    }
+
+    window.addEventListener('focus', refreshActiveTripSnapshot)
+    window.addEventListener('storage', refreshActiveTripSnapshot)
+
+    return () => {
+      window.removeEventListener('focus', refreshActiveTripSnapshot)
+      window.removeEventListener('storage', refreshActiveTripSnapshot)
+    }
+  }, [])
 
   useEffect(() => {
     if (!currentStaffId) {
@@ -209,6 +228,21 @@ export function HomePage() {
       }),
     [currentSessionId, currentStaffId, summaryDialog.records],
   )
+
+  const handleRestoreActiveTrip = () => {
+    navigate('/case')
+  }
+
+  const activeTripRestoreNotice = activeTripSnapshot ? (
+    <section className="hero-card active-trip-restore-card" aria-labelledby="active-trip-restore-title">
+      <p className="eyebrow">Trip Restore</p>
+      <h2 id="active-trip-restore-title">未終了の運行があります。</h2>
+      <p className="lead">案件番号 {activeTripSnapshot.caseNumber} / 状態 {activeTripSnapshot.status} の運行データを復元できます。</p>
+      <button className="primary-action home-button" type="button" onClick={handleRestoreActiveTrip}>
+        運行を復元
+      </button>
+    </section>
+  ) : null
 
   const handleLoginChange = (key: keyof LoginForm, value: string) => {
     setLoginForm((currentForm) => ({ ...currentForm, [key]: value }))
@@ -263,6 +297,11 @@ export function HomePage() {
   }
 
   const handleClockIn = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。出勤操作の前に運行を復元してください。')
+      return
+    }
+
     if (!loggedInUser) {
       setLoginMessage('先にログインしてください。')
       return
@@ -291,6 +330,11 @@ export function HomePage() {
   }
 
   const openClockOutSummary = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      return
+    }
+
     setSummaryDialog({ errorMessage: '', isLoading: true, isOpen: true, records: [] })
     try {
       const records = await fetchCaseRecords()
@@ -307,6 +351,12 @@ export function HomePage() {
   }
 
   const confirmClockOut = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
+      return
+    }
+
     await workSession.clockOut()
     setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
     setLoginMessage('退勤しました。お疲れ様でした。')
@@ -315,6 +365,7 @@ export function HomePage() {
   if (!loggedInUser && !currentSession) {
     return (
       <main className="page page--home page--login" aria-labelledby="home-title">
+        {activeTripRestoreNotice}
         <section className="hero-card login-card">
           <div className="login-intro">
             <p className="eyebrow">Login</p>
@@ -346,6 +397,7 @@ export function HomePage() {
 
   return (
     <main className="page page--home" aria-labelledby="home-title">
+      {activeTripRestoreNotice}
       <section className="hero-card dashboard-card">
         <header className="dashboard-header">
           <div>
@@ -354,9 +406,9 @@ export function HomePage() {
           </div>
           {!isHqAdmin ? (
             currentSession ? (
-              <button className="secondary-action home-button dashboard-attendance-button" type="button" onClick={openClockOutSummary}>退勤</button>
+              <button className="secondary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={openClockOutSummary}>退勤</button>
             ) : (
-              <button className="primary-action home-button dashboard-attendance-button" type="button" onClick={handleClockIn}>出勤</button>
+              <button className="primary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={handleClockIn}>出勤</button>
             )
           ) : null}
         </header>
@@ -380,8 +432,20 @@ export function HomePage() {
         {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
         <p className="save-note">{loginMessage}</p>
         <nav className="home-actions dashboard-actions" aria-label="主要メニュー">
-          {currentSession && !isHqAdmin ? <Link className="primary-action" to="/case/start">案件開始</Link> : null}
-          {!isHqAdmin ? <Link className="secondary-action" to="/cases">案件一覧</Link> : null}
+          {currentSession && !isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="primary-action home-button" type="button" disabled>案件開始</button>
+            ) : (
+              <Link className="primary-action" to="/case/start">案件開始</Link>
+            )
+          ) : null}
+          {!isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="secondary-action home-button" type="button" disabled>案件一覧</button>
+            ) : (
+              <Link className="secondary-action" to="/cases">案件一覧</Link>
+            )
+          ) : null}
           {canOpenManagement ? (
             <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : '/owner'}>
               管理センター

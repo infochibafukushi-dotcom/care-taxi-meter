@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { fetchVehicles } from '../services/vehicles'
 import type { Vehicle } from '../types/work'
 
@@ -10,6 +11,7 @@ export function CaseStartPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [message, setMessage] = useState('稼働中車両を読み込み中です。')
+  const [activeTripSnapshot] = useState(readActiveTripSnapshot)
 
   useEffect(() => {
     let isMounted = true
@@ -50,12 +52,30 @@ export function CaseStartPage() {
   const selectedVehicleValue = selectedVehicleId || availableVehicles[0]?.id || ''
 
   const handleStartCase = () => {
+    if (activeTripSnapshot) {
+      setMessage('未終了の運行があります。新規案件開始の前に運行を復元してください。')
+      return
+    }
+
     if (!selectedVehicleValue) {
       setMessage('案件で使用する車両を選択してください。')
       return
     }
 
     navigate(`/case?vehicleId=${encodeURIComponent(selectedVehicleValue)}`)
+  }
+
+  if (activeTripSnapshot) {
+    return (
+      <main className="page" aria-labelledby="case-start-title">
+        <section className="hero-card">
+          <p className="eyebrow">Trip Restore</p>
+          <h1 id="case-start-title">未終了の運行があります。</h1>
+          <p className="lead">案件番号 {activeTripSnapshot.caseNumber} / 状態 {activeTripSnapshot.status} の運行を復元してください。</p>
+          <button className="primary-action" type="button" onClick={() => navigate('/case')}>運行を復元</button>
+        </section>
+      </main>
+    )
   }
 
   if (!workSession.currentSession) {
