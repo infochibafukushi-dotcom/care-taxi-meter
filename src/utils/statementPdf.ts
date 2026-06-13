@@ -9,6 +9,7 @@ export type StatementIssueOptions = {
   customerName: string
   isReissue?: boolean
   issuerName: string
+  receiptNote: string
   company?: Company | null
 }
 
@@ -138,6 +139,7 @@ function createStatementCanvas(
   const title = settings.receipt.statementDefault.trim() || defaultMeterSettings.receipt.statementDefault || '利用明細書'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
+  const receiptNote = issueOptions.receiptNote.trim()
   const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
   const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
@@ -223,6 +225,16 @@ function createStatementCanvas(
   drawLine(context, tableX, tableBottom, tableX + tableWidth, tableBottom)
   drawLine(context, tableX, tableTop, tableX, tableBottom)
   drawLine(context, tableX + tableWidth, tableTop, tableX + tableWidth, tableBottom)
+
+  if (receiptNote) {
+    drawText(context, '但し書き', 120, 1505, {
+      color: '#475569',
+      font: '26px sans-serif',
+    })
+    drawText(context, receiptNote, 260, 1505, {
+      font: '26px sans-serif',
+    })
+  }
 
   if (issuerName) {
     drawText(context, '発行担当者', 120, 1580, {
