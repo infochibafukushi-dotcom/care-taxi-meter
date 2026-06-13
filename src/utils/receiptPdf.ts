@@ -1,6 +1,7 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { defaultMeterSettings } from '../services/meterSettings'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from './caseRecords'
 
@@ -9,6 +10,7 @@ export type ReceiptIssueOptions = {
   isReissue?: boolean
   issuerName: string
   receiptNote: string
+  company?: Company | null
 }
 
 type ReceiptLine = {
@@ -106,8 +108,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '宛名', value: caseRecord.receiptName || '未入力' },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
-    { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
-    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
+    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,
@@ -195,18 +196,21 @@ function createReceiptCanvas(
   const statementTitle =
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
-  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const receiptCompany = issueOptions.company
+  const tradeName = receiptCompany?.name.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = receiptCompany?.corporateName?.trim() || ''
+  const address = [receiptCompany?.postalCode ? `〒${receiptCompany.postalCode}` : '', receiptCompany?.address || settings.company.address].filter((line) => line.trim()).join(' ')
+  const phoneNumber = receiptCompany?.phoneNumber || settings.company.phoneNumber
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
   const receiptNote = issueOptions.receiptNote.trim()
-  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
+  const invoiceNumber = receiptCompany?.invoiceNumber?.trim() || ''
   const companyLines = [
-    companyName,
-    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
-    settings.company.address,
-    '登録番号',
-    invoiceNumber,
+    tradeName,
+    corporateName && corporateName !== tradeName ? corporateName : '',
+    address,
+    phoneNumber ? `TEL ${phoneNumber}` : '',
+    invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ]
 
   context.fillStyle = '#ffffff'

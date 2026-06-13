@@ -14,6 +14,8 @@ export type Company = {
   franchiseeId?: string
   name: string
   corporateName?: string
+  postalCode?: string
+  invoiceNumber?: string
   representativeName?: string
   representativeLoginId?: string
   representativeInitialPassword?: string

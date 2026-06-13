@@ -1,6 +1,7 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { defaultMeterSettings } from '../services/meterSettings'
 import { formatCaseDateTime } from './caseRecords'
 
@@ -8,6 +9,7 @@ export type StatementIssueOptions = {
   customerName: string
   isReissue?: boolean
   issuerName: string
+  company?: Company | null
 }
 
 type StatementLine = {
@@ -103,8 +105,7 @@ function createStatementLines(caseRecord: StoredCaseRecord, customerName: string
     { label: '利用者名（宛名）', value: customerName || caseRecord.receiptName || caseRecord.customerName || '未入力' },
     { label: '乗車地', value: caseRecord.pickupAddress || '未取得' },
     { label: '降車地', value: caseRecord.dropoffAddress || '未取得' },
-    { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
-    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
+    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '院内付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     { label: '介助料金', value: formatAssistDetails(caseRecord) },
@@ -132,15 +133,20 @@ function createStatementCanvas(
     throw new Error('利用明細書PDFの作成に失敗しました。')
   }
 
-  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const receiptCompany = issueOptions.company
+  const tradeName = receiptCompany?.name.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = receiptCompany?.corporateName?.trim() || ''
   const title = settings.receipt.statementDefault.trim() || defaultMeterSettings.receipt.statementDefault || '利用明細書'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
+  const address = [receiptCompany?.postalCode ? `〒${receiptCompany.postalCode}` : '', receiptCompany?.address || settings.company.address].filter((line) => line.trim()).join(' ')
+  const phoneNumber = receiptCompany?.phoneNumber || settings.company.phoneNumber
   const companyLines = [
-    companyName,
-    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
-    settings.company.address,
+    tradeName,
+    corporateName && corporateName !== tradeName ? corporateName : '',
+    address,
+    phoneNumber ? `TEL ${phoneNumber}` : '',
+    receiptCompany?.invoiceNumber ? `登録番号 ${receiptCompany.invoiceNumber}` : '',
   ].filter((line) => line.trim())
 
   context.fillStyle = '#ffffff'

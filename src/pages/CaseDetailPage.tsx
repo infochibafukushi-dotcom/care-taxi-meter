@@ -9,6 +9,7 @@ import {
   updateCaseRecordEditableValues,
 } from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
+import { fetchCompany } from '../services/companies'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantScopeFromSession } from '../services/tenancy'
 import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
@@ -235,7 +236,9 @@ export function CaseDetailPage() {
     const reason = receiptDialog.reissueReason.trim() || '領収書再発行'
     const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '領収書再発行履歴を保存しました。' }))
+    const receiptCompany = await fetchCompany(updatedRecord.franchiseeId || updatedRecord.companyId || currentFranchiseeId)
     await downloadReceiptPdf(updatedRecord, state.meterSettings, {
+      company: receiptCompany,
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
       isReissue: true,
@@ -252,7 +255,9 @@ export function CaseDetailPage() {
     const reason = receiptDialog.reissueReason.trim() || '利用明細再発行'
     const updatedRecord = await recordReceiptReissue(caseRecord, { actor: auditActor, reason })
     setState((currentState) => ({ ...currentState, caseRecord: updatedRecord, statusMessage: '利用明細再発行履歴を保存しました。' }))
+    const receiptCompany = await fetchCompany(updatedRecord.franchiseeId || updatedRecord.companyId || currentFranchiseeId)
     await downloadStatementPdf(updatedRecord, state.meterSettings, {
+      company: receiptCompany,
       customerName: receiptDialog.customerName,
       issuerName: receiptDialog.issuerName,
       isReissue: true,

@@ -29,6 +29,7 @@ import {
   saveActiveTripSnapshot,
 } from '../services/activeTripSnapshot'
 import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
+import { fetchCompany } from '../services/companies'
 import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -1545,7 +1546,9 @@ export function CasePage() {
       return
     }
 
+    const receiptCompany = await fetchCompany(savedCaseRecord.franchiseeId || savedCaseRecord.companyId || currentFranchiseeId)
     await openThermalReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      company: receiptCompany,
       customerName: savedCaseRecord.receiptName || receiptName,
       expenseItems: expenses,
       issuerName: currentMeterSettings.receipt.issuerName,
@@ -1559,7 +1562,9 @@ export function CasePage() {
       return
     }
 
+    const receiptCompany = await fetchCompany(savedCaseRecord.franchiseeId || savedCaseRecord.companyId || currentFranchiseeId)
     await downloadReceiptPdf(savedCaseRecord, currentMeterSettings, {
+      company: receiptCompany,
       customerName: savedCaseRecord.receiptName || receiptName,
       issuerName: currentMeterSettings.receipt.issuerName,
       receiptNote: currentMeterSettings.receipt.defaultReceiptNote,
