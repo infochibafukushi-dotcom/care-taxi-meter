@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -36,6 +37,8 @@ export const defaultCompany: Company = {
   sortOrder: 1,
   ownerName: '山本信勝',
   phoneNumber: '',
+  postalCode: '',
+  invoiceNumber: '',
   email: '',
   address: '',
   memo: '',
@@ -56,40 +59,52 @@ function getCompanyRef(companyId: string) {
   return doc(db, companiesCollectionName, companyId)
 }
 
+const companyStatuses: Company['status'][] = ['screening', 'preparing', 'active', 'suspended', 'ending', 'terminated', 'archived']
+
+function toCompany(id: string, data: Record<string, unknown>): Company {
+  const status = toString(data.status)
+
+  return {
+    id,
+    name: toString(data.name),
+    corporateName: toString(data.corporateName),
+    representativeName: toString(data.representativeName) || toString(data.ownerName),
+    representativeLoginId: toString(data.representativeLoginId) || toString(data.ownerLoginId),
+    representativeInitialPassword: toString(data.representativeInitialPassword) || toString(data.ownerPassword) || toString(data.initialPassword),
+    area: toString(data.area),
+    status: companyStatuses.includes(status as Company['status']) ? status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
+    plan: toString(data.plan) || toString(data.planName),
+    monthlyFee: toNumber(data.monthlyFee) || toNumber(data.monthlyPrice),
+    initialFee: toNumber(data.initialFee),
+    contractStartDate: toString(data.contractStartDate),
+    contractEndDate: toString(data.contractEndDate),
+    contractStatus: toString(data.contractStatus),
+    billingStatus: toString(data.billingStatus),
+    lastBillingMonth: toString(data.lastBillingMonth),
+    paymentStatus: toString(data.paymentStatus),
+    lastLoginAt: toString(data.lastLoginAt),
+    enabled: toBoolean(data.enabled, true),
+    sortOrder: toNumber(data.sortOrder),
+    ownerName: toString(data.ownerName),
+    phoneNumber: toString(data.phoneNumber),
+    postalCode: toString(data.postalCode) || toString(data.zipCode),
+    invoiceNumber: toString(data.invoiceNumber),
+    email: toString(data.email),
+    address: toString(data.address),
+    memo: toString(data.memo),
+  }
+}
+
 export async function fetchCompanies() {
   const snapshots = await getDocs(query(getCompaniesCollection(), orderBy('sortOrder', 'asc')))
 
-  return snapshots.docs.map((snapshot): Company => {
-    const data = snapshot.data()
+  return snapshots.docs.map((snapshot) => toCompany(snapshot.id, snapshot.data()))
+}
 
-    return {
-      id: snapshot.id,
-      name: toString(data.name),
-      corporateName: toString(data.corporateName),
-      representativeName: toString(data.representativeName) || toString(data.ownerName),
-      representativeLoginId: toString(data.representativeLoginId) || toString(data.ownerLoginId),
-      representativeInitialPassword: toString(data.representativeInitialPassword) || toString(data.ownerPassword) || toString(data.initialPassword),
-      area: toString(data.area),
-      status: ['screening', 'preparing', 'active', 'suspended', 'ending', 'terminated', 'archived'].includes(toString(data.status)) ? data.status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
-      plan: toString(data.plan) || toString(data.planName),
-      monthlyFee: toNumber(data.monthlyFee) || toNumber(data.monthlyPrice),
-      initialFee: toNumber(data.initialFee),
-      contractStartDate: toString(data.contractStartDate),
-      contractEndDate: toString(data.contractEndDate),
-      contractStatus: toString(data.contractStatus),
-      billingStatus: toString(data.billingStatus),
-      lastBillingMonth: toString(data.lastBillingMonth),
-      paymentStatus: toString(data.paymentStatus),
-      lastLoginAt: toString(data.lastLoginAt),
-      enabled: toBoolean(data.enabled, true),
-      sortOrder: toNumber(data.sortOrder),
-      ownerName: toString(data.ownerName),
-      phoneNumber: toString(data.phoneNumber),
-      email: toString(data.email),
-      address: toString(data.address),
-      memo: toString(data.memo),
-    }
-  })
+export async function fetchCompany(companyId: string) {
+  if (!companyId) return null
+  const snapshot = await getDoc(getCompanyRef(companyId))
+  return snapshot.exists() ? toCompany(snapshot.id, snapshot.data()) : null
 }
 
 export async function saveCompany(company: Company) {
