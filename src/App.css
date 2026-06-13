@@ -3711,17 +3711,25 @@ h1 {
   display: grid;
   place-items: center;
   padding: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgb(2 6 23 / 72%);
+  -webkit-overflow-scrolling: touch;
 }
 
 .receipt-dialog {
   width: min(100%, 520px);
+  max-height: calc(100dvh - 36px);
   display: grid;
   gap: 16px;
   padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   border-radius: 24px;
   background: #fff;
   box-shadow: 0 26px 80px rgb(2 6 23 / 30%);
+  -webkit-overflow-scrolling: touch;
 }
 
 .receipt-dialog h2 {
@@ -3777,6 +3785,29 @@ h1 {
 .receipt-dialog-secondary {
   color: #075985;
   background: #e0f2fe;
+}
+
+@media (max-width: 640px) {
+  .receipt-dialog-backdrop {
+    align-items: start;
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .receipt-dialog {
+    max-height: calc(100dvh - 24px);
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .receipt-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-dialog-actions button {
+    width: 100%;
+  }
 }
 
 .assist-item-list {
