@@ -825,12 +825,6 @@ export function CasePage() {
   )
   const currentSpeedValueLabel =
     gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
-  const movementStateLabel =
-    gps.movementState === 'low-speed'
-      ? '低速走行中'
-      : gps.movementState === 'normal'
-        ? '通常走行中'
-        : '速度判定待ち'
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -1652,19 +1646,20 @@ export function CasePage() {
                 <button
                   className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
                   type="button"
-                  aria-expanded={isBusinessDistanceVisible}
+                  aria-pressed={isBusinessDistanceVisible}
                   onClick={() => setIsBusinessDistanceVisible((current) => !current)}
                 >
                   {isBusinessDistanceVisible ? (
                     <>
-                      <span>実走行距離（営業距離）：</span>
-                      <strong>{gps.businessDistanceKm.toFixed(3)}<em>km</em></strong>
-                      <small>{movementStateLabel}・タップで非表示</small>
+                      <span>実走行距離（営業距離）</span>
+                      <strong>{gps.businessDistanceKm.toFixed(1)}<em>km</em></strong>
+                      <small>（タップで距離加算距離表示）</small>
                     </>
                   ) : (
                     <>
-                      <span>実走行距離（営業距離）を表示</span>
-                      <small>{movementStateLabel}・タップで確認</small>
+                      <span>距離加算距離（運賃距離）</span>
+                      <strong>{gps.chargeableDistanceKm.toFixed(1)}<em>km</em></strong>
+                      <small>（タップで実走行距離表示）</small>
                     </>
                   )}
                 </button>
