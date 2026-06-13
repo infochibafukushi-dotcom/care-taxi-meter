@@ -64,8 +64,7 @@ function createThermalReceiptLines(
   expenseItems: ExpenseItem[],
 ): ThermalLine[] {
   const lines: ThermalLine[] = [
-    { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
-    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
+    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     { label: '介助料金', value: `${formatFareYen(caseRecord.careOptionFareYen)}円` },
@@ -116,9 +115,10 @@ function createThermalReceiptCanvas(
     throw new Error('レシートPDFの作成に失敗しました。')
   }
 
-  const companyName = settings.company.companyName.trim() || 'ちばケアタクシー'
+  const companyName = settings.company.tradeName.trim() || settings.company.companyName.trim() || 'ちばケアタクシー'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
   const customerName = issueOptions.customerName.trim()
-  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const receiptNote = issueOptions.receiptNote.trim()
   const issuerName = issueOptions.issuerName.trim()
   let y = 58
@@ -131,16 +131,18 @@ function createThermalReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
   y += 38
-  drawText(context, 'ちばケアタクシー', canvas.width / 2, y, {
-    align: 'center',
-    font: '28px sans-serif',
-  })
-  y += 34
+  if (corporateName && corporateName !== companyName) {
+    drawText(context, corporateName, canvas.width / 2, y, {
+      align: 'center',
+      font: '28px sans-serif',
+    })
+    y += 34
+  }
 
   ;[
-    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
+    settings.company.postalCode ? `〒${settings.company.postalCode}` : '',
     settings.company.address,
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
   ]
     .filter((line) => line.trim())
     .forEach((line) => {
@@ -230,18 +232,20 @@ function createThermalReceiptCanvas(
     y += 42
   }
 
-  drawDivider(context, y)
-  y += 38
-  drawText(context, '登録番号', canvas.width / 2, y, {
-    align: 'center',
-    font: 'bold 24px sans-serif',
-  })
-  y += 32
-  drawText(context, invoiceNumber, canvas.width / 2, y, {
-    align: 'center',
-    font: '24px sans-serif',
-  })
-  y += 40
+  if (invoiceNumber) {
+    drawDivider(context, y)
+    y += 38
+    drawText(context, '登録番号', canvas.width / 2, y, {
+      align: 'center',
+      font: 'bold 24px sans-serif',
+    })
+    y += 32
+    drawText(context, invoiceNumber, canvas.width / 2, y, {
+      align: 'center',
+      font: '24px sans-serif',
+    })
+    y += 40
+  }
 
   if (issuerName) {
     drawText(context, `発行担当者 ${issuerName}`, 48, y, { font: '24px sans-serif' })

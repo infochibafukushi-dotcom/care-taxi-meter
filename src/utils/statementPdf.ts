@@ -103,8 +103,7 @@ function createStatementLines(caseRecord: StoredCaseRecord, customerName: string
     { label: '利用者名（宛名）', value: customerName || caseRecord.receiptName || caseRecord.customerName || '未入力' },
     { label: '乗車地', value: caseRecord.pickupAddress || '未取得' },
     { label: '降車地', value: caseRecord.dropoffAddress || '未取得' },
-    { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
-    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
+    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '院内付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     { label: '介助料金', value: formatAssistDetails(caseRecord) },
@@ -132,15 +131,19 @@ function createStatementCanvas(
     throw new Error('利用明細書PDFの作成に失敗しました。')
   }
 
-  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
   const title = settings.receipt.statementDefault.trim() || defaultMeterSettings.receipt.statementDefault || '利用明細書'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
+  const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
-    companyName,
+    tradeName,
+    corporateName && corporateName !== tradeName ? corporateName : '',
+    address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
-    settings.company.address,
+    invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ].filter((line) => line.trim())
 
   context.fillStyle = '#ffffff'

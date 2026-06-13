@@ -106,8 +106,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '宛名', value: caseRecord.receiptName || '未入力' },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
-    { label: '基本運賃', value: `${formatFareYen(caseRecord.basicFareYen)}円` },
-    { label: '時間距離併用運賃', value: `${formatFareYen(caseRecord.meterTimeFareYen)}円` },
+    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,
@@ -195,18 +194,19 @@ function createReceiptCanvas(
   const statementTitle =
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
-  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
   const receiptNote = issueOptions.receiptNote.trim()
-  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
-    companyName,
+    tradeName,
+    corporateName && corporateName !== tradeName ? corporateName : '',
+    address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
-    settings.company.address,
-    '登録番号',
-    invoiceNumber,
+    invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ]
 
   context.fillStyle = '#ffffff'
