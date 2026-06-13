@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -36,6 +37,8 @@ export const defaultCompany: Company = {
   sortOrder: 1,
   ownerName: '山本信勝',
   phoneNumber: '',
+  postalCode: '',
+  invoiceNumber: '',
   email: '',
   address: '',
   memo: '',

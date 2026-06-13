@@ -56,6 +56,8 @@ const createCompanyDraft = (sortOrder: number): Company => ({
   sortOrder,
   ownerName: '',
   phoneNumber: '',
+  postalCode: '',
+  invoiceNumber: '',
   email: '',
   address: '',
   memo: '',
@@ -448,6 +450,8 @@ export function HeadquartersPage() {
           <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
           <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
           <Input label="電話番号" value={draftCompany.phoneNumber} onChange={(value) => updateDraftCompany('phoneNumber', value)} />
+          <Input label="郵便番号" value={draftCompany.postalCode ?? ''} onChange={(value) => updateDraftCompany('postalCode', value)} />
+          <Input label="インボイス登録番号" value={draftCompany.invoiceNumber ?? ''} onChange={(value) => updateDraftCompany('invoiceNumber', value)} />
           <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
           <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
           <Input label="契約終了日" type="date" value={draftCompany.contractEndDate ?? ''} onChange={(value) => updateDraftCompany('contractEndDate', value)} />

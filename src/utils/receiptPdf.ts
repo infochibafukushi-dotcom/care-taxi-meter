@@ -1,6 +1,7 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { defaultMeterSettings } from '../services/meterSettings'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from './caseRecords'
 
@@ -9,6 +10,7 @@ export type ReceiptIssueOptions = {
   isReissue?: boolean
   issuerName: string
   receiptNote: string
+  company?: Company | null
 }
 
 type ReceiptLine = {

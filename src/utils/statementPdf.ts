@@ -1,6 +1,7 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { defaultMeterSettings } from '../services/meterSettings'
 import { formatCaseDateTime } from './caseRecords'
 
@@ -8,6 +9,7 @@ export type StatementIssueOptions = {
   customerName: string
   isReissue?: boolean
   issuerName: string
+  company?: Company | null
 }
 
 type StatementLine = {

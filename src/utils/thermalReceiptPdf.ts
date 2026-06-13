@@ -1,5 +1,6 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from './caseRecords'
 import type { ExpenseItem } from '../types/case'
@@ -10,6 +11,7 @@ export type ThermalReceiptIssueOptions = {
   expenseItems: ExpenseItem[]
   issuerName: string
   receiptNote: string
+  company?: Company | null
 }
 
 type ThermalLine = {
