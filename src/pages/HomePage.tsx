@@ -143,6 +143,7 @@ export function HomePage() {
   const isHqAdmin = dashboardRole === 'hq_admin'
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
+  const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
 
   useEffect(() => {
     if (!currentSession) {
@@ -296,6 +297,11 @@ export function HomePage() {
   }
 
   const handleClockIn = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。出勤操作の前に運行を復元してください。')
+      return
+    }
+
     if (!loggedInUser) {
       setLoginMessage('先にログインしてください。')
       return
@@ -324,6 +330,11 @@ export function HomePage() {
   }
 
   const openClockOutSummary = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      return
+    }
+
     setSummaryDialog({ errorMessage: '', isLoading: true, isOpen: true, records: [] })
     try {
       const records = await fetchCaseRecords()
@@ -340,6 +351,12 @@ export function HomePage() {
   }
 
   const confirmClockOut = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
+      return
+    }
+
     await workSession.clockOut()
     setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
     setLoginMessage('退勤しました。お疲れ様でした。')
@@ -389,9 +406,9 @@ export function HomePage() {
           </div>
           {!isHqAdmin ? (
             currentSession ? (
-              <button className="secondary-action home-button dashboard-attendance-button" type="button" onClick={openClockOutSummary}>退勤</button>
+              <button className="secondary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={openClockOutSummary}>退勤</button>
             ) : (
-              <button className="primary-action home-button dashboard-attendance-button" type="button" onClick={handleClockIn}>出勤</button>
+              <button className="primary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={handleClockIn}>出勤</button>
             )
           ) : null}
         </header>
@@ -415,8 +432,20 @@ export function HomePage() {
         {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
         <p className="save-note">{loginMessage}</p>
         <nav className="home-actions dashboard-actions" aria-label="主要メニュー">
-          {currentSession && !isHqAdmin ? <Link className="primary-action" to="/case/start">案件開始</Link> : null}
-          {!isHqAdmin ? <Link className="secondary-action" to="/cases">案件一覧</Link> : null}
+          {currentSession && !isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="primary-action home-button" type="button" disabled>案件開始</button>
+            ) : (
+              <Link className="primary-action" to="/case/start">案件開始</Link>
+            )
+          ) : null}
+          {!isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="secondary-action home-button" type="button" disabled>案件一覧</button>
+            ) : (
+              <Link className="secondary-action" to="/cases">案件一覧</Link>
+            )
+          ) : null}
           {canOpenManagement ? (
             <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : '/owner'}>
               管理センター

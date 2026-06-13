@@ -512,16 +512,15 @@ export function CasePage() {
 
   const isTripStarted = status !== '空車'
   const isCaseClosed = status === '案件終了'
-  const isOperationLocked = isTripStarted && !isCaseClosed
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
   const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
   const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
-  const canStartWaiting = false
-  const canEndWaiting = false
-  const canStartAccompanying = false
-  const canEndAccompanying = false
+  const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
+  const canEndWaiting = status === '待機中' && caseSaveState !== 'saving'
+  const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
+  const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中'
-  const canEditCharges = !isOperationLocked && !isCaseClosed && caseSaveState !== 'saving'
+  const canEditCharges = status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
@@ -539,30 +538,32 @@ export function CasePage() {
       return undefined
     }
 
-    const moveMessage = '運行中です。精算終了後に画面移動できます。'
-    const reloadMessage = '運行中です。精算終了後に更新できます。'
-    const leaveMessage = '運行中のデータがあります。終了するとメーター情報が失われる可能性があります。'
+    const leaveOperationMessage = '運行中です。この操作を行うと運行画面を離れる可能性があります。'
+    let allowOperationLeave = false
     const guardedHistoryState = {
       ...(window.history.state && typeof window.history.state === 'object'
         ? window.history.state
         : {}),
       careTaxiMeterGuard: true,
     }
-    const previousHtmlOverscrollBehaviorY = document.documentElement.style.overscrollBehaviorY
-    const previousBodyOverscrollBehaviorY = document.body.style.overscrollBehaviorY
-
     window.history.pushState(guardedHistoryState, '', window.location.href)
-    document.documentElement.style.overscrollBehaviorY = 'none'
-    document.body.style.overscrollBehaviorY = 'none'
 
     const handlePopState = () => {
-      window.alert(moveMessage)
+      if (window.confirm(leaveOperationMessage)) {
+        allowOperationLeave = true
+        return
+      }
+
       window.history.pushState(guardedHistoryState, '', window.location.href)
     }
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowOperationLeave) {
+        return undefined
+      }
+
       event.preventDefault()
-      event.returnValue = leaveMessage
-      return leaveMessage
+      event.returnValue = leaveOperationMessage
+      return leaveOperationMessage
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       const isReloadShortcut =
@@ -574,7 +575,11 @@ export function CasePage() {
       }
 
       event.preventDefault()
-      window.alert(reloadMessage)
+
+      if (window.confirm(leaveOperationMessage)) {
+        allowOperationLeave = true
+        window.location.reload()
+      }
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -585,8 +590,6 @@ export function CasePage() {
       window.removeEventListener('popstate', handlePopState)
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
-      document.documentElement.style.overscrollBehaviorY = previousHtmlOverscrollBehaviorY
-      document.body.style.overscrollBehaviorY = previousBodyOverscrollBehaviorY
     }
   }, [isOperationProtected])
 
