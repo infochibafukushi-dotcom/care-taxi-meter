@@ -133,6 +133,7 @@ export function HomePage() {
   const [activeTripSnapshot, setActiveTripSnapshot] =
     useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
 
+  const { subscribeToWorkingSession } = workSession
   const currentSession = workSession.currentSession
   const currentStaffId = currentSession?.staffId ?? loggedInUser?.staffMember.id ?? ''
   const currentSessionId = currentSession?.id ?? ''
@@ -144,6 +145,14 @@ export function HomePage() {
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
   const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
+
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.staffMember.role === 'hq_admin') {
+      return undefined
+    }
+
+    return subscribeToWorkingSession(loggedInUser.staffMember)
+  }, [loggedInUser, subscribeToWorkingSession])
 
   useEffect(() => {
     if (!currentSession) {
