@@ -87,8 +87,6 @@ function toCompany(id: string, data: Record<string, unknown>): Company {
     sortOrder: toNumber(data.sortOrder),
     ownerName: toString(data.ownerName),
     phoneNumber: toString(data.phoneNumber),
-    postalCode: toString(data.postalCode) || toString(data.zipCode),
-    invoiceNumber: toString(data.invoiceNumber),
     email: toString(data.email),
     address: toString(data.address),
     memo: toString(data.memo),
@@ -101,11 +99,6 @@ export async function fetchCompanies() {
   return snapshots.docs.map((snapshot) => toCompany(snapshot.id, snapshot.data()))
 }
 
-export async function fetchCompany(companyId: string) {
-  if (!companyId) return null
-  const snapshot = await getDoc(getCompanyRef(companyId))
-  return snapshot.exists() ? toCompany(snapshot.id, snapshot.data()) : null
-}
 
 export async function saveCompany(company: Company) {
   await setDoc(

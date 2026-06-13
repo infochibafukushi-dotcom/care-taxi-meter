@@ -117,11 +117,10 @@ function createThermalReceiptCanvas(
     throw new Error('レシートPDFの作成に失敗しました。')
   }
 
-  const receiptCompany = issueOptions.company
-  const companyName = receiptCompany?.name.trim() || settings.company.companyName.trim() || 'ちばケアタクシー'
-  const corporateName = receiptCompany?.corporateName?.trim() || ''
+  const companyName = settings.company.tradeName.trim() || settings.company.companyName.trim() || 'ちばケアタクシー'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
   const customerName = issueOptions.customerName.trim()
-  const invoiceNumber = receiptCompany?.invoiceNumber?.trim() || ''
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const receiptNote = issueOptions.receiptNote.trim()
   const issuerName = issueOptions.issuerName.trim()
   let y = 58
@@ -143,9 +142,9 @@ function createThermalReceiptCanvas(
   }
 
   ;[
-    receiptCompany?.postalCode ? `〒${receiptCompany.postalCode}` : '',
-    receiptCompany?.address || settings.company.address,
-    receiptCompany?.phoneNumber || settings.company.phoneNumber ? `TEL ${receiptCompany?.phoneNumber || settings.company.phoneNumber}` : '',
+    settings.company.postalCode ? `〒${settings.company.postalCode}` : '',
+    settings.company.address,
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
   ]
     .filter((line) => line.trim())
     .forEach((line) => {

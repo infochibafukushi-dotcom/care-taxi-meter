@@ -133,20 +133,19 @@ function createStatementCanvas(
     throw new Error('利用明細書PDFの作成に失敗しました。')
   }
 
-  const receiptCompany = issueOptions.company
-  const tradeName = receiptCompany?.name.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
-  const corporateName = receiptCompany?.corporateName?.trim() || ''
+  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
   const title = settings.receipt.statementDefault.trim() || defaultMeterSettings.receipt.statementDefault || '利用明細書'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
-  const address = [receiptCompany?.postalCode ? `〒${receiptCompany.postalCode}` : '', receiptCompany?.address || settings.company.address].filter((line) => line.trim()).join(' ')
-  const phoneNumber = receiptCompany?.phoneNumber || settings.company.phoneNumber
+  const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
     tradeName,
     corporateName && corporateName !== tradeName ? corporateName : '',
     address,
-    phoneNumber ? `TEL ${phoneNumber}` : '',
-    receiptCompany?.invoiceNumber ? `登録番号 ${receiptCompany.invoiceNumber}` : '',
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
+    invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ].filter((line) => line.trim())
 
   context.fillStyle = '#ffffff'

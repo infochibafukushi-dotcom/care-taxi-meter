@@ -196,20 +196,18 @@ function createReceiptCanvas(
   const statementTitle =
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
-  const receiptCompany = issueOptions.company
-  const tradeName = receiptCompany?.name.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
-  const corporateName = receiptCompany?.corporateName?.trim() || ''
-  const address = [receiptCompany?.postalCode ? `〒${receiptCompany.postalCode}` : '', receiptCompany?.address || settings.company.address].filter((line) => line.trim()).join(' ')
-  const phoneNumber = receiptCompany?.phoneNumber || settings.company.phoneNumber
+  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
   const receiptNote = issueOptions.receiptNote.trim()
-  const invoiceNumber = receiptCompany?.invoiceNumber?.trim() || ''
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
     tradeName,
     corporateName && corporateName !== tradeName ? corporateName : '',
     address,
-    phoneNumber ? `TEL ${phoneNumber}` : '',
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
     invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ]
 

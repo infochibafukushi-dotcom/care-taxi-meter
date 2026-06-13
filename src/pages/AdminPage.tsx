@@ -48,7 +48,6 @@ type AdminSummaryState = {
 type AdminCenterSection =
   | "company"
   | "fare"
-  | "receipt"
   | "staff"
   | "stores"
   | "vehicles"
@@ -80,18 +79,13 @@ const adminCenterCards: Array<{
   },
   {
     id: "company",
-    label: "会社情報",
-    description: "会社基本情報設定",
+    label: "会社情報・帳票設定",
+    description: "領収書に反映する会社情報と帳票設定",
   },
   {
     id: "fare",
     label: "料金設定",
     description: "運賃および各種料金設定",
-  },
-  {
-    id: "receipt",
-    label: "帳票設定",
-    description: "領収書および利用明細書設定",
   },
   {
     id: "analytics",
@@ -1067,7 +1061,7 @@ export function AdminPage() {
                 }
               </h2>
             </div>
-            {["company", "fare", "receipt"].includes(activeAdminSection) ? (
+            {["company", "fare"].includes(activeAdminSection) ? (
               <button
                 className="admin-save-button"
                 type="button"
@@ -1081,7 +1075,7 @@ export function AdminPage() {
             ) : null}
           </div>
 
-          {["company", "fare", "receipt"].includes(activeAdminSection) ? (
+          {["company", "fare"].includes(activeAdminSection) ? (
             <p className={`save-note save-note--${settingsSaveState}`}>
               {settingsMessage}
             </p>
@@ -1592,12 +1586,20 @@ export function AdminPage() {
               <fieldset className="admin-settings-wide">
                 <legend>会社情報</legend>
                 <label>
-                  会社名
+                  法人名
                   <input
-                    value={settings.company.companyName}
-                    onChange={(event) =>
+                    value={settings.company.corporateName}
+                    onChange={(event) => {
+                      updateCompany("corporateName", event.target.value)
                       updateCompany("companyName", event.target.value)
-                    }
+                    }}
+                  />
+                </label>
+                <label>
+                  屋号名
+                  <input
+                    value={settings.company.tradeName}
+                    onChange={(event) => updateCompany("tradeName", event.target.value)}
                   />
                 </label>
                 <label>
@@ -1620,6 +1622,13 @@ export function AdminPage() {
                   />
                 </label>
                 <label>
+                  郵便番号
+                  <input
+                    value={settings.company.postalCode}
+                    onChange={(event) => updateCompany("postalCode", event.target.value)}
+                  />
+                </label>
+                <label>
                   住所
                   <textarea
                     value={settings.company.address}
@@ -1629,11 +1638,6 @@ export function AdminPage() {
                   />
                 </label>
               </fieldset>
-            </div>
-          ) : null}
-
-          {activeAdminSection === "receipt" ? (
-            <div className="admin-settings-grid">
               <fieldset className="admin-settings-wide">
                 <legend>帳票設定</legend>
                 <label>
@@ -1646,7 +1650,7 @@ export function AdminPage() {
                   />
                 </label>
                 <label>
-                  領収書デフォルト
+                  領収書タイトル
                   <input
                     value={settings.receipt.receiptDefault}
                     onChange={(event) =>
@@ -1655,7 +1659,7 @@ export function AdminPage() {
                   />
                 </label>
                 <label>
-                  利用明細書デフォルト
+                  利用明細書タイトル
                   <input
                     value={settings.receipt.statementDefault}
                     onChange={(event) =>
@@ -1683,7 +1687,7 @@ export function AdminPage() {
                   />
                 </label>
                 <p className="admin-settings-note">
-                  領収書の宛名・但し書き・登録番号は空欄でも保存できます。登録番号が未設定の場合、PDFには「未登録」と表示します。
+                  ここで保存した会社情報・帳票設定は、領収書・利用明細書・レシートに自動反映されます。登録番号が未設定の場合は帳票に表示しません。
                 </p>
               </fieldset>
             </div>
