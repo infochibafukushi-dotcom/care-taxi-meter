@@ -151,6 +151,32 @@ export function CaseDetailPage() {
   }, [caseRecordId])
 
   useEffect(() => {
+    if (!receiptDialog.isOpen) {
+      return undefined
+    }
+
+    const scrollY = window.scrollY
+    const { body } = document
+    const previousOverflow = body.style.overflow
+    const previousPosition = body.style.position
+    const previousTop = body.style.top
+    const previousWidth = body.style.width
+
+    body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.width = '100%'
+
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.position = previousPosition
+      body.style.top = previousTop
+      body.style.width = previousWidth
+      window.scrollTo(0, scrollY)
+    }
+  }, [receiptDialog.isOpen])
+
+  useEffect(() => {
     let isMounted = true
 
     fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
