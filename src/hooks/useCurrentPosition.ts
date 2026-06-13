@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { gpsVehicleSpeedProvider } from '../services/gpsSpeed'
 import type { SpeedSource } from '../services/gpsSpeed'
 import type { GpsLogEntry, GpsPosition, MeterMovementState } from '../types/case'
@@ -22,6 +22,8 @@ type InitialGpsState = Partial<{
   currentSpeedKmh: number | null
   lowSpeedSeconds: number
   movementState: MeterMovementState
+  forceInitialSegmentDistance: boolean
+  lastLog: GpsLogEntry | null
   position: GpsPosition | null
   speedSource: SpeedSource
 }>
@@ -87,13 +89,18 @@ export function useCurrentPosition(
   initialGpsState: InitialGpsState = {},
 ) {
   const [position, setPosition] = useState<GpsPosition | null>(initialGpsState.position ?? null)
+  const initialBridgeLogCapturedAtRef = useRef(
+    initialGpsState.forceInitialSegmentDistance && initialGpsState.lastLog
+      ? initialGpsState.lastLog.capturedAt
+      : null,
+  )
   const [status, setStatus] = useState<GpsStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [gpsLogState, setGpsLogState] = useState<GpsLogState>({
     businessDistanceMeters: Math.max(initialGpsState.businessDistanceKm ?? 0, 0) * 1000,
     chargeableDistanceMeters: Math.max(initialGpsState.chargeableDistanceKm ?? 0, 0) * 1000,
     currentSpeedKmh: initialGpsState.currentSpeedKmh ?? null,
-    logs: [],
+    logs: initialGpsState.lastLog ? [initialGpsState.lastLog] : [],
     lowSpeedSeconds: Math.max(initialGpsState.lowSpeedSeconds ?? 0, 0),
     movementState: initialGpsState.movementState ?? 'unknown',
     speedSource: initialGpsState.speedSource ?? 'unavailable',
@@ -148,16 +155,30 @@ export function useCurrentPosition(
             const segmentDistanceMeters = previousLog
               ? calculateDistanceMeters(previousLog, currentLog)
               : 0
-            const shouldAddChargeableDistance = isFareMeterActive && shouldIncludeChargeableDistance(
-              previousLog,
-              currentLog,
-              speedReading.speedKmh,
-              lowSpeedThresholdKmh,
+            const isRestorationBridgeSegment =
+              previousLog &&
+              initialBridgeLogCapturedAtRef.current === previousLog.capturedAt
+            const shouldAddRestorationBridgeDistance = Boolean(
+              isRestorationBridgeSegment && shouldIncludeGpsSegment(previousLog, currentLog),
             )
-            const shouldAddBusinessDistance = isBusinessDistanceActive && shouldIncludeBusinessDistance(
-              previousLog,
-              currentLog,
-            )
+            const shouldAddChargeableDistance = shouldAddRestorationBridgeDistance
+              ? isFareMeterActive
+              : isFareMeterActive && shouldIncludeChargeableDistance(
+                previousLog,
+                currentLog,
+                speedReading.speedKmh,
+                lowSpeedThresholdKmh,
+              )
+            const shouldAddBusinessDistance = shouldAddRestorationBridgeDistance
+              ? isBusinessDistanceActive
+              : isBusinessDistanceActive && shouldIncludeBusinessDistance(
+                previousLog,
+                currentLog,
+              )
+
+            if (isRestorationBridgeSegment) {
+              initialBridgeLogCapturedAtRef.current = null
+            }
             const chargeableAdditionalDistanceMeters = shouldAddChargeableDistance
               ? segmentDistanceMeters
               : 0
@@ -169,7 +190,7 @@ export function useCurrentPosition(
             const businessDistanceMeters =
               currentState.businessDistanceMeters + businessAdditionalDistanceMeters
             const lowSpeedSeconds =
-              isFareMeterActive && movementState === 'low-speed'
+              isFareMeterActive && movementState === 'low-speed' && !shouldAddRestorationBridgeDistance
                 ? currentState.lowSpeedSeconds + elapsedSeconds
                 : currentState.lowSpeedSeconds
 

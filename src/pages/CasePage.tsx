@@ -21,6 +21,14 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
+import {
+  applyElapsedSecondsToActiveTimer,
+  clearActiveTripSnapshot,
+  getActiveTripSnapshotElapsedSeconds,
+  readActiveTripSnapshot,
+  saveActiveTripSnapshot,
+} from '../services/activeTripSnapshot'
+import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -56,8 +64,8 @@ import type {
   OperationStatus,
   PaymentAllocation,
   PaymentMethod,
+  GpsLogEntry,
   GpsPosition,
-  MeterMovementState,
   SelectedCareOption,
   TaxiTicket,
   StatusTone,
@@ -88,7 +96,21 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
-const activeTripSnapshotStorageKey = 'careTaxiMeterActiveTripSnapshot'
+
+const isDevelopmentMode = import.meta.env.DEV
+const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
+const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
+  QR決済: 0,
+  その他: 0,
+  クレジット: 0,
+  現金: 0,
+  請求書: 0,
+})
+const emptyTimerSeconds: TimerSeconds = {
+  accompanying: 0,
+  driving: 0,
+  waiting: 0,
+}
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
   空車: 'vacant',
@@ -105,63 +127,6 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
   院内付き添い中: 'accompanying',
 }
 
-const isDevelopmentMode = import.meta.env.DEV
-const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
-const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
-  QR決済: 0,
-  その他: 0,
-  クレジット: 0,
-  現金: 0,
-  請求書: 0,
-})
-
-
-type ActiveTripSnapshot = {
-  activeTimer: TimerKey | null
-  billableTimeStarted: {
-    accompanying: boolean
-    waiting: boolean
-  }
-  caseNumber: string
-  caseNumberAssignment: CaseNumberAssignment | null
-  capturedAt: string
-  distances: {
-    businessDistanceKm: number
-    chargeableDistanceKm: number
-  }
-  dropoffLocation: CapturedAddressLocation
-  fareSnapshot: FareSnapshot | null
-  fareTotalYen: number
-  gps: {
-    currentSpeedKmh: number | null
-    gpsLogCount: number
-    lowSpeedSeconds: number
-    movementState: MeterMovementState
-    position: GpsPosition | null
-    speedSource: string
-  }
-  isDisabilityDiscount: boolean
-  operationEndedAt: string
-  operationStartedAt: string
-  paymentAmounts: Record<PaymentMethod, number>
-  paymentMethod: PaymentMethod
-  pickupLocation: CapturedAddressLocation
-  selectedCareOptions: SelectedCareOption[]
-  selectedDispatchCharges: SelectedCareOption[]
-  selectedExpenses: ExpenseItem[]
-  selectedSpecialVehicleCharges: SelectedCareOption[]
-  selectedVehicleId: string
-  status: OperationStatus
-  taxiTickets: TaxiTicket[]
-  timers: TimerSeconds
-}
-
-const emptyTimerSeconds: TimerSeconds = {
-  accompanying: 0,
-  driving: 0,
-  waiting: 0,
-}
-
 const protectedOperationStatuses = new Set<OperationStatus>([
   '走行中',
   '待機中',
@@ -172,93 +137,59 @@ const protectedOperationStatuses = new Set<OperationStatus>([
 const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
   typeof value === 'string' && protectedOperationStatuses.has(value as OperationStatus)
 
-const toFiniteSnapshotNumber = (value: unknown, fallback = 0) =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+let lastRestorationDecision: {
+  caseNumber: string
+  capturedAt: string
+  shouldApplyElapsed: boolean
+} | null = null
 
-const normalizeSnapshotTimerSeconds = (value: unknown): TimerSeconds => {
-  const source = value && typeof value === 'object' ? value as Partial<TimerSeconds> : {}
+type RestoredTripState = {
+  elapsedSeconds: number
+  shouldBridgeGpsDistance: boolean
+  snapshot: ActiveTripSnapshot | null
+}
+
+const createGpsLogEntryFromPosition = (position: GpsPosition): GpsLogEntry => ({
+  accuracy: position.accuracy,
+  capturedAt: position.updatedAt,
+  latitude: position.latitude,
+  longitude: position.longitude,
+  speed: position.speed,
+})
+
+const resolveActiveTripRestoration = (snapshot: ActiveTripSnapshot | null): RestoredTripState => {
+  if (!snapshot) {
+    return { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
+  }
+
+  const elapsedSeconds = getActiveTripSnapshotElapsedSeconds(snapshot)
+  const cachedDecision = lastRestorationDecision &&
+    lastRestorationDecision.caseNumber === snapshot.caseNumber &&
+    lastRestorationDecision.capturedAt === snapshot.capturedAt
+      ? lastRestorationDecision
+      : null
+  const shouldApplyElapsed = cachedDecision
+    ? cachedDecision.shouldApplyElapsed
+    : elapsedSeconds <= 600
+      ? true
+      : elapsedSeconds <= 1800
+        ? window.confirm(
+            `未終了の運行データがあります。前回保存から${Math.floor(elapsedSeconds / 60)}分経過しています。復元までの時間とGPS移動距離を運行に加算しますか？`,
+          )
+        : false
+
+  lastRestorationDecision = {
+    caseNumber: snapshot.caseNumber,
+    capturedAt: snapshot.capturedAt,
+    shouldApplyElapsed,
+  }
 
   return {
-    accompanying: Math.max(Math.floor(toFiniteSnapshotNumber(source.accompanying)), 0),
-    driving: Math.max(Math.floor(toFiniteSnapshotNumber(source.driving)), 0),
-    waiting: Math.max(Math.floor(toFiniteSnapshotNumber(source.waiting)), 0),
-  }
-}
-
-const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
-  try {
-    const snapshotJson = localStorage.getItem(activeTripSnapshotStorageKey)
-
-    if (!snapshotJson) {
-      return null
-    }
-
-    const snapshot = JSON.parse(snapshotJson) as Partial<ActiveTripSnapshot>
-
-    if (!isProtectedOperationStatus(snapshot.status)) {
-      return null
-    }
-
-    return {
-      activeTimer: snapshot.activeTimer ?? activeTimerMap[snapshot.status] ?? null,
-      billableTimeStarted: {
-        accompanying: Boolean(snapshot.billableTimeStarted?.accompanying),
-        waiting: Boolean(snapshot.billableTimeStarted?.waiting),
-      },
-      caseNumber: typeof snapshot.caseNumber === 'string' && snapshot.caseNumber
-        ? snapshot.caseNumber
-        : '未採番',
-      caseNumberAssignment: snapshot.caseNumberAssignment ?? null,
-      capturedAt: typeof snapshot.capturedAt === 'string' ? snapshot.capturedAt : '',
-      distances: {
-        businessDistanceKm: Math.max(toFiniteSnapshotNumber(snapshot.distances?.businessDistanceKm), 0),
-        chargeableDistanceKm: Math.max(toFiniteSnapshotNumber(snapshot.distances?.chargeableDistanceKm), 0),
-      },
-      dropoffLocation: snapshot.dropoffLocation ?? emptyCapturedAddressLocation,
-      fareSnapshot: snapshot.fareSnapshot ?? null,
-      fareTotalYen: Math.max(Math.round(toFiniteSnapshotNumber(snapshot.fareTotalYen)), 0),
-      gps: {
-        currentSpeedKmh: snapshot.gps?.currentSpeedKmh ?? null,
-        gpsLogCount: Math.max(Math.floor(toFiniteSnapshotNumber(snapshot.gps?.gpsLogCount)), 0),
-        lowSpeedSeconds: Math.max(Math.floor(toFiniteSnapshotNumber(snapshot.gps?.lowSpeedSeconds)), 0),
-        movementState: snapshot.gps?.movementState ?? 'unknown',
-        position: snapshot.gps?.position ?? null,
-        speedSource: snapshot.gps?.speedSource ?? 'unavailable',
-      },
-      isDisabilityDiscount: Boolean(snapshot.isDisabilityDiscount),
-      operationEndedAt: typeof snapshot.operationEndedAt === 'string' ? snapshot.operationEndedAt : '',
-      operationStartedAt: typeof snapshot.operationStartedAt === 'string' ? snapshot.operationStartedAt : '',
-      paymentAmounts: snapshot.paymentAmounts ?? createEmptyPaymentAmounts(),
-      paymentMethod: snapshot.paymentMethod ?? '現金',
-      pickupLocation: snapshot.pickupLocation ?? emptyCapturedAddressLocation,
-      selectedCareOptions: Array.isArray(snapshot.selectedCareOptions) ? snapshot.selectedCareOptions : [],
-      selectedDispatchCharges: Array.isArray(snapshot.selectedDispatchCharges) ? snapshot.selectedDispatchCharges : [],
-      selectedExpenses: Array.isArray(snapshot.selectedExpenses) ? snapshot.selectedExpenses : [],
-      selectedSpecialVehicleCharges: Array.isArray(snapshot.selectedSpecialVehicleCharges) ? snapshot.selectedSpecialVehicleCharges : [],
-      selectedVehicleId: typeof snapshot.selectedVehicleId === 'string' ? snapshot.selectedVehicleId : '',
-      status: snapshot.status,
-      taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
-      timers: normalizeSnapshotTimerSeconds(snapshot.timers),
-    }
-  } catch (error) {
-    console.warn('Failed to read active trip snapshot.', error)
-    return null
-  }
-}
-
-const saveActiveTripSnapshot = (snapshot: ActiveTripSnapshot) => {
-  try {
-    localStorage.setItem(activeTripSnapshotStorageKey, JSON.stringify(snapshot))
-  } catch (error) {
-    console.warn('Failed to save active trip snapshot.', error)
-  }
-}
-
-const clearActiveTripSnapshot = () => {
-  try {
-    localStorage.removeItem(activeTripSnapshotStorageKey)
-  } catch (error) {
-    console.warn('Failed to clear active trip snapshot.', error)
+    elapsedSeconds,
+    shouldBridgeGpsDistance: shouldApplyElapsed && snapshot.status === '走行中' && Boolean(snapshot.gps.position),
+    snapshot: shouldApplyElapsed
+      ? applyElapsedSecondsToActiveTimer(snapshot, elapsedSeconds)
+      : snapshot,
   }
 }
 
@@ -429,7 +360,9 @@ const getReverseGeocodeCauseLabel = ({
 export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
-  const [restoredTripSnapshot] = useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
+  const [restoredTripState] = useState(() => resolveActiveTripRestoration(readActiveTripSnapshot()))
+  const restoredTripSnapshot = restoredTripState.snapshot
+  const shouldBridgeRestoredGpsDistance = restoredTripState.shouldBridgeGpsDistance
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
   const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
   const fareSnapshotRef = useRef<FareSnapshot | null>(restoredTripSnapshot?.fareSnapshot ?? null)
@@ -556,6 +489,10 @@ export function CasePage() {
           lowSpeedSeconds: restoredTripSnapshot.gps.lowSpeedSeconds,
           movementState: restoredTripSnapshot.gps.movementState,
           position: restoredTripSnapshot.gps.position,
+          lastLog: shouldBridgeRestoredGpsDistance && restoredTripSnapshot.gps.position
+            ? createGpsLogEntryFromPosition(restoredTripSnapshot.gps.position)
+            : null,
+          forceInitialSegmentDistance: shouldBridgeRestoredGpsDistance,
           speedSource: restoredTripSnapshot.gps.speedSource === 'gps' || restoredTripSnapshot.gps.speedSource === 'fallback'
             ? restoredTripSnapshot.gps.speedSource
             : 'unavailable',
@@ -575,16 +512,15 @@ export function CasePage() {
 
   const isTripStarted = status !== '空車'
   const isCaseClosed = status === '案件終了'
-  const isOperationLocked = isTripStarted && !isCaseClosed
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
   const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
   const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
-  const canStartWaiting = false
-  const canEndWaiting = false
-  const canStartAccompanying = false
-  const canEndAccompanying = false
+  const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
+  const canEndWaiting = status === '待機中' && caseSaveState !== 'saving'
+  const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
+  const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中'
-  const canEditCharges = !isOperationLocked && !isCaseClosed && caseSaveState !== 'saving'
+  const canEditCharges = status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
@@ -602,30 +538,32 @@ export function CasePage() {
       return undefined
     }
 
-    const moveMessage = '運行中です。精算終了後に画面移動できます。'
-    const reloadMessage = '運行中です。精算終了後に更新できます。'
-    const leaveMessage = '運行中のデータがあります。終了するとメーター情報が失われる可能性があります。'
+    const leaveOperationMessage = '運行中です。この操作を行うと運行画面を離れる可能性があります。'
+    let allowOperationLeave = false
     const guardedHistoryState = {
       ...(window.history.state && typeof window.history.state === 'object'
         ? window.history.state
         : {}),
       careTaxiMeterGuard: true,
     }
-    const previousHtmlOverscrollBehaviorY = document.documentElement.style.overscrollBehaviorY
-    const previousBodyOverscrollBehaviorY = document.body.style.overscrollBehaviorY
-
     window.history.pushState(guardedHistoryState, '', window.location.href)
-    document.documentElement.style.overscrollBehaviorY = 'none'
-    document.body.style.overscrollBehaviorY = 'none'
 
     const handlePopState = () => {
-      window.alert(moveMessage)
+      if (window.confirm(leaveOperationMessage)) {
+        allowOperationLeave = true
+        return
+      }
+
       window.history.pushState(guardedHistoryState, '', window.location.href)
     }
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowOperationLeave) {
+        return undefined
+      }
+
       event.preventDefault()
-      event.returnValue = leaveMessage
-      return leaveMessage
+      event.returnValue = leaveOperationMessage
+      return leaveOperationMessage
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       const isReloadShortcut =
@@ -637,7 +575,11 @@ export function CasePage() {
       }
 
       event.preventDefault()
-      window.alert(reloadMessage)
+
+      if (window.confirm(leaveOperationMessage)) {
+        allowOperationLeave = true
+        window.location.reload()
+      }
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -648,8 +590,6 @@ export function CasePage() {
       window.removeEventListener('popstate', handlePopState)
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
-      document.documentElement.style.overscrollBehaviorY = previousHtmlOverscrollBehaviorY
-      document.body.style.overscrollBehaviorY = previousBodyOverscrollBehaviorY
     }
   }, [isOperationProtected])
 
