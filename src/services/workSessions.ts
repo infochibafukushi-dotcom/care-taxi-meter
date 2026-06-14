@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   runTransaction,
@@ -207,6 +208,16 @@ export async function fetchOpenWorkingWorkSession({
         matchesStaffWorkSession({ companyId, staffId, storeId, workSession }),
       ),
   )
+}
+
+export async function fetchWorkSessionById(workSessionId: string) {
+  if (!workSessionId) {
+    return null
+  }
+
+  const snapshot = await getDoc(getWorkSessionRef(workSessionId))
+
+  return snapshot.exists() ? toWorkSession(snapshot) : null
 }
 
 export function subscribeOpenWorkingWorkSession({
