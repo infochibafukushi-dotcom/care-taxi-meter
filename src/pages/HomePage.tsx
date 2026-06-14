@@ -340,6 +340,63 @@ export function HomePage() {
   }, [currentSession])
 
   useEffect(() => {
+    console.info('[HomePage] session state', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      loggedInStaffId: loggedInUser?.staffMember.id ?? null,
+      currentSessionId: currentSession?.id ?? null,
+      currentSessionStaffId: currentSession?.staffId ?? null,
+    })
+  }, [currentSession?.id, currentSession?.staffId, loggedInUser])
+
+  useEffect(() => {
+    if (loggedInUser) {
+      return
+    }
+
+    const authSession = loadAuthStaffSession()
+    const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
+      authSession,
+      currentSession,
+    })
+
+    if (!restoredLoggedInUser) {
+      return
+    }
+
+    console.info('[HomePage] restored loggedInUser for work session subscription', {
+      fromAuthSession: Boolean(authSession),
+      fromCurrentSession: Boolean(currentSession),
+      staffId: restoredLoggedInUser.staffMember.id,
+      storeId: restoredLoggedInUser.staffMember.storeId,
+    })
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoggedInUser(restoredLoggedInUser)
+      setLoginMessage('ログイン状態を復元しました。勤務状態を同期しています。')
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession, loggedInUser])
+
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.staffMember.role === 'hq_admin') {
+      return undefined
+    }
+
+    console.info('[HomePage] subscribeToWorkingSession start', {
+      staffId: loggedInUser.staffMember.id,
+      storeId: loggedInUser.staffMember.storeId,
+    })
+    return subscribeToWorkingSession(loggedInUser.staffMember)
+  }, [loggedInUser, subscribeToWorkingSession])
+
+  useEffect(() => {
     if (!currentSession) {
       return undefined
     }
