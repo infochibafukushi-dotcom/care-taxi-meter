@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, FieldValue, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
 import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket } from '../types/case'
@@ -682,6 +682,15 @@ export async function saveCaseRecord({
   selectedExpenses,
   dropoffLocation,
 }: CaseRecordInput) {
+  const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
+  const staffId = workSession?.staffId ?? ''
+  const storeId = workSession?.storeId ?? ''
+  const workSessionId = workSession?.id ?? ''
+
+  if (!franchiseeId || !storeId || !staffId || !workSessionId) {
+    throw new Error('案件保存に必要な勤務セッション情報が不足しています。出勤状態を確認してから再度お試しください。')
+  }
+
   const record: CaseRecordDocument = {
     caseNumber,
     caseDate: caseDate || toJapanDateInputValue(closedAt),
@@ -697,18 +706,18 @@ export async function saveCaseRecord({
     drivingSeconds: Math.max(Math.floor(drivingSeconds), 0),
     waitingSeconds: Math.max(Math.floor(waitingSeconds), 0),
     accompanyingSeconds: Math.max(Math.floor(accompanyingSeconds), 0),
-    companyId: workSession?.franchiseeId || workSession?.companyId || '',
-    franchiseeId: workSession?.franchiseeId || workSession?.companyId || '',
+    companyId: franchiseeId,
+    franchiseeId,
     companyName: workSession?.companyName ?? '',
-    staffId: workSession?.staffId ?? '',
-    driverId: workSession?.staffId ?? '',
+    staffId,
+    driverId: staffId,
     staffName: workSession?.staffName ?? '',
     staffRole: workSession?.staffRole ?? '',
     vehicleId: vehicle?.id ?? '',
     vehicleName: vehicle?.name ?? '',
     vehicleNumber: vehicle?.number ?? '',
-    workSessionId: workSession?.id ?? '',
-    storeId: workSession?.storeId ?? '',
+    workSessionId,
+    storeId,
     storeName: workSession?.storeName ?? '',
     dispatchFareYen: fareBreakdown.dispatchFareYen,
     specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
@@ -780,9 +789,34 @@ export async function saveCaseRecord({
   return addDoc(getCaseRecordsCollection(), record)
 }
 
+const createCaseRecordTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || scope.role === 'hq_admin') return []
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('franchiseeId', '==', franchiseeId))
+  }
+
+  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  if (scope.role === 'driver' && scope.staffId) {
+    constraints.push(where('staffId', '==', scope.staffId))
+  }
+
+  return constraints
+}
+
 export async function fetchCaseRecords(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
-    query(getCaseRecordsCollection(), orderBy('closedAt', 'desc')),
+    query(
+      getCaseRecordsCollection(),
+      ...createCaseRecordTenantConstraints(scope),
+      orderBy('closedAt', 'desc'),
+    ),
   )
 
   return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, scope))
@@ -800,6 +834,7 @@ export async function fetchCaseRecordsInClosedAtRange({
   const snapshots = await getDocs(
     query(
       getCaseRecordsCollection(),
+      ...createCaseRecordTenantConstraints(scope),
       where('closedAt', '>=', startIso),
       where('closedAt', '<', endIso),
       orderBy('closedAt', 'desc'),

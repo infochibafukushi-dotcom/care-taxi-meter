@@ -132,7 +132,11 @@ export type WorkSession = {
   clockOutLongitude: number | null
   clockOutAccuracy: number | null
   status: WorkSessionStatus
+  activeTripStatus?: string | null
+  activeTripUpdatedAt?: string | null
+  activeTripCaseNumber?: string | null
 }
+
 
 export type CurrentWorkSession = WorkSession
 

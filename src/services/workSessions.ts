@@ -3,19 +3,22 @@ import {
   doc,
   getDocs,
   getFirestore,
+  runTransaction,
+  onSnapshot,
   query,
   serverTimestamp,
-  setDoc,
-  updateDoc,
   where,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
-import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import { getFranchiseeId, getStoreId, isHqRole, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+import type { QueryConstraint } from 'firebase/firestore'
 import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
+const staffAttendanceCollectionName = 'staffAttendance'
+const activeTripProtectedStatuses = new Set(['走行中', '待機中', '院内付き添い中', '精算前'])
 
 const createWorkSessionId = () => `work-${Date.now()}-${crypto.randomUUID()}`
 
@@ -58,6 +61,9 @@ const toWorkSession = (snapshot: {
     clockOutLongitude: toNullableNumber(data.clockOutLongitude),
     clockOutAccuracy: toNullableNumber(data.clockOutAccuracy),
     status: data.status === 'closed' ? 'closed' : 'working',
+    activeTripStatus: toStringValue(data.activeTripStatus) || null,
+    activeTripUpdatedAt: toStringValue(data.activeTripUpdatedAt) || null,
+    activeTripCaseNumber: toStringValue(data.activeTripCaseNumber) || null,
   }
 }
 
@@ -66,15 +72,64 @@ function getWorkSessionRef(workSessionId: string) {
   return doc(db, workSessionsCollectionName, workSessionId)
 }
 
+const createStaffAttendanceId = ({ companyId, staffId, storeId }: { companyId: string; staffId: string; storeId: string }) =>
+  [companyId, storeId, staffId].map((value) => value.replaceAll('/', '_')).join('_')
+
+function getStaffAttendanceRef({ companyId, staffId, storeId }: { companyId: string; staffId: string; storeId: string }) {
+  const db = getFirestore(getFirebaseApp())
+  return doc(db, staffAttendanceCollectionName, createStaffAttendanceId({ companyId, staffId, storeId }))
+}
+
 function getWorkSessionsCollection() {
   const db = getFirestore(getFirebaseApp())
   return collection(db, workSessionsCollectionName)
 }
 
+const createWorkingWorkSessionsQuery = (constraints: QueryConstraint[] = []) =>
+  query(getWorkSessionsCollection(), where('status', '==', 'working'), ...constraints)
+
+const toTenantCompanyId = (staffMember: Pick<StaffMember, 'companyId' | 'franchiseeId'>) =>
+  staffMember.franchiseeId || staffMember.companyId
+
+const matchesStaffWorkSession = ({
+  companyId,
+  staffId,
+  storeId,
+  workSession,
+}: {
+  companyId: string
+  staffId: string
+  storeId?: string
+  workSession: WorkSession
+}) =>
+  workSession.companyId === companyId &&
+  (!storeId || workSession.storeId === storeId) &&
+  workSession.staffId === staffId
+
+const findLatestOpenWorkingSession = (workSessions: WorkSession[]) =>
+  workSessions
+    .filter(isOpenWorkingSession)
+    .sort((firstSession, secondSession) =>
+      secondSession.clockInAt.localeCompare(firstSession.clockInAt),
+    )[0] ?? null
+
 export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
-  const snapshots = await getDocs(
-    query(getWorkSessionsCollection(), where('status', '==', 'working')),
-  )
+  const constraints: QueryConstraint[] = []
+
+  if (scope && !isHqRole(scope.role ?? '')) {
+    const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+    if (franchiseeId) {
+      constraints.push(where('companyId', '==', franchiseeId))
+    }
+    if (scope.storeId) {
+      constraints.push(where('storeId', '==', scope.storeId))
+    }
+    if (scope.role === 'driver' && scope.staffId) {
+      constraints.push(where('staffId', '==', scope.staffId))
+    }
+  }
+
+  const snapshots = await getDocs(createWorkingWorkSessionsQuery(constraints))
 
   return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).filter((session) => matchesTenantScope(session, scope)).length
 }
@@ -88,22 +143,71 @@ export async function fetchOpenWorkingWorkSession({
   staffId: string
   storeId?: string
 }) {
-  const snapshots = await getDocs(
-    query(getWorkSessionsCollection(), where('status', '==', 'working')),
-  )
+  const constraints: QueryConstraint[] = [
+    where('companyId', '==', companyId),
+    where('staffId', '==', staffId),
+  ]
 
-  return snapshots.docs
-    .map(toWorkSession)
-    .filter(
-      (workSession) =>
-        workSession.companyId === companyId &&
-        (!storeId || workSession.storeId === storeId) &&
-        workSession.staffId === staffId &&
-        isOpenWorkingSession(workSession),
-    )
-    .sort((firstSession, secondSession) =>
-      secondSession.clockInAt.localeCompare(firstSession.clockInAt),
-    )[0] ?? null
+  if (storeId) {
+    constraints.push(where('storeId', '==', storeId))
+  }
+
+  const snapshots = await getDocs(createWorkingWorkSessionsQuery(constraints))
+
+  return findLatestOpenWorkingSession(
+    snapshots.docs
+      .map(toWorkSession)
+      .filter((workSession) =>
+        matchesStaffWorkSession({ companyId, staffId, storeId, workSession }),
+      ),
+  )
+}
+
+export function subscribeOpenWorkingWorkSession({
+  companyId,
+  onChange,
+  onError,
+  staffId,
+  storeId,
+}: {
+  companyId: string
+  onChange: (workSession: WorkSession | null) => void
+  onError?: (error: Error) => void
+  staffId: string
+  storeId?: string
+}) {
+  const constraints: QueryConstraint[] = [
+    where('companyId', '==', companyId),
+    where('staffId', '==', staffId),
+  ]
+
+  if (storeId) {
+    constraints.push(where('storeId', '==', storeId))
+  }
+
+  return onSnapshot(
+    createWorkingWorkSessionsQuery(constraints),
+    (snapshots) => {
+      console.info('[workSession] onSnapshot received', {
+        companyId,
+        staffId,
+        storeId: storeId ?? null,
+        count: snapshots.docs.length,
+      })
+      const latestSession = findLatestOpenWorkingSession(
+        snapshots.docs
+          .map(toWorkSession)
+          .filter((workSession) =>
+            matchesStaffWorkSession({ companyId, staffId, storeId, workSession }),
+          ),
+      )
+      onChange(latestSession)
+    },
+    (error) => {
+      console.warn('[workSession] onSnapshot error', error)
+      onError?.(error)
+    },
+  )
 }
 
 export async function clockInWorkSession({
@@ -120,8 +224,8 @@ export async function clockInWorkSession({
   const clockInAt = new Date().toISOString()
   const workSession: WorkSession = {
     id: createWorkSessionId(),
-    companyId: staffMember.franchiseeId || staffMember.companyId,
-    franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+    companyId: toTenantCompanyId(staffMember),
+    franchiseeId: toTenantCompanyId(staffMember),
     companyName,
     storeId: store.id,
     storeName: store.name,
@@ -138,15 +242,54 @@ export async function clockInWorkSession({
     clockOutLongitude: null,
     clockOutAccuracy: null,
     status: 'working',
+    activeTripStatus: null,
+    activeTripUpdatedAt: null,
+    activeTripCaseNumber: null,
   }
 
-  await setDoc(getWorkSessionRef(workSession.id), {
-    ...workSession,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  const attendanceRef = getStaffAttendanceRef({
+    companyId: workSession.companyId,
+    staffId: workSession.staffId,
+    storeId: workSession.storeId,
   })
+  const db = getFirestore(getFirebaseApp())
 
-  return workSession
+  return runTransaction(db, async (transaction) => {
+    const attendanceSnapshot = await transaction.get(attendanceRef)
+    const attendanceData = attendanceSnapshot.exists() ? attendanceSnapshot.data() : null
+    const existingWorkSessionId = toStringValue(attendanceData?.workSessionId)
+
+    if (attendanceData?.status === 'working' && existingWorkSessionId) {
+      const existingWorkSessionRef = getWorkSessionRef(existingWorkSessionId)
+      const existingWorkSessionSnapshot = await transaction.get(existingWorkSessionRef)
+
+      if (existingWorkSessionSnapshot.exists()) {
+        const existingWorkSession = toWorkSession(existingWorkSessionSnapshot)
+        if (isOpenWorkingSession(existingWorkSession)) {
+          return existingWorkSession
+        }
+      }
+    }
+
+    transaction.set(getWorkSessionRef(workSession.id), {
+      ...workSession,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    transaction.set(attendanceRef, {
+      companyId: workSession.companyId,
+      franchiseeId: workSession.franchiseeId,
+      storeId: workSession.storeId,
+      staffId: workSession.staffId,
+      status: 'working',
+      workSessionId: workSession.id,
+      clockInAt: workSession.clockInAt,
+      clockOutAt: null,
+      updatedAt: serverTimestamp(),
+    })
+
+    return workSession
+  })
 }
 
 export async function clockOutWorkSession({
@@ -171,15 +314,74 @@ export async function clockOutWorkSession({
     status: 'closed',
   }
 
-  await updateDoc(getWorkSessionRef(workSession.id), {
-    clockOutAt,
-    clockOutLatitude: location.latitude,
-    clockOutLongitude: location.longitude,
-    clockOutAccuracy: location.accuracy,
-    workSeconds,
-    status: 'closed',
-    updatedAt: serverTimestamp(),
+  const workSessionRef = getWorkSessionRef(workSession.id)
+  const attendanceRef = getStaffAttendanceRef({
+    companyId: workSession.companyId,
+    staffId: workSession.staffId,
+    storeId: workSession.storeId,
+  })
+  const db = getFirestore(getFirebaseApp())
+
+  await runTransaction(db, async (transaction) => {
+    const latestWorkSessionSnapshot = await transaction.get(workSessionRef)
+    const latestWorkSession = latestWorkSessionSnapshot.exists()
+      ? toWorkSession(latestWorkSessionSnapshot)
+      : workSession
+
+    if (latestWorkSession.activeTripStatus && activeTripProtectedStatuses.has(latestWorkSession.activeTripStatus)) {
+      throw new Error('運行を終了してから退勤してください')
+    }
+
+    transaction.update(workSessionRef, {
+      clockOutAt,
+      clockOutLatitude: location.latitude,
+      clockOutLongitude: location.longitude,
+      clockOutAccuracy: location.accuracy,
+      workSeconds,
+      status: 'closed',
+      activeTripStatus: null,
+      activeTripUpdatedAt: serverTimestamp(),
+      activeTripCaseNumber: null,
+      updatedAt: serverTimestamp(),
+    })
+    transaction.set(attendanceRef, {
+      companyId: workSession.companyId,
+      franchiseeId: workSession.franchiseeId,
+      storeId: workSession.storeId,
+      staffId: workSession.staffId,
+      status: 'off',
+      workSessionId: workSession.id,
+      clockInAt: workSession.clockInAt,
+      clockOutAt,
+      updatedAt: serverTimestamp(),
+    })
   })
 
   return closedSession
+}
+
+export async function updateWorkSessionActiveTrip({
+  caseNumber,
+  status,
+  workSessionId,
+}: {
+  caseNumber?: string
+  status: string | null
+  workSessionId: string
+}) {
+  const db = getFirestore(getFirebaseApp())
+  await runTransaction(db, async (transaction) => {
+    const workSessionRef = getWorkSessionRef(workSessionId)
+    const snapshot = await transaction.get(workSessionRef)
+    if (!snapshot.exists()) {
+      return
+    }
+
+    transaction.update(workSessionRef, {
+      activeTripStatus: status,
+      activeTripUpdatedAt: serverTimestamp(),
+      activeTripCaseNumber: status ? caseNumber ?? '' : null,
+      updatedAt: serverTimestamp(),
+    })
+  })
 }
