@@ -10,6 +10,7 @@ import {
   calculateTodayCaseSummary,
   formatCaseDateTime,
 } from '../utils/caseRecords'
+import { logDiagnostic } from '../utils/diagnostics'
 
 const formatAddress = (address: string) =>
   address.trim() ? address : '住所未取得'
@@ -41,6 +42,11 @@ export function CaseListPage() {
     errorMessage: '',
     isLoading: true,
   })
+
+  useEffect(() => {
+    logDiagnostic('CaseListPage mount')
+    return () => logDiagnostic('CaseListPage unmount')
+  }, [])
 
   useEffect(() => {
     let isMounted = true

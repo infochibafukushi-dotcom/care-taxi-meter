@@ -8,6 +8,7 @@ import {
 } from '../services/workSessions'
 import type { StaffMember, Store, WorkSession } from '../types/work'
 import { captureWorkLocation } from '../utils/workLocation'
+import { logDiagnostic } from '../utils/diagnostics'
 
 const workSessionStorageKey = 'careTaxiMeterCurrentWorkSession'
 
@@ -64,6 +65,22 @@ const updateSharedCurrentSession = (workSession: WorkSession | null) => {
 }
 
 const persistCurrentSession = (workSession: WorkSession | null) => {
+  const previousSession = sharedCurrentSession
+  const isSameSessionStatus =
+    previousSession?.id === workSession?.id &&
+    previousSession?.status === workSession?.status
+
+  logDiagnostic('persistCurrentSession before', {
+    previousSessionId: previousSession?.id ?? null,
+    previousStatus: previousSession?.status ?? null,
+    previousClockOutAt: previousSession?.clockOutAt ?? null,
+    nextSessionId: workSession?.id ?? null,
+    nextStatus: workSession?.status ?? null,
+    nextClockOutAt: workSession?.clockOutAt ?? null,
+    isSameSessionStatus,
+    isSameSerializedSession: JSON.stringify(previousSession) === JSON.stringify(workSession),
+  })
+
   if (workSession) {
     localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
     logWorkSessionDebug('persist current session', { workSessionId: workSession.id, status: workSession.status })
@@ -74,6 +91,12 @@ const persistCurrentSession = (workSession: WorkSession | null) => {
   }
 
   updateSharedCurrentSession(workSession)
+
+  logDiagnostic('persistCurrentSession after', {
+    currentSessionId: sharedCurrentSession?.id ?? null,
+    currentStatus: sharedCurrentSession?.status ?? null,
+    currentClockOutAt: sharedCurrentSession?.clockOutAt ?? null,
+  })
 }
 
 const getStaffTenantCompanyId = (staffMember: StaffMember) =>
@@ -284,6 +307,13 @@ export function useWorkSession() {
   }
 
   const subscribeToWorkingSession = useCallback((staffMember: StaffMember) => {
+    const subscriptionId = `${staffMember.id}-${staffMember.storeId}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    logDiagnostic('subscribeToWorkingSession started', {
+      subscriptionId,
+      companyId: getStaffTenantCompanyId(staffMember),
+      staffId: staffMember.id,
+      storeId: staffMember.storeId,
+    })
     logWorkSessionDebug('subscribeToWorkingSession started', {
       companyId: getStaffTenantCompanyId(staffMember),
       staffId: staffMember.id,
@@ -291,7 +321,7 @@ export function useWorkSession() {
     })
     setMessage({ tone: 'saving', text: '勤務中状態を同期しています。' })
 
-    return subscribeOpenWorkingWorkSession({
+    const unsubscribe = subscribeOpenWorkingWorkSession({
       companyId: getStaffTenantCompanyId(staffMember),
       staffId: staffMember.id,
       storeId: staffMember.storeId,
@@ -300,6 +330,15 @@ export function useWorkSession() {
           isNull: workSession === null,
           workSessionId: workSession?.id ?? null,
           status: workSession?.status ?? null,
+        })
+        logDiagnostic('subscribeToWorkingSession snapshot received', {
+          subscriptionId,
+          isNull: workSession === null,
+          sessionId: workSession?.id ?? null,
+          status: workSession?.status ?? null,
+          clockOutAt: workSession?.clockOutAt ?? null,
+          sharedSessionIdBeforePersist: sharedCurrentSession?.id ?? null,
+          sharedStatusBeforePersist: sharedCurrentSession?.status ?? null,
         })
         persistCurrentSession(workSession)
         setMessage({
@@ -314,6 +353,15 @@ export function useWorkSession() {
         setMessage({ tone: 'error', text: `勤務中状態を同期できませんでした。${error.message}` })
       },
     })
+
+    return () => {
+      logDiagnostic('subscribeToWorkingSession cleanup', {
+        subscriptionId,
+        staffId: staffMember.id,
+        storeId: staffMember.storeId,
+      })
+      unsubscribe()
+    }
   }, [])
 
   return {

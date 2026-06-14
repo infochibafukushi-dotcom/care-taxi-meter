@@ -7,6 +7,11 @@ const githubPagesBase = '/care-taxi-meter/'
 // https://vite.dev/config/
 export default defineConfig({
   base: githubPagesBase,
+  define: {
+    'import.meta.env.VITE_APP_BUILD_VERSION': JSON.stringify(
+      process.env.VITE_APP_BUILD_VERSION ?? new Date().toISOString(),
+    ),
+  },
   plugins: [
     react(),
     VitePWA({

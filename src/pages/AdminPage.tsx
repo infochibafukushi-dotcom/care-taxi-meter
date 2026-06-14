@@ -37,6 +37,7 @@ import type { StaffMember, StaffRole, Store, Vehicle, WorkSession } from "../typ
 import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
+import { logDiagnostic } from "../utils/diagnostics";
 import { tenantScopeFromSession } from "../services/tenancy";
 
 type AdminSummaryState = {
@@ -408,6 +409,12 @@ export function AdminPage() {
   const [workingStaffCount, setWorkingStaffCount] = useState(0);
   const [workSummaryMessage, setWorkSummaryMessage] =
     useState("出勤状況を読み込み中です。");
+
+  useEffect(() => {
+    const mountedPathname = window.location.pathname;
+    logDiagnostic("AdminPage mount", { pathname: mountedPathname });
+    return () => logDiagnostic("AdminPage unmount", { pathname: mountedPathname });
+  }, []);
   const [masterMessage, setMasterMessage] = useState(
     "店舗・従業員・車両情報を読み込み中です。",
   );
