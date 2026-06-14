@@ -2,6 +2,7 @@ import type { TimerSeconds } from '../hooks/useOperationTimers'
 import type { CaseNumberAssignment, FareSnapshot } from './caseRecords'
 import type {
   ExpenseItem,
+  ActivityHistoryEntry,
   GpsPosition,
   MeterMovementState,
   OperationStatus,
@@ -19,6 +20,7 @@ export const activeTripSnapshotStorageKey = 'careTaxiMeterActiveTripSnapshot'
 
 export type ActiveTripSnapshot = {
   activeTimer: TimerKey | null
+  activityHistories: ActivityHistoryEntry[]
   billableTimeStarted: {
     accompanying: boolean
     waiting: boolean
@@ -74,6 +76,7 @@ const protectedOperationStatuses = new Set<OperationStatus>([
   '待機中',
   '院内付き添い中',
   '精算前',
+  '精算修正',
 ])
 
 const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
@@ -116,6 +119,18 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
 
     return {
       activeTimer: snapshot.activeTimer ?? activeTimerMap[snapshot.status] ?? null,
+      activityHistories: Array.isArray(snapshot.activityHistories)
+        ? snapshot.activityHistories.filter((entry): entry is ActivityHistoryEntry =>
+            Boolean(
+              entry &&
+              typeof entry === 'object' &&
+              typeof (entry as ActivityHistoryEntry).id === 'string' &&
+              ((entry as ActivityHistoryEntry).type === 'waiting' || (entry as ActivityHistoryEntry).type === 'accompanying') &&
+              typeof (entry as ActivityHistoryEntry).startAt === 'string' &&
+              typeof (entry as ActivityHistoryEntry).endAt === 'string',
+            ),
+          )
+        : [],
       billableTimeStarted: {
         accompanying: Boolean(snapshot.billableTimeStarted?.accompanying),
         waiting: Boolean(snapshot.billableTimeStarted?.waiting),

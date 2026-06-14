@@ -32,6 +32,15 @@ service cloud.firestore {
         && request.resource.data.cancelledBy is string
         && (request.resource.data.canceledAt is string || request.resource.data.cancelledAt is string);
     }
+    function isDriverSettlementAdjustment(data) {
+      return isDriver()
+        && ownStaffData(data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'settlementAdjustments',
+          'changeHistory',
+          'savedAt',
+        ]);
+    }
     function isLogicalDelete() {
       return request.resource.data.deleted == true
         && request.resource.data.deletedAt is string
@@ -155,6 +164,7 @@ service cloud.firestore {
       allow read: if isDriver() && ownStaffData(resource.data);
       allow create: if isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
       allow update: if isDriverCancel(resource.data);
+      allow update: if isDriverSettlementAdjustment(resource.data);
       allow delete: if false;
     }
 

@@ -22,6 +22,7 @@ import {
 } from '../services/fare'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
+import { createAuditLog } from '../services/auditLogs'
 import {
   applyElapsedSecondsToActiveTimer,
   clearActiveTripSnapshot,
@@ -63,6 +64,8 @@ import type {
 } from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
+  ActivityHistoryEntry,
+  ActivityHistoryType,
   OperationStatus,
   PaymentAllocation,
   PaymentMethod,
@@ -114,12 +117,15 @@ const emptyTimerSeconds: TimerSeconds = {
   waiting: 0,
 }
 
+const emptyActivityHistories: ActivityHistoryEntry[] = []
+
 const statusToneMap: Record<OperationStatus, StatusTone> = {
   空車: 'vacant',
   待機中: 'waiting',
   院内付き添い中: 'accompanying',
   走行中: 'driving',
   精算前: 'settlement',
+  精算修正: 'settlement',
   案件終了: 'closed',
 }
 
@@ -134,6 +140,7 @@ const protectedOperationStatuses = new Set<OperationStatus>([
   '待機中',
   '院内付き添い中',
   '精算前',
+  '精算修正',
 ])
 
 const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
@@ -205,6 +212,72 @@ const loadInputHistory = () => {
 }
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${crypto.randomUUID()}`
+
+const activityStatusMap: Record<ActivityHistoryType, OperationStatus> = {
+  accompanying: '院内付き添い中',
+  waiting: '待機中',
+}
+
+const statusActivityMap: Partial<Record<OperationStatus, ActivityHistoryType>> = {
+  待機中: 'waiting',
+  院内付き添い中: 'accompanying',
+}
+
+const getActivityLabel = (type: ActivityHistoryType) =>
+  type === 'waiting' ? '待機' : '付き添い'
+
+const formatDateTimeLocalValue = (isoString: string) => {
+  const date = new Date(isoString)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return offsetDate.toISOString().slice(0, 16)
+}
+
+const parseDateTimeLocalValue = (value: string) => {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
+const calculateActivityHistorySeconds = (
+  histories: ActivityHistoryEntry[],
+  type: ActivityHistoryType,
+) =>
+  histories
+    .filter((history) => history.type === type && history.startAt && history.endAt)
+    .reduce((totalSeconds, history) => {
+      const startAt = new Date(history.startAt).getTime()
+      const endAt = new Date(history.endAt).getTime()
+      if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+        return totalSeconds
+      }
+      return totalSeconds + Math.floor((endAt - startAt) / 1000)
+    }, 0)
+
+const createRestoredActivityHistories = (
+  snapshot: ActiveTripSnapshot | null | undefined,
+): ActivityHistoryEntry[] => {
+  if (!snapshot) {
+    return []
+  }
+  if (snapshot.activityHistories.length > 0) {
+    return snapshot.activityHistories
+  }
+  const restoredActivityType = statusActivityMap[snapshot.status]
+  const restoredSeconds = restoredActivityType ? snapshot.timers[restoredActivityType] : 0
+  if (!restoredActivityType || restoredSeconds <= 0) {
+    return []
+  }
+  const endAt = new Date().toISOString()
+  const startAt = new Date(Date.now() - restoredSeconds * 1000).toISOString()
+  return [{
+    endAt,
+    id: createId(`restored-activity-${restoredActivityType}`),
+    startAt,
+    type: restoredActivityType,
+  }]
+}
 
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
@@ -374,6 +447,19 @@ export function CasePage() {
   )
   const [status, setStatus] = useState<OperationStatus>(restoredTripSnapshot?.status ?? '空車')
   const [activeTimer, setActiveTimer] = useState<TimerKey | null>(restoredTripSnapshot?.activeTimer ?? null)
+  const [activityHistories, setActivityHistories] = useState<ActivityHistoryEntry[]>(
+    createRestoredActivityHistories(restoredTripSnapshot) ?? emptyActivityHistories,
+  )
+  const [activeActivity, setActiveActivity] = useState<ActivityHistoryEntry | null>(
+    statusActivityMap[restoredTripSnapshot?.status ?? '空車']
+      ? {
+          endAt: '',
+          id: createId(`activity-${statusActivityMap[restoredTripSnapshot?.status ?? '空車']}`),
+          startAt: new Date().toISOString(),
+          type: statusActivityMap[restoredTripSnapshot?.status ?? '空車'] as ActivityHistoryType,
+        }
+      : null,
+  )
   const [billableTimeStarted, setBillableTimeStarted] = useState({
     accompanying: restoredTripSnapshot?.billableTimeStarted.accompanying ?? false,
     waiting: restoredTripSnapshot?.billableTimeStarted.waiting ?? false,
@@ -386,6 +472,7 @@ export function CasePage() {
   const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
+  const [settlementEditBaseline, setSettlementEditBaseline] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
@@ -458,6 +545,7 @@ export function CasePage() {
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const settlementHoldTimerRef = useRef<number | null>(null)
+  const resumeHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
     restoredTripSnapshot?.pickupLocation ?? emptyCapturedAddressLocation,
   )
@@ -507,11 +595,23 @@ export function CasePage() {
   const currentScope = tenantScopeFromSession(workSession.currentSession)
   const currentFranchiseeId = currentScope.franchiseeId
   const currentStoreId = currentScope.storeId
+  const closedWaitingSeconds = calculateActivityHistorySeconds(activityHistories, 'waiting')
+  const closedAccompanyingSeconds = calculateActivityHistorySeconds(activityHistories, 'accompanying')
+  const adjustedWaitingSeconds = closedWaitingSeconds + (
+    activeActivity?.type === 'waiting'
+      ? Math.max(elapsedTimers.seconds.waiting - closedWaitingSeconds, 0)
+      : 0
+  )
+  const adjustedAccompanyingSeconds = closedAccompanyingSeconds + (
+    activeActivity?.type === 'accompanying'
+      ? Math.max(elapsedTimers.seconds.accompanying - closedAccompanyingSeconds, 0)
+      : 0
+  )
   const waitingFareSeconds = billableTimeStarted.waiting
-    ? Math.max(elapsedTimers.seconds.waiting, 1)
+    ? Math.max(adjustedWaitingSeconds, 1)
     : 0
   const escortFareSeconds = billableTimeStarted.accompanying
-    ? Math.max(elapsedTimers.seconds.accompanying, 1)
+    ? Math.max(adjustedAccompanyingSeconds, 1)
     : 0
 
   const isTripStarted = status !== '空車'
@@ -548,7 +648,7 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中'
-  const canEditCharges = status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'
+  const canEditCharges = status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving')
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
@@ -558,6 +658,9 @@ export function CasePage() {
   useEffect(() => () => {
     if (settlementHoldTimerRef.current !== null) {
       window.clearTimeout(settlementHoldTimerRef.current)
+    }
+    if (resumeHoldTimerRef.current !== null) {
+      window.clearTimeout(resumeHoldTimerRef.current)
     }
   }, [])
 
@@ -830,6 +933,7 @@ export function CasePage() {
 
     saveActiveTripSnapshot({
       activeTimer,
+      activityHistories,
       billableTimeStarted,
       caseNumber,
       caseNumberAssignment: caseNumberAssignmentRef.current,
@@ -866,6 +970,7 @@ export function CasePage() {
     })
   }, [
     activeTimer,
+    activityHistories,
     billableTimeStarted,
     caseNumber,
     dropoffLocation,
@@ -994,6 +1099,15 @@ export function CasePage() {
     rememberHistory({ amountYen, mode: 'care', name })
   }
 
+  const removeCareOption = (optionId: string) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+    setSelectedCareOptions((currentOptions) =>
+      currentOptions.filter((option) => option.id !== optionId),
+    )
+  }
+
   const toggleCareOption = (masterItem: CareOptionMasterItem) => {
     if (!canAddAssistCharge) {
       return
@@ -1066,6 +1180,15 @@ export function CasePage() {
       { amountYen, id: createId('expense'), name },
     ])
     rememberHistory({ amountYen, mode: 'expense', name })
+  }
+
+  const removeExpense = (expenseId: string) => {
+    if (!canAddExpenseCharge) {
+      return
+    }
+    setExpenses((currentExpenses) =>
+      currentExpenses.filter((expense) => expense.id !== expenseId),
+    )
   }
 
   const handleKeypadConfirm = (entry: { amountYen: number; name: string }) => {
@@ -1194,7 +1317,8 @@ export function CasePage() {
       走行中: ['待機中', '院内付き添い中', '精算前'],
       待機中: ['走行中'],
       院内付き添い中: ['走行中'],
-      精算前: ['案件終了'],
+      精算前: ['精算修正', '走行中', '案件終了'],
+      精算修正: ['精算前'],
       案件終了: [],
     }
 
@@ -1339,11 +1463,233 @@ export function CasePage() {
     handleSettlementFlowStart()
   }
 
+  const createSettlementEditSnapshot = () => JSON.stringify({
+    activityHistories,
+    expenses,
+    isDisabilityDiscount,
+    receiptName,
+    selectedCareOptions,
+    taxiTickets,
+  })
+
+  const openSettlementEdit = () => {
+    setSettlementEditBaseline(createSettlementEditSnapshot())
+    if (handleStatusChange('精算修正')) {
+      setCaseSaveState('idle')
+      setCaseSaveMessage('精算修正中です。距離・時間は固定し、介助・実費・タクシー券・割引・宛名のみ修正できます。')
+    }
+  }
+
+  const completeSettlementEdit = async () => {
+    const beforeSnapshot = settlementEditBaseline
+    const afterSnapshot = createSettlementEditSnapshot()
+
+    if (!handleStatusChange('精算前')) {
+      return
+    }
+
+    if (beforeSnapshot && beforeSnapshot !== afterSnapshot && workSession.currentSession) {
+      await createAuditLog({
+        action: 'settlement_edit',
+        actor: {
+          userId: workSession.currentSession.staffId,
+          userName: workSession.currentSession.staffName,
+          role: workSession.currentSession.staffRole,
+          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+        },
+        targetId: caseNumber,
+        targetType: 'activeTrip',
+        before: JSON.parse(beforeSnapshot),
+        after: JSON.parse(afterSnapshot),
+        reason: '精算前修正',
+      })
+    }
+    setSettlementEditBaseline(null)
+    setCaseSaveMessage('精算修正を完了しました。支払総額を確認して保存してください。')
+  }
+
+  const recordActivityEditAudit = async ({
+    after,
+    before,
+    editType,
+  }: {
+    after: ActivityHistoryEntry | null
+    before: ActivityHistoryEntry
+    editType: 'delete' | 'update'
+  }) => {
+    if (!workSession.currentSession) {
+      return
+    }
+    await createAuditLog({
+      action: 'activity_edit',
+      actor: {
+        userId: workSession.currentSession.staffId,
+        userName: workSession.currentSession.staffName,
+        role: workSession.currentSession.staffRole,
+        franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+        storeId: workSession.currentSession.storeId,
+      },
+      targetId: caseNumber,
+      targetType: 'activeTrip',
+      before: {
+        activityType: before.type,
+        beforeEndAt: before.endAt,
+        beforeStartAt: before.startAt,
+        editType,
+      },
+      after: {
+        activityType: before.type,
+        afterEndAt: after?.endAt ?? '',
+        afterStartAt: after?.startAt ?? '',
+        editType,
+      },
+      reason: editType === 'delete' ? `${getActivityLabel(before.type)}履歴削除` : `${getActivityLabel(before.type)}履歴修正`,
+    })
+  }
+
+  const deleteActivityHistory = async (historyId: string) => {
+    const targetHistory = activityHistories.find((history) => history.id === historyId)
+    if (!targetHistory) {
+      return
+    }
+    setActivityHistories((currentHistories) =>
+      currentHistories.filter((history) => history.id !== historyId),
+    )
+    await recordActivityEditAudit({ after: null, before: targetHistory, editType: 'delete' })
+  }
+
+  const updateActivityHistory = async (
+    historyId: string,
+    field: 'endAt' | 'startAt',
+    value: string,
+  ) => {
+    const nextIsoValue = parseDateTimeLocalValue(value)
+    if (!nextIsoValue) {
+      return
+    }
+    const targetHistory = activityHistories.find((history) => history.id === historyId)
+    if (!targetHistory) {
+      return
+    }
+    const nextHistory = { ...targetHistory, [field]: nextIsoValue }
+    const startAt = new Date(nextHistory.startAt).getTime()
+    const endAt = new Date(nextHistory.endAt).getTime()
+    if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+      setCaseSaveMessage('時間履歴は終了時刻が開始時刻より後になるように入力してください。')
+      return
+    }
+    setActivityHistories((currentHistories) =>
+      currentHistories.map((history) => history.id === historyId ? nextHistory : history),
+    )
+    await recordActivityEditAudit({ after: nextHistory, before: targetHistory, editType: 'update' })
+  }
+
+  const undoRecentActivity = async () => {
+    const currentActivity = activeActivity
+    if (!currentActivity) {
+      return
+    }
+    const elapsedSeconds = Math.floor((new Date().getTime() - new Date(currentActivity.startAt).getTime()) / 1000)
+    if (elapsedSeconds > 30) {
+      return
+    }
+    setActiveActivity(null)
+    setCaseSaveMessage(`${getActivityLabel(currentActivity.type)}の直前操作を取り消しました。`)
+    if (handleStatusChange('走行中')) {
+      await recordActivityEditAudit({
+        after: null,
+        before: { ...currentActivity, endAt: new Date().toISOString() },
+        editType: 'delete',
+      })
+    }
+  }
+
+  const beginResumeHold = () => {
+    if (status !== '精算前' || resumeHoldTimerRef.current !== null) {
+      return
+    }
+    resumeHoldTimerRef.current = window.setTimeout(() => {
+      resumeHoldTimerRef.current = null
+      void handleResumeTrip()
+    }, 1000)
+  }
+
+  const cancelResumeHold = () => {
+    if (resumeHoldTimerRef.current === null) {
+      return
+    }
+    window.clearTimeout(resumeHoldTimerRef.current)
+    resumeHoldTimerRef.current = null
+  }
+
+  const handleResumeTrip = async () => {
+    if (status !== '精算前') {
+      return
+    }
+    if (!window.confirm('追加送迎・行先変更として運行を再開しますか？タクシー券・実費・領収書情報・支払方法はリセットします。')) {
+      return
+    }
+    const before = {
+      expenses,
+      paymentAmounts,
+      paymentMethod,
+      receiptName,
+      status,
+      taxiTickets,
+    }
+    setTaxiTickets([])
+    setExpenses([])
+    setReceiptName('')
+    setPaymentMethod('現金')
+    setPaymentAmounts(createEmptyPaymentAmounts())
+    setIsSettlementFlowOpen(false)
+    setCaseSaveState('idle')
+    setCaseSaveMessage('運行を再開しました。距離・時間は継続して計測します。')
+    handleStatusChange('走行中')
+    if (workSession.currentSession) {
+      await createAuditLog({
+        action: 'settlement_resume',
+        actor: {
+          userId: workSession.currentSession.staffId,
+          userName: workSession.currentSession.staffName,
+          role: workSession.currentSession.staffRole,
+          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+        },
+        targetId: caseNumber,
+        targetType: 'activeTrip',
+        before,
+        after: { status: '走行中', expenses: [], taxiTickets: [], receiptName: '', paymentMethod: '現金' },
+        reason: '運行再開',
+      })
+    }
+  }
+
   const handleStatusChange = (nextStatus: OperationStatus) => {
     if (!canTransitionStatus(status, nextStatus)) {
       setCaseSaveState('error')
       setCaseSaveMessage(`現在の状態（${status}）から${nextStatus}へは切り替えできません。`)
       return false
+    }
+
+    const currentActivity = statusActivityMap[status]
+    const nextActivity = statusActivityMap[nextStatus]
+    if (currentActivity && currentActivity !== nextActivity && activeActivity?.type === currentActivity) {
+      const finishedHistory = {
+        ...activeActivity,
+        endAt: new Date().toISOString(),
+      }
+      setActiveActivity(null)
+      setActivityHistories((currentHistories) => [...currentHistories, finishedHistory])
+    }
+    if (nextActivity && currentActivity !== nextActivity) {
+      setActiveActivity({
+        endAt: '',
+        id: createId(`activity-${nextActivity}`),
+        startAt: new Date().toISOString(),
+        type: nextActivity,
+      })
     }
 
     setStatus(nextStatus)
@@ -1446,8 +1792,8 @@ export function CasePage() {
         chargeableDistanceKm: gps.chargeableDistanceKm,
         businessDistanceKm: gps.businessDistanceKm,
         drivingSeconds: finalDrivingSeconds,
-        waitingSeconds: elapsedTimers.seconds.waiting,
-        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        waitingSeconds: adjustedWaitingSeconds,
+        accompanyingSeconds: adjustedAccompanyingSeconds,
         workSession: workSession.currentSession,
         vehicle: selectedVehicle,
         fareBreakdown,
@@ -1476,8 +1822,8 @@ export function CasePage() {
         chargeableDistanceKm: Number(gps.chargeableDistanceKm.toFixed(3)),
         businessDistanceKm: Number(gps.businessDistanceKm.toFixed(3)),
         drivingSeconds: finalDrivingSeconds,
-        waitingSeconds: elapsedTimers.seconds.waiting,
-        accompanyingSeconds: elapsedTimers.seconds.accompanying,
+        waitingSeconds: adjustedWaitingSeconds,
+        accompanyingSeconds: adjustedAccompanyingSeconds,
         companyId: workSession.currentSession?.franchiseeId || workSession.currentSession?.companyId || '',
         franchiseeId: workSession.currentSession?.franchiseeId || workSession.currentSession?.companyId || '',
         companyName: workSession.currentSession?.companyName ?? '',
@@ -1523,6 +1869,7 @@ export function CasePage() {
         canceledAt: '',
         cancelledBy: '',
         receiptReissues: [],
+        settlementAdjustments: [],
         changeHistory: [],
         pickupLatitude: pickupLocationRef.current.latitude,
         pickupLongitude: pickupLocationRef.current.longitude,
@@ -1668,10 +2015,14 @@ export function CasePage() {
 
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
   const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
-  const waitingClockLabel = formatTimerClock(elapsedTimers.seconds.waiting, true)
-  const accompanyingClockLabel = formatTimerClock(elapsedTimers.seconds.accompanying, true)
+  const waitingClockLabel = formatTimerClock(adjustedWaitingSeconds, true)
+  const accompanyingClockLabel = formatTimerClock(adjustedAccompanyingSeconds, true)
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
+  const canUndoRecentActivity = Boolean(
+    activeActivity &&
+    status === activityStatusMap[activeActivity.type],
+  )
 
   return (
     <main
@@ -1785,6 +2136,12 @@ export function CasePage() {
                   <span>{accompanyingToggleLabel}</span>
                   <small>（付き添い時間 {accompanyingClockLabel}）</small>
                 </button>
+                {canUndoRecentActivity && activeActivity ? (
+                  <button className="r9-time-action r9-time-action--undo" type="button" onClick={() => { void undoRecentActivity() }}>
+                    <span>直前操作取消</span>
+                    <small>{getActivityLabel(activeActivity.type)}開始から30秒以内</small>
+                  </button>
+                ) : null}
               </div>
             </section>
 
@@ -2202,6 +2559,23 @@ export function CasePage() {
                     )
                   })}
                 </div>
+                <div className="r9-summary-card r9-summary-card--modal">
+                  {selectedCareOptions.length === 0 ? (
+                    <p className="empty-note">介助料金は未追加です。</p>
+                  ) : (
+                    <div className="r9-summary-list">
+                      {selectedCareOptions.map((option) => (
+                        <p key={option.id}>
+                          <span>{option.name}</span>
+                          <strong>{formatFareYen(option.amountYen)}円</strong>
+                          <button type="button" disabled={!canAddAssistCharge} onClick={() => removeCareOption(option.id)}>
+                            削除
+                          </button>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
 
             </div>
@@ -2334,6 +2708,9 @@ export function CasePage() {
                       <p key={expense.id}>
                         <span>{expense.name}</span>
                         <strong>{formatFareYen(expense.amountYen)}円</strong>
+                        <button type="button" disabled={!canAddExpenseCharge} onClick={() => removeExpense(expense.id)}>
+                          削除
+                        </button>
                       </p>
                     ))}
                   </div>
@@ -2402,6 +2779,41 @@ export function CasePage() {
               <strong>{status}</strong>
             </div>
 
+            {!savedCaseRecord ? (
+              <div className="r9-confirm-actions">
+                {status === '精算前' ? (
+                  <>
+                    <button className="secondary-action" type="button" onClick={openSettlementEdit}>
+                      精算修正
+                    </button>
+                    <button
+                      className="case-detail-danger-button"
+                      type="button"
+                      onPointerDown={beginResumeHold}
+                      onPointerUp={cancelResumeHold}
+                      onPointerLeave={cancelResumeHold}
+                      onPointerCancel={cancelResumeHold}
+                    >
+                      運行再開（1秒長押し）
+                    </button>
+                  </>
+                ) : null}
+                {status === '精算修正' ? (
+                  <>
+                    <button className="secondary-action" type="button" onClick={() => setIsCareModalOpen(true)}>
+                      介助修正
+                    </button>
+                    <button className="secondary-action" type="button" onClick={() => setIsExpenseModalOpen(true)}>
+                      実費修正
+                    </button>
+                    <button className="r9-flow-primary" type="button" onClick={() => { void completeSettlementEdit() }}>
+                      修正完了
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="r9-settlement-steps" aria-label="精算・終了手順">
               <span className="r9-settlement-steps__done">支払方法選択</span>
               <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
@@ -2441,6 +2853,47 @@ export function CasePage() {
                   onRemoveTaxiTicket={removeTaxiTicket}
                   onSettlePaymentRemainder={settlePaymentRemainder}
                 />
+                {status === '精算修正' ? (
+                  <section className="case-edit-panel" aria-labelledby="activity-history-edit-title">
+                    <h3 id="activity-history-edit-title">時間履歴修正</h3>
+                    <p className="empty-note">待機・付き添いの誤操作履歴を削除または時刻修正できます。距離・実走行距離・時間距離併用運賃は変更しません。</p>
+                    {(['waiting', 'accompanying'] as ActivityHistoryType[]).map((activityType) => {
+                      const histories = activityHistories.filter((history) => history.type === activityType)
+
+                      return (
+                        <div className="case-change-history-list" key={activityType}>
+                          <h4>{getActivityLabel(activityType)}</h4>
+                          {histories.length === 0 ? (
+                            <p className="empty-note">{getActivityLabel(activityType)}履歴はありません。</p>
+                          ) : null}
+                          {histories.map((history) => (
+                            <article key={history.id}>
+                              <label>
+                                開始
+                                <input
+                                  type="datetime-local"
+                                  value={formatDateTimeLocalValue(history.startAt)}
+                                  onChange={(event) => { void updateActivityHistory(history.id, 'startAt', event.target.value) }}
+                                />
+                              </label>
+                              <label>
+                                終了
+                                <input
+                                  type="datetime-local"
+                                  value={formatDateTimeLocalValue(history.endAt)}
+                                  onChange={(event) => { void updateActivityHistory(history.id, 'endAt', event.target.value) }}
+                                />
+                              </label>
+                              <button type="button" onClick={() => { void deleteActivityHistory(history.id) }}>
+                                削除
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </section>
+                ) : null}
                 <button
                   className="r9-flow-primary"
                   type="button"
