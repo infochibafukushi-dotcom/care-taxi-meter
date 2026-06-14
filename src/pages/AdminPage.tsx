@@ -11,7 +11,7 @@ import {
   fetchStores,
 } from "../services/stores";
 import { fetchVehicles, saveVehicle } from "../services/vehicles";
-import { fetchWorkingWorkSessionCount } from "../services/workSessions";
+import { fetchClosedWorkSessionsInClockOutRange, fetchWorkingWorkSessionCount } from "../services/workSessions";
 import type { StoredCaseRecord } from "../services/caseRecords";
 import { formatFareYen } from "../services/fare";
 import type {
@@ -33,16 +33,17 @@ import type {
   MeterSettings,
   ReceiptSettings,
 } from "../services/meterSettings";
-import type { StaffMember, StaffRole, Store, Vehicle } from "../types/work";
+import type { StaffMember, StaffRole, Store, Vehicle, WorkSession } from "../types/work";
 import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
-import { calculateSalesSummary } from "../utils/caseRecords";
+import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
 import { tenantScopeFromSession } from "../services/tenancy";
 
 type AdminSummaryState = {
   errorMessage: string;
   isLoading: boolean;
   caseRecords: StoredCaseRecord[];
+  workSessions: WorkSession[];
 };
 
 type AdminCenterSection =
@@ -160,7 +161,7 @@ const formatDurationHoursMinutes = (totalSeconds: number) => {
 const formatOperationYen = (value: number) =>
   value > 0 ? `${formatFareYen(value)}円` : "－";
 
-const getPersonalOperationDays = (caseRecords: StoredCaseRecord[]) => {
+const getCurrentJapanMonth = () => {
   const now = new Date();
   const dateParts = new Intl.DateTimeFormat("ja-JP", {
     month: "numeric",
@@ -171,10 +172,72 @@ const getPersonalOperationDays = (caseRecords: StoredCaseRecord[]) => {
   const month = Number(dateParts.find((part) => part.type === "month")?.value);
   const firstDay = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const monthLabel = monthFormatter.format(firstDay);
+  const monthRange = getMonthRangeInJapan(now);
+
+  return {
+    daysInMonth,
+    firstDay,
+    month,
+    monthLabel: monthFormatter.format(firstDay),
+    startIso: monthRange.startIso,
+    endIso: monthRange.endIso,
+    year,
+  };
+};
+
+const getOptionalNumber = (source: unknown, keys: string[]) => {
+  if (!source || typeof source !== "object") {
+    return 0;
+  }
+
+  const values = source as Record<string, unknown>;
+  const matchedValue = keys.map((key) => values[key]).find(
+    (value) => typeof value === "number" && Number.isFinite(value),
+  );
+
+  return typeof matchedValue === "number" ? Math.max(Math.floor(matchedValue), 0) : 0;
+};
+
+const getWorkSessionRestSeconds = (workSession: WorkSession) =>
+  getOptionalNumber(workSession, ["restSeconds", "breakSeconds", "breakTimeSeconds"]);
+
+const getWorkSessionBoundSeconds = (workSession: WorkSession) => {
+  if (workSession.workSeconds > 0) {
+    return Math.max(Math.floor(workSession.workSeconds), 0);
+  }
+
+  if (!workSession.clockOutAt) {
+    return 0;
+  }
+
+  const clockInTime = new Date(workSession.clockInAt).getTime();
+  const clockOutTime = new Date(workSession.clockOutAt).getTime();
+
+  if (Number.isNaN(clockInTime) || Number.isNaN(clockOutTime)) {
+    return 0;
+  }
+
+  return Math.max(Math.floor((clockOutTime - clockInTime) / 1000), 0);
+};
+
+const getPersonalOperationDays = ({
+  caseRecords,
+  staffId,
+  workSessions,
+}: {
+  caseRecords: StoredCaseRecord[];
+  staffId: string;
+  workSessions: WorkSession[];
+}) => {
+  const { daysInMonth, month, monthLabel, year } = getCurrentJapanMonth();
   const recordsByDay = new Map<string, StoredCaseRecord[]>();
+  const sessionsByDay = new Map<string, WorkSession[]>();
 
   caseRecords.forEach((caseRecord) => {
+    if (staffId && caseRecord.staffId !== staffId && caseRecord.driverId !== staffId) {
+      return;
+    }
+
     const closedDate = new Date(caseRecord.closedAt);
     if (Number.isNaN(closedDate.getTime())) {
       return;
@@ -186,12 +249,33 @@ const getPersonalOperationDays = (caseRecords: StoredCaseRecord[]) => {
     recordsByDay.set(dateKey, currentRecords);
   });
 
+  workSessions.forEach((workSession) => {
+    if (staffId && workSession.staffId !== staffId) {
+      return;
+    }
+
+    if (workSession.status !== "closed" || !workSession.clockOutAt) {
+      return;
+    }
+
+    const clockOutDate = new Date(workSession.clockOutAt);
+    if (Number.isNaN(clockOutDate.getTime())) {
+      return;
+    }
+
+    const dateKey = dateKeyFormatter.format(clockOutDate);
+    const currentSessions = sessionsByDay.get(dateKey) ?? [];
+    currentSessions.push(workSession);
+    sessionsByDay.set(dateKey, currentSessions);
+  });
+
   const days: PersonalOperationDay[] = Array.from(
     { length: daysInMonth },
     (_, index) => {
       const date = new Date(Date.UTC(year, month - 1, index + 1, 0, 0, 0));
       const dateKey = dateKeyFormatter.format(date);
       const dayRecords = recordsByDay.get(dateKey) ?? [];
+      const daySessions = sessionsByDay.get(dateKey) ?? [];
       const isSaturday = weekdayFormatter.format(date) === "土";
       const isSunday = weekdayFormatter.format(date) === "日";
       const isHoliday = isSaturday || isSunday;
@@ -204,33 +288,44 @@ const getPersonalOperationDays = (caseRecords: StoredCaseRecord[]) => {
         (total, caseRecord) => total + caseRecord.drivingSeconds,
         0,
       );
-      const hasWork = totalCases > 0 || (!isHoliday && index < 20);
-      const boundSeconds = hasWork
-        ? (index % 5 === 1 ? 10 : 9) * secondsPerHour +
-          (index % 3 === 0 ? 30 * 60 : 0)
-        : 0;
-      const restSeconds = hasWork ? secondsPerHour : 0;
+      const boundSeconds = daySessions.reduce(
+        (total, workSession) => total + getWorkSessionBoundSeconds(workSession),
+        0,
+      );
+      const restSeconds = daySessions.reduce(
+        (total, workSession) => total + getWorkSessionRestSeconds(workSession),
+        0,
+      );
       const workSeconds = Math.max(boundSeconds - restSeconds, 0);
+      const firstClockIn = daySessions
+        .map((workSession) => workSession.clockInAt)
+        .filter(Boolean)
+        .sort()[0];
+      const lastClockOut = daySessions
+        .map((workSession) => workSession.clockOutAt ?? "")
+        .filter(Boolean)
+        .sort()
+        .at(-1);
       const averageYen = totalCases > 0 ? Math.round(salesYen / totalCases) : 0;
       const timeSalesYen =
-        boundSeconds > 0
-          ? Math.round(salesYen / (boundSeconds / secondsPerHour))
+        workSeconds > 0
+          ? Math.round(salesYen / (workSeconds / secondsPerHour))
           : 0;
 
       return {
         averageYen,
         boundSeconds,
-        clockIn: hasWork ? (index % 4 === 2 ? "8:30" : "8:00") : "－",
-        clockOut: hasWork
-          ? boundSeconds >= 10 * secondsPerHour
-            ? "18:00"
-            : "17:30"
+        clockIn: firstClockIn
+          ? new Intl.DateTimeFormat("ja-JP", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Tokyo" }).format(new Date(firstClockIn))
+          : "－",
+        clockOut: lastClockOut
+          ? new Intl.DateTimeFormat("ja-JP", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Tokyo" }).format(new Date(lastClockOut))
           : "－",
         date,
         dateKey,
         dayLabel: dayFormatter.format(date),
         drivingSeconds,
-        inspectionDone: hasWork,
+        inspectionDone: daySessions.length > 0,
         isHoliday,
         isSaturday,
         isSunday,
@@ -297,6 +392,7 @@ export function AdminPage() {
     errorMessage: "",
     isLoading: true,
     caseRecords: [],
+    workSessions: [],
   });
   const [activeAdminSection, setActiveAdminSection] =
     useState<AdminCenterSection>("staff");
@@ -328,31 +424,89 @@ export function AdminPage() {
           return;
         }
 
-        setSummaryState({
+        setSummaryState((currentState) => ({
+          ...currentState,
           errorMessage: "",
           isLoading: false,
           caseRecords,
-        });
+        }));
       })
       .catch((error) => {
         if (!isMounted) {
           return;
         }
 
-        setSummaryState({
+        setSummaryState((currentState) => ({
+          ...currentState,
           errorMessage:
             error instanceof Error
               ? error.message
               : "管理画面の集計取得に失敗しました。",
           isLoading: false,
           caseRecords: [],
-        });
+        }));
       });
 
     return () => {
       isMounted = false;
     };
   }, [currentRole, currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId]);
+
+  useEffect(() => {
+    const staffId = workSession.currentSession?.staffId ?? "";
+
+    if (!staffId) {
+      let isActive = true;
+      void Promise.resolve().then(() => {
+        if (isActive) {
+          setSummaryState((currentState) => ({ ...currentState, workSessions: [] }));
+        }
+      });
+
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const { endIso, startIso } = getCurrentJapanMonth();
+    let isMounted = true;
+
+    fetchClosedWorkSessionsInClockOutRange({
+      endIso,
+      scope: {
+        franchiseeId: currentFranchiseeId,
+        role: currentRole,
+        staffId,
+        storeId: currentStoreId,
+      },
+      startIso,
+    })
+      .then((workSessions) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setSummaryState((currentState) => ({ ...currentState, workSessions }));
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setSummaryState((currentState) => ({
+          ...currentState,
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : "勤務実績の取得に失敗しました。",
+          workSessions: [],
+        }));
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentFranchiseeId, currentRole, currentStoreId, workSession.currentSession?.staffId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -449,9 +603,11 @@ export function AdminPage() {
   const activeVehicleCount = vehicles.filter(
     (vehicle) => vehicle.enabled && vehicle.status === "稼働中",
   ).length;
-  const personalOperationMonthly = getPersonalOperationDays(
-    summaryState.caseRecords,
-  );
+  const personalOperationMonthly = getPersonalOperationDays({
+    caseRecords: summaryState.caseRecords,
+    staffId: workSession.currentSession?.staffId ?? "",
+    workSessions: summaryState.workSessions,
+  });
   const personalOperationTotals = personalOperationMonthly.days.reduce(
     (totals, day) => ({
       averageYenTotal:
@@ -490,10 +646,10 @@ export function AdminPage() {
         )
       : 0;
   const personalOperationTimeSalesYen =
-    personalOperationTotals.timeSalesYenDays > 0
+    personalOperationTotals.workSeconds > 0
       ? Math.round(
-          personalOperationTotals.timeSalesYenTotal /
-            personalOperationTotals.timeSalesYenDays,
+          personalOperationTotals.salesYen /
+            (personalOperationTotals.workSeconds / secondsPerHour),
         )
       : 0;
 
@@ -847,6 +1003,20 @@ export function AdminPage() {
 
     if (invalidSuperAdminAssignment) {
       setMasterMessage("本部管理者権限はFC本部権限でログインした場合のみ付与できます。");
+      return;
+    }
+
+    const hasDriverMissingTenant = staffMembers.some(
+      (staffMember) =>
+        staffMember.role === "driver" &&
+        (!staffMember.companyId ||
+          !staffMember.franchiseeId ||
+          !staffMember.storeId ||
+          !staffMember.storeName),
+    );
+
+    if (hasDriverMissingTenant) {
+      setMasterMessage("店舗情報が取得できません。再読み込みしてください。");
       return;
     }
 

@@ -6,10 +6,11 @@ import {
   getFirestore,
   orderBy,
   query,
+  where,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
-import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany, fetchCompanies } from './companies'
@@ -87,9 +88,34 @@ function getStaffMemberRef(staffMemberId: string) {
   return doc(db, staffMembersCollectionName, staffMemberId)
 }
 
+const createStaffMemberTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || scope.role === 'hq_admin') return []
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('franchiseeId', '==', franchiseeId))
+  }
+
+  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  if (scope.role === 'driver' && scope.staffId) {
+    constraints.push(where('id', '==', scope.staffId))
+  }
+
+  return constraints
+}
+
 export async function fetchStaffMembers(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
-    query(getStaffMembersCollection(), orderBy('sortOrder', 'asc')),
+    query(
+      getStaffMembersCollection(),
+      ...createStaffMemberTenantConstraints(scope),
+      orderBy('sortOrder', 'asc'),
+    ),
   )
 
   return snapshots.docs.map(toStaffMember).filter((staffMember) => matchesTenantScope(staffMember, scope))
