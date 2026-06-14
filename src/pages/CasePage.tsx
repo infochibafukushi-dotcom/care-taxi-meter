@@ -22,6 +22,7 @@ import {
 } from '../services/fare'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
+import { createAuditLog } from '../services/auditLogs'
 import {
   applyElapsedSecondsToActiveTimer,
   clearActiveTripSnapshot,
@@ -120,6 +121,7 @@ const statusToneMap: Record<OperationStatus, StatusTone> = {
   院内付き添い中: 'accompanying',
   走行中: 'driving',
   精算前: 'settlement',
+  精算修正: 'settlement',
   案件終了: 'closed',
 }
 
@@ -134,6 +136,7 @@ const protectedOperationStatuses = new Set<OperationStatus>([
   '待機中',
   '院内付き添い中',
   '精算前',
+  '精算修正',
 ])
 
 const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
@@ -386,6 +389,7 @@ export function CasePage() {
   const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
   const [isSettlementFlowOpen, setIsSettlementFlowOpen] = useState(false)
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
+  const [settlementEditBaseline, setSettlementEditBaseline] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
@@ -458,6 +462,7 @@ export function CasePage() {
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const settlementHoldTimerRef = useRef<number | null>(null)
+  const resumeHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
     restoredTripSnapshot?.pickupLocation ?? emptyCapturedAddressLocation,
   )
@@ -548,7 +553,7 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中'
-  const canEditCharges = status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'
+  const canEditCharges = status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving')
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
@@ -558,6 +563,9 @@ export function CasePage() {
   useEffect(() => () => {
     if (settlementHoldTimerRef.current !== null) {
       window.clearTimeout(settlementHoldTimerRef.current)
+    }
+    if (resumeHoldTimerRef.current !== null) {
+      window.clearTimeout(resumeHoldTimerRef.current)
     }
   }, [])
 
@@ -994,6 +1002,15 @@ export function CasePage() {
     rememberHistory({ amountYen, mode: 'care', name })
   }
 
+  const removeCareOption = (optionId: string) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+    setSelectedCareOptions((currentOptions) =>
+      currentOptions.filter((option) => option.id !== optionId),
+    )
+  }
+
   const toggleCareOption = (masterItem: CareOptionMasterItem) => {
     if (!canAddAssistCharge) {
       return
@@ -1066,6 +1083,15 @@ export function CasePage() {
       { amountYen, id: createId('expense'), name },
     ])
     rememberHistory({ amountYen, mode: 'expense', name })
+  }
+
+  const removeExpense = (expenseId: string) => {
+    if (!canAddExpenseCharge) {
+      return
+    }
+    setExpenses((currentExpenses) =>
+      currentExpenses.filter((expense) => expense.id !== expenseId),
+    )
   }
 
   const handleKeypadConfirm = (entry: { amountYen: number; name: string }) => {
@@ -1194,7 +1220,8 @@ export function CasePage() {
       走行中: ['待機中', '院内付き添い中', '精算前'],
       待機中: ['走行中'],
       院内付き添い中: ['走行中'],
-      精算前: ['案件終了'],
+      精算前: ['精算修正', '走行中', '案件終了'],
+      精算修正: ['精算前'],
       案件終了: [],
     }
 
@@ -1337,6 +1364,112 @@ export function CasePage() {
   const confirmSettlementFlowStart = () => {
     clearSettlementHoldTimer()
     handleSettlementFlowStart()
+  }
+
+  const createSettlementEditSnapshot = () => JSON.stringify({
+    expenses,
+    isDisabilityDiscount,
+    receiptName,
+    selectedCareOptions,
+    taxiTickets,
+  })
+
+  const openSettlementEdit = () => {
+    setSettlementEditBaseline(createSettlementEditSnapshot())
+    if (handleStatusChange('精算修正')) {
+      setCaseSaveState('idle')
+      setCaseSaveMessage('精算修正中です。距離・時間は固定し、介助・実費・タクシー券・割引・宛名のみ修正できます。')
+    }
+  }
+
+  const completeSettlementEdit = async () => {
+    const beforeSnapshot = settlementEditBaseline
+    const afterSnapshot = createSettlementEditSnapshot()
+
+    if (!handleStatusChange('精算前')) {
+      return
+    }
+
+    if (beforeSnapshot && beforeSnapshot !== afterSnapshot && workSession.currentSession) {
+      await createAuditLog({
+        action: 'settlement_edit',
+        actor: {
+          userId: workSession.currentSession.staffId,
+          userName: workSession.currentSession.staffName,
+          role: workSession.currentSession.staffRole,
+          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+        },
+        targetId: caseNumber,
+        targetType: 'activeTrip',
+        before: JSON.parse(beforeSnapshot),
+        after: JSON.parse(afterSnapshot),
+        reason: '精算前修正',
+      })
+    }
+    setSettlementEditBaseline(null)
+    setCaseSaveMessage('精算修正を完了しました。支払総額を確認して保存してください。')
+  }
+
+  const beginResumeHold = () => {
+    if (status !== '精算前' || resumeHoldTimerRef.current !== null) {
+      return
+    }
+    resumeHoldTimerRef.current = window.setTimeout(() => {
+      resumeHoldTimerRef.current = null
+      void handleResumeTrip()
+    }, 1000)
+  }
+
+  const cancelResumeHold = () => {
+    if (resumeHoldTimerRef.current === null) {
+      return
+    }
+    window.clearTimeout(resumeHoldTimerRef.current)
+    resumeHoldTimerRef.current = null
+  }
+
+  const handleResumeTrip = async () => {
+    if (status !== '精算前') {
+      return
+    }
+    if (!window.confirm('追加送迎・行先変更として運行を再開しますか？タクシー券・実費・領収書情報・支払方法はリセットします。')) {
+      return
+    }
+    const before = {
+      expenses,
+      paymentAmounts,
+      paymentMethod,
+      receiptName,
+      status,
+      taxiTickets,
+    }
+    setTaxiTickets([])
+    setExpenses([])
+    setReceiptName('')
+    setPaymentMethod('現金')
+    setPaymentAmounts(createEmptyPaymentAmounts())
+    setIsSettlementFlowOpen(false)
+    setCaseSaveState('idle')
+    setCaseSaveMessage('運行を再開しました。距離・時間は継続して計測します。')
+    handleStatusChange('走行中')
+    if (workSession.currentSession) {
+      await createAuditLog({
+        action: 'settlement_resume',
+        actor: {
+          userId: workSession.currentSession.staffId,
+          userName: workSession.currentSession.staffName,
+          role: workSession.currentSession.staffRole,
+          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+        },
+        targetId: caseNumber,
+        targetType: 'activeTrip',
+        before,
+        after: { status: '走行中', expenses: [], taxiTickets: [], receiptName: '', paymentMethod: '現金' },
+        reason: '運行再開',
+      })
+    }
   }
 
   const handleStatusChange = (nextStatus: OperationStatus) => {
@@ -1523,6 +1656,7 @@ export function CasePage() {
         canceledAt: '',
         cancelledBy: '',
         receiptReissues: [],
+        settlementAdjustments: [],
         changeHistory: [],
         pickupLatitude: pickupLocationRef.current.latitude,
         pickupLongitude: pickupLocationRef.current.longitude,
@@ -2202,6 +2336,23 @@ export function CasePage() {
                     )
                   })}
                 </div>
+                <div className="r9-summary-card r9-summary-card--modal">
+                  {selectedCareOptions.length === 0 ? (
+                    <p className="empty-note">介助料金は未追加です。</p>
+                  ) : (
+                    <div className="r9-summary-list">
+                      {selectedCareOptions.map((option) => (
+                        <p key={option.id}>
+                          <span>{option.name}</span>
+                          <strong>{formatFareYen(option.amountYen)}円</strong>
+                          <button type="button" disabled={!canAddAssistCharge} onClick={() => removeCareOption(option.id)}>
+                            削除
+                          </button>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
 
             </div>
@@ -2334,6 +2485,9 @@ export function CasePage() {
                       <p key={expense.id}>
                         <span>{expense.name}</span>
                         <strong>{formatFareYen(expense.amountYen)}円</strong>
+                        <button type="button" disabled={!canAddExpenseCharge} onClick={() => removeExpense(expense.id)}>
+                          削除
+                        </button>
                       </p>
                     ))}
                   </div>
@@ -2402,6 +2556,41 @@ export function CasePage() {
               <strong>{status}</strong>
             </div>
 
+            {!savedCaseRecord ? (
+              <div className="r9-confirm-actions">
+                {status === '精算前' ? (
+                  <>
+                    <button className="secondary-action" type="button" onClick={openSettlementEdit}>
+                      精算修正
+                    </button>
+                    <button
+                      className="case-detail-danger-button"
+                      type="button"
+                      onPointerDown={beginResumeHold}
+                      onPointerUp={cancelResumeHold}
+                      onPointerLeave={cancelResumeHold}
+                      onPointerCancel={cancelResumeHold}
+                    >
+                      運行再開（1秒長押し）
+                    </button>
+                  </>
+                ) : null}
+                {status === '精算修正' ? (
+                  <>
+                    <button className="secondary-action" type="button" onClick={() => setIsCareModalOpen(true)}>
+                      介助修正
+                    </button>
+                    <button className="secondary-action" type="button" onClick={() => setIsExpenseModalOpen(true)}>
+                      実費修正
+                    </button>
+                    <button className="r9-flow-primary" type="button" onClick={() => { void completeSettlementEdit() }}>
+                      修正完了
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="r9-settlement-steps" aria-label="精算・終了手順">
               <span className="r9-settlement-steps__done">支払方法選択</span>
               <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
@@ -2441,6 +2630,9 @@ export function CasePage() {
                   onRemoveTaxiTicket={removeTaxiTicket}
                   onSettlePaymentRemainder={settlePaymentRemainder}
                 />
+                {status === '精算修正' ? (
+                  <p className="empty-note">精算修正中は距離・実走行距離・時間距離併用運賃・待機時間・付き添い時間を変更しません。</p>
+                ) : null}
                 <button
                   className="r9-flow-primary"
                   type="button"

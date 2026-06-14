@@ -74,6 +74,7 @@ const protectedOperationStatuses = new Set<OperationStatus>([
   '待機中',
   '院内付き添い中',
   '精算前',
+  '精算修正',
 ])
 
 const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({

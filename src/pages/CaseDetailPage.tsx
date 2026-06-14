@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   cancelCaseRecord,
   recordReceiptReissue,
+  recordSettlementAdjustment,
   restoreCaseRecord,
   softDeleteCaseRecord,
   fetchCaseRecord,
@@ -13,7 +14,7 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantScopeFromSession } from '../services/tenancy'
 import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
-import type { PaymentMethod } from '../types/case'
+import type { PaymentMethod, TaxiTicket } from '../types/case'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
@@ -66,6 +67,15 @@ type ReceiptDialogState = {
   isOpen: boolean
 }
 
+type AdjustmentState = {
+  amount: number
+  isOpen: boolean
+  municipality: string
+  reason: string
+  receiptName: string
+  ticketNumber: string
+}
+
 export function CaseDetailPage() {
   const navigate = useNavigate()
   const workSession = useWorkSession()
@@ -98,6 +108,14 @@ export function CaseDetailPage() {
     isOpen: false,
   })
   const [isEditing, setIsEditing] = useState(false)
+  const [adjustment, setAdjustment] = useState<AdjustmentState>({
+    amount: 0,
+    isOpen: false,
+    municipality: '',
+    reason: '精算後タクシー券提示',
+    receiptName: '',
+    ticketNumber: '',
+  })
   const [editValues, setEditValues] = useState<CaseRecordEditableValues>({
     careOptionFareYen: 0,
     dispatchFareYen: 0,
@@ -221,6 +239,11 @@ export function CaseDetailPage() {
   }, [currentFranchiseeId, currentStoreId])
 
   const caseRecord = state.caseRecord
+  const isSameAccountingDate = caseRecord
+    ? new Date(caseRecord.closedAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) ===
+      new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })
+    : false
+  const canAdjustSettlement = Boolean(currentSession && caseRecord && (isAdmin || isSameAccountingDate))
   const assistCharges = caseRecord?.assistCharges ?? []
   const dispatchCharges = caseRecord?.dispatchCharges ?? []
   const expenseCharges = caseRecord?.expenseCharges ?? []
@@ -377,6 +400,74 @@ export function CaseDetailPage() {
     navigate(`/case?${params.toString()}`)
   }
 
+  const openAdjustment = () => {
+    if (!caseRecord) {
+      return
+    }
+    setAdjustment({
+      amount: 0,
+      isOpen: true,
+      municipality: '',
+      reason: '精算後タクシー券提示',
+      receiptName: caseRecord.receiptName,
+      ticketNumber: '',
+    })
+  }
+
+  const handleSettlementAdjustment = async () => {
+    if (!caseRecord) {
+      return
+    }
+    const reason = adjustment.reason.trim()
+    if (!reason) {
+      setState((currentState) => ({ ...currentState, statusMessage: '訂正理由を入力してください。' }))
+      return
+    }
+    const ticket: TaxiTicket | null = adjustment.municipality.trim() && adjustment.amount > 0
+      ? {
+          amount: Math.max(Math.round(adjustment.amount), 0),
+          id: `adjustment-ticket-${Date.now()}`,
+          municipality: adjustment.municipality.trim(),
+          ticketNumber: adjustment.ticketNumber.trim(),
+        }
+      : null
+    const nextTickets = ticket ? [...caseRecord.taxiTickets, ticket] : caseRecord.taxiTickets
+    const updatedRecord = await recordSettlementAdjustment(caseRecord, {
+      actor: auditActor,
+      reason,
+      receiptName: adjustment.receiptName,
+      taxiTickets: nextTickets,
+    })
+    setState((currentState) => ({
+      ...currentState,
+      caseRecord: updatedRecord,
+      statusMessage: '訂正処理を保存しました。元精算データは変更せず、訂正履歴と監査ログへ記録しました。',
+    }))
+    setAdjustment((current) => ({ ...current, isOpen: false }))
+
+    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+    const latestAdjustment = updatedRecord.settlementAdjustments.at(-1)
+    if (latestAdjustment) {
+      await downloadReceiptPdf({
+        ...updatedRecord,
+        receiptName: latestAdjustment.receiptName,
+        taxiTickets: latestAdjustment.taxiTickets,
+        taxiTicketAmountYen: latestAdjustment.taxiTickets.reduce((total, currentTicket) => total + currentTicket.amount, 0),
+        totalFareYen: latestAdjustment.adjustedTotalFareYen,
+        payments: updatedRecord.payments.map((payment) =>
+          payment.type === '現金'
+            ? { ...payment, amount: Math.max(payment.amount - latestAdjustment.refundYen, 0) }
+            : payment,
+        ),
+      }, latestMeterSettings, {
+        customerName: latestAdjustment.receiptName,
+        issuerName: latestMeterSettings.receipt.issuerName,
+        isReissue: true,
+        receiptNote: `訂正領収書: ${latestAdjustment.reason} / 返金 ${formatFareYen(latestAdjustment.refundYen)}円`,
+      })
+    }
+  }
+
   const handleSoftDelete = async () => {
     if (!caseRecord || !canDelete || caseRecord.deleted) {
       return
@@ -468,6 +559,14 @@ export function CaseDetailPage() {
               <button className="receipt-download-button" type="button" onClick={openReceiptDialog}>
                 領収書再発行 / 利用明細再発行
               </button>
+              <button
+                className="case-detail-secondary-button"
+                type="button"
+                disabled={!canAdjustSettlement || caseRecord.deleted || caseRecord.status === 'canceled'}
+                onClick={openAdjustment}
+              >
+                訂正処理
+              </button>
               {isAdmin ? (
                 <>
                   <button className="case-detail-secondary-button" type="button" disabled={caseRecord.deleted} onClick={() => {
@@ -551,6 +650,43 @@ export function CaseDetailPage() {
                   </button>
                   <button className="receipt-dialog-primary" type="button" onClick={() => { void handleSave() }}>
                     保存
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {adjustment.isOpen ? (
+              <section className="case-edit-panel" aria-labelledby="settlement-adjustment-title">
+                <h2 id="settlement-adjustment-title">訂正処理</h2>
+                <p className="empty-note">元データは直接編集せず、訂正履歴・監査ログとして保存します。タクシー券追加時は返金額を自動計算し、訂正領収書を発行します。</p>
+                <div className="case-edit-grid">
+                  <label>
+                    訂正理由
+                    <input value={adjustment.reason} onChange={(event) => setAdjustment((current) => ({ ...current, reason: event.target.value }))} />
+                  </label>
+                  <label>
+                    領収書宛名
+                    <input value={adjustment.receiptName} onChange={(event) => setAdjustment((current) => ({ ...current, receiptName: event.target.value }))} />
+                  </label>
+                  <label>
+                    自治体名
+                    <input value={adjustment.municipality} onChange={(event) => setAdjustment((current) => ({ ...current, municipality: event.target.value }))} />
+                  </label>
+                  <label>
+                    タクシー券番号
+                    <input value={adjustment.ticketNumber} onChange={(event) => setAdjustment((current) => ({ ...current, ticketNumber: event.target.value }))} />
+                  </label>
+                  <label>
+                    タクシー券金額
+                    <input min="0" type="number" value={adjustment.amount} onChange={(event) => setAdjustment((current) => ({ ...current, amount: Math.max(Number(event.target.value) || 0, 0) }))} />
+                  </label>
+                </div>
+                <div className="receipt-dialog-actions">
+                  <button className="receipt-dialog-secondary" type="button" onClick={() => setAdjustment((current) => ({ ...current, isOpen: false }))}>
+                    閉じる
+                  </button>
+                  <button className="receipt-dialog-primary" type="button" onClick={() => { void handleSettlementAdjustment() }}>
+                    訂正保存・訂正領収書発行
                   </button>
                 </div>
               </section>
@@ -739,6 +875,26 @@ export function CaseDetailPage() {
                 </div>
               ) : (
                 <p className="empty-note">領収書再発行履歴はありません。</p>
+              )}
+            </section>
+
+            <section className="case-change-history" aria-labelledby="settlement-adjustment-history-title">
+              <h2 id="settlement-adjustment-history-title">訂正処理履歴</h2>
+              {caseRecord.settlementAdjustments.length > 0 ? (
+                <div className="case-change-history-list">
+                  {caseRecord.settlementAdjustments.map((entry, index) => (
+                    <article key={`${entry.adjustedAt}-${index}`}>
+                      <time>{formatChangeDateTime(entry.adjustedAt)}</time>
+                      <strong>{entry.reason}</strong>
+                      <p>
+                        訂正前 {formatFareYen(entry.previousTotalFareYen)}円 → 訂正後 {formatFareYen(entry.adjustedTotalFareYen)}円 / 返金 {formatFareYen(entry.refundYen)}円
+                      </p>
+                      <p>宛名: {entry.receiptName || '未設定'} / タクシー券: {entry.taxiTickets.map((ticket) => `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'} ${formatFareYen(ticket.amount)}円`).join('、') || '変更なし'}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-note">訂正処理履歴はありません。</p>
               )}
             </section>
 
