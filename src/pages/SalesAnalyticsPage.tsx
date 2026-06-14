@@ -13,6 +13,7 @@ import {
   formatAnalyticsDuration,
   getDefaultAnalyticsPeriod,
 } from '../utils/salesAnalytics'
+import { logDiagnostic } from '../utils/diagnostics'
 import type {
   AnalyticsBreakdownItem,
   AnalyticsPeriod,
@@ -531,6 +532,11 @@ export function SalesAnalyticsPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    logDiagnostic('SalesAnalyticsPage mount')
+    return () => logDiagnostic('SalesAnalyticsPage unmount')
+  }, [])
 
   useEffect(() => {
     let isMounted = true

@@ -15,6 +15,7 @@ import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } fro
 import type { AuthStaffSession } from '../services/authSession'
 import { formatElapsedTime } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
+import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
 
 const defaultCompanyName = defaultCompany.name
 
@@ -190,8 +191,8 @@ export function HomePage() {
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
 
   useEffect(() => {
-    console.info('[HomePage] mount')
-    return () => console.info('[HomePage] unmount')
+    logDiagnostic('HomePage mount')
+    return () => logDiagnostic('HomePage unmount')
   }, [])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [dashboardRecordsState, setDashboardRecordsState] = useState<CaseRecordState>({
@@ -314,18 +315,42 @@ export function HomePage() {
   }, [currentSession, loggedInUser])
 
   useEffect(() => {
+    const effectRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    logDiagnostic('HomePage work session subscription effect run', {
+      effectRunId,
+      hasSubscriptionStaffMember: Boolean(subscriptionStaffMember),
+      subscriptionStaffId: subscriptionStaffMember?.id ?? null,
+      subscriptionStoreId: subscriptionStaffMember?.storeId ?? null,
+      subscriptionRole: subscriptionStaffMember?.role ?? null,
+      hasLoggedInUser: Boolean(loggedInUser),
+      restoredFromSessionIdentity: !loggedInUser && Boolean(subscriptionStaffMember),
+    })
+
     if (!subscriptionStaffMember || subscriptionStaffMember.role === 'hq_admin') {
+      logDiagnostic('HomePage work session subscription skipped', {
+        effectRunId,
+        reason: !subscriptionStaffMember ? 'no subscription staff member' : 'hq_admin',
+      })
       return undefined
     }
 
     console.info('[HomePage] subscribeToWorkingSession started', {
       hasLoggedInUser: Boolean(loggedInUser),
-      restoredFromCurrentSession: !loggedInUser && Boolean(currentSession),
+      restoredFromCurrentSession: !loggedInUser && Boolean(subscriptionStaffMember),
       staffId: subscriptionStaffMember.id,
       storeId: subscriptionStaffMember.storeId,
     })
-    return subscribeToWorkingSession(subscriptionStaffMember)
-  }, [currentSession, loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
+    const unsubscribe = subscribeToWorkingSession(subscriptionStaffMember)
+
+    return () => {
+      logDiagnostic('HomePage work session subscription effect cleanup', {
+        effectRunId,
+        staffId: subscriptionStaffMember.id,
+        storeId: subscriptionStaffMember.storeId,
+      })
+      unsubscribe()
+    }
+  }, [loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
 
   useEffect(() => {
     if (currentSession) {
@@ -635,23 +660,48 @@ export function HomePage() {
             hasActiveTripSnapshot ? (
               <button className="primary-action home-button" type="button" disabled>案件開始</button>
             ) : (
-              <Link className="primary-action" to="/case/start">案件開始</Link>
+              <Link
+                className="primary-action"
+                to="/case/start"
+                onClick={() => logNavigationClick({ label: '案件開始', to: '/case/start' })}
+              >
+                案件開始
+              </Link>
             )
           ) : null}
           {!isHqAdmin ? (
             hasActiveTripSnapshot ? (
               <button className="secondary-action home-button" type="button" disabled>案件一覧</button>
             ) : (
-              <Link className="secondary-action" to="/cases">案件一覧</Link>
+              <Link
+                className="secondary-action"
+                to="/cases"
+                onClick={() => logNavigationClick({ label: '案件一覧', to: '/cases' })}
+              >
+                案件一覧
+              </Link>
             )
           ) : null}
           {canOpenManagement ? (
-            <Link className="secondary-action" to={dashboardRole === 'manager' ? '/manager' : '/owner'}>
+            <Link
+              className="secondary-action"
+              to={dashboardRole === 'manager' ? '/manager' : '/owner'}
+              onClick={() => logNavigationClick({
+                label: '管理センター',
+                to: dashboardRole === 'manager' ? '/manager' : '/owner',
+              })}
+            >
               管理センター
             </Link>
           ) : null}
           {!isHqAdmin && canOpenAnalytics ? (
-            <Link className="secondary-action" to="/admin/analytics">売上分析</Link>
+            <Link
+              className="secondary-action"
+              to="/admin/analytics"
+              onClick={() => logNavigationClick({ label: '売上分析', to: '/admin/analytics' })}
+            >
+              売上分析
+            </Link>
           ) : null}
           {!currentSession ? (
             <button className="secondary-action home-button" type="button" onClick={handleLogout}>ログアウト</button>
