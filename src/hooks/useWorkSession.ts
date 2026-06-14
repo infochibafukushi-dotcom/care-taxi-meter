@@ -10,6 +10,10 @@ import { captureWorkLocation } from '../utils/workLocation'
 
 const workSessionStorageKey = 'careTaxiMeterCurrentWorkSession'
 
+const logWorkSessionDebug = (message: string, details?: Record<string, unknown>) => {
+  console.info(`[workSession] ${message}`, details ?? {})
+}
+
 const loadStoredWorkSession = (): WorkSession | null => {
   try {
     const sessionJson = localStorage.getItem(workSessionStorageKey)
@@ -61,8 +65,10 @@ const updateSharedCurrentSession = (workSession: WorkSession | null) => {
 const persistCurrentSession = (workSession: WorkSession | null) => {
   if (workSession) {
     localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
+    logWorkSessionDebug('persist current session', { workSessionId: workSession.id, status: workSession.status })
   } else {
     localStorage.removeItem(workSessionStorageKey)
+    logWorkSessionDebug('clear current session')
   }
 
   updateSharedCurrentSession(workSession)
@@ -177,6 +183,11 @@ export function useWorkSession() {
   }
 
   const subscribeToWorkingSession = useCallback((staffMember: StaffMember) => {
+    logWorkSessionDebug('start working session subscription', {
+      companyId: getStaffTenantCompanyId(staffMember),
+      staffId: staffMember.id,
+      storeId: staffMember.storeId,
+    })
     setMessage({ tone: 'saving', text: '勤務中状態を同期しています。' })
 
     return subscribeOpenWorkingWorkSession({
@@ -184,6 +195,11 @@ export function useWorkSession() {
       staffId: staffMember.id,
       storeId: staffMember.storeId,
       onChange: (workSession) => {
+        logWorkSessionDebug('subscription received session', {
+          isNull: workSession === null,
+          workSessionId: workSession?.id ?? null,
+          status: workSession?.status ?? null,
+        })
         persistCurrentSession(workSession)
         setMessage({
           tone: workSession ? 'saved' : 'idle',
@@ -193,6 +209,7 @@ export function useWorkSession() {
         })
       },
       onError: (error) => {
+        console.warn('[workSession] subscription error', error)
         setMessage({ tone: 'error', text: `勤務中状態を同期できませんでした。${error.message}` })
       },
     })

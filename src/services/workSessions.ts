@@ -188,6 +188,12 @@ export function subscribeOpenWorkingWorkSession({
   return onSnapshot(
     createWorkingWorkSessionsQuery(constraints),
     (snapshots) => {
+      console.info('[workSession] onSnapshot received', {
+        companyId,
+        staffId,
+        storeId: storeId ?? null,
+        count: snapshots.docs.length,
+      })
       const latestSession = findLatestOpenWorkingSession(
         snapshots.docs
           .map(toWorkSession)
@@ -198,6 +204,7 @@ export function subscribeOpenWorkingWorkSession({
       onChange(latestSession)
     },
     (error) => {
+      console.warn('[workSession] onSnapshot error', error)
       onError?.(error)
     },
   )
