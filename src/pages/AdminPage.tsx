@@ -850,6 +850,20 @@ export function AdminPage() {
       return;
     }
 
+    const hasDriverMissingTenant = staffMembers.some(
+      (staffMember) =>
+        staffMember.role === "driver" &&
+        (!staffMember.companyId ||
+          !staffMember.franchiseeId ||
+          !staffMember.storeId ||
+          !staffMember.storeName),
+    );
+
+    if (hasDriverMissingTenant) {
+      setMasterMessage("店舗情報が取得できません。再読み込みしてください。");
+      return;
+    }
+
     try {
       const auditActor = workSession.currentSession
         ? {
