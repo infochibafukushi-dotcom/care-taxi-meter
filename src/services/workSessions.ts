@@ -5,6 +5,7 @@ import {
   getFirestore,
   runTransaction,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   where,
@@ -112,6 +113,51 @@ const findLatestOpenWorkingSession = (workSessions: WorkSession[]) =>
     .sort((firstSession, secondSession) =>
       secondSession.clockInAt.localeCompare(firstSession.clockInAt),
     )[0] ?? null
+
+
+const createWorkSessionTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || isHqRole(scope.role ?? '')) return []
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('companyId', '==', franchiseeId))
+  }
+
+  if (scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  if (scope.staffId) {
+    constraints.push(where('staffId', '==', scope.staffId))
+  }
+
+  return constraints
+}
+
+export async function fetchClosedWorkSessionsInClockOutRange({
+  endIso,
+  scope,
+  startIso,
+}: {
+  endIso: string
+  scope?: TenantAccessScope
+  startIso: string
+}) {
+  const snapshots = await getDocs(
+    query(
+      getWorkSessionsCollection(),
+      where('status', '==', 'closed'),
+      ...createWorkSessionTenantConstraints(scope),
+      where('clockOutAt', '>=', startIso),
+      where('clockOutAt', '<', endIso),
+      orderBy('clockOutAt', 'desc'),
+    ),
+  )
+
+  return snapshots.docs.map(toWorkSession).filter((session) => matchesTenantScope(session, scope))
+}
 
 export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
   const constraints: QueryConstraint[] = []
