@@ -4,6 +4,7 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { fetchVehicles } from '../services/vehicles'
 import type { Vehicle } from '../types/work'
+import { logDiagnostic } from '../utils/diagnostics'
 
 export function CaseStartPage() {
   const navigate = useNavigate()
@@ -14,8 +15,8 @@ export function CaseStartPage() {
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
 
   useEffect(() => {
-    console.info('[CaseStartPage] mount')
-    return () => console.info('[CaseStartPage] unmount')
+    logDiagnostic('CaseStartPage mount')
+    return () => logDiagnostic('CaseStartPage unmount')
   }, [])
 
   useEffect(() => {
