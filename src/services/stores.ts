@@ -6,10 +6,11 @@ import {
   getFirestore,
   orderBy,
   query,
+  where,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
-import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { Store } from '../types/work'
 import { defaultFranchiseeId, defaultStoreId, defaultStoreName, getFranchiseeId } from './tenancy'
@@ -76,7 +77,15 @@ export const defaultStore: Store = {
 }
 
 export async function fetchStores(companyId?: string) {
-  const snapshots = await getDocs(query(getStoresCollection(), orderBy('sortOrder', 'asc')))
+  const constraints: QueryConstraint[] = []
+
+  if (companyId) {
+    constraints.push(where('franchiseeId', '==', companyId))
+  }
+
+  constraints.push(orderBy('sortOrder', 'asc'))
+
+  const snapshots = await getDocs(query(getStoresCollection(), ...constraints))
   return snapshots.docs
     .map(toStore)
     .filter((store) => !companyId || store.franchiseeId === companyId || store.companyId === companyId)
