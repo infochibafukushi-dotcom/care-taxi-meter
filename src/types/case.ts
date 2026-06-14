@@ -17,6 +17,15 @@ export type StatusTone =
 
 export type TimerKey = 'driving' | 'waiting' | 'accompanying'
 
+export type ActivityHistoryType = 'waiting' | 'accompanying'
+
+export type ActivityHistoryEntry = {
+  endAt: string
+  id: string
+  startAt: string
+  type: ActivityHistoryType
+}
+
 export type GpsPosition = {
   latitude: number
   longitude: number
