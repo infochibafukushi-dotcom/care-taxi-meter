@@ -20,7 +20,7 @@ import {
   formatFareYen,
   waitingFareSettings,
 } from '../services/fare'
-import { generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
+import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
 import {
   applyElapsedSecondsToActiveTimer,
@@ -362,6 +362,7 @@ const getReverseGeocodeCauseLabel = ({
 export function CasePage() {
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
+  const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
   const [restoredTripState] = useState(() => resolveActiveTripRestoration(readActiveTripSnapshot()))
   const restoredTripSnapshot = restoredTripState.snapshot
   const shouldBridgeRestoredGpsDistance = restoredTripState.shouldBridgeGpsDistance
@@ -715,6 +716,71 @@ export function CasePage() {
       isMounted = false
     }
   }, [currentFranchiseeId, currentStoreId, vehicleIdFromQuery, workSession.currentSession])
+
+
+  useEffect(() => {
+    if (!sourceCaseRecordId || restoredTripSnapshot) {
+      return undefined
+    }
+
+    let isMounted = true
+    fetchCaseRecord(sourceCaseRecordId)
+      .then((caseRecord) => {
+        if (!isMounted) {
+          return
+        }
+
+        if (!caseRecord) {
+          setCaseSaveState('error')
+          setCaseSaveMessage('案内開始する案件が見つかりませんでした。')
+          setSettingsMessage('案件情報を読み込めませんでした。')
+          return
+        }
+
+        setCaseSaveState('idle')
+        setCaseSaveMessage('案件詳細から案内を開始しました。送迎開始ボタンで運行を開始してください。')
+        setSettingsMessage(`案件 ${caseRecord.caseNumber} の案内を開始できます。`)
+
+        if (caseRecord.pickupAddress) {
+          const pickup = {
+            address: caseRecord.pickupAddress,
+            capturedAt: caseRecord.pickupCapturedAt || null,
+            latitude: caseRecord.pickupLatitude,
+            longitude: caseRecord.pickupLongitude,
+          }
+          pickupLocationRef.current = pickup
+          setPickupLocation(pickup)
+        }
+
+        if (caseRecord.dropoffAddress) {
+          const dropoff = {
+            address: caseRecord.dropoffAddress,
+            capturedAt: caseRecord.dropoffCapturedAt || null,
+            latitude: caseRecord.dropoffLatitude,
+            longitude: caseRecord.dropoffLongitude,
+          }
+          dropoffLocationRef.current = dropoff
+          setDropoffLocation(dropoff)
+        }
+
+        if (caseRecord.vehicleId) {
+          setSelectedVehicleId((currentVehicleId) => currentVehicleId || caseRecord.vehicleId)
+        }
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setCaseSaveState('error')
+        setCaseSaveMessage(error instanceof Error ? `案件情報の読み込みに失敗しました。${error.message}` : '案件情報の読み込みに失敗しました。')
+        setSettingsMessage('案件情報を読み込めませんでした。')
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [restoredTripSnapshot, sourceCaseRecordId])
 
 
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])

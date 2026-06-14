@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   cancelCaseRecord,
   recordReceiptReissue,
@@ -67,6 +67,7 @@ type ReceiptDialogState = {
 }
 
 export function CaseDetailPage() {
+  const navigate = useNavigate()
   const workSession = useWorkSession()
   const currentScope = tenantScopeFromSession(workSession.currentSession)
   const currentFranchiseeId = currentScope.franchiseeId
@@ -355,6 +356,27 @@ export function CaseDetailPage() {
     }))
   }
 
+  const handleStartGuidance = () => {
+    if (!caseRecord) {
+      return
+    }
+
+    if (!currentSession) {
+      setState((currentState) => ({
+        ...currentState,
+        statusMessage: '出勤してから案内開始してください。',
+      }))
+      return
+    }
+
+    const params = new URLSearchParams({ caseRecordId: caseRecord.id })
+    if (caseRecord.vehicleId) {
+      params.set('vehicleId', caseRecord.vehicleId)
+    }
+
+    navigate(`/case?${params.toString()}`)
+  }
+
   const handleSoftDelete = async () => {
     if (!caseRecord || !canDelete || caseRecord.deleted) {
       return
@@ -435,6 +457,14 @@ export function CaseDetailPage() {
           <>
             <p className="empty-note">{state.settingsMessage}</p>
             <div className="case-detail-actions">
+              <button
+                className="primary-action"
+                type="button"
+                disabled={!currentSession || caseRecord.deleted || caseRecord.status === 'canceled'}
+                onClick={handleStartGuidance}
+              >
+                案内開始
+              </button>
               <button className="receipt-download-button" type="button" onClick={openReceiptDialog}>
                 領収書再発行 / 利用明細再発行
               </button>
