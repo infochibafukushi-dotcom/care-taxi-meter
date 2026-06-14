@@ -4,6 +4,7 @@ export type OperationStatus =
   | '院内付き添い中'
   | '走行中'
   | '精算前'
+  | '精算修正'
   | '案件終了'
 
 export type StatusTone =
