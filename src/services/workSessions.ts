@@ -20,7 +20,7 @@ import type { WorkLocation } from '../utils/workLocation'
 
 const workSessionsCollectionName = 'workSessions'
 const staffAttendanceCollectionName = 'staffAttendance'
-const activeTripProtectedStatuses = new Set(['走行中', '待機中', '院内付き添い中', '精算前'])
+const activeTripProtectedStatuses = new Set(['走行中', '待機中', '院内付き添い中', '精算前', '精算修正'])
 
 const createWorkSessionId = () => `work-${Date.now()}-${crypto.randomUUID()}`
 

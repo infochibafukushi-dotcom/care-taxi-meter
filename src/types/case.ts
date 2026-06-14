@@ -4,6 +4,7 @@ export type OperationStatus =
   | '院内付き添い中'
   | '走行中'
   | '精算前'
+  | '精算修正'
   | '案件終了'
 
 export type StatusTone =
@@ -15,6 +16,15 @@ export type StatusTone =
   | 'closed'
 
 export type TimerKey = 'driving' | 'waiting' | 'accompanying'
+
+export type ActivityHistoryType = 'waiting' | 'accompanying'
+
+export type ActivityHistoryEntry = {
+  endAt: string
+  id: string
+  startAt: string
+  type: ActivityHistoryType
+}
 
 export type GpsPosition = {
   latitude: number

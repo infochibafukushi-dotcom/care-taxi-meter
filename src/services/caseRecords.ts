@@ -69,6 +69,18 @@ export type ReceiptReissueEntry = {
   reason: string
 }
 
+export type SettlementAdjustmentEntry = {
+  adjustedAt: string
+  adjustedBy: string
+  reason: string
+  previousTotalFareYen: number
+  adjustedTotalFareYen: number
+  differenceYen: number
+  refundYen: number
+  receiptName: string
+  taxiTickets: TaxiTicket[]
+}
+
 export type FareSnapshot = {
   basicFare: BasicFareSettings
   meterTimeFare: MeterTimeFareSettings
@@ -171,6 +183,7 @@ export type CaseRecordDocument = {
   canceledAt: string
   cancelledBy: string
   receiptReissues: ReceiptReissueEntry[]
+  settlementAdjustments: SettlementAdjustmentEntry[]
   changeHistory: CaseRecordChangeEntry[]
   pickupLatitude: number | null
   pickupLongitude: number | null
@@ -340,6 +353,31 @@ const toReceiptReissues = (value: unknown): ReceiptReissueEntry[] =>
           return reissuedAt ? { reason, reissuedAt, reissuedBy } : null
         })
         .filter((item): item is ReceiptReissueEntry => Boolean(item))
+    : []
+
+const toSettlementAdjustments = (value: unknown): SettlementAdjustmentEntry[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const adjustedAt = toIsoString(source.adjustedAt) || toString(source.adjustedAt)
+          const adjustedBy = toString(source.adjustedBy)
+          const reason = toString(source.reason)
+          return adjustedAt
+            ? {
+                adjustedAt,
+                adjustedBy,
+                reason,
+                previousTotalFareYen: Math.max(Math.round(toNumber(source.previousTotalFareYen)), 0),
+                adjustedTotalFareYen: Math.max(Math.round(toNumber(source.adjustedTotalFareYen)), 0),
+                differenceYen: Math.round(toNumber(source.differenceYen)),
+                refundYen: Math.max(Math.round(toNumber(source.refundYen)), 0),
+                receiptName: toString(source.receiptName),
+                taxiTickets: toTaxiTickets(source.taxiTickets),
+              }
+            : null
+        })
+        .filter((item): item is SettlementAdjustmentEntry => Boolean(item))
     : []
 
 const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
@@ -552,7 +590,7 @@ const toStoredCaseRecord = (
     taxiTickets: toTaxiTickets(data.taxiTickets),
     paymentMethod: toPaymentMethod(data.paymentMethod),
     payments: toPaymentAllocations(data.payments),
-    receiptName: '',
+    receiptName: toString(data.receiptName),
     customerName: '',
     remarks: toString(data.remarks),
     status: toCaseRecordStatus(data.status),
@@ -566,6 +604,7 @@ const toStoredCaseRecord = (
     canceledAt: toString(data.canceledAt),
     cancelledBy: toString(data.cancelledBy),
     receiptReissues: toReceiptReissues(data.receiptReissues),
+    settlementAdjustments: toSettlementAdjustments(data.settlementAdjustments),
     changeHistory: toChangeHistory(data.changeHistory),
     pickupLatitude: toNullableNumber(data.pickupLatitude),
     pickupLongitude: toNullableNumber(data.pickupLongitude),
@@ -751,6 +790,7 @@ export async function saveCaseRecord({
     canceledAt: '',
     cancelledBy: '',
     receiptReissues: [],
+    settlementAdjustments: [],
     changeHistory: [],
     pickupLatitude: pickupLocation.latitude,
     pickupLongitude: pickupLocation.longitude,
@@ -893,7 +933,7 @@ const normalizeEditableValues = (values: CaseRecordEditableValues): CaseRecordEd
 const calculateEditableFareYen = (values: Pick<
   CaseRecordEditableValues,
   'careOptionFareYen' | 'dispatchFareYen' | 'specialVehicleFareYen' | 'expenseFareYen'
->) => values.careOptionFareYen + values.dispatchFareYen + values.expenseFareYen
+>) => values.careOptionFareYen + values.dispatchFareYen + values.specialVehicleFareYen + values.expenseFareYen
 
 const calculateTotalFareYen = (
   caseRecord: StoredCaseRecord,
@@ -1129,6 +1169,91 @@ export async function recordReceiptReissue(
     targetType: 'caseRecord',
     before: { receiptReissueCount: caseRecord.receiptReissues.length },
     after: { receiptReissueCount: receiptReissues.length, receiptReissue },
+    reason,
+  })
+
+  return updatedRecord
+}
+
+export async function recordSettlementAdjustment(
+  caseRecord: StoredCaseRecord,
+  {
+    actor = null,
+    reason,
+    receiptName,
+    taxiTickets,
+  }: {
+    actor?: AuditActor | null
+    reason: string
+    receiptName: string
+    taxiTickets: TaxiTicket[]
+  },
+) {
+  const adjustedAt = new Date().toISOString()
+  const adjustedBy = actor?.userId ?? ''
+  const normalizedTickets = taxiTickets
+    .map((ticket, index) => ({
+      amount: Math.max(Math.round(ticket.amount) || 0, 0),
+      id: ticket.id || `adjustment-ticket-${index}`,
+      municipality: ticket.municipality.trim(),
+      ticketNumber: ticket.ticketNumber.trim(),
+    }))
+    .filter((ticket) => ticket.municipality && ticket.amount > 0)
+  const adjustedTaxiTicketAmountYen = normalizedTickets.reduce((total, ticket) => total + ticket.amount, 0)
+  const previousTicketAmountYen = caseRecord.taxiTicketAmountYen
+  const differenceYen = adjustedTaxiTicketAmountYen - previousTicketAmountYen
+  const refundYen = Math.max(differenceYen, 0)
+  const adjustedTotalFareYen = Math.max(caseRecord.grossFareYen - caseRecord.disabilityDiscountAmount - adjustedTaxiTicketAmountYen, 0)
+  const adjustment: SettlementAdjustmentEntry = {
+    adjustedAt,
+    adjustedBy,
+    reason,
+    previousTotalFareYen: caseRecord.totalFareYen,
+    adjustedTotalFareYen,
+    differenceYen: adjustedTotalFareYen - caseRecord.totalFareYen,
+    refundYen,
+    receiptName: receiptName.trim(),
+    taxiTickets: normalizedTickets,
+  }
+  const settlementAdjustments = [...(caseRecord.settlementAdjustments ?? []), adjustment]
+  const updatedRecord: StoredCaseRecord = {
+    ...caseRecord,
+    settlementAdjustments,
+    changeHistory: [
+      ...(caseRecord.changeHistory ?? []),
+      {
+        changedAt: adjustedAt,
+        fieldLabel: '訂正処理',
+        previousValue: `${formatYenForHistory(caseRecord.totalFareYen)} / タクシー券 ${formatYenForHistory(previousTicketAmountYen)}`,
+        nextValue: `${formatYenForHistory(adjustedTotalFareYen)} / タクシー券 ${formatYenForHistory(adjustedTaxiTicketAmountYen)} / 返金 ${formatYenForHistory(refundYen)}（${reason}）`,
+      },
+    ],
+  }
+
+  await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
+    settlementAdjustments,
+    changeHistory: updatedRecord.changeHistory,
+    savedAt: serverTimestamp(),
+  })
+
+  await createAuditLog({
+    action: 'settlement_adjustment',
+    actor,
+    targetId: caseRecord.id,
+    targetType: 'caseRecord',
+    before: {
+      receiptName: caseRecord.receiptName,
+      taxiTicketAmountYen: previousTicketAmountYen,
+      totalFareYen: caseRecord.totalFareYen,
+    },
+    after: {
+      receiptName: adjustment.receiptName,
+      taxiTicketAmountYen: adjustedTaxiTicketAmountYen,
+      totalFareYen: adjustedTotalFareYen,
+      differenceYen: adjustment.differenceYen,
+      refundYen,
+      taxiTicketNumbers: normalizedTickets.map((ticket) => ticket.ticketNumber),
+    },
     reason,
   })
 
