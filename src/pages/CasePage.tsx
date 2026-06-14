@@ -235,6 +235,17 @@ const formatDateTimeLocalValue = (isoString: string) => {
   return offsetDate.toISOString().slice(0, 16)
 }
 
+const activityTimeFormatter = new Intl.DateTimeFormat('ja-JP', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Tokyo',
+})
+
+const formatActivityClock = (isoString: string) => {
+  const date = new Date(isoString)
+  return Number.isNaN(date.getTime()) ? '--:--' : activityTimeFormatter.format(date)
+}
+
 const parseDateTimeLocalValue = (value: string) => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toISOString()
@@ -254,6 +265,11 @@ const calculateActivityHistorySeconds = (
       }
       return totalSeconds + Math.floor((endAt - startAt) / 1000)
     }, 0)
+
+const calculateActivityHistoryMinutes = (history: ActivityHistoryEntry) => {
+  const seconds = calculateActivityHistorySeconds([history], history.type)
+  return Math.max(Math.round(seconds / 60), 0)
+}
 
 const createRestoredActivityHistories = (
   snapshot: ActiveTripSnapshot | null | undefined,
@@ -1551,6 +1567,11 @@ export function CasePage() {
   const deleteActivityHistory = async (historyId: string) => {
     const targetHistory = activityHistories.find((history) => history.id === historyId)
     if (!targetHistory) {
+      return
+    }
+    const activityLabel = getActivityLabel(targetHistory.type)
+    const durationMinutes = calculateActivityHistoryMinutes(targetHistory)
+    if (!window.confirm(`${activityLabel}（${durationMinutes}分）を削除しますか？`)) {
       return
     }
     setActivityHistories((currentHistories) =>
@@ -2866,29 +2887,38 @@ export function CasePage() {
                           {histories.length === 0 ? (
                             <p className="empty-note">{getActivityLabel(activityType)}履歴はありません。</p>
                           ) : null}
-                          {histories.map((history) => (
-                            <article key={history.id}>
-                              <label>
-                                開始
-                                <input
-                                  type="datetime-local"
-                                  value={formatDateTimeLocalValue(history.startAt)}
-                                  onChange={(event) => { void updateActivityHistory(history.id, 'startAt', event.target.value) }}
-                                />
-                              </label>
-                              <label>
-                                終了
-                                <input
-                                  type="datetime-local"
-                                  value={formatDateTimeLocalValue(history.endAt)}
-                                  onChange={(event) => { void updateActivityHistory(history.id, 'endAt', event.target.value) }}
-                                />
-                              </label>
-                              <button type="button" onClick={() => { void deleteActivityHistory(history.id) }}>
-                                削除
-                              </button>
-                            </article>
-                          ))}
+                          {histories.map((history) => {
+                            const activityLabel = getActivityLabel(history.type)
+                            const durationMinutes = calculateActivityHistoryMinutes(history)
+
+                            return (
+                              <article key={history.id}>
+                                <strong>{activityLabel}（{durationMinutes}分）</strong>
+                                <p>{formatActivityClock(history.startAt)} ～ {formatActivityClock(history.endAt)}</p>
+                                <label>
+                                  開始時刻を修正
+                                  <input
+                                    aria-label={`${activityLabel}（${durationMinutes}分）の開始時刻`}
+                                    type="datetime-local"
+                                    value={formatDateTimeLocalValue(history.startAt)}
+                                    onChange={(event) => { void updateActivityHistory(history.id, 'startAt', event.target.value) }}
+                                  />
+                                </label>
+                                <label>
+                                  終了時刻を修正
+                                  <input
+                                    aria-label={`${activityLabel}（${durationMinutes}分）の終了時刻`}
+                                    type="datetime-local"
+                                    value={formatDateTimeLocalValue(history.endAt)}
+                                    onChange={(event) => { void updateActivityHistory(history.id, 'endAt', event.target.value) }}
+                                  />
+                                </label>
+                                <button type="button" onClick={() => { void deleteActivityHistory(history.id) }}>
+                                  {activityLabel}（{durationMinutes}分）を削除
+                                </button>
+                              </article>
+                            )
+                          })}
                         </div>
                       )
                     })}
