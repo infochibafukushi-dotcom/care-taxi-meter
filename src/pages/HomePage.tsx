@@ -9,9 +9,10 @@ import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
-import type { StaffMember, Store } from '../types/work'
+import type { StaffMember, Store, WorkSession } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
-import { saveAuthStaffSession, clearAuthStaffSession } from '../services/authSession'
+import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
+import type { AuthStaffSession } from '../services/authSession'
 import { formatElapsedTime } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
 
@@ -27,6 +28,74 @@ type LoggedInUser = {
   companyName: string
   staffMember: StaffMember
   store: Store
+}
+
+type RestorableStaffSession = AuthStaffSession | WorkSession
+
+const isWorkSessionRestoreSource = (source: RestorableStaffSession): source is WorkSession =>
+  'staffId' in source
+
+const createLoggedInUserFromRestoredSession = ({
+  authSession,
+  currentSession,
+}: {
+  authSession: AuthStaffSession | null
+  currentSession: WorkSession | null
+}): LoggedInUser | null => {
+  const source = currentSession ?? authSession
+
+  if (!source) {
+    return null
+  }
+
+  const companyId = source.franchiseeId || source.companyId
+  const staffId = isWorkSessionRestoreSource(source) ? source.staffId : source.id
+  const staffName = isWorkSessionRestoreSource(source) ? source.staffName : source.name
+  const staffRole = isWorkSessionRestoreSource(source) ? source.staffRole : source.role
+  const storeName = source.storeName || currentSession?.storeName || '未設定'
+  const companyName = currentSession?.companyName || defaultCompanyName
+
+  const staffMember: StaffMember = {
+    id: staffId,
+    companyId,
+    franchiseeId: source.franchiseeId || source.companyId,
+    storeId: source.storeId,
+    storeName,
+    userId: '',
+    password: '',
+    name: staffName || '未ログイン',
+    role: staffRole,
+    canDrive: staffRole === 'owner' || staffRole === 'driver',
+    isActive: true,
+    phoneNumber: '',
+    email: '',
+    address: '',
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: '',
+    enabled: true,
+    sortOrder: 0,
+  }
+
+  const store: Store = {
+    id: source.storeId,
+    companyId,
+    franchiseeId: source.franchiseeId || source.companyId,
+    name: storeName,
+    storeName,
+    companyName,
+    status: 'active',
+    enabled: true,
+    isActive: true,
+    sortOrder: 0,
+  }
+
+  return {
+    companyName,
+    staffMember,
+    store,
+  }
 }
 
 type CaseRecordState = {
@@ -133,6 +202,7 @@ export function HomePage() {
   const [activeTripSnapshot, setActiveTripSnapshot] =
     useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
 
+  const { subscribeToWorkingSession } = workSession
   const currentSession = workSession.currentSession
   const currentStaffId = currentSession?.staffId ?? loggedInUser?.staffMember.id ?? ''
   const currentSessionId = currentSession?.id ?? ''
@@ -144,6 +214,63 @@ export function HomePage() {
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
   const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
+
+  useEffect(() => {
+    console.info('[HomePage] session state', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      loggedInStaffId: loggedInUser?.staffMember.id ?? null,
+      currentSessionId: currentSession?.id ?? null,
+      currentSessionStaffId: currentSession?.staffId ?? null,
+    })
+  }, [currentSession?.id, currentSession?.staffId, loggedInUser])
+
+  useEffect(() => {
+    if (loggedInUser) {
+      return
+    }
+
+    const authSession = loadAuthStaffSession()
+    const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
+      authSession,
+      currentSession,
+    })
+
+    if (!restoredLoggedInUser) {
+      return
+    }
+
+    console.info('[HomePage] restored loggedInUser for work session subscription', {
+      fromAuthSession: Boolean(authSession),
+      fromCurrentSession: Boolean(currentSession),
+      staffId: restoredLoggedInUser.staffMember.id,
+      storeId: restoredLoggedInUser.staffMember.storeId,
+    })
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoggedInUser(restoredLoggedInUser)
+      setLoginMessage('ログイン状態を復元しました。勤務状態を同期しています。')
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession, loggedInUser])
+
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.staffMember.role === 'hq_admin') {
+      return undefined
+    }
+
+    console.info('[HomePage] subscribeToWorkingSession start', {
+      staffId: loggedInUser.staffMember.id,
+      storeId: loggedInUser.staffMember.storeId,
+    })
+    return subscribeToWorkingSession(loggedInUser.staffMember)
+  }, [loggedInUser, subscribeToWorkingSession])
 
   useEffect(() => {
     if (!currentSession) {

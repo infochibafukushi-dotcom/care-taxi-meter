@@ -21,6 +21,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
+import { updateWorkSessionActiveTrip } from '../services/workSessions'
 import {
   applyElapsedSecondsToActiveTimer,
   clearActiveTripSnapshot,
@@ -501,6 +502,7 @@ export function CasePage() {
       : undefined,
   )
   const workSession = useWorkSession()
+  const syncedActiveTripKeyRef = useRef('')
   const currentScope = tenantScopeFromSession(workSession.currentSession)
   const currentFranchiseeId = currentScope.franchiseeId
   const currentStoreId = currentScope.storeId
@@ -515,6 +517,30 @@ export function CasePage() {
   const isCaseClosed = status === '案件終了'
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
   const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
+
+  useEffect(() => {
+    const workSessionId = workSession.currentSession?.id
+    if (!workSessionId) {
+      return
+    }
+
+    const remoteStatus = shouldPersistTripSnapshot ? status : null
+    const syncKey = `${workSessionId}:${remoteStatus ?? 'none'}:${remoteStatus ? caseNumber : ''}`
+    if (syncedActiveTripKeyRef.current === syncKey) {
+      return
+    }
+
+    syncedActiveTripKeyRef.current = syncKey
+    updateWorkSessionActiveTrip({
+      caseNumber,
+      status: remoteStatus,
+      workSessionId,
+    }).catch((error) => {
+      console.warn('Failed to sync active trip status to work session.', error)
+      syncedActiveTripKeyRef.current = ''
+    })
+  }, [caseNumber, shouldPersistTripSnapshot, status, workSession.currentSession?.id])
+
   const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
   const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
   const canEndWaiting = status === '待機中' && caseSaveState !== 'saving'
