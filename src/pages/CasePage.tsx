@@ -1848,7 +1848,7 @@ export function CasePage() {
               >
                 <span aria-hidden="true">▣</span>
                 <strong>精算・終了</strong>
-                <small id="settlement-hold-help">長押し後に確認</small>
+                <small id="settlement-hold-help">長押し</small>
               </button>
             </div>
 
