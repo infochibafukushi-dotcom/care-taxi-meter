@@ -14,6 +14,11 @@ export function CaseStartPage() {
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
 
   useEffect(() => {
+    console.info('[CaseStartPage] mount')
+    return () => console.info('[CaseStartPage] unmount')
+  }, [])
+
+  useEffect(() => {
     let isMounted = true
 
     fetchVehicles()

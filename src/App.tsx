@@ -73,6 +73,8 @@ const router = createBrowserRouter([
 ], { basename: routerBaseName })
 
 function App() {
+  console.info('[App] RouterProvider render')
+
   return <RouterProvider router={router} />
 }
 

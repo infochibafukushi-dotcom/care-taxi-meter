@@ -188,6 +188,11 @@ export function HomePage() {
   const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(null)
   const [loginMessage, setLoginMessage] = useState('会社ID・ログインID・パスワードでログインしてください。')
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
+
+  useEffect(() => {
+    console.info('[HomePage] mount')
+    return () => console.info('[HomePage] unmount')
+  }, [])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [dashboardRecordsState, setDashboardRecordsState] = useState<CaseRecordState>({
     errorMessage: '',
