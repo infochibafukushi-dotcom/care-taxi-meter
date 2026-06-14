@@ -323,9 +323,7 @@ export function HomePage() {
       subscriptionStoreId: subscriptionStaffMember?.storeId ?? null,
       subscriptionRole: subscriptionStaffMember?.role ?? null,
       hasLoggedInUser: Boolean(loggedInUser),
-      currentSessionId: currentSession?.id ?? null,
-      currentSessionStatus: currentSession?.status ?? null,
-      currentSessionClockOutAt: currentSession?.clockOutAt ?? null,
+      restoredFromSessionIdentity: !loggedInUser && Boolean(subscriptionStaffMember),
     })
 
     if (!subscriptionStaffMember || subscriptionStaffMember.role === 'hq_admin') {
@@ -338,7 +336,7 @@ export function HomePage() {
 
     console.info('[HomePage] subscribeToWorkingSession started', {
       hasLoggedInUser: Boolean(loggedInUser),
-      restoredFromCurrentSession: !loggedInUser && Boolean(currentSession),
+      restoredFromCurrentSession: !loggedInUser && Boolean(subscriptionStaffMember),
       staffId: subscriptionStaffMember.id,
       storeId: subscriptionStaffMember.storeId,
     })
@@ -352,7 +350,7 @@ export function HomePage() {
       })
       unsubscribe()
     }
-  }, [currentSession, loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
+  }, [loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
 
   useEffect(() => {
     if (currentSession) {

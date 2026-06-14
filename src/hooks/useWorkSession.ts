@@ -64,11 +64,17 @@ const updateSharedCurrentSession = (workSession: WorkSession | null) => {
   workSessionListeners.forEach((listener) => listener(workSession))
 }
 
+const serializeWorkSession = (workSession: WorkSession | null) =>
+  workSession ? JSON.stringify(workSession) : ''
+
 const persistCurrentSession = (workSession: WorkSession | null) => {
   const previousSession = sharedCurrentSession
+  const previousSerializedSession = serializeWorkSession(previousSession)
+  const nextSerializedSession = serializeWorkSession(workSession)
   const isSameSessionStatus =
     previousSession?.id === workSession?.id &&
     previousSession?.status === workSession?.status
+  const isSameSerializedSession = previousSerializedSession === nextSerializedSession
 
   logDiagnostic('persistCurrentSession before', {
     previousSessionId: previousSession?.id ?? null,
@@ -78,11 +84,20 @@ const persistCurrentSession = (workSession: WorkSession | null) => {
     nextStatus: workSession?.status ?? null,
     nextClockOutAt: workSession?.clockOutAt ?? null,
     isSameSessionStatus,
-    isSameSerializedSession: JSON.stringify(previousSession) === JSON.stringify(workSession),
+    isSameSerializedSession,
   })
 
+  if (isSameSerializedSession && (previousSession || workSession)) {
+    logDiagnostic('persistCurrentSession skipped unchanged session', {
+      sessionId: workSession?.id ?? null,
+      status: workSession?.status ?? null,
+      clockOutAt: workSession?.clockOutAt ?? null,
+    })
+    return
+  }
+
   if (workSession) {
-    localStorage.setItem(workSessionStorageKey, JSON.stringify(workSession))
+    localStorage.setItem(workSessionStorageKey, nextSerializedSession)
     logWorkSessionDebug('persist current session', { workSessionId: workSession.id, status: workSession.status })
   } else {
     localStorage.removeItem(workSessionStorageKey)
@@ -128,6 +143,13 @@ export function useWorkSession() {
     tone: 'idle',
     text: '会社ID・ユーザーID・パスワードでログイン後、出勤ボタンから勤務を開始してください。',
   })
+  const setMessageIfChanged = useCallback((nextMessage: WorkSessionStatusMessage) => {
+    setMessage((currentMessage) =>
+      currentMessage.tone === nextMessage.tone && currentMessage.text === nextMessage.text
+        ? currentMessage
+        : nextMessage,
+    )
+  }, [])
 
   useEffect(() => {
     workSessionListeners.add(setCurrentSession)
@@ -319,7 +341,7 @@ export function useWorkSession() {
       staffId: staffMember.id,
       storeId: staffMember.storeId,
     })
-    setMessage({ tone: 'saving', text: '勤務中状態を同期しています。' })
+    setMessageIfChanged({ tone: 'saving', text: '勤務中状態を同期しています。' })
 
     const unsubscribe = subscribeOpenWorkingWorkSession({
       companyId: getStaffTenantCompanyId(staffMember),
@@ -341,7 +363,7 @@ export function useWorkSession() {
           sharedStatusBeforePersist: sharedCurrentSession?.status ?? null,
         })
         persistCurrentSession(workSession)
-        setMessage({
+        setMessageIfChanged({
           tone: workSession ? 'saved' : 'idle',
           text: workSession
             ? '勤務中状態を同期しました。'
@@ -350,7 +372,7 @@ export function useWorkSession() {
       },
       onError: (error) => {
         console.warn('[workSession] subscription error', error)
-        setMessage({ tone: 'error', text: `勤務中状態を同期できませんでした。${error.message}` })
+        setMessageIfChanged({ tone: 'error', text: `勤務中状態を同期できませんでした。${error.message}` })
       },
     })
 
@@ -362,7 +384,7 @@ export function useWorkSession() {
       })
       unsubscribe()
     }
-  }, [])
+  }, [setMessageIfChanged])
 
   return {
     clockIn,
