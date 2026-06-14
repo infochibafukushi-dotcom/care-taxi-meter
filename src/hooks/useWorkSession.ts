@@ -3,6 +3,7 @@ import {
   clockInWorkSession,
   clockOutWorkSession,
   fetchOpenWorkingWorkSession,
+  fetchWorkSessionById,
   subscribeOpenWorkingWorkSession,
 } from '../services/workSessions'
 import type { StaffMember, Store, WorkSession } from '../types/work'
@@ -78,6 +79,21 @@ const persistCurrentSession = (workSession: WorkSession | null) => {
 const getStaffTenantCompanyId = (staffMember: StaffMember) =>
   staffMember.franchiseeId || staffMember.companyId
 
+const isOpenWorkingSession = (workSession: WorkSession | null): workSession is WorkSession =>
+  Boolean(workSession && workSession.status === 'working' && !workSession.clockOutAt)
+
+const matchesCurrentSessionIdentity = ({
+  currentSession,
+  fetchedSession,
+}: {
+  currentSession: WorkSession
+  fetchedSession: WorkSession
+}) =>
+  fetchedSession.id === currentSession.id &&
+  fetchedSession.companyId === currentSession.companyId &&
+  fetchedSession.staffId === currentSession.staffId &&
+  fetchedSession.storeId === currentSession.storeId
+
 type WorkSessionStatusMessage = {
   tone: 'error' | 'idle' | 'saved' | 'saving'
   text: string
@@ -99,6 +115,67 @@ export function useWorkSession() {
   }, [])
 
   const isWorking = Boolean(currentSession)
+
+  useEffect(() => {
+    if (!currentSession) {
+      return undefined
+    }
+
+    let isActive = true
+
+    const validateCurrentSession = async () => {
+      logWorkSessionDebug('validate current session started', {
+        workSessionId: currentSession.id,
+        status: currentSession.status,
+        clockOutAt: currentSession.clockOutAt,
+      })
+
+      try {
+        const fetchedSession = await fetchWorkSessionById(currentSession.id)
+
+        if (!isActive) {
+          return
+        }
+
+        if (
+          !isOpenWorkingSession(fetchedSession) ||
+          !matchesCurrentSessionIdentity({ currentSession, fetchedSession })
+        ) {
+          logWorkSessionDebug('validate current session stale; clearing local session', {
+            currentSessionId: currentSession.id,
+            fetchedSessionId: fetchedSession?.id ?? null,
+            fetchedStatus: fetchedSession?.status ?? null,
+            fetchedClockOutAt: fetchedSession?.clockOutAt ?? null,
+          })
+          persistCurrentSession(null)
+          setMessage({ tone: 'idle', text: '退勤済みの勤務状態を検出したため、未出勤状態に戻しました。' })
+          return
+        }
+
+        if (JSON.stringify(fetchedSession) !== JSON.stringify(currentSession)) {
+          persistCurrentSession(fetchedSession)
+        }
+      } catch (error) {
+        if (!isActive) {
+          return
+        }
+
+        console.warn('[workSession] validate current session error', error)
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error
+            ? `勤務状態を確認できませんでした。${error.message}`
+            : '勤務状態を確認できませんでした。',
+        })
+      }
+    }
+
+    void validateCurrentSession()
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession])
 
   const clockIn = async ({
     companyName = '',
@@ -163,19 +240,42 @@ export function useWorkSession() {
 
     setMessage({ tone: 'saving', text: '退勤位置を取得して保存中です。' })
     const location = await captureWorkLocation()
-    const closedSession = await clockOutWorkSession({
-      location,
-      workSession: currentSession,
-    })
+    try {
+      const closedSession = await clockOutWorkSession({
+        location,
+        workSession: currentSession,
+      })
 
-    persistCurrentSession(null)
-    setMessage({
-      tone: 'saved',
-      text: location.latitude === null
-        ? '退勤しました。位置情報は取得できませんでした。'
-        : '退勤しました。退勤位置を保存しました。',
-    })
-    return closedSession
+      persistCurrentSession(null)
+      setMessage({
+        tone: 'saved',
+        text: location.latitude === null
+          ? '退勤しました。位置情報は取得できませんでした。'
+          : '退勤しました。退勤位置を保存しました。',
+      })
+      return closedSession
+    } catch (error) {
+      console.warn('[workSession] clockOut error', error)
+
+      const activeSession = await fetchOpenWorkingWorkSession({
+        companyId: currentSession.companyId,
+        staffId: currentSession.staffId,
+        storeId: currentSession.storeId,
+      })
+
+      if (!activeSession) {
+        persistCurrentSession(null)
+        setMessage({ tone: 'idle', text: 'Firestore 上で退勤済みのため、未出勤状態に戻しました。' })
+        return null
+      }
+
+      persistCurrentSession(activeSession)
+      setMessage({
+        tone: 'error',
+        text: error instanceof Error ? `退勤できませんでした。${error.message}` : '退勤できませんでした。',
+      })
+      throw error
+    }
   }
 
   const logout = () => {
