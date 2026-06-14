@@ -188,7 +188,7 @@ export function subscribeOpenWorkingWorkSession({
   return onSnapshot(
     createWorkingWorkSessionsQuery(constraints),
     (snapshots) => {
-      console.info('[workSession] onSnapshot received', {
+      console.info(`[workSession] onSnapshot received count: ${snapshots.docs.length}`, {
         companyId,
         staffId,
         storeId: storeId ?? null,

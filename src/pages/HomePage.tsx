@@ -214,6 +214,130 @@ export function HomePage() {
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
   const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
+  const currentSessionCompanyId = currentSession?.companyId ?? ''
+  const currentSessionFranchiseeId = currentSession?.franchiseeId ?? ''
+  const currentSessionStaffId = currentSession?.staffId ?? ''
+  const currentSessionStaffName = currentSession?.staffName ?? ''
+  const currentSessionStaffRole = currentSession?.staffRole ?? 'driver'
+  const currentSessionStoreId = currentSession?.storeId ?? ''
+  const currentSessionStoreName = currentSession?.storeName ?? ''
+  const subscriptionStaffMember = useMemo<StaffMember | null>(() => {
+    if (loggedInUser) {
+      return loggedInUser.staffMember
+    }
+
+    if (!currentSessionStaffId) {
+      return null
+    }
+
+    return {
+      id: currentSessionStaffId,
+      companyId: currentSessionCompanyId,
+      franchiseeId: currentSessionFranchiseeId || currentSessionCompanyId,
+      storeId: currentSessionStoreId,
+      storeName: currentSessionStoreName,
+      userId: '',
+      password: '',
+      name: currentSessionStaffName || '未ログイン',
+      role: currentSessionStaffRole,
+      canDrive: currentSessionStaffRole === 'owner' || currentSessionStaffRole === 'driver',
+      isActive: true,
+      phoneNumber: '',
+      email: '',
+      address: '',
+      licenseNumber: '',
+      licenseExpiresAt: '',
+      accidentHistory: '',
+      memo: '',
+      enabled: true,
+      sortOrder: 0,
+    }
+  }, [
+    currentSessionCompanyId,
+    currentSessionFranchiseeId,
+    currentSessionStaffId,
+    currentSessionStaffName,
+    currentSessionStaffRole,
+    currentSessionStoreId,
+    currentSessionStoreName,
+    loggedInUser,
+  ])
+
+  useEffect(() => {
+    console.info('[HomePage] session state', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      loggedInStaffId: loggedInUser?.staffMember.id ?? null,
+      currentSessionId: currentSession?.id ?? null,
+      currentSessionStaffId: currentSession?.staffId ?? null,
+    })
+  }, [currentSession?.id, currentSession?.staffId, loggedInUser])
+
+  useEffect(() => {
+    if (loggedInUser) {
+      return
+    }
+
+    const authSession = loadAuthStaffSession()
+    const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
+      authSession,
+      currentSession,
+    })
+
+    if (!restoredLoggedInUser) {
+      return
+    }
+
+    console.info('[HomePage] restored loggedInUser for work session subscription', {
+      fromAuthSession: Boolean(authSession),
+      fromCurrentSession: Boolean(currentSession),
+      staffId: restoredLoggedInUser.staffMember.id,
+      storeId: restoredLoggedInUser.staffMember.storeId,
+    })
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoggedInUser(restoredLoggedInUser)
+      setLoginMessage('ログイン状態を復元しました。勤務状態を同期しています。')
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession, loggedInUser])
+
+  useEffect(() => {
+    if (!subscriptionStaffMember || subscriptionStaffMember.role === 'hq_admin') {
+      return undefined
+    }
+
+    console.info('[HomePage] subscribeToWorkingSession started', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      restoredFromCurrentSession: !loggedInUser && Boolean(currentSession),
+      staffId: subscriptionStaffMember.id,
+      storeId: subscriptionStaffMember.storeId,
+    })
+    return subscribeToWorkingSession(subscriptionStaffMember)
+  }, [currentSession, loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
+
+  useEffect(() => {
+    if (currentSession) {
+      return undefined
+    }
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (isActive) {
+        setElapsedSeconds(0)
+      }
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession])
 
   useEffect(() => {
     console.info('[HomePage] session state', {

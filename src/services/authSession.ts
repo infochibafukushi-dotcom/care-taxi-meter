@@ -2,6 +2,9 @@ import type { StaffMember, StaffRole } from '../types/work'
 
 const authSessionStorageKey = 'careTaxiMeter.authStaff'
 
+const getStoredAuthSession = () =>
+  sessionStorage.getItem(authSessionStorageKey) ?? localStorage.getItem(authSessionStorageKey)
+
 export type AuthStaffSession = {
   companyId: string
   franchiseeId: string
@@ -22,13 +25,15 @@ export const saveAuthStaffSession = (staffMember: StaffMember) => {
     storeId: staffMember.storeId,
     storeName: staffMember.storeName,
   }
-  sessionStorage.setItem(authSessionStorageKey, JSON.stringify(session))
+  const serializedSession = JSON.stringify(session)
+  sessionStorage.setItem(authSessionStorageKey, serializedSession)
+  localStorage.setItem(authSessionStorageKey, serializedSession)
   return session
 }
 
 export const loadAuthStaffSession = (): AuthStaffSession | null => {
   try {
-    const raw = sessionStorage.getItem(authSessionStorageKey)
+    const raw = getStoredAuthSession()
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<AuthStaffSession>
     if (!parsed.id || !parsed.role) return null
@@ -48,4 +53,5 @@ export const loadAuthStaffSession = (): AuthStaffSession | null => {
 
 export const clearAuthStaffSession = () => {
   sessionStorage.removeItem(authSessionStorageKey)
+  localStorage.removeItem(authSessionStorageKey)
 }

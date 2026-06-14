@@ -68,6 +68,7 @@ const persistCurrentSession = (workSession: WorkSession | null) => {
     logWorkSessionDebug('persist current session', { workSessionId: workSession.id, status: workSession.status })
   } else {
     localStorage.removeItem(workSessionStorageKey)
+    logWorkSessionDebug('persistCurrentSession(null)')
     logWorkSessionDebug('clear current session')
   }
 
@@ -183,7 +184,7 @@ export function useWorkSession() {
   }
 
   const subscribeToWorkingSession = useCallback((staffMember: StaffMember) => {
-    logWorkSessionDebug('start working session subscription', {
+    logWorkSessionDebug('subscribeToWorkingSession started', {
       companyId: getStaffTenantCompanyId(staffMember),
       staffId: staffMember.id,
       storeId: staffMember.storeId,
@@ -195,7 +196,7 @@ export function useWorkSession() {
       staffId: staffMember.id,
       storeId: staffMember.storeId,
       onChange: (workSession) => {
-        logWorkSessionDebug('subscription received session', {
+        logWorkSessionDebug(`subscription received session isNull: ${workSession === null}`, {
           isNull: workSession === null,
           workSessionId: workSession?.id ?? null,
           status: workSession?.status ?? null,
