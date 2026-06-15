@@ -31,7 +31,6 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
       'company',
       'fare',
       'staff',
-      'stores',
       'vehicles',
       'analytics',
       'personalOperations',

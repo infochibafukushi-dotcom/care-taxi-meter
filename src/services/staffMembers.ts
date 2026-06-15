@@ -25,6 +25,7 @@ const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
 
 
 const normalizeLoginInput = (value: string) => value.trim()
+const normalizeLoginIdentifier = (value: string) => normalizeLoginInput(value).replace(/[\s\u3000]+/g, '')
 const normalizeCompanyIdInput = (value: string) =>
   value.trim().toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 
@@ -128,6 +129,8 @@ export async function saveStaffMember(staffMember: StaffMember, actor?: AuditAct
     ...staffMember,
     companyId: staffMember.franchiseeId || staffMember.companyId,
     franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+    loginId: staffMember.loginId || staffMember.userId || staffMember.name,
+    userId: staffMember.userId || staffMember.loginId || staffMember.name,
     isActive: staffMember.isActive ?? staffMember.enabled,
     canDrive: staffMember.canDrive ?? (staffMember.role === 'owner' || staffMember.role === 'driver'),
     ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
@@ -289,6 +292,7 @@ export async function authenticateStaff({
   const normalizedCompanyId = normalizeLoginInput(companyId)
   const normalizedCompanyIdSlug = normalizeCompanyIdInput(companyId)
   const normalizedUserId = normalizeLoginInput(userId)
+  const normalizedUserLoginIdentifier = normalizeLoginIdentifier(userId)
   const normalizedPassword = normalizeLoginInput(password)
   const [staffMembers, companies] = await Promise.all([fetchStaffMembers(), fetchCompanies()])
   const matchedCompanies = companies.filter(
@@ -303,7 +307,11 @@ export async function authenticateStaff({
     (staffMember) =>
       staffMember.enabled &&
       candidateCompanyIds.has(staffMember.companyId) &&
-      (staffMember.userId === normalizedUserId || staffMember.loginId === normalizedUserId) &&
+      (
+        normalizeLoginIdentifier(staffMember.userId) === normalizedUserLoginIdentifier ||
+        normalizeLoginIdentifier(staffMember.loginId || staffMember.userId) === normalizedUserLoginIdentifier ||
+        normalizeLoginIdentifier(staffMember.name) === normalizedUserLoginIdentifier
+      ) &&
       staffMember.password === normalizedPassword,
   )
 
@@ -314,7 +322,7 @@ export async function authenticateStaff({
   const representativeCompany = matchedCompanies.find((company) => {
     const representativeLoginId = company.representativeLoginId || company.representativeName || company.ownerName
     const representativePassword = company.representativeInitialPassword || defaultAdminStaffPassword
-    return representativeLoginId === normalizedUserId && representativePassword === normalizedPassword
+    return normalizeLoginIdentifier(representativeLoginId) === normalizedUserLoginIdentifier && representativePassword === normalizedPassword
   })
 
   if (!representativeCompany) {

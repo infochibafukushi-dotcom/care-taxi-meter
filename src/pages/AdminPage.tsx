@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
@@ -39,6 +39,7 @@ import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
 import { tenantScopeFromSession } from "../services/tenancy";
+import { loadAuthStaffSession } from "../services/authSession";
 
 type AdminSummaryState = {
   errorMessage: string;
@@ -384,11 +385,15 @@ const createSpecialVehicleMenuItem = (
 export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
-  const currentScope = tenantScopeFromSession(workSession.currentSession);
+  const authSession = useMemo(() => loadAuthStaffSession(), []);
+  const sessionSource = workSession.currentSession ?? authSession;
+  const currentScope = tenantScopeFromSession(sessionSource);
   const currentFranchiseeId = currentScope.franchiseeId;
   const currentStoreId = currentScope.storeId;
-  const currentStoreName = workSession.currentSession?.storeName || "本店";
-  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
+  const currentStoreName = sessionSource?.storeName || "本店";
+  const currentStaffId = workSession.currentSession?.staffId ?? authSession?.id ?? "";
+  const currentStaffName = workSession.currentSession?.staffName ?? authSession?.name ?? "";
+  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? authSession?.role ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -421,11 +426,39 @@ export function AdminPage() {
   const availableAdminCenterCards = adminCenterCards.filter((card) =>
     canAccessAdminSection(currentRole, card.id),
   );
+  const ownerDefaultStore: Store = stores.find((store) => store.id === currentStoreId) ?? {
+    id: currentStoreId,
+    companyId: currentFranchiseeId,
+    franchiseeId: currentFranchiseeId,
+    name: currentStoreName,
+    storeName: currentStoreName,
+    status: "active",
+    enabled: true,
+    isActive: true,
+    sortOrder: 1,
+  };
+  const isFranchiseeOwnerAdmin = currentRole === "owner";
+  const applyDefaultTenantToStaffMember = (staffMember: StaffMember): StaffMember => ({
+    ...staffMember,
+    companyId: isFranchiseeOwnerAdmin ? currentFranchiseeId : staffMember.franchiseeId || staffMember.companyId,
+    franchiseeId: isFranchiseeOwnerAdmin ? currentFranchiseeId : staffMember.franchiseeId || staffMember.companyId,
+    storeId: isFranchiseeOwnerAdmin ? ownerDefaultStore.id : staffMember.storeId,
+    storeName: isFranchiseeOwnerAdmin ? ownerDefaultStore.name : staffMember.storeName,
+    loginId: staffMember.loginId || staffMember.userId || staffMember.name,
+    userId: staffMember.userId || staffMember.loginId || staffMember.name,
+  });
+  const applyDefaultTenantToVehicle = (vehicle: Vehicle): Vehicle => ({
+    ...vehicle,
+    companyId: isFranchiseeOwnerAdmin ? currentFranchiseeId : vehicle.franchiseeId || vehicle.companyId,
+    franchiseeId: isFranchiseeOwnerAdmin ? currentFranchiseeId : vehicle.franchiseeId || vehicle.companyId,
+    storeId: isFranchiseeOwnerAdmin ? ownerDefaultStore.id : vehicle.storeId,
+    storeName: isFranchiseeOwnerAdmin ? ownerDefaultStore.name : vehicle.storeName,
+  });
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: currentStaffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return;
@@ -457,10 +490,10 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentRole, currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId]);
+  }, [currentRole, currentFranchiseeId, currentStoreId, currentStaffId]);
 
   useEffect(() => {
-    const staffId = workSession.currentSession?.staffId ?? "";
+    const staffId = currentStaffId;
 
     if (!staffId) {
       let isActive = true;
@@ -513,7 +546,7 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentFranchiseeId, currentRole, currentStoreId, workSession.currentSession?.staffId]);
+  }, [currentFranchiseeId, currentRole, currentStoreId, currentStaffId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -612,7 +645,7 @@ export function AdminPage() {
   ).length;
   const personalOperationMonthly = getPersonalOperationDays({
     caseRecords: summaryState.caseRecords,
-    staffId: workSession.currentSession?.staffId ?? "",
+    staffId: currentStaffId,
     workSessions: summaryState.workSessions,
   });
   const personalOperationTotals = personalOperationMonthly.days.reduce(
@@ -913,14 +946,15 @@ export function AdminPage() {
   };
 
   const createStaffMember = (): StaffMember => {
-    const primaryStore = stores[0];
+    const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       storeId: primaryStore?.id ?? "",
       storeName: primaryStore?.name ?? "",
-      userId: "",
+      userId: "新しい従業員",
+      loginId: "新しい従業員",
       password: "",
       name: "新しい従業員",
       role: "driver",
@@ -939,7 +973,7 @@ export function AdminPage() {
   };
 
   const createVehicle = (): Vehicle => {
-    const primaryStore = stores[0];
+    const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
@@ -988,7 +1022,7 @@ export function AdminPage() {
   const updateStaffMember = (id: string, updates: Partial<StaffMember>) => {
     setStaffMembers((currentStaffMembers) =>
       currentStaffMembers.map((staffMember) =>
-        staffMember.id === id ? { ...staffMember, ...updates } : staffMember,
+        staffMember.id === id ? applyDefaultTenantToStaffMember({ ...staffMember, ...updates }) : staffMember,
       ),
     );
   };
@@ -996,7 +1030,7 @@ export function AdminPage() {
   const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
     setVehicles((currentVehicles) =>
       currentVehicles.map((vehicle) =>
-        vehicle.id === id ? { ...vehicle, ...updates } : vehicle,
+        vehicle.id === id ? applyDefaultTenantToVehicle({ ...vehicle, ...updates }) : vehicle,
       ),
     );
   };
@@ -1035,16 +1069,16 @@ export function AdminPage() {
     }
 
     try {
-      const auditActor = workSession.currentSession
+      const auditActor = currentStaffId
         ? {
-            franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
-            role: workSession.currentSession.staffRole,
-            storeId: workSession.currentSession.storeId,
-            userId: workSession.currentSession.staffId,
-            userName: workSession.currentSession.staffName,
+            franchiseeId: currentFranchiseeId,
+            role: currentRole || "driver",
+            storeId: currentStoreId,
+            userId: currentStaffId,
+            userName: currentStaffName,
           }
         : null;
-      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(staffMember, auditActor)));
+      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(applyDefaultTenantToStaffMember(staffMember), auditActor)));
       setMasterMessage("従業員情報を保存しました。");
     } catch (error) {
       setMasterMessage(
@@ -1064,7 +1098,7 @@ export function AdminPage() {
     }
 
     try {
-      await Promise.all(vehicles.map(saveVehicle));
+      await Promise.all(vehicles.map((vehicle) => saveVehicle(applyDefaultTenantToVehicle(vehicle))));
       setMasterMessage("車両情報を保存しました。");
     } catch (error) {
       setMasterMessage(
@@ -1289,6 +1323,7 @@ export function AdminPage() {
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
               canAssignHqAdmin={currentRole === "hq_admin"}
+              canSelectStore={!isFranchiseeOwnerAdmin}
             />
           ) : null}
 
@@ -1305,6 +1340,7 @@ export function AdminPage() {
               }
               onSave={handleVehicleSave}
               onUpdate={updateVehicle}
+              canSelectStore={!isFranchiseeOwnerAdmin}
             />
           ) : null}
 
