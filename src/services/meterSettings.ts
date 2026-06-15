@@ -410,11 +410,17 @@ export async function fetchMeterSettings(scope?: TenantScope) {
     return sanitizeMeterSettings(snapshot.data())
   }
 
-  const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
-  if (legacySnapshot.exists()) {
-    const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
-    await saveMeterSettings(migratedSettings, scope)
-    return migratedSettings
+  const targetScope = scope ?? { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }
+  const isDefaultScope =
+    targetScope.franchiseeId === defaultFranchiseeId && targetScope.storeId === defaultStoreId
+
+  if (isDefaultScope) {
+    const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
+    if (legacySnapshot.exists()) {
+      const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
+      await saveMeterSettings(migratedSettings, scope)
+      return migratedSettings
+    }
   }
 
   await saveMeterSettings(defaultMeterSettings, scope)
