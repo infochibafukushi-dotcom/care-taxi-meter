@@ -4542,6 +4542,13 @@ h1 {
   font-weight: 800;
 }
 
+.login-field-hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .login-form input,
 .work-session-form input {
   min-height: 44px;

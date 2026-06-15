@@ -8,6 +8,7 @@ type VehicleManagementPanelProps = {
   onAdd: () => void
   onSave: () => void
   onUpdate: (id: string, updates: Partial<Vehicle>) => void
+  canSelectStore?: boolean
 }
 
 export function VehicleManagementPanel({
@@ -17,6 +18,7 @@ export function VehicleManagementPanel({
   onAdd,
   onSave,
   onUpdate,
+  canSelectStore = true,
 }: VehicleManagementPanelProps) {
   const handleStoreChange = (vehicle: Vehicle, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -67,12 +69,16 @@ export function VehicleManagementPanel({
                   <td><input min="1" type="number" value={vehicle.sortOrder} onChange={(event) => onUpdate(vehicle.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })} /></td>
                   <td><input value={vehicle.companyId} onChange={(event) => onUpdate(vehicle.id, { companyId: event.target.value })} /></td>
                   <td>
-                    <select value={vehicle.storeId} onChange={(event) => handleStoreChange(vehicle, event.target.value)}>
-                      <option value="">未設定</option>
-                      {stores
-                        .filter((store) => !vehicle.companyId || store.companyId === vehicle.companyId)
-                        .map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
-                    </select>
+                    {canSelectStore ? (
+                      <select value={vehicle.storeId} onChange={(event) => handleStoreChange(vehicle, event.target.value)}>
+                        <option value="">未設定</option>
+                        {stores
+                          .filter((store) => !vehicle.companyId || store.companyId === vehicle.companyId)
+                          .map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+                      </select>
+                    ) : (
+                      <span>{vehicle.storeName || stores.find((store) => store.id === vehicle.storeId)?.name || '既定店舗'}</span>
+                    )}
                   </td>
                   <td><input value={vehicle.name} onChange={(event) => onUpdate(vehicle.id, { name: event.target.value })} /></td>
                   <td><input value={vehicle.number} onChange={(event) => onUpdate(vehicle.id, { number: event.target.value })} /></td>

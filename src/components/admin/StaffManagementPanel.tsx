@@ -9,6 +9,7 @@ type StaffManagementPanelProps = {
   onSave: () => void
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
   canAssignHqAdmin?: boolean
+  canSelectStore?: boolean
 }
 
 export function StaffManagementPanel({
@@ -19,6 +20,7 @@ export function StaffManagementPanel({
   onSave,
   onUpdate,
   canAssignHqAdmin = false,
+  canSelectStore = true,
 }: StaffManagementPanelProps) {
   const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -71,15 +73,19 @@ export function StaffManagementPanel({
                   <td><input min="1" type="number" value={staffMember.sortOrder} onChange={(event) => onUpdate(staffMember.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })} /></td>
                   <td><input value={staffMember.companyId} onChange={(event) => onUpdate(staffMember.id, { companyId: event.target.value })} /></td>
                   <td>
-                    <select value={staffMember.storeId} onChange={(event) => handleStoreChange(staffMember, event.target.value)}>
-                      <option value="">未設定</option>
-                      {stores
-                        .filter((store) => !staffMember.companyId || store.companyId === staffMember.companyId)
-                        .map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
-                    </select>
+                    {canSelectStore ? (
+                      <select value={staffMember.storeId} onChange={(event) => handleStoreChange(staffMember, event.target.value)}>
+                        <option value="">未設定</option>
+                        {stores
+                          .filter((store) => !staffMember.companyId || store.companyId === staffMember.companyId)
+                          .map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+                      </select>
+                    ) : (
+                      <span>{staffMember.storeName || stores.find((store) => store.id === staffMember.storeId)?.name || '既定店舗'}</span>
+                    )}
                   </td>
                   <td><input value={staffMember.name} onChange={(event) => onUpdate(staffMember.id, { name: event.target.value })} /></td>
-                  <td><input value={staffMember.userId} onChange={(event) => onUpdate(staffMember.id, { userId: event.target.value })} /></td>
+                  <td><input value={staffMember.userId || staffMember.loginId || staffMember.name} onChange={(event) => onUpdate(staffMember.id, { userId: event.target.value, loginId: event.target.value })} /></td>
                   <td><input type="password" value={staffMember.password} onChange={(event) => onUpdate(staffMember.id, { password: event.target.value })} /></td>
                   <td>
                     <select

@@ -421,6 +421,34 @@ export function AdminPage() {
   const availableAdminCenterCards = adminCenterCards.filter((card) =>
     canAccessAdminSection(currentRole, card.id),
   );
+  const ownerDefaultStore: Store = stores.find((store) => store.id === currentStoreId) ?? {
+    id: currentStoreId,
+    companyId: currentFranchiseeId,
+    franchiseeId: currentFranchiseeId,
+    name: currentStoreName,
+    storeName: currentStoreName,
+    status: "active",
+    enabled: true,
+    isActive: true,
+    sortOrder: 1,
+  };
+  const isFranchiseeOwnerAdmin = currentRole === "owner";
+  const applyDefaultTenantToStaffMember = (staffMember: StaffMember): StaffMember => ({
+    ...staffMember,
+    companyId: isFranchiseeOwnerAdmin ? currentFranchiseeId : staffMember.franchiseeId || staffMember.companyId,
+    franchiseeId: isFranchiseeOwnerAdmin ? currentFranchiseeId : staffMember.franchiseeId || staffMember.companyId,
+    storeId: isFranchiseeOwnerAdmin ? ownerDefaultStore.id : staffMember.storeId,
+    storeName: isFranchiseeOwnerAdmin ? ownerDefaultStore.name : staffMember.storeName,
+    loginId: staffMember.loginId || staffMember.userId || staffMember.name,
+    userId: staffMember.userId || staffMember.loginId || staffMember.name,
+  });
+  const applyDefaultTenantToVehicle = (vehicle: Vehicle): Vehicle => ({
+    ...vehicle,
+    companyId: isFranchiseeOwnerAdmin ? currentFranchiseeId : vehicle.franchiseeId || vehicle.companyId,
+    franchiseeId: isFranchiseeOwnerAdmin ? currentFranchiseeId : vehicle.franchiseeId || vehicle.companyId,
+    storeId: isFranchiseeOwnerAdmin ? ownerDefaultStore.id : vehicle.storeId,
+    storeName: isFranchiseeOwnerAdmin ? ownerDefaultStore.name : vehicle.storeName,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -913,14 +941,15 @@ export function AdminPage() {
   };
 
   const createStaffMember = (): StaffMember => {
-    const primaryStore = stores[0];
+    const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
       storeId: primaryStore?.id ?? "",
       storeName: primaryStore?.name ?? "",
-      userId: "",
+      userId: "新しい従業員",
+      loginId: "新しい従業員",
       password: "",
       name: "新しい従業員",
       role: "driver",
@@ -939,7 +968,7 @@ export function AdminPage() {
   };
 
   const createVehicle = (): Vehicle => {
-    const primaryStore = stores[0];
+    const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
       companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
@@ -988,7 +1017,7 @@ export function AdminPage() {
   const updateStaffMember = (id: string, updates: Partial<StaffMember>) => {
     setStaffMembers((currentStaffMembers) =>
       currentStaffMembers.map((staffMember) =>
-        staffMember.id === id ? { ...staffMember, ...updates } : staffMember,
+        staffMember.id === id ? applyDefaultTenantToStaffMember({ ...staffMember, ...updates }) : staffMember,
       ),
     );
   };
@@ -996,7 +1025,7 @@ export function AdminPage() {
   const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
     setVehicles((currentVehicles) =>
       currentVehicles.map((vehicle) =>
-        vehicle.id === id ? { ...vehicle, ...updates } : vehicle,
+        vehicle.id === id ? applyDefaultTenantToVehicle({ ...vehicle, ...updates }) : vehicle,
       ),
     );
   };
@@ -1044,7 +1073,7 @@ export function AdminPage() {
             userName: workSession.currentSession.staffName,
           }
         : null;
-      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(staffMember, auditActor)));
+      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(applyDefaultTenantToStaffMember(staffMember), auditActor)));
       setMasterMessage("従業員情報を保存しました。");
     } catch (error) {
       setMasterMessage(
@@ -1064,7 +1093,7 @@ export function AdminPage() {
     }
 
     try {
-      await Promise.all(vehicles.map(saveVehicle));
+      await Promise.all(vehicles.map((vehicle) => saveVehicle(applyDefaultTenantToVehicle(vehicle))));
       setMasterMessage("車両情報を保存しました。");
     } catch (error) {
       setMasterMessage(
@@ -1289,6 +1318,7 @@ export function AdminPage() {
               onSave={handleStaffSave}
               onUpdate={updateStaffMember}
               canAssignHqAdmin={currentRole === "hq_admin"}
+              canSelectStore={!isFranchiseeOwnerAdmin}
             />
           ) : null}
 
@@ -1305,6 +1335,7 @@ export function AdminPage() {
               }
               onSave={handleVehicleSave}
               onUpdate={updateVehicle}
+              canSelectStore={!isFranchiseeOwnerAdmin}
             />
           ) : null}
 
