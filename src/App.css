@@ -6865,3 +6865,51 @@ h1 {
   opacity: 0.65;
   pointer-events: none;
 }
+
+.meter-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.56em;
+  vertical-align: middle;
+}
+
+.meter-mode-badge--gps { background: #3b82f6; }
+.meter-mode-badge--time { background: #a855f7; }
+.meter-mode-badge--obd { background: #10b981; }
+
+.meter-mode-toast {
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(15 23 42 / 92%);
+  text-align: center;
+  font-weight: 900;
+}
+
+.fare-accordion-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.fare-settings-accordion {
+  border: 1px solid rgb(15 23 42 / 12%);
+  border-radius: 20px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.fare-settings-accordion summary {
+  cursor: pointer;
+  padding: 16px 18px;
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.fare-settings-accordion > .admin-settings-grid {
+  padding: 0 16px 16px;
+}

@@ -37,6 +37,7 @@ import {
   defaultMeterSettings,
   fetchMeterSettings,
   fixedTimeFareUnitSeconds,
+  selectMeterModeSettings,
   subscribeMeterSettings,
 } from '../services/meterSettings'
 import type {
@@ -46,7 +47,7 @@ import type {
   SpecialVehicleMenuItem,
   TimeFareSettings,
 } from '../services/fare'
-import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
+import type { ExpensePreset, MeterMode, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
@@ -106,6 +107,13 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
+const meterModeStorageKey = 'careTaxiMeterMode'
+const meterModeLabels: Record<MeterMode, string> = { gps: 'GPSM', time: '時間M', obd: 'OBDM' }
+const meterModeOrder: MeterMode[] = ['gps', 'time', 'obd']
+const readStoredMeterMode = (): MeterMode => {
+  const storedMode = window.localStorage.getItem(meterModeStorageKey)
+  return storedMode === 'time' || storedMode === 'obd' ? storedMode : 'gps'
+}
 
 const isDevelopmentMode = import.meta.env.DEV
 const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
@@ -495,6 +503,8 @@ export function CasePage() {
   const [isSettlementConfirmOpen, setIsSettlementConfirmOpen] = useState(false)
   const [settlementEditBaseline, setSettlementEditBaseline] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [meterMode, setMeterMode] = useState<MeterMode>(readStoredMeterMode)
+  const [meterModeToast, setMeterModeToast] = useState('')
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
       ? '未終了の運行データを復元しました。'
@@ -568,6 +578,8 @@ export function CasePage() {
     useState<SettlementFlowStep>('receipt')
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
+  const latestMeterSettingsRef = useRef<MeterSettings>(defaultMeterSettings)
+  const meterModeHoldTimerRef = useRef<number | null>(null)
   const settlementHoldTimerRef = useRef<number | null>(null)
   const resumeHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
@@ -765,16 +777,18 @@ export function CasePage() {
           return
         }
 
-        setCurrentMeterSettings(settings)
-        setCurrentBasicFareSettings(settings.basicFare)
-        setCurrentWaitingFareSettings(settings.waitingFare)
-        setCurrentEscortFareSettings(settings.escortFare)
-        setCurrentCareOptionMaster(settings.assistItems)
-        setCurrentDispatchMenuItems(settings.dispatchMenuItems)
-        setCurrentSpecialVehicleMenuItems(settings.specialVehicleMenuItems)
+        latestMeterSettingsRef.current = settings
+        const selectedSettings = selectMeterModeSettings(settings, meterMode)
+        setCurrentMeterSettings(selectedSettings)
+        setCurrentBasicFareSettings(selectedSettings.basicFare)
+        setCurrentWaitingFareSettings(selectedSettings.waitingFare)
+        setCurrentEscortFareSettings(selectedSettings.escortFare)
+        setCurrentCareOptionMaster(selectedSettings.assistItems)
+        setCurrentDispatchMenuItems(selectedSettings.dispatchMenuItems)
+        setCurrentSpecialVehicleMenuItems(selectedSettings.specialVehicleMenuItems)
         setCurrentExpensePresets(settings.expensePresets)
         if (!operationStartedAtRef.current) {
-          setSettlementDiscount(settings.discount)
+          setSettlementDiscount(selectedSettings.discount)
         }
         setSettingsMessage('Firestore設定をリアルタイム反映しています。')
       },
@@ -795,7 +809,7 @@ export function CasePage() {
       isMounted = false
       unsubscribe()
     }
-  }, [currentFranchiseeId, currentStoreId])
+  }, [currentFranchiseeId, currentStoreId, meterMode])
 
 
   useEffect(() => {
@@ -2099,6 +2113,34 @@ export function CasePage() {
     setMeterResetKey((currentKey) => currentKey + 1)
   }
 
+  useEffect(() => {
+    window.localStorage.setItem(meterModeStorageKey, meterMode)
+  }, [meterMode])
+
+  useEffect(() => {
+    if (!meterModeToast) return
+    const timerId = window.setTimeout(() => setMeterModeToast(''), 2500)
+    return () => window.clearTimeout(timerId)
+  }, [meterModeToast])
+
+  const handleMeterModeSwitchRequest = () => {
+    const currentIndex = meterModeOrder.indexOf(meterMode)
+    const nextMode = meterModeOrder[(currentIndex + 1) % meterModeOrder.length]
+    if (!window.confirm(`${meterModeLabels[nextMode]}へ切り替えますか？`)) return
+    setMeterMode(nextMode)
+    setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
+    setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
+  }
+
+  const startMeterModeHold = () => {
+    meterModeHoldTimerRef.current = window.setTimeout(handleMeterModeSwitchRequest, 2000)
+  }
+  const cancelMeterModeHold = () => {
+    if (meterModeHoldTimerRef.current === null) return
+    window.clearTimeout(meterModeHoldTimerRef.current)
+    meterModeHoldTimerRef.current = null
+  }
+
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
   const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
   const waitingClockLabel = formatTimerClock(adjustedWaitingSeconds, true)
@@ -2128,14 +2170,16 @@ export function CasePage() {
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
-            <section className="r9-fare-card" aria-label="現在料金">
+            <section className="r9-fare-card" aria-label="現在料金" onPointerDown={startMeterModeHold} onPointerLeave={cancelMeterModeHold} onPointerUp={cancelMeterModeHold}>
               <div className="r9-fare-screen">
-                <h1>合計金額</h1>
+                <h1>合計金額 <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>{meterModeLabels[meterMode]}</span></h1>
                 <div className="r9-fare-amount">
                   <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
                   <span className="r9-fare-unit">円</span>
                 </div>
               </div>
+
+              {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
               <div className="fare-increase-stack" aria-label="加算インジケーター">
                 <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>

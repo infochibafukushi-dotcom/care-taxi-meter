@@ -49,7 +49,33 @@ export type ReceiptSettings = {
   defaultReceiptNote: string
 }
 
+export type MeterMode = 'gps' | 'time' | 'obd'
+
+export type TimeMeterFareSettings = {
+  additionalFare: TimeFareSettings
+  baseFareYen: number
+  baseMinutes: number
+}
+
+export type MeterModeFareSettings = {
+  basicFare: BasicFareSettings
+  waitingFare: TimeFareSettings
+  escortFare: TimeFareSettings
+  meterTimeFare: MeterTimeFareSettings
+  assistItems: CareOptionMasterItem[]
+  dispatchMenuItems: DispatchMenuItem[]
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
+  discount: DiscountSettings
+}
+
+export type MeterSettingsByMode = {
+  gps: MeterModeFareSettings
+  time: TimeMeterFareSettings & Pick<MeterModeFareSettings, 'waitingFare' | 'escortFare' | 'assistItems' | 'dispatchMenuItems' | 'specialVehicleMenuItems' | 'discount'>
+  obd: MeterModeFareSettings
+}
+
 export type MeterSettings = {
+  meterSettings: MeterSettingsByMode
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
@@ -75,7 +101,42 @@ const settingsCollectionName = 'meterSettings'
 const meterSettingsDocumentId = 'meterSettings'
 export const fixedTimeFareUnitSeconds = 30 * 60
 
+const defaultTimeMeterSettings = {
+  additionalFare: { unitFareYen: 2000, unitSeconds: fixedTimeFareUnitSeconds },
+  assistItems: careOptionMaster,
+  baseFareYen: 4000,
+  baseMinutes: 30,
+  discount: DEFAULT_DISCOUNT_SETTINGS,
+  dispatchMenuItems: dispatchMenuMaster,
+  escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+  specialVehicleMenuItems: specialVehicleMenuMaster,
+  waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+}
+
 export const defaultMeterSettings: MeterSettings = {
+  meterSettings: {
+    gps: {
+      assistItems: careOptionMaster,
+      basicFare: basicFareSettings,
+      discount: DEFAULT_DISCOUNT_SETTINGS,
+      dispatchMenuItems: dispatchMenuMaster,
+      escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+      meterTimeFare: meterTimeFareSettings,
+      specialVehicleMenuItems: specialVehicleMenuMaster,
+      waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+    },
+    time: defaultTimeMeterSettings,
+    obd: {
+      assistItems: careOptionMaster,
+      basicFare: basicFareSettings,
+      discount: DEFAULT_DISCOUNT_SETTINGS,
+      dispatchMenuItems: dispatchMenuMaster,
+      escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+      meterTimeFare: meterTimeFareSettings,
+      specialVehicleMenuItems: specialVehicleMenuMaster,
+      waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+    },
+  },
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
@@ -102,6 +163,7 @@ export const defaultMeterSettings: MeterSettings = {
   },
   discount: DEFAULT_DISCOUNT_SETTINGS,
 }
+
 
 const toPositiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   const numberValue = Number(value)
@@ -384,21 +446,87 @@ function sanitizeReceipt(value: unknown): ReceiptSettings {
   }
 }
 
-export function sanitizeMeterSettings(value: unknown): MeterSettings {
+function sanitizeMeterModeFareSettings(value: unknown, fallback: MeterModeFareSettings): MeterModeFareSettings {
   const source = toObject(value)
 
   return {
+    assistItems: sanitizeAssistItems(source.assistItems ?? fallback.assistItems),
+    basicFare: sanitizeBasicFare(source.basicFare ?? fallback.basicFare),
+    discount: sanitizeDiscount(source.discount ?? fallback.discount),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems ?? fallback.dispatchMenuItems),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, fallback.escortFare),
+    meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare ?? fallback.meterTimeFare),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems ?? fallback.specialVehicleMenuItems),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, fallback.waitingFare),
+  }
+}
+
+function sanitizeTimeMeterSettings(value: unknown, fallback: MeterSettingsByMode['time']): MeterSettingsByMode['time'] {
+  const source = toObject(value)
+
+  return {
+    additionalFare: sanitizeFixedTimeFare(source.additionalFare, fallback.additionalFare),
+    assistItems: sanitizeAssistItems(source.assistItems ?? fallback.assistItems),
+    baseFareYen: toPositiveNumber(source.baseFareYen ?? source.baseFare, fallback.baseFareYen),
+    baseMinutes: Math.max(Math.floor(toPositiveNumber(source.baseMinutes, fallback.baseMinutes, 1)), 1),
+    discount: sanitizeDiscount(source.discount ?? fallback.discount),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems ?? fallback.dispatchMenuItems),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, fallback.escortFare),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems ?? fallback.specialVehicleMenuItems),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, fallback.waitingFare),
+  }
+}
+
+export function selectMeterModeSettings(settings: MeterSettings, mode: MeterMode): MeterSettings {
+  if (mode === 'gps' || mode === 'obd') {
+    const modeSettings = settings.meterSettings[mode]
+    return { ...settings, ...modeSettings }
+  }
+
+  const timeSettings = settings.meterSettings.time
+  return {
+    ...settings,
+    assistItems: timeSettings.assistItems,
+    basicFare: { initialDistanceKm: 1, initialFareYen: timeSettings.baseFareYen, additionalDistanceKm: 1, additionalFareYen: 0 },
+    discount: timeSettings.discount,
+    dispatchMenuItems: timeSettings.dispatchMenuItems,
+    escortFare: timeSettings.escortFare,
+    meterTimeFare: { lowSpeedThresholdKmh: 999, unitFareYen: timeSettings.additionalFare.unitFareYen, unitSeconds: timeSettings.additionalFare.unitSeconds },
+    specialVehicleMenuItems: timeSettings.specialVehicleMenuItems,
+    waitingFare: timeSettings.waitingFare,
+  }
+}
+
+export function sanitizeMeterSettings(value: unknown): MeterSettings {
+  const source = toObject(value)
+  const legacyGps = {
     basicFare: sanitizeBasicFare(source.basicFare),
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
-    company: sanitizeCompany(source.company),
     discount: sanitizeDiscount(source.discount),
     dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems),
-    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems),
     escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),
-    expensePresets: sanitizeExpensePresets(source.expensePresets),
     meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare),
-    receipt: sanitizeReceipt(source.receipt),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems),
     waitingFare: sanitizeFixedTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
+  }
+  const modeSource = toObject(source.meterSettings)
+  const gps = sanitizeMeterModeFareSettings(modeSource.gps ?? source.gps ?? legacyGps, legacyGps)
+  const obd = sanitizeMeterModeFareSettings(modeSource.obd ?? source.obd ?? gps, gps)
+  const time = sanitizeTimeMeterSettings(modeSource.time ?? source.time, defaultMeterSettings.meterSettings.time)
+
+  return {
+    meterSettings: { gps, time, obd },
+    basicFare: gps.basicFare,
+    assistItems: gps.assistItems,
+    company: sanitizeCompany(source.company),
+    discount: gps.discount,
+    dispatchMenuItems: gps.dispatchMenuItems,
+    specialVehicleMenuItems: gps.specialVehicleMenuItems,
+    escortFare: gps.escortFare,
+    expensePresets: sanitizeExpensePresets(source.expensePresets),
+    meterTimeFare: gps.meterTimeFare,
+    receipt: sanitizeReceipt(source.receipt),
+    waitingFare: gps.waitingFare,
   }
 }
 
@@ -464,7 +592,24 @@ export function subscribeLegacyMeterSettings(
 export async function saveMeterSettings(settings: MeterSettings, scope: TenantScope = { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }) {
   const settingsRef = getMeterSettingsRef(scope)
   const beforeSnapshot = await getDoc(settingsRef)
-  const sanitizedSettings = sanitizeMeterSettings(settings)
+  const settingsWithCurrentGps = {
+    ...settings,
+    meterSettings: {
+      ...settings.meterSettings,
+      gps: {
+        ...settings.meterSettings.gps,
+        assistItems: settings.assistItems,
+        basicFare: settings.basicFare,
+        discount: settings.discount,
+        dispatchMenuItems: settings.dispatchMenuItems,
+        escortFare: settings.escortFare,
+        meterTimeFare: settings.meterTimeFare,
+        specialVehicleMenuItems: settings.specialVehicleMenuItems,
+        waitingFare: settings.waitingFare,
+      },
+    },
+  }
+  const sanitizedSettings = sanitizeMeterSettings(settingsWithCurrentGps)
   const document: MeterSettingsDocument = {
     ...sanitizedSettings,
     ...tenantFields(scope),
