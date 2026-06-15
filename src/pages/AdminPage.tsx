@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
@@ -39,6 +39,7 @@ import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
 import { tenantScopeFromSession } from "../services/tenancy";
+import { loadAuthStaffSession } from "../services/authSession";
 
 type AdminSummaryState = {
   errorMessage: string;
@@ -384,11 +385,15 @@ const createSpecialVehicleMenuItem = (
 export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
-  const currentScope = tenantScopeFromSession(workSession.currentSession);
+  const authSession = useMemo(() => loadAuthStaffSession(), []);
+  const sessionSource = workSession.currentSession ?? authSession;
+  const currentScope = tenantScopeFromSession(sessionSource);
   const currentFranchiseeId = currentScope.franchiseeId;
   const currentStoreId = currentScope.storeId;
-  const currentStoreName = workSession.currentSession?.storeName || "本店";
-  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
+  const currentStoreName = sessionSource?.storeName || "本店";
+  const currentStaffId = workSession.currentSession?.staffId ?? authSession?.id ?? "";
+  const currentStaffName = workSession.currentSession?.staffName ?? authSession?.name ?? "";
+  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? authSession?.role ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -453,7 +458,7 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: currentStaffId })
       .then((caseRecords) => {
         if (!isMounted) {
           return;
@@ -485,10 +490,10 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentRole, currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId]);
+  }, [currentRole, currentFranchiseeId, currentStoreId, currentStaffId]);
 
   useEffect(() => {
-    const staffId = workSession.currentSession?.staffId ?? "";
+    const staffId = currentStaffId;
 
     if (!staffId) {
       let isActive = true;
@@ -541,7 +546,7 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentFranchiseeId, currentRole, currentStoreId, workSession.currentSession?.staffId]);
+  }, [currentFranchiseeId, currentRole, currentStoreId, currentStaffId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -640,7 +645,7 @@ export function AdminPage() {
   ).length;
   const personalOperationMonthly = getPersonalOperationDays({
     caseRecords: summaryState.caseRecords,
-    staffId: workSession.currentSession?.staffId ?? "",
+    staffId: currentStaffId,
     workSessions: summaryState.workSessions,
   });
   const personalOperationTotals = personalOperationMonthly.days.reduce(
@@ -1064,13 +1069,13 @@ export function AdminPage() {
     }
 
     try {
-      const auditActor = workSession.currentSession
+      const auditActor = currentStaffId
         ? {
-            franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
-            role: workSession.currentSession.staffRole,
-            storeId: workSession.currentSession.storeId,
-            userId: workSession.currentSession.staffId,
-            userName: workSession.currentSession.staffName,
+            franchiseeId: currentFranchiseeId,
+            role: currentRole || "driver",
+            storeId: currentStoreId,
+            userId: currentStaffId,
+            userName: currentStaffName,
           }
         : null;
       await Promise.all(staffMembers.map((staffMember) => saveStaffMember(applyDefaultTenantToStaffMember(staffMember), auditActor)));
