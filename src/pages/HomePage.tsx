@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { authenticateStaff } from '../services/staffMembers'
 import { defaultCompany, fetchCompanies } from '../services/companies'
-import { defaultCompanyId, fetchStores } from '../services/stores'
+import { fetchStores } from '../services/stores'
 import { fetchCaseRecords } from '../services/caseRecords'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
@@ -182,7 +182,7 @@ export function HomePage() {
   const workSession = useWorkSession()
   const navigate = useNavigate()
   const [loginForm, setLoginForm] = useState<LoginForm>({
-    companyId: defaultCompanyId,
+    companyId: '',
     userId: '',
     password: '',
   })
@@ -592,14 +592,13 @@ export function HomePage() {
         {activeTripRestoreNotice}
         <section className="hero-card login-card">
           <div className="login-intro">
-            <p className="eyebrow">Login</p>
-            <h1 id="home-title">ログイン</h1>
-            <p className="lead">会社ID・ログインID・パスワードでログインします。FC本部管理者は出勤せず本部画面へ移動します。</p>
+            <h1 id="home-title">ケアタクシー業務システム</h1>
+            <p className="lead login-subtitle">ログイン</p>
           </div>
           <div className="login-form">
             <label>
               会社ID
-              <input value={loginForm.companyId} onChange={(event) => handleLoginChange('companyId', event.target.value)} />
+              <input placeholder="会社IDを入力" value={loginForm.companyId} onChange={(event) => handleLoginChange('companyId', event.target.value)} />
             </label>
             <label>
               ログインID

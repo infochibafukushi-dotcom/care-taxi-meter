@@ -686,6 +686,13 @@ export function AdminPage() {
     }));
   };
 
+  const updateDiscount = (updates: Partial<MeterSettings["discount"]>) => {
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      discount: { ...currentSettings.discount, ...updates },
+    }));
+  };
+
   const updateWaitingFare = (value: string) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
@@ -1069,6 +1076,7 @@ export function AdminPage() {
   };
 
   const handleSettingsSave = async () => {
+    const hasEmptyDiscountName = !settings.discount.name.trim();
     const hasEmptyAssistItemName = settings.assistItems.some(
       (assistItem) => !assistItem.name.trim(),
     );
@@ -1081,13 +1089,14 @@ export function AdminPage() {
       );
 
     if (
+      hasEmptyDiscountName ||
       hasEmptyAssistItemName ||
       hasEmptyDispatchMenuName ||
       hasEmptySpecialVehicleMenuName
     ) {
       setSettingsSaveState("error");
       setSettingsMessage(
-        "介助項目・予約迎車・特殊車両メニューの名称は空欄にできません。",
+        "割引名称・介助項目・予約迎車・特殊車両メニューの名称は空欄にできません。",
       );
       return;
     }
@@ -1404,6 +1413,40 @@ export function AdminPage() {
                     onChange={(event) =>
                       updateMeterTimeFare("unitFareYen", event.target.value)
                     }
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>割引設定</legend>
+                <p className="admin-settings-note">
+                  精算画面・領収書・利用明細に表示する割引名称と計算方式を設定します。
+                </p>
+                <label>
+                  割引名称
+                  <input
+                    value={settings.discount.name}
+                    onChange={(event) => updateDiscount({ name: event.target.value })}
+                  />
+                </label>
+                <label>
+                  割引方式
+                  <select
+                    value={settings.discount.method}
+                    onChange={(event) => updateDiscount({ method: event.target.value === "fixed" ? "fixed" : "percentage" })}
+                  >
+                    <option value="percentage">割合割引（％）</option>
+                    <option value="fixed">固定額割引（円）</option>
+                  </select>
+                </label>
+                <label>
+                  割引値（{settings.discount.method === "percentage" ? "％" : "円"}）
+                  <input
+                    min="0"
+                    step="1"
+                    type="number"
+                    value={settings.discount.value}
+                    onChange={(event) => updateDiscount({ value: toPositiveNumber(event.target.value) })}
                   />
                 </label>
               </fieldset>

@@ -165,6 +165,9 @@ export type CaseRecordDocument = {
   isDisabilityDiscount: boolean
   disabilityDiscountRate: number
   disabilityDiscountAmount: number
+  discountName: string
+  discountMethod: 'percentage' | 'fixed'
+  discountValue: number
   taxiTicketAmountYen: number
   taxiTickets: TaxiTicket[]
   paymentMethod: string
@@ -586,6 +589,9 @@ const toStoredCaseRecord = (
     isDisabilityDiscount: toBoolean(data.isDisabilityDiscount),
     disabilityDiscountRate: toNumber(data.disabilityDiscountRate),
     disabilityDiscountAmount: toNumber(data.disabilityDiscountAmount),
+    discountName: toString(data.discountName) || '割引',
+    discountMethod: data.discountMethod === 'fixed' ? 'fixed' : 'percentage',
+    discountValue: toNumber(data.discountValue) || (toNumber(data.disabilityDiscountRate) * 100),
     taxiTicketAmountYen: toNumber(data.taxiTicketAmountYen),
     taxiTickets: toTaxiTickets(data.taxiTickets),
     paymentMethod: toPaymentMethod(data.paymentMethod),
@@ -772,6 +778,9 @@ export async function saveCaseRecord({
     isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
     disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
     disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+    discountName: fareBreakdown.discountName,
+    discountMethod: fareBreakdown.discountMethod,
+    discountValue: fareBreakdown.discountValue,
     taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
     taxiTickets,
     paymentMethod,

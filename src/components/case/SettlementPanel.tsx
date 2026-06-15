@@ -81,7 +81,7 @@ export function SettlementPanel({
           type="checkbox"
           onChange={(event) => onDisabilityDiscountChange(event.target.checked)}
         />
-        障害者割引を適用（基本運賃＋時間距離併用運賃の10％、10円未満切り捨て）
+        {breakdown.discountName}を適用（{breakdown.discountMethod === 'percentage' ? `${breakdown.discountValue}％` : `${formatFareYen(breakdown.discountValue)}円`}）
       </label>
       <div className="settlement-lines" aria-label="精算内訳">
         {breakdown.lineItems.map((item) => (

@@ -192,7 +192,7 @@ export async function ensureDefaultAdminStaffMember() {
         enabled: true,
         storeId: headquartersStore.id,
         storeName: headquartersStore.name,
-        memo: existingStaffMember.memo || 'FC本部初期管理者アカウント',
+        memo: existingStaffMember.memo || '株式会社千葉福祉サポート初期管理者アカウント',
       }
 
       await setDoc(staffMemberRef, {
@@ -210,7 +210,7 @@ export async function ensureDefaultAdminStaffMember() {
     companyId: defaultCompanyId,
     franchiseeId: defaultCompanyId,
     storeId: headquartersStore.id,
-    storeName: 'FC本部',
+    storeName: '株式会社千葉福祉サポート',
     userId: defaultAdminStaffUserId,
     password: defaultAdminStaffPassword,
     name: '山本信勝',
@@ -223,7 +223,7 @@ export async function ensureDefaultAdminStaffMember() {
     licenseNumber: '',
     licenseExpiresAt: '',
     accidentHistory: '',
-    memo: 'FC本部初期管理者アカウント',
+    memo: '株式会社千葉福祉サポート初期管理者アカウント',
     enabled: true,
     sortOrder: 1,
   }
@@ -266,7 +266,7 @@ async function migrateLegacySuperAdminStaffMembers() {
           userId: defaultAdminStaffUserId,
           password: defaultAdminStaffPassword,
           enabled: true,
-          memo: staffMember.memo || 'FC本部管理者アカウント',
+          memo: staffMember.memo || '株式会社千葉福祉サポート管理者アカウント',
           updatedAt: serverTimestamp(),
         },
         { merge: true },

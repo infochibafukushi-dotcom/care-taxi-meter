@@ -111,7 +111,7 @@ function createStatementLines(caseRecord: StoredCaseRecord, customerName: string
     { label: '院内付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     { label: '介助料金', value: formatAssistDetails(caseRecord) },
     { label: '実費', value: formatExpenseDetails(caseRecord) },
-    { label: '障害者割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
+    { label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
     { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
     { label: 'タクシー券利用額', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` },
     { label: '請求額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
