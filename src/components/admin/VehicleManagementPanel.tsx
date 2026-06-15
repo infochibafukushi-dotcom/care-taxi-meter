@@ -1,5 +1,5 @@
-import type { Store, Vehicle, VehicleFuelType, VehicleStatus } from '../../types/work'
-import { vehicleFuelTypes, vehicleStatuses } from '../../types/work'
+import type { StandardVehicleType, Store, Vehicle, VehicleFuelType, VehicleStatus } from '../../types/work'
+import { standardVehicleTypes, vehicleFuelTypes, vehicleStatuses } from '../../types/work'
 
 type VehicleManagementPanelProps = {
   message: string
@@ -9,6 +9,14 @@ type VehicleManagementPanelProps = {
   onSave: () => void
   onUpdate: (id: string, updates: Partial<Vehicle>) => void
   canSelectStore?: boolean
+}
+
+const getVehicleTypeOptions = (vehicleType: string) => {
+  if (!vehicleType || standardVehicleTypes.includes(vehicleType as StandardVehicleType)) {
+    return standardVehicleTypes
+  }
+
+  return [vehicleType, ...standardVehicleTypes]
 }
 
 export function VehicleManagementPanel({
@@ -92,7 +100,20 @@ export function VehicleManagementPanel({
                       {vehicleFuelTypes.map((fuelType) => <option key={fuelType || 'empty'} value={fuelType}>{fuelType || '未設定'}</option>)}
                     </select>
                   </td>
-                  <td><input value={vehicle.vehicleType} onChange={(event) => onUpdate(vehicle.id, { vehicleType: event.target.value })} /></td>
+                  <td>
+                    <select
+                      aria-label={`${vehicle.name || '車両'}の車両種別`}
+                      value={vehicle.vehicleType}
+                      onChange={(event) => onUpdate(vehicle.id, { vehicleType: event.target.value })}
+                    >
+                      <option value="">未設定</option>
+                      {getVehicleTypeOptions(vehicle.vehicleType).map((vehicleType) => (
+                        <option key={vehicleType} value={vehicleType}>
+                          {standardVehicleTypes.includes(vehicleType as StandardVehicleType) ? vehicleType : `既存データ：${vehicleType}`}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td><input min="0" type="number" value={vehicle.wheelchairCapacity} onChange={(event) => onUpdate(vehicle.id, { wheelchairCapacity: Math.max(Number(event.target.value) || 0, 0) })} /></td>
                   <td><input type="checkbox" checked={vehicle.stretcherSupported} onChange={(event) => onUpdate(vehicle.id, { stretcherSupported: event.target.checked })} /></td>
                   <td><input type="date" value={vehicle.inspectionExpiresAt} onChange={(event) => onUpdate(vehicle.id, { inspectionExpiresAt: event.target.value })} /></td>
