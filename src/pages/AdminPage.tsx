@@ -416,6 +416,7 @@ export function AdminPage() {
   const [workingStaffCount, setWorkingStaffCount] = useState(0);
   const [workSummaryMessage, setWorkSummaryMessage] =
     useState("出勤状況を読み込み中です。");
+  const [selectedPersonalStaffId, setSelectedPersonalStaffId] = useState(currentStaffId);
 
   useEffect(() => {
     const mountedPathname = window.location.pathname;
@@ -495,9 +496,9 @@ export function AdminPage() {
   }, [currentRole, currentFranchiseeId, currentStoreId, currentStaffId]);
 
   useEffect(() => {
-    const staffId = currentStaffId;
+    const staffId = currentRole === "driver" ? currentStaffId : selectedPersonalStaffId;
 
-    if (!staffId) {
+    if (currentRole === "driver" && !staffId) {
       let isActive = true;
       void Promise.resolve().then(() => {
         if (isActive) {
@@ -518,7 +519,7 @@ export function AdminPage() {
       scope: {
         franchiseeId: currentFranchiseeId,
         role: currentRole,
-        staffId,
+        staffId: currentRole === "driver" ? staffId : undefined,
         storeId: currentStoreId,
       },
       startIso,
@@ -548,7 +549,7 @@ export function AdminPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentFranchiseeId, currentRole, currentStoreId, currentStaffId]);
+  }, [currentFranchiseeId, currentRole, currentStoreId, currentStaffId, selectedPersonalStaffId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -611,6 +612,35 @@ export function AdminPage() {
     };
   }, [currentRole, currentFranchiseeId, currentStoreId]);
 
+
+  useEffect(() => {
+    let isActive = true;
+
+    void Promise.resolve().then(() => {
+      if (!isActive) {
+        return;
+      }
+
+      if (currentRole === "driver") {
+        setSelectedPersonalStaffId(currentStaffId);
+        return;
+      }
+
+      if (selectedPersonalStaffId && staffMembers.some((staffMember) => staffMember.id === selectedPersonalStaffId)) {
+        return;
+      }
+
+      const firstStoreStaff = staffMembers
+        .filter((staffMember) => staffMember.enabled && staffMember.storeId === currentStoreId)
+        .sort((firstStaff, secondStaff) => firstStaff.sortOrder - secondStaff.sortOrder)[0];
+      setSelectedPersonalStaffId(firstStoreStaff?.id || currentStaffId);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentRole, currentStaffId, currentStoreId, selectedPersonalStaffId, staffMembers]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -645,9 +675,16 @@ export function AdminPage() {
   const activeVehicleCount = vehicles.filter(
     (vehicle) => vehicle.enabled && vehicle.status === "稼働中",
   ).length;
+  const personalOperationStaffOptions = staffMembers
+    .filter((staffMember) => staffMember.enabled && staffMember.storeId === currentStoreId)
+    .sort((firstStaff, secondStaff) => firstStaff.sortOrder - secondStaff.sortOrder);
+  const personalOperationSelectedStaffId = currentRole === "driver" ? currentStaffId : selectedPersonalStaffId || personalOperationStaffOptions[0]?.id || currentStaffId;
+  const personalOperationSelectedStaff = personalOperationStaffOptions.find((staffMember) => staffMember.id === personalOperationSelectedStaffId)
+    ?? staffMembers.find((staffMember) => staffMember.id === personalOperationSelectedStaffId)
+    ?? null;
   const personalOperationMonthly = getPersonalOperationDays({
     caseRecords: summaryState.caseRecords,
-    staffId: currentStaffId,
+    staffId: personalOperationSelectedStaffId,
     workSessions: summaryState.workSessions,
   });
   const personalOperationTotals = personalOperationMonthly.days.reduce(
@@ -2036,7 +2073,26 @@ export function AdminPage() {
                   <p className="eyebrow">Monthly Driver Operations</p>
                   <h3>個人運行管理（月別）</h3>
                 </div>
-                <strong>{personalOperationMonthly.monthLabel}</strong>
+                <div className="personal-operation-header-actions">
+                  {currentRole === "owner" || currentRole === "manager" ? (
+                    <label>
+                      従業員
+                      <select
+                        value={personalOperationSelectedStaffId}
+                        onChange={(event) => setSelectedPersonalStaffId(event.target.value)}
+                      >
+                        {personalOperationStaffOptions.map((staffMember) => (
+                          <option key={staffMember.id} value={staffMember.id}>
+                            {staffMember.name}（{ROLE_LABELS[staffMember.role]}）
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <span>{personalOperationSelectedStaff?.name || currentStaffName}</span>
+                  )}
+                  <strong>{personalOperationMonthly.monthLabel}</strong>
+                </div>
               </div>
 
               <div className="personal-operation-layout">

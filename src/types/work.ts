@@ -7,6 +7,8 @@ export type VehicleStatus = '稼働中' | '整備中' | '休車' | '売却済'
 
 export type VehicleFuelType = 'ガソリン' | '軽油' | 'EV' | ''
 
+export type StandardVehicleType = '1BOX' | 'ミニバン' | '軽自動車' | '乗用車' | 'その他'
+
 export type WorkSessionStatus = 'working' | 'closed'
 
 export type Company = {
@@ -143,3 +145,4 @@ export type CurrentWorkSession = WorkSession
 export const staffRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
 export const vehicleStatuses: VehicleStatus[] = ['稼働中', '整備中', '休車', '売却済']
 export const vehicleFuelTypes: VehicleFuelType[] = ['', 'ガソリン', '軽油', 'EV']
+export const standardVehicleTypes: StandardVehicleType[] = ['1BOX', 'ミニバン', '軽自動車', '乗用車', 'その他']

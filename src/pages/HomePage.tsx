@@ -54,7 +54,7 @@ const createLoggedInUserFromRestoredSession = ({
   const staffName = isWorkSessionRestoreSource(source) ? source.staffName : source.name
   const staffRole = isWorkSessionRestoreSource(source) ? source.staffRole : source.role
   const storeName = source.storeName || currentSession?.storeName || '未設定'
-  const companyName = currentSession?.companyName || defaultCompanyName
+  const companyName = currentSession?.companyName || authSession?.companyName || defaultCompanyName
 
   const staffMember: StaffMember = {
     id: staffId,
@@ -501,7 +501,7 @@ export function HomePage() {
         store,
       }
       setLoggedInUser(nextLoggedInUser)
-      saveAuthStaffSession(staffMember)
+      saveAuthStaffSession(staffMember, nextLoggedInUser.companyName)
 
       if (staffMember.role === 'hq_admin') {
         setLoginMessage('FC本部管理者としてログインしました。現場業務の出勤処理は行いません。')

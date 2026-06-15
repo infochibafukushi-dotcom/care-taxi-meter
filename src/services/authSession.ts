@@ -14,6 +14,7 @@ export type AuthStaffSession = {
   role: StaffRole
   storeId: string
   storeName: string
+  companyName?: string
 }
 
 export type HqViewingSession = {
@@ -29,7 +30,7 @@ const serializeAuthSession = (session: AuthStaffSession) => {
   return session
 }
 
-export const saveAuthStaffSession = (staffMember: StaffMember) => {
+export const saveAuthStaffSession = (staffMember: StaffMember, companyName = '') => {
   const session: AuthStaffSession = {
     companyId: staffMember.companyId,
     franchiseeId: staffMember.franchiseeId || staffMember.companyId,
@@ -38,6 +39,7 @@ export const saveAuthStaffSession = (staffMember: StaffMember) => {
     role: staffMember.role,
     storeId: staffMember.storeId,
     storeName: staffMember.storeName,
+    companyName,
   }
   return serializeAuthSession(session)
 }
@@ -56,6 +58,7 @@ export const loadAuthStaffSession = (): AuthStaffSession | null => {
       role: parsed.role,
       storeId: parsed.storeId ?? '',
       storeName: parsed.storeName ?? '',
+      companyName: parsed.companyName ?? '',
     }
   } catch {
     return null

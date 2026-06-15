@@ -4951,7 +4951,35 @@ h1 {
   line-height: 1.7;
 }
 
-.personal-operation-header > strong {
+.personal-operation-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.personal-operation-header-actions label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.personal-operation-header-actions select {
+  min-width: 220px;
+  border: 1px solid rgb(37 99 235 / 20%);
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
+.personal-operation-header-actions > strong {
   flex: 0 0 auto;
   padding: 10px 16px;
   border: 1px solid rgb(37 99 235 / 18%);
