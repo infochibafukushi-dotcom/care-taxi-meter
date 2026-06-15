@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef } from 'react'
 import type { TimerKey } from '../types/case'
 import { formatElapsedTime } from '../utils/time'
 
@@ -13,10 +13,41 @@ const initialTimerSeconds: TimerSeconds = {
 export function useOperationTimers(
   activeTimer: TimerKey | null,
   initialSeconds: TimerSeconds = initialTimerSeconds,
+  resetKey = 0,
 ) {
-  const [timerSeconds, setTimerSeconds] =
-    useState<TimerSeconds>(initialSeconds)
+  const [timerSeconds, dispatchTimerSeconds] = useReducer(
+    (currentSeconds: TimerSeconds, action: { seconds?: number; timer?: TimerKey; type: 'reset' | 'tick' }) => {
+      if (action.type === 'reset') {
+        return initialSeconds
+      }
+
+      if (!action.timer || !action.seconds) {
+        return currentSeconds
+      }
+
+      return {
+        ...currentSeconds,
+        [action.timer]: currentSeconds[action.timer] + action.seconds,
+      }
+    },
+    initialSeconds,
+  )
   const lastTickAtRef = useRef<number | null>(null)
+  const isInitialResetRenderRef = useRef(true)
+
+  useEffect(() => {
+    if (isInitialResetRenderRef.current) {
+      isInitialResetRenderRef.current = false
+      return undefined
+    }
+
+    const resetTimerId = window.setTimeout(() => {
+      dispatchTimerSeconds({ type: 'reset' })
+      lastTickAtRef.current = null
+    }, 0)
+
+    return () => window.clearTimeout(resetTimerId)
+  }, [resetKey])
 
   useEffect(() => {
     if (!activeTimer) {
@@ -35,10 +66,7 @@ export function useOperationTimers(
       }
 
       lastTickAtRef.current = lastTickAt + elapsedSeconds * 1000
-      setTimerSeconds((currentSeconds) => ({
-        ...currentSeconds,
-        [activeTimer]: currentSeconds[activeTimer] + elapsedSeconds,
-      }))
+      dispatchTimerSeconds({ seconds: elapsedSeconds, timer: activeTimer, type: 'tick' })
     }
 
     const timerId = window.setInterval(updateElapsedSeconds, 250)

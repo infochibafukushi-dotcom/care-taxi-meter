@@ -312,15 +312,18 @@ const extractAreaName = (address: string) => {
     return '住所未設定'
   }
 
-  const prefectureMatch = new RegExp(
-    `^(${japanesePrefectures})(.+?[市区町村])?`,
-  ).exec(normalizedAddress)
-  if (prefectureMatch) {
-    return `${prefectureMatch[1]}${prefectureMatch[2] ?? ''}`
+  const withoutPrefecture = normalizedAddress.replace(
+    new RegExp(`^(${japanesePrefectures})`),
+    '',
+  )
+  const townMatch = /^(.+?[市区町村](?:.+?区)?[^0-9０-９一二三四五六七八九十-]+?)(?:[0-9０-９一二三四五六七八九十-]|丁目|番|号|$)/.exec(withoutPrefecture)
+
+  if (townMatch?.[1]) {
+    return townMatch[1].replace(/[、,].*$/, '')
   }
 
-  const municipalityMatch = /^(.+?[市区町村])/.exec(normalizedAddress)
-  return municipalityMatch?.[1] ?? normalizedAddress.slice(0, 12)
+  const municipalityMatch = /^(.+?[市区町村])/.exec(withoutPrefecture)
+  return municipalityMatch?.[1] ?? withoutPrefecture.slice(0, 18)
 }
 
 const parseDateValue = (dateValue: string) => {

@@ -78,8 +78,13 @@ import type {
 } from '../types/case'
 
 const extractAreaFromAddress = (address: string) => {
-  const match = address.match(/(?:千葉市|船橋市|市川市|佐倉市|四街道市|習志野市|八千代市|浦安市|成田市|柏市|松戸市|市原市)(?:[^\s、,]*区)?|[^\s、,]+区/)
-  return match?.[0] ?? ''
+  const normalizedAddress = address
+    .replace(/〒?\d{3}-?\d{4}/g, '')
+    .replace(/\s+/g, '')
+    .replace(/^(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/, '')
+    .trim()
+  const townMatch = /^(.+?[市区町村](?:.+?区)?[^0-9０-９一二三四五六七八九十-]+?)(?:[0-9０-９一二三四五六七八九十-]|丁目|番|号|$)/.exec(normalizedAddress)
+  return townMatch?.[1]?.replace(/[、,].*$/, '') ?? ''
 }
 
 type KeypadTarget = {
@@ -556,6 +561,7 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
+  const [meterResetKey, setMeterResetKey] = useState(0)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
   const [settlementFlowStep, setSettlementFlowStep] =
@@ -584,13 +590,13 @@ export function CasePage() {
   )
   const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
     useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
-  const elapsedTimers = useOperationTimers(activeTimer, restoredTripSnapshot?.timers ?? emptyTimerSeconds)
+  const elapsedTimers = useOperationTimers(activeTimer, meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds), meterResetKey)
   const gps = useCurrentPosition(
     isGpsActive,
     currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     status === '走行中',
     status !== '精算前' && status !== '案件終了',
-    restoredTripSnapshot
+    restoredTripSnapshot && meterResetKey === 0
       ? {
           businessDistanceKm: restoredTripSnapshot.distances.businessDistanceKm,
           chargeableDistanceKm: restoredTripSnapshot.distances.chargeableDistanceKm,
@@ -607,6 +613,7 @@ export function CasePage() {
             : 'unavailable',
         }
       : undefined,
+    meterResetKey,
   )
   const workSession = useWorkSession()
   const syncedActiveTripKeyRef = useRef('')
@@ -1886,8 +1893,8 @@ export function CasePage() {
         taxiTickets,
         paymentMethod,
         payments,
-        receiptName: '',
-        customerName: '',
+        receiptName,
+        customerName: receiptName,
         remarks: '',
         status: 'completed',
         deleted: false,
@@ -2041,7 +2048,55 @@ export function CasePage() {
   }
 
   const handleStartNewCase = () => {
-    window.location.reload()
+    if (settlementHoldTimerRef.current !== null) {
+      window.clearTimeout(settlementHoldTimerRef.current)
+      settlementHoldTimerRef.current = null
+    }
+    if (resumeHoldTimerRef.current !== null) {
+      window.clearTimeout(resumeHoldTimerRef.current)
+      resumeHoldTimerRef.current = null
+    }
+
+    fareSnapshotRef.current = null
+    caseNumberAssignmentRef.current = null
+    operationStartedAtRef.current = ''
+    operationEndedAtRef.current = ''
+    pickupLocationRef.current = emptyCapturedAddressLocation
+    dropoffLocationRef.current = emptyCapturedAddressLocation
+    pickupCapturePromiseRef.current = null
+    dropoffCapturePromiseRef.current = null
+
+    setCaseNumber('未採番')
+    setIsFareSnapshotLocked(false)
+    setStatus('空車')
+    setActiveTimer(null)
+    setActivityHistories(emptyActivityHistories)
+    setActiveActivity(null)
+    setBillableTimeStarted({ accompanying: false, waiting: false })
+    setIsGpsActive(false)
+    setIsCareModalOpen(false)
+    setIsExpenseModalOpen(false)
+    setIsDispatchModalOpen(false)
+    setIsSettlementFlowOpen(false)
+    setIsSettlementConfirmOpen(false)
+    setSettlementEditBaseline(null)
+    setSelectedCareOptions([])
+    setSelectedDispatchCharges([])
+    setSelectedSpecialVehicleCharges([])
+    setExpenses([])
+    setIsDisabilityDiscount(false)
+    setSettlementDiscount(currentMeterSettings.discount)
+    setTaxiTickets([])
+    setPaymentMethod('現金')
+    setPaymentAmounts(createEmptyPaymentAmounts())
+    setReceiptName('')
+    setCaseSaveState('idle')
+    setCaseSaveMessage('メーターをリセットしました。新しい搬送を開始できます。')
+    setSavedCaseRecord(null)
+    setSettlementFlowStep('receipt')
+    setPickupLocation(emptyCapturedAddressLocation)
+    setDropoffLocation(emptyCapturedAddressLocation)
+    setMeterResetKey((currentKey) => currentKey + 1)
   }
 
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
@@ -2984,7 +3039,7 @@ export function CasePage() {
                       type="button"
                       onClick={handleStartNewCase}
                     >
-                      新しい案件を開始
+                      リセット
                     </button>
                   </div>
                 ) : null}
