@@ -80,12 +80,14 @@ type CompanySummary = {
   monthCaseCount: number
   monthSalesYen: number
   previousMonthSalesYen: number
+  previousMonthCaseCount: number
   salesYen: number
   staffCount: number
   storeCount: number
   todaySalesYen: number
   vehicleCount: number
   yearAgoMonthSalesYen: number
+  yearAgoMonthCaseCount: number
 }
 
 const createOwnerLoginDraft = (): OwnerLoginDraft => ({ password: '', userId: '' })
@@ -105,8 +107,6 @@ const normalizeCompanyId = (value: string) =>
   value.trim().toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 
 const getCompanyId = (company: Company) => normalizeCompanyId(company.id || company.name)
-const isPlaceholderCompanyId = (value: string) => /^-+$/.test(value)
-const getCompanyDisplayId = (company: Company) => isPlaceholderCompanyId(company.id) && company.name.trim() ? company.name : company.id
 const getCompanyStatus = (company: Company): CompanyStatus => company.status ?? (company.enabled ? 'active' : 'suspended')
 const isHeadquartersCompany = (company: Company) => company.id === defaultFranchiseeId || company.plan === 'FC本部'
 
@@ -123,6 +123,14 @@ const isBetween = (value: string, start: Date, end: Date) => value >= start.toIS
 const formatDate = (value?: string) => value || '未設定'
 const formatPercent = (current: number, previous: number) => previous > 0 ? `${Math.round(((current - previous) / previous) * 100)}%` : '－'
 const formatDiffYen = (current: number, previous: number) => `${current - previous >= 0 ? '+' : ''}${formatFareYen(current - previous)}円`
+const formatRate = (value: number) => `${Math.round(value)}%`
+const toDateString = (value?: string) => value ? toDateInputValue(new Date(value)) : '未記録'
+const getDaysSince = (value?: string) => {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return Math.max(Math.floor((Date.now() - date.getTime()) / 86400000), 0)
+}
 
 const getMembershipMonths = (start?: string, end = new Date()) => {
   if (!start) return 0
@@ -226,12 +234,14 @@ export function HeadquartersPage() {
       monthCaseCount: monthRecords.length,
       monthSalesYen,
       previousMonthSalesYen,
+      previousMonthCaseCount: previousMonthRecords.length,
       salesYen,
       staffCount: companyStaffMembers.length,
       storeCount: companyStores.length,
       todaySalesYen: todayRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0),
       vehicleCount: companyVehicles.length,
       yearAgoMonthSalesYen,
+      yearAgoMonthCaseCount: yearAgoMonthRecords.length,
     }
   }), [currentMonthStart, franchiseCaseRecords, franchiseCompanies, nextMonthStart, previousMonthStart, staffMembers, stores, todayStart, tomorrowStart, vehicles, yearAgoMonthStart, yearAgoNextMonthStart])
 
@@ -247,41 +257,28 @@ export function HeadquartersPage() {
 
   const kpis = useMemo(() => {
     const activeCompanies = franchiseCompanies.filter((company) => getCompanyStatus(company) === 'active')
-    const suspendedCompanies = franchiseCompanies.filter((company) => getCompanyStatus(company) === 'suspended')
-    const endingCompanies = franchiseCompanies.filter((company) => getCompanyStatus(company) === 'ending')
-    const terminatedCompanies = franchiseCompanies.filter((company) => ['terminated', 'archived'].includes(getCompanyStatus(company)))
-    const todaySalesYen = companySummaries.reduce((total, summary) => total + summary.todaySalesYen, 0)
+    const retainedCompanies = franchiseCompanies.filter((company) => !['terminated', 'archived'].includes(getCompanyStatus(company)))
     const monthSalesYen = companySummaries.reduce((total, summary) => total + summary.monthSalesYen, 0)
-    const previousMonthSalesYen = companySummaries.reduce((total, summary) => total + summary.previousMonthSalesYen, 0)
-    const totalCaseCount = companySummaries.reduce((total, summary) => total + summary.caseCount, 0)
-    const totalSalesYen = companySummaries.reduce((total, summary) => total + summary.salesYen, 0)
+    const monthCaseCount = companySummaries.reduce((total, summary) => total + summary.monthCaseCount, 0)
+    const totalMembershipMonths = franchiseCompanies.reduce((total, company) => total + getMembershipMonths(company.contractStartDate), 0)
 
     return {
       activeCompanies,
-      averageFareYen: totalCaseCount > 0 ? Math.round(totalSalesYen / totalCaseCount) : 0,
-      endingCompanies,
+      averageFareYen: monthCaseCount > 0 ? Math.round(monthSalesYen / monthCaseCount) : 0,
+      averageMembershipMonths: franchiseCompanies.length > 0 ? Math.round(totalMembershipMonths / franchiseCompanies.length) : 0,
+      monthCaseCount,
       monthSalesYen,
-      previousMonthSalesYen,
-      suspendedCompanies,
-      terminatedCompanies,
-      todaySalesYen,
-      totalCaseCount,
-      totalSalesYen,
+      retentionRate: franchiseCompanies.length > 0 ? (retainedCompanies.length / franchiseCompanies.length) * 100 : 0,
     }
   }, [companySummaries, franchiseCompanies])
 
   const rankingBySales = [...companySummaries].sort((a, b) => b.monthSalesYen - a.monthSalesYen).slice(0, 5)
-  const rankingByCases = [...companySummaries].sort((a, b) => b.monthCaseCount - a.monthCaseCount).slice(0, 5)
-  const rankingByAverage = [...companySummaries].sort((a, b) => b.averageFareYen - a.averageFareYen).slice(0, 5)
-  const rankingByGrowth = [...companySummaries].sort((a, b) => (b.monthSalesYen - b.previousMonthSalesYen) - (a.monthSalesYen - a.previousMonthSalesYen)).slice(0, 5)
-  const alerts = [
-    ...companySummaries.filter((summary) => summary.previousMonthSalesYen > 0 && summary.monthSalesYen < summary.previousMonthSalesYen * 0.7).map((summary) => `売上急減加盟店: ${summary.company.name}`),
-    ...companySummaries.filter((summary) => !summary.lastCaseAt || summary.lastCaseAt < thirtyDaysAgo.toISOString()).map((summary) => `30日案件なし: ${summary.company.name}`),
-    ...franchiseCompanies.filter((company) => getCompanyStatus(company) === 'suspended').map((company) => `休止中加盟店: ${company.name}`),
-    ...franchiseCompanies.filter((company) => getCompanyStatus(company) === 'ending').map((company) => `解約予定加盟店: ${company.name}`),
-    ...franchiseCompanies.filter((company) => company.billingStatus === '未払い' || company.paymentStatus === '未払い').map((company) => `未払い加盟店: ${company.name}`),
-    ...franchiseCompanies.filter((company) => !company.lastLoginAt).map((company) => `ログインなし加盟店: ${company.name}`),
-  ].slice(0, 10)
+  const rankingByGrowth = [...companySummaries].sort((a, b) => growthRate(b.monthSalesYen, b.yearAgoMonthSalesYen) - growthRate(a.monthSalesYen, a.yearAgoMonthSalesYen)).slice(0, 5)
+  const rankingByMembership = [...companySummaries].sort((a, b) => getMembershipMonths(b.company.contractStartDate) - getMembershipMonths(a.company.contractStartDate)).slice(0, 5)
+  const supportTargets = companySummaries.map((summary) => ({ summary, reasons: supportReasons(summary, thirtyDaysAgo) })).filter((item) => item.reasons.length > 0)
+  const planItems = planRatioItems(franchiseCompanies)
+  const areaRanking = areaCompanyItems(franchiseCompanies)
+  const salesCategoryItems = salesCategoryRatioItems(franchiseCaseRecords)
 
   const updateDraftCompany = (key: keyof Company, value: string | boolean | number) => setDraftCompany((currentCompany) => ({ ...currentCompany, [key]: value }))
   const updateHeadquartersInfo = (key: keyof HeadquartersInfo, value: string) => setHeadquartersInfo((currentInfo) => ({ ...currentInfo, [key]: value }))
@@ -406,187 +403,105 @@ export function HeadquartersPage() {
         <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>開発データリセット</button>
       </section>
       <nav className="hq-menu" aria-label="FC本部メニュー">
-        {['ダッシュボード','加盟店管理','売上分析','エリア分析','契約・請求管理','従業員・アカウント管理','FCノウハウ共有','システム設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
+        {['要対応加盟店','FC全体KPI','加盟店管理','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
       </nav>
       <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
 
-      <section className="admin-section" id="ダッシュボード">
-        <h2>KPI</h2>
+      <section className="admin-section hq-priority" id="要対応加盟店">
+        <h2>要対応加盟店</h2>
+        <p className="empty-note">30日以上案件なし、前月比50%以上減少、14日以上ログインなし、面談予定日超過を優先表示します。</p>
+        {supportTargets.length > 0 ? (
+          <div className="hq-support-grid">
+            {supportTargets.map(({ summary, reasons }) => (
+              <article className="hq-support-card" key={summary.company.id}>
+                <h3>⚠ {summary.company.name}</h3>
+                <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                <button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>加盟店詳細</button>
+              </article>
+            ))}
+          </div>
+        ) : <p className="empty-note">現在、要対応加盟店はありません。</p>}
+      </section>
+
+      <section className="admin-section" id="FC全体KPI">
+        <h2>FC全体KPI</h2>
         <div className="hq-kpi-grid">
-          <Kpi label="本日売上" value={`${formatFareYen(kpis.todaySalesYen)}円`} />
-          <Kpi label="今月売上" value={`${formatFareYen(kpis.monthSalesYen)}円`} />
-          <Kpi label="前月売上" value={`${formatFareYen(kpis.previousMonthSalesYen)}円`} />
-          <Kpi label="前月比" value={formatPercent(kpis.monthSalesYen, kpis.previousMonthSalesYen)} />
           <Kpi label="加盟店数" value={`${franchiseCompanies.length}社`} />
           <Kpi label="稼働加盟店数" value={`${kpis.activeCompanies.length}社`} />
-          <Kpi label="休止加盟店数" value={`${kpis.suspendedCompanies.length}社`} />
-          <Kpi label="解約予定加盟店数" value={`${kpis.endingCompanies.length}社`} />
-          <Kpi label="解約加盟店数" value={`${kpis.terminatedCompanies.length}社`} />
-          <Kpi label="総案件数" value={`${kpis.totalCaseCount}件`} />
+          <Kpi label="継続率" value={formatRate(kpis.retentionRate)} />
+          <Kpi label="平均加盟年数" value={`${(kpis.averageMembershipMonths / 12).toFixed(1)}年`} />
+          <Kpi label="月間総売上" value={`${formatFareYen(kpis.monthSalesYen)}円`} />
+          <Kpi label="月間総案件数" value={`${kpis.monthCaseCount}件`} />
           <Kpi label="平均単価" value={`${formatFareYen(kpis.averageFareYen)}円`} />
-          <Kpi label="総車両数" value={`${vehicles.filter((vehicle) => franchiseCompanyIds.has(vehicle.companyId)).length}台`} />
-          <Kpi label="総従業員数" value={`${staffMembers.filter((staff) => franchiseCompanyIds.has(staff.companyId)).length}人`} />
         </div>
         <div className="hq-rankings">
-          <Ranking title="加盟店別売上ランキング" items={rankingBySales.map((item) => [item.company.name, `${formatFareYen(item.monthSalesYen)}円`])} />
-          <Ranking title="加盟店別案件数ランキング" items={rankingByCases.map((item) => [item.company.name, `${item.monthCaseCount}件`])} />
-          <Ranking title="加盟店別平均単価ランキング" items={rankingByAverage.map((item) => [item.company.name, `${formatFareYen(item.averageFareYen)}円`])} />
-          <Ranking title="加盟店別成長率ランキング" items={rankingByGrowth.map((item) => [item.company.name, formatDiffYen(item.monthSalesYen, item.previousMonthSalesYen)])} />
+          <RatioChart title="加盟プラン比率" items={planItems} />
+          <RatioChart title="売上カテゴリー別割合" items={salesCategoryItems} />
+          <Ranking title="エリア別加盟店数" items={areaRanking} />
         </div>
-        <div className="hq-alerts">
-          <h3>注意表示</h3>
-          {alerts.length > 0 ? alerts.map((alert) => <p key={alert}>⚠ {alert}</p>) : <p>現在の注意表示はありません。</p>}
+      </section>
+
+      <section className="admin-section" id="ランキング">
+        <h2>ランキング TOP5</h2>
+        <div className="hq-rankings">
+          <Ranking title="売上ランキング" items={rankingBySales.map((item) => [item.company.name, `${formatFareYen(item.monthSalesYen)}円`])} />
+          <Ranking title="成長率ランキング（前年同月比）" items={rankingByGrowth.map((item) => [item.company.name, `${formatRate(growthRate(item.monthSalesYen, item.yearAgoMonthSalesYen))}`])} />
+          <Ranking title="継続加盟ランキング" items={rankingByMembership.map((item) => [item.company.name, formatMembership(item.company.contractStartDate)])} />
         </div>
       </section>
 
       <section className="admin-section" id="加盟店管理">
-        <h2>加盟店登録・編集</h2>
-        <div className="settings-grid hq-form-grid">
-          <Input label="加盟店ID" value={draftCompany.id} onChange={(value) => updateDraftCompany('id', value)} />
-          <Input label="屋号名" value={draftCompany.name} onChange={(value) => updateDraftCompany('name', value)} />
-          <Input label="会社名（法人名）" value={draftCompany.corporateName ?? ''} onChange={(value) => updateDraftCompany('corporateName', value)} />
-          <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
-          <Input label="代表者メールアドレス" value={draftCompany.email} onChange={(value) => updateDraftCompany('email', value)} />
-          <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
-          <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
-          <Input label="電話番号" value={draftCompany.phoneNumber} onChange={(value) => updateDraftCompany('phoneNumber', value)} />
-          <Input label="郵便番号" value={draftCompany.postalCode ?? ''} onChange={(value) => updateDraftCompany('postalCode', value)} />
-          <Input label="インボイス登録番号" value={draftCompany.invoiceNumber ?? ''} onChange={(value) => updateDraftCompany('invoiceNumber', value)} />
-          <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
-          <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
-          <Input label="契約終了日" type="date" value={draftCompany.contractEndDate ?? ''} onChange={(value) => updateDraftCompany('contractEndDate', value)} />
-          <Input label="プラン" value={draftCompany.plan ?? ''} onChange={(value) => updateDraftCompany('plan', value)} />
-          <Input label="月額料金" type="number" value={String(draftCompany.monthlyFee ?? 0)} onChange={(value) => updateDraftCompany('monthlyFee', Number(value) || 0)} />
-          <Input label="初期費用" type="number" value={String(draftCompany.initialFee ?? 0)} onChange={(value) => updateDraftCompany('initialFee', Number(value) || 0)} />
-          <label>
-            加盟店ステータス
-            <select value={draftCompany.status ?? 'screening'} onChange={(event) => updateDraftCompany('status', event.target.value)}>
-              {editableCompanyStatuses.map((status) => <option key={status} value={status}>{companyStatusLabels[status]}</option>)}
-            </select>
-          </label>
-        </div>
-        <label className="settings-textarea-label">所在地<textarea value={draftCompany.address} onChange={(event) => updateDraftCompany('address', event.target.value)} /></label>
-        <label className="settings-textarea-label">メモ<textarea value={draftCompany.memo} onChange={(event) => updateDraftCompany('memo', event.target.value)} /></label>
-        <div className="hq-form-actions">
-          <button className="primary-action" type="button" onClick={handleCompanySave}>加盟店情報を保存</button>
-          <button className="secondary-action" type="button" onClick={() => { setDraftCompany(createCompanyDraft(franchiseCompanies.length + 1)); setOwnerLoginDraft(createOwnerLoginDraft()) }}>新規入力に戻す</button>
-        </div>
-
         <div className="hq-list-toolbar">
-          <h2>加盟店一覧</h2>
-          <label>
-            並び替え
-            <select value={sortKey} onChange={(event) => setSortKey(event.target.value as CompanySortKey)}>
-              <option value="name">加盟店名</option>
-              <option value="sales">売上</option>
-              <option value="cases">案件数</option>
-              <option value="joinedAt">加盟日</option>
-              <option value="membershipMonths">加盟期間</option>
-            </select>
-          </label>
+          <h2>加盟店管理</h2>
+          <details className="hq-registration-panel">
+            <summary>＋加盟店登録</summary>
+            <div className="settings-grid hq-form-grid">
+              <Input label="加盟店ID" value={draftCompany.id} onChange={(value) => updateDraftCompany('id', value)} />
+              <Input label="屋号名" value={draftCompany.name} onChange={(value) => updateDraftCompany('name', value)} />
+              <Input label="会社名（法人名）" value={draftCompany.corporateName ?? ''} onChange={(value) => updateDraftCompany('corporateName', value)} />
+              <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
+              <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
+              <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
+              <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
+              <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
+              <Input label="プラン" value={draftCompany.plan ?? ''} onChange={(value) => updateDraftCompany('plan', value)} />
+              <label>加盟店ステータス<select value={draftCompany.status ?? 'screening'} onChange={(event) => updateDraftCompany('status', event.target.value)}>{editableCompanyStatuses.map((status) => <option key={status} value={status}>{companyStatusLabels[status]}</option>)}</select></label>
+            </div>
+            <div className="hq-form-actions"><button className="primary-action" type="button" onClick={handleCompanySave}>加盟店情報を保存</button></div>
+          </details>
+          <label>並び替え<select value={sortKey} onChange={(event) => setSortKey(event.target.value as CompanySortKey)}><option value="name">加盟店名</option><option value="sales">売上</option><option value="cases">案件数</option><option value="joinedAt">加盟日</option><option value="membershipMonths">加盟期間</option></select></label>
         </div>
         <div className="admin-table-wrapper hq-table-wrapper">
-          <table className="admin-table hq-company-table">
-            <thead>
-              <tr>{['加盟店ID','加盟店名','代表者名','エリア','加盟日','加盟期間','プラン','ステータス','店舗数','従業員数','車両数','今月売上','今月案件数','最終ログイン','操作'].map((head) => <th key={head}>{head}</th>)}</tr>
-            </thead>
-            <tbody>
-              {sortedCompanySummaries.map((summary) => (
-                <tr key={summary.company.id}>
-                  <td>{getCompanyDisplayId(summary.company)}</td>
-                  <td>{summary.company.name}</td>
-                  <td>{summary.company.representativeName || summary.company.ownerName}</td>
-                  <td>{summary.company.area || '未設定'}</td>
-                  <td>{formatDate(summary.company.contractStartDate)}</td>
-                  <td>{formatMembership(summary.company.contractStartDate)}</td>
-                  <td>{summary.company.plan || '未設定'}</td>
-                  <td><StatusBadge status={getCompanyStatus(summary.company)} /></td>
-                  <td>{summary.storeCount}</td>
-                  <td>{summary.staffCount}</td>
-                  <td>{summary.vehicleCount}</td>
-                  <td>{formatFareYen(summary.monthSalesYen)}円</td>
-                  <td>{summary.monthCaseCount}</td>
-                  <td>{summary.company.lastLoginAt || '未記録'}</td>
-                  <td className="hq-actions">
-                    <button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button>
-                    <button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+          <table className="admin-table hq-company-table hq-company-table--simple">
+            <thead><tr>{['加盟店名','加盟年数','プラン','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
+            <tbody>{sortedCompanySummaries.map((summary) => <tr key={summary.company.id}><td>{summary.company.name}</td><td>{formatMembership(summary.company.contractStartDate)}</td><td>{summary.company.plan || '未設定'}</td><td><StatusBadge status={getCompanyStatus(summary.company)} /></td><td>{formatFareYen(summary.monthSalesYen)}円</td><td>{summary.monthCaseCount}</td><td>{summary.company.lastLoginAt || '未記録'}</td><td className="hq-actions"><button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button><button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button></td></tr>)}</tbody>
           </table>
         </div>
       </section>
 
       <section className="admin-section" id="売上分析">
         <h2>売上分析</h2>
-        <div className="work-dashboard-grid">
-          <div><span>全体売上</span><strong>{formatFareYen(kpis.totalSalesYen)}円</strong></div>
-          <div><span>今月売上</span><strong>{formatFareYen(kpis.monthSalesYen)}円</strong></div>
-          <div><span>前月売上</span><strong>{formatFareYen(kpis.previousMonthSalesYen)}円</strong></div>
-          <div><span>総案件数</span><strong>{kpis.totalCaseCount}件</strong></div>
-          <div><span>平均単価</span><strong>{formatFareYen(kpis.averageFareYen)}円</strong></div>
-          <div><span>支払方法別売上</span><strong>{paymentMethodSummary(franchiseCaseRecords)}</strong></div>
-        </div>
+        <div className="work-dashboard-grid"><div><span>月間総売上</span><strong>{formatFareYen(kpis.monthSalesYen)}円</strong></div><div><span>月間総案件数</span><strong>{kpis.monthCaseCount}件</strong></div><div><span>平均単価</span><strong>{formatFareYen(kpis.averageFareYen)}円</strong></div></div>
+        <div className="hq-rankings"><RatioChart title="売上カテゴリー別割合" items={salesCategoryItems} /></div>
       </section>
 
       <section className="admin-section" id="エリア分析">
         <h2>エリア分析</h2>
-        <div className="hq-rankings">
-          <Ranking title="乗車地エリア別件数" items={areaItems(franchiseCaseRecords, 'pickupArea')} />
-          <Ranking title="降車地エリア別件数" items={areaItems(franchiseCaseRecords, 'dropoffArea')} />
-          <Ranking title="エリア別売上" items={areaSalesItems(franchiseCaseRecords)} />
-          <Ranking title="エリア別平均単価" items={areaAverageItems(franchiseCaseRecords)} />
-        </div>
-        <p className="empty-note">FC本部は集計から除外し、加盟店データのみでエリア分析します。</p>
+        <div className="hq-rankings"><Ranking title="加盟店数" items={areaRanking} /></div>
       </section>
 
-      <section className="admin-section" id="契約・請求管理">
-        <h2>契約・請求管理</h2>
-        <div className="admin-table-wrapper">
-          <table className="admin-table">
-            <thead><tr>{['加盟店名','契約開始日','契約終了日','契約ステータス','プラン','月額料金','初期費用','請求状態','最終請求月','支払状況','メモ'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
-            <tbody>{franchiseCompanies.map((company) => <tr key={company.id}><td>{company.name}</td><td>{formatDate(company.contractStartDate)}</td><td>{formatDate(company.contractEndDate)}</td><td>{company.contractStatus || '契約前'}</td><td>{company.plan || '未設定'}</td><td>{formatFareYen(company.monthlyFee ?? 0)}円</td><td>{formatFareYen(company.initialFee ?? 0)}円</td><td>{company.billingStatus || '未請求'}</td><td>{company.lastBillingMonth || '未設定'}</td><td>{company.paymentStatus || '未請求'}</td><td>{company.memo}</td></tr>)}</tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="admin-section" id="従業員・アカウント管理">
-        <h2>従業員・アカウント管理</h2>
-        <div className="admin-table-wrapper">
-          <table className="admin-table">
-            <thead><tr>{['従業員ID','氏名','所属加盟店','所属店舗','権限','メールアドレス','ログインID','状態','最終ログイン','登録日','退職日'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
-            <tbody>{staffMembers.filter((staff) => franchiseCompanyIds.has(staff.companyId)).map((staff) => <tr key={staff.id}><td>{staff.id}</td><td>{staff.name}</td><td>{franchiseCompanies.find((company) => company.id === staff.companyId)?.name || staff.companyId}</td><td>{staff.storeName}</td><td>{staff.role}</td><td>{staff.email}</td><td>{staff.loginId || staff.userId}</td><td>{staffStatusLabel(staff.status, staff.enabled)}</td><td>{staff.lastLoginAt || '未記録'}</td><td>{staff.joinedAt || '未記録'}</td><td>{staff.retiredAt || '－'}</td></tr>)}</tbody>
-          </table>
-        </div>
-        <p className="empty-note">従業員は物理削除せず、無効化・退職状態で過去案件、勤怠、領収書履歴との紐づけを保持します。</p>
-      </section>
-
-      <section className="admin-section" id="FCノウハウ共有">
-        <h2>FCノウハウ共有</h2>
-        <div className="work-dashboard-grid">{['開業準備','営業活動','ケアマネ営業','病院営業','料金設定','接客対応','事故防止','成功事例','システム操作'].map((category) => <div key={category}><span>カテゴリ</span><strong>{category}</strong></div>)}</div>
-        <p className="empty-note">FC本部は投稿作成・編集・削除・公開設定、加盟店側は閲覧・検索を行う方針です。</p>
-      </section>
-
-      <section className="admin-section" id="システム設定">
-        <h2>システム設定</h2>
+      <details className="admin-section" id="管理者設定">
+        <summary><h2>管理者設定</h2></summary>
         <section className="hq-settings-panel">
           <h3>本部情報</h3>
-          <div className="settings-grid hq-form-grid">
-            <Input label="本部名称" value={headquartersInfo.name} onChange={(value) => updateHeadquartersInfo('name', value)} />
-            <Input label="代表者名" value={headquartersInfo.representativeName} onChange={(value) => updateHeadquartersInfo('representativeName', value)} />
-            <Input label="電話番号" value={headquartersInfo.phoneNumber} onChange={(value) => updateHeadquartersInfo('phoneNumber', value)} />
-            <Input label="メールアドレス" value={headquartersInfo.email} onChange={(value) => updateHeadquartersInfo('email', value)} />
-          </div>
-          <label className="settings-textarea-label">所在地<textarea value={headquartersInfo.address} onChange={(event) => updateHeadquartersInfo('address', event.target.value)} /></label>
-          <label className="settings-textarea-label">メモ<textarea value={headquartersInfo.memo} onChange={(event) => updateHeadquartersInfo('memo', event.target.value)} /></label>
+          <div className="settings-grid hq-form-grid"><Input label="本部名称" value={headquartersInfo.name} onChange={(value) => updateHeadquartersInfo('name', value)} /><Input label="代表者名" value={headquartersInfo.representativeName} onChange={(value) => updateHeadquartersInfo('representativeName', value)} /><Input label="電話番号" value={headquartersInfo.phoneNumber} onChange={(value) => updateHeadquartersInfo('phoneNumber', value)} /><Input label="メールアドレス" value={headquartersInfo.email} onChange={(value) => updateHeadquartersInfo('email', value)} /></div>
           <button className="primary-action" type="button" onClick={handleHeadquartersInfoSave}>本部情報を保存</button>
         </section>
-        <div className="work-dashboard-grid">{['ロール定義','権限設定','初期プラン設定','加盟店ステータス','契約ステータス','請求ステータス','FCノウハウカテゴリ','本部連絡先'].map((item) => <div key={item}><span>本部専用</span><strong>{item}</strong></div>)}</div>
-      </section>
+        <div className="work-dashboard-grid">{['ロール設定','権限設定','プラン設定','ステータス設定','ノウハウカテゴリ管理'].map((item) => <div key={item}><span>本部専用</span><strong>{item}</strong></div>)}</div>
+      </details>
 
       <section className="admin-section">
-        <h2>加盟店カルテ</h2>
+        <h2>加盟店詳細画面</h2>
         {selectedCompany && selectedSummary ? (
           <div className="hq-company-profile">
             <ProfileBlock title="基本情報" rows={[
@@ -612,16 +527,20 @@ export function HeadquartersPage() {
             ]} />
             <ProfileBlock title="利用状況" rows={[
               ['最終ログイン', selectedCompany.lastLoginAt || '未記録'],
-              ['最終案件日', selectedSummary.lastCaseAt ? toDateInputValue(new Date(selectedSummary.lastCaseAt)) : '未記録'],
+              ['最終案件日', toDateString(selectedSummary.lastCaseAt)],
               ['稼働ドライバー数', `${selectedSummary.activeDriverCount}人`],
               ['稼働車両数', `${selectedSummary.activeVehicleCount}台`],
             ]} />
-            <ProfileBlock title="契約情報" rows={[
-              ['契約開始日', formatDate(selectedCompany.contractStartDate)],
-              ['契約終了日', formatDate(selectedCompany.contractEndDate)],
-              ['契約状態', selectedCompany.contractStatus || '契約前'],
-              ['請求状態', selectedCompany.billingStatus || '未請求'],
-              ['メモ', selectedCompany.memo || '未記録'],
+            <ProfileBlock title="面談管理" rows={[
+              ['最終Zoom面談日', (selectedCompany as Company & { lastMeetingDate?: string }).lastMeetingDate || '未記録'],
+              ['次回面談予定日', (selectedCompany as Company & { nextMeetingDate?: string }).nextMeetingDate || '未設定'],
+              ['面談メモ', (selectedCompany as Company & { meetingMemo?: string }).meetingMemo || '未記録'],
+            ]} />
+            <ProfileBlock title="バックドア機能" rows={[
+              ['詳細案件一覧', '必要時のみ確認'],
+              ['従業員一覧', '必要時のみ確認'],
+              ['車両一覧', '必要時のみ確認'],
+              ['料金設定確認', '必要時のみ確認'],
             ]} />
           </div>
         ) : (
@@ -632,13 +551,45 @@ export function HeadquartersPage() {
   )
 }
 
+
+function growthRate(current: number, previous: number) { return previous > 0 ? ((current - previous) / previous) * 100 : current > 0 ? 100 : 0 }
+function supportReasons(summary: CompanySummary, thirtyDaysAgo: Date) {
+  const reasons: string[] = []
+  const lastLoginDays = getDaysSince(summary.company.lastLoginAt)
+  const nextMeetingDate = (summary.company as Company & { nextMeetingDate?: string }).nextMeetingDate
+  if (!summary.lastCaseAt || summary.lastCaseAt < thirtyDaysAgo.toISOString()) reasons.push('30日以上案件なし')
+  if (summary.previousMonthSalesYen > 0 && summary.monthSalesYen <= summary.previousMonthSalesYen * 0.5) reasons.push(`前月比売上 ${formatPercent(summary.monthSalesYen, summary.previousMonthSalesYen)}`)
+  if (summary.previousMonthCaseCount > 0 && summary.monthCaseCount <= summary.previousMonthCaseCount * 0.5) reasons.push(`前月比案件数 ${formatPercent(summary.monthCaseCount, summary.previousMonthCaseCount)}`)
+  if (lastLoginDays === null || lastLoginDays >= 14) reasons.push(lastLoginDays === null ? 'ログイン記録なし' : `最終ログイン ${lastLoginDays}日前`)
+  if (nextMeetingDate && nextMeetingDate < toDateInputValue(new Date())) reasons.push('面談予定日超過')
+  return reasons
+}
+function planRatioItems(companies: Company[]): RatioItem[] {
+  const counts = new Map<string, number>()
+  companies.forEach((company) => {
+    const plan = company.plan?.includes('プレミアム') ? 'プレミアムプラン' : company.plan?.includes('標準') ? '標準プラン' : 'その他プラン'
+    counts.set(plan, (counts.get(plan) ?? 0) + 1)
+  })
+  const total = companies.length || 1
+  return ['標準プラン', 'プレミアムプラン', 'その他プラン'].map((label) => ({ label, value: counts.get(label) ?? 0, percent: ((counts.get(label) ?? 0) / total) * 100 }))
+}
+function areaCompanyItems(companies: Company[]): Array<[string, string]> { const counts = new Map<string, number>(); companies.forEach((company) => { const area = company.area || '未設定'; counts.set(area, (counts.get(area) ?? 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([area, count]) => [area, `${count}社`]) }
+function salesCategoryRatioItems(records: StoredCaseRecord[]): RatioItem[] {
+  const totals = [
+    ['運賃', records.reduce((t, r) => t + r.basicFareYen + r.meterTimeFareYen, 0)],
+    ['介助', records.reduce((t, r) => t + r.careOptionFareYen, 0)],
+    ['待機', records.reduce((t, r) => t + r.waitingFareYen, 0)],
+    ['付き添い', records.reduce((t, r) => t + r.escortFareYen, 0)],
+    ['予約配車', records.reduce((t, r) => t + r.dispatchFareYen, 0)],
+  ] as Array<[string, number]>
+  const total = totals.reduce((sum, [, value]) => sum + value, 0) || 1
+  return totals.map(([label, value]) => ({ label, value, percent: (value / total) * 100, suffix: '円' }))
+}
+type RatioItem = { label: string; percent: number; suffix?: string; value: number }
+function RatioChart({ items, title }: { items: RatioItem[]; title: string }) { return <section><h3>{title}</h3><div className="hq-ratio-bars">{items.map((item) => <div key={`${title}-${item.label}`}><span>{item.label}</span><div className="hq-ratio-track"><i style={{ width: `${Math.max(item.percent, 2)}%` }} /></div><strong>{item.suffix ? `${formatFareYen(item.value)}${item.suffix} / ` : `${item.value}社 / `}{formatRate(item.percent)}</strong></div>)}</div></section> }
+
 function Kpi({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }
 function Ranking({ items, title }: { items: Array<[string, string]>; title: string }) { return <section><h3>{title}</h3>{items.length > 0 ? <ol>{items.map(([label, value]) => <li key={`${title}-${label}`}><span>{label}</span><strong>{value}</strong></li>)}</ol> : <p>データなし</p>}</section> }
 function Input({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) { return <label>{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label> }
 function StatusBadge({ status }: { status: CompanyStatus }) { return <span className={`hq-status-badge hq-status-badge--${status}`}>{companyStatusLabels[status]}</span> }
 function ProfileBlock({ rows, title }: { rows: Array<[string, string]>; title: string }) { return <section><h3>{title}</h3>{rows.map(([label, value]) => <div key={`${title}-${label}`}><span>{label}</span><strong>{value}</strong></div>)}</section> }
-function staffStatusLabel(status: StaffMember['status'], enabled: boolean) { if (status === 'retired') return '退職'; if (status === 'leave') return '休職中'; if (status === 'disabled' || !enabled) return '無効'; return '在籍中' }
-function areaItems(records: StoredCaseRecord[], key: 'pickupArea' | 'dropoffArea'): Array<[string, string]> { const counts = new Map<string, number>(); records.forEach((record) => { const area = record[key] || '未設定'; counts.set(area, (counts.get(area) ?? 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([area, count]) => [area, `${count}件`]) }
-function areaSalesItems(records: StoredCaseRecord[]): Array<[string, string]> { const counts = new Map<string, number>(); records.forEach((record) => { const area = record.pickupArea || '未設定'; counts.set(area, (counts.get(area) ?? 0) + record.totalFareYen) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([area, sales]) => [area, `${formatFareYen(sales)}円`]) }
-function areaAverageItems(records: StoredCaseRecord[]): Array<[string, string]> { const totals = new Map<string, { count: number; sales: number }>(); records.forEach((record) => { const area = record.pickupArea || '未設定'; const current = totals.get(area) ?? { count: 0, sales: 0 }; totals.set(area, { count: current.count + 1, sales: current.sales + record.totalFareYen }) }); return [...totals.entries()].sort((a, b) => b[1].sales - a[1].sales).slice(0, 6).map(([area, summary]) => [area, `${formatFareYen(summary.count ? Math.round(summary.sales / summary.count) : 0)}円`]) }
-function paymentMethodSummary(records: StoredCaseRecord[]) { const totals = new Map<string, number>(); records.forEach((record) => totals.set(record.paymentMethod, (totals.get(record.paymentMethod) ?? 0) + record.totalFareYen)); return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([method, sales]) => `${method}:${formatFareYen(sales)}円`).join(' / ') || '未集計' }
