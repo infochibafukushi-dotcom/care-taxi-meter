@@ -335,7 +335,7 @@ const createFareSnapshot = ({
   capturedAt: new Date().toISOString(),
   disabilityDiscount: {
     appliesTo: ['basicFare', 'meterTimeFare'],
-    discountRate: 0.1,
+    discountRate: meterSettings.discount.method === 'percentage' ? meterSettings.discount.value / 100 : 0,
     enabled: true,
     rounding: 'floorToTenYen',
   },
@@ -550,6 +550,7 @@ export function CasePage() {
       meterTimeFare: restoredTripSnapshot?.fareSnapshot?.meterTimeFare ?? defaultMeterSettings.meterTimeFare,
       specialVehicleMenuItems: restoredTripSnapshot?.fareSnapshot?.specialVehicleMenuItems ?? defaultMeterSettings.specialVehicleMenuItems,
       waitingFare: restoredTripSnapshot?.fareSnapshot?.waitingFare ?? defaultMeterSettings.waitingFare,
+      discount: defaultMeterSettings.discount,
     })
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
@@ -927,6 +928,7 @@ export function CasePage() {
       escortFare: currentEscortFareSettings,
       meterTimeFare: currentMeterSettings.meterTimeFare,
       waitingFare: currentWaitingFareSettings,
+      discount: currentMeterSettings.discount,
     },
   })
 
@@ -1872,6 +1874,9 @@ export function CasePage() {
         isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
         disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
         disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
+        discountName: fareBreakdown.discountName,
+        discountMethod: fareBreakdown.discountMethod,
+        discountValue: fareBreakdown.discountValue,
         taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
         taxiTickets,
         paymentMethod,

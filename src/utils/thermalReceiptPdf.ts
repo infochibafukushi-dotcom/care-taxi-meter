@@ -80,7 +80,7 @@ function createThermalReceiptLines(
     })
   })
 
-  lines.push({ label: '障害者割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' })
+  lines.push({ label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' })
   lines.push({ label: 'タクシー券', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` })
   caseRecord.taxiTickets.forEach((ticket) => {
     lines.push({

@@ -793,7 +793,7 @@ export function CaseDetailPage() {
                 )}
               </div>
               <div>
-                <span>障害者割引</span>
+                <span>割引</span>
                 <strong>{caseRecord.isDisabilityDiscount ? `${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用'}</strong>
               </div>
               <div className="case-detail-assist-charges">

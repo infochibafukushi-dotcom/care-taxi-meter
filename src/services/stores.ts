@@ -58,7 +58,7 @@ export const headquartersStore: Store = {
   id: 'store_fc_headquarters',
   companyId: defaultCompanyId,
   franchiseeId: defaultCompanyId,
-  name: 'FC本部',
+  name: '株式会社千葉福祉サポート',
   status: 'active',
   enabled: true,
   isActive: true,

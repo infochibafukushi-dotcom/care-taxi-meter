@@ -13,6 +13,7 @@ import {
   meterTimeFareSettings,
   specialVehicleMenuMaster,
   waitingFareSettings,
+  DEFAULT_DISCOUNT_SETTINGS,
 } from './fare'
 import type {
   BasicFareSettings,
@@ -21,6 +22,7 @@ import type {
   MeterTimeFareSettings,
   SpecialVehicleMenuItem,
   TimeFareSettings,
+  DiscountSettings,
 } from './fare'
 
 export type ExpensePreset = {
@@ -58,6 +60,7 @@ export type MeterSettings = {
   expensePresets: ExpensePreset[]
   company: CompanySettings
   receipt: ReceiptSettings
+  discount: DiscountSettings
 }
 
 export type MeterSettingsDocument = MeterSettings & {
@@ -97,6 +100,7 @@ export const defaultMeterSettings: MeterSettings = {
     invoiceNumber: '',
     defaultReceiptNote: '介護タクシー利用料として',
   },
+  discount: DEFAULT_DISCOUNT_SETTINGS,
 }
 
 const toPositiveNumber = (value: unknown, fallback: number, minimum = 0) => {
@@ -332,6 +336,17 @@ function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
     .filter((item) => item.name)
 }
 
+function sanitizeDiscount(value: unknown): DiscountSettings {
+  const source = toObject(value)
+  const method = source.method === 'fixed' ? 'fixed' : 'percentage'
+
+  return {
+    name: toStringValue(source.name, DEFAULT_DISCOUNT_SETTINGS.name).trim() || DEFAULT_DISCOUNT_SETTINGS.name,
+    method,
+    value: toPositiveNumber(source.value, DEFAULT_DISCOUNT_SETTINGS.value),
+  }
+}
+
 function sanitizeCompany(value: unknown): CompanySettings {
   const source = toObject(value)
 
@@ -376,6 +391,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     basicFare: sanitizeBasicFare(source.basicFare),
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
     company: sanitizeCompany(source.company),
+    discount: sanitizeDiscount(source.discount),
     dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems),
     specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems),
     escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),

@@ -54,6 +54,9 @@ export type FareBreakdown = {
   isDisabilityDiscount: boolean;
   disabilityDiscountRate: number;
   disabilityDiscountAmount: number;
+  discountName: string;
+  discountMethod: DiscountSettings["method"];
+  discountValue: number;
   taxiTicketAmountYen: number;
   totalFareYen: number;
   lineItems: FareLineItem[];
@@ -115,6 +118,17 @@ export const DEFAULT_BASIC_FARE_SETTINGS = basicFareSettings;
 export const DEFAULT_WAITING_FARE_SETTINGS = waitingFareSettings;
 export const DEFAULT_ACCOMPANIMENT_FARE_SETTINGS = escortFareSettings;
 export const DEFAULT_METER_TIME_FARE_SETTINGS = meterTimeFareSettings;
+export type DiscountSettings = {
+  name: string;
+  method: "percentage" | "fixed";
+  value: number;
+};
+
+export const DEFAULT_DISCOUNT_SETTINGS: DiscountSettings = {
+  name: "割引",
+  method: "percentage",
+  value: 10,
+};
 export const DEFAULT_DISABILITY_DISCOUNT_RATE = 0.1;
 
 export const roundDownToTenYen = (amountYen: number) =>
@@ -210,6 +224,7 @@ export function calculateFareBreakdown({
     escortFare?: TimeFareSettings;
     meterTimeFare?: TimeFareSettings;
     waitingFare?: TimeFareSettings;
+    discount?: DiscountSettings;
   };
 }): FareBreakdown {
   const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
@@ -233,8 +248,17 @@ export function calculateFareBreakdown({
   const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
   const expenseFareYen = calculateExpenseTotalYen(expenses);
   const discountableFareYen = basicFareYen + meterTimeFareYen;
+  const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
+  const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
+  const discountValue = Math.max(Number(discountSettings.value) || 0, 0);
+  const discountRate = discountSettings.method === "percentage" ? discountValue / 100 : 0;
   const disabilityDiscountAmount = isDisabilityDiscount
-    ? roundDownToTenYen(discountableFareYen * DEFAULT_DISABILITY_DISCOUNT_RATE)
+    ? Math.min(
+        discountSettings.method === "percentage"
+          ? roundDownToTenYen(discountableFareYen * discountRate)
+          : Math.round(discountValue),
+        discountableFareYen,
+      )
     : 0;
   const discountedMeterFareYen = Math.max(
     discountableFareYen - disabilityDiscountAmount,
@@ -270,13 +294,16 @@ export function calculateFareBreakdown({
     grossFareYen,
     discountableFareYen,
     isDisabilityDiscount,
-    disabilityDiscountRate: DEFAULT_DISABILITY_DISCOUNT_RATE,
+    disabilityDiscountRate: discountRate,
     disabilityDiscountAmount,
+    discountName,
+    discountMethod: discountSettings.method,
+    discountValue,
     taxiTicketAmountYen,
     totalFareYen,
     lineItems: [
       { label: "基本運賃", amountYen: basicFareYen + meterTimeFareYen },
-      { label: "障害者割引", amountYen: -disabilityDiscountAmount },
+      { label: discountName, amountYen: -disabilityDiscountAmount },
       { label: "タクシー券", amountYen: -taxiTicketAmountYen },
       { label: "予約・迎車料金", amountYen: dispatchFareYen },
       { label: "特殊車両料金", amountYen: specialVehicleFareYen },
