@@ -6729,3 +6729,70 @@ h1 {
 .r9-status-button--settlement.r9-status-button--hold span {
   display: none;
 }
+
+.hq-priority {
+  border: 2px solid #fecaca;
+}
+
+.hq-support-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.hq-support-card {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.hq-support-card h3 {
+  color: #9a3412;
+  margin-top: 0;
+}
+
+.hq-support-card ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.hq-registration-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 10px 14px;
+}
+
+.hq-registration-panel summary,
+#管理者設定 > summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+#管理者設定 > summary h2 {
+  display: inline;
+}
+
+.hq-company-table--simple {
+  min-width: 980px;
+}
+
+.hq-ratio-bars {
+  display: grid;
+  gap: 12px;
+}
+
+.hq-ratio-track {
+  background: #e2e8f0;
+  border-radius: 999px;
+  height: 10px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+
+.hq-ratio-track i {
+  background: linear-gradient(90deg, #2563eb, #22c55e);
+  display: block;
+  height: 100%;
+}
