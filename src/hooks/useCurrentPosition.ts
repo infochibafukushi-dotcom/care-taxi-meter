@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { gpsVehicleSpeedProvider } from '../services/gpsSpeed'
 import type { SpeedSource } from '../services/gpsSpeed'
 import type { GpsLogEntry, GpsPosition, MeterMovementState } from '../types/case'
@@ -87,6 +87,7 @@ export function useCurrentPosition(
   isFareMeterActive = isActive,
   isBusinessDistanceActive = isActive,
   initialGpsState: InitialGpsState = {},
+  resetKey = 0,
 ) {
   const [position, setPosition] = useState<GpsPosition | null>(initialGpsState.position ?? null)
   const initialBridgeLogCapturedAtRef = useRef(
@@ -96,7 +97,7 @@ export function useCurrentPosition(
   )
   const [status, setStatus] = useState<GpsStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [gpsLogState, setGpsLogState] = useState<GpsLogState>({
+  const createInitialGpsLogState = () => ({
     businessDistanceMeters: Math.max(initialGpsState.businessDistanceKm ?? 0, 0) * 1000,
     chargeableDistanceMeters: Math.max(initialGpsState.chargeableDistanceKm ?? 0, 0) * 1000,
     currentSpeedKmh: initialGpsState.currentSpeedKmh ?? null,
@@ -105,7 +106,39 @@ export function useCurrentPosition(
     movementState: initialGpsState.movementState ?? 'unknown',
     speedSource: initialGpsState.speedSource ?? 'unavailable',
   })
+  const [gpsLogState, setGpsLogState] = useReducer(
+    (_currentState: GpsLogState, nextState: GpsLogState | ((currentState: GpsLogState) => GpsLogState)) =>
+      typeof nextState === 'function' ? nextState(_currentState) : nextState,
+    undefined,
+    createInitialGpsLogState,
+  )
+  const isInitialResetRenderRef = useRef(true)
   const isUnsupported = !('geolocation' in navigator)
+
+  useEffect(() => {
+    if (isInitialResetRenderRef.current) {
+      isInitialResetRenderRef.current = false
+      return undefined
+    }
+
+    const resetTimerId = window.setTimeout(() => {
+      setPosition(null)
+      setStatus('idle')
+      setErrorMessage(null)
+      initialBridgeLogCapturedAtRef.current = null
+      setGpsLogState({
+        businessDistanceMeters: 0,
+        chargeableDistanceMeters: 0,
+        currentSpeedKmh: null,
+        logs: [],
+        lowSpeedSeconds: 0,
+        movementState: 'unknown',
+        speedSource: 'unavailable',
+      })
+    }, 0)
+
+    return () => window.clearTimeout(resetTimerId)
+  }, [resetKey])
 
   useEffect(() => {
     if (!isActive || isUnsupported) {

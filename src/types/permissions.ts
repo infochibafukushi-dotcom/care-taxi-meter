@@ -10,7 +10,6 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
 export const assignableStaffRoles: StaffRole[] = ['driver', 'manager', 'owner']
 export const staffRoleSelectGroups: Array<{ label?: string; roles: StaffRole[] }> = [
   { roles: assignableStaffRoles },
-  { label: 'FC本部管理者', roles: ['hq_admin'] },
 ]
 
 export const roleHomePaths: Record<StaffRole, string> = {

@@ -1989,10 +1989,6 @@ export function AdminPage() {
                 <div>
                   <p className="eyebrow">Monthly Driver Operations</p>
                   <h3>個人運行管理（月別）</h3>
-                  <p>
-                    出勤・退勤・休憩・運転時間・売上KPIを月単位で確認します。
-                    時間売上（売上÷拘束時間）を最重要KPIとして強調表示します。
-                  </p>
                 </div>
                 <strong>{personalOperationMonthly.monthLabel}</strong>
               </div>
@@ -2214,21 +2210,6 @@ export function AdminPage() {
                   <p>
                     「－」は休日または未出勤日です。点呼・車両点検は出勤時に完了すると自動で○がつきます。
                   </p>
-                </section>
-                <section>
-                  <h4>目標設定（参考）</h4>
-                  <div>
-                    <span>時間売上（目標）</span>
-                    <strong>5,000円/時以上</strong>
-                  </div>
-                  <div>
-                    <span>平均単価（目標）</span>
-                    <strong>7,500円以上</strong>
-                  </div>
-                  <div>
-                    <span>売上（目標）</span>
-                    <strong>850,000円以上</strong>
-                  </div>
                 </section>
               </div>
             </div>
