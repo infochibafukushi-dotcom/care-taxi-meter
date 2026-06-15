@@ -599,10 +599,12 @@ export function HomePage() {
             <label>
               会社ID
               <input placeholder="会社IDを入力" value={loginForm.companyId} onChange={(event) => handleLoginChange('companyId', event.target.value)} />
+              <span className="login-field-hint">※FC加盟時に設定した法人名または屋号名を入力してください。例）株式会社千葉福祉サポート / ちばケアタクシー</span>
             </label>
             <label>
               ログインID
               <input value={loginForm.userId} onChange={(event) => handleLoginChange('userId', event.target.value)} />
+              <span className="login-field-hint">※従業員氏名を入力してください。例）東京太郎</span>
             </label>
             <label>
               パスワード
