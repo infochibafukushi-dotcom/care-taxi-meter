@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
 import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
@@ -39,7 +39,7 @@ import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
 import { tenantScopeFromSession } from "../services/tenancy";
-import { loadAuthStaffSession } from "../services/authSession";
+import { loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
 
 type AdminSummaryState = {
   errorMessage: string;
@@ -385,7 +385,9 @@ const createSpecialVehicleMenuItem = (
 export function AdminPage() {
   const workSession = useWorkSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const authSession = useMemo(() => loadAuthStaffSession(), []);
+  const hqViewingSession = useMemo(() => loadHqViewingSession(), []);
   const sessionSource = workSession.currentSession ?? authSession;
   const currentScope = tenantScopeFromSession(sessionSource);
   const currentFranchiseeId = currentScope.franchiseeId;
@@ -1175,7 +1177,15 @@ export function AdminPage() {
   }
 
   return (
-    <main className="page admin-page" aria-labelledby="admin-title">
+    <main className={`page admin-page${hqViewingSession ? " admin-page--hq-view" : ""}`} aria-labelledby="admin-title">
+      {hqViewingSession ? (
+        <div className="hq-viewing-banner" role="status">
+          <strong>FC本部閲覧モード</strong>
+          <span>加盟店：{hqViewingSession.companyName}</span>
+          <span>※ 閲覧専用です</span>
+          <button className="secondary-action" type="button" onClick={() => navigate(restoreHqSessionFromViewingMode())}>FC本部へ戻る</button>
+        </div>
+      ) : null}
       <section className="content-card admin-card">
         <div className="case-list-header">
           <div>
