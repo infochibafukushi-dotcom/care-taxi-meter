@@ -1,4 +1,4 @@
-import type { FareBreakdown } from '../../services/fare'
+import type { DiscountSettings, FareBreakdown } from '../../services/fare'
 import { formatFareYen } from '../../services/fare'
 import type { PaymentMethod, TaxiTicket } from '../../types/case'
 
@@ -7,6 +7,7 @@ type SettlementPanelProps = {
   businessDistanceKm: number
   chargeableDistanceKm: number
   isDisabilityDiscount: boolean
+  settlementDiscount: DiscountSettings
   paymentAmounts: Record<PaymentMethod, number>
   paymentMethod: PaymentMethod
   receiptName: string
@@ -15,6 +16,7 @@ type SettlementPanelProps = {
   taxiTickets: TaxiTicket[]
   onAddTaxiTicket: (ticket: Omit<TaxiTicket, 'id'>) => void
   onDisabilityDiscountChange: (isDisabilityDiscount: boolean) => void
+  onSettlementDiscountChange: (discount: DiscountSettings) => void
   onPaymentAmountChange: (paymentMethod: PaymentMethod, amount: number) => void
   onPaymentMethodChange: (paymentMethod: PaymentMethod) => void
   onReceiptNameChange: (receiptName: string) => void
@@ -29,6 +31,7 @@ export function SettlementPanel({
   businessDistanceKm,
   chargeableDistanceKm,
   isDisabilityDiscount,
+  settlementDiscount,
   paymentAmounts,
   paymentMethod,
   receiptName,
@@ -37,6 +40,7 @@ export function SettlementPanel({
   taxiTickets,
   onAddTaxiTicket,
   onDisabilityDiscountChange,
+  onSettlementDiscountChange,
   onPaymentAmountChange,
   onPaymentMethodChange,
   onReceiptNameChange,
@@ -81,8 +85,58 @@ export function SettlementPanel({
           type="checkbox"
           onChange={(event) => onDisabilityDiscountChange(event.target.checked)}
         />
-        {breakdown.discountName}を適用（{breakdown.discountMethod === 'percentage' ? `${breakdown.discountValue}％` : `${formatFareYen(breakdown.discountValue)}円`}）
+        割引を適用する
       </label>
+      {isDisabilityDiscount ? (
+        <fieldset className="payment-methods">
+          <legend>割引設定</legend>
+          <label>
+            割引名
+            <input
+              type="text"
+              value={settlementDiscount.name}
+              onChange={(event) => onSettlementDiscountChange({ ...settlementDiscount, name: event.target.value })}
+            />
+          </label>
+          <label>
+            <input
+              checked={settlementDiscount.method === 'percentage'}
+              name="settlement-discount-method"
+              type="radio"
+              onChange={() => onSettlementDiscountChange({ ...settlementDiscount, method: 'percentage', value: Math.min(settlementDiscount.value, 100) })}
+            />
+            割合割引（％）
+          </label>
+          <label>
+            <input
+              checked={settlementDiscount.method === 'fixed'}
+              name="settlement-discount-method"
+              type="radio"
+              onChange={() => onSettlementDiscountChange({ ...settlementDiscount, method: 'fixed' })}
+            />
+            金額割引（円）
+          </label>
+          <label>
+            {settlementDiscount.method === 'percentage' ? '割合' : '金額'}
+            <input
+              min="0"
+              max={settlementDiscount.method === 'percentage' ? '100' : undefined}
+              step="1"
+              type="number"
+              value={settlementDiscount.value}
+              onChange={(event) => {
+                const rawValue = Math.max(Number(event.target.value) || 0, 0)
+                const value = settlementDiscount.method === 'percentage' ? Math.min(rawValue, 100) : rawValue
+                onSettlementDiscountChange({ ...settlementDiscount, value })
+              }}
+            />
+            {settlementDiscount.method === 'percentage' ? '％' : '円'}
+          </label>
+          <p className="empty-note">
+            {breakdown.discountName}（{breakdown.discountMethod === 'percentage' ? `${breakdown.discountValue}％` : `${formatFareYen(breakdown.discountValue)}円`}） ▲{formatFareYen(breakdown.disabilityDiscountAmount)}円
+          </p>
+        </fieldset>
+      ) : null}
       <div className="settlement-lines" aria-label="精算内訳">
         {breakdown.lineItems.map((item) => (
           <div key={item.label}>

@@ -508,6 +508,7 @@ export function CasePage() {
   >(restoredTripSnapshot?.selectedSpecialVehicleCharges ?? [])
   const [expenses, setExpenses] = useState<ExpenseItem[]>(restoredTripSnapshot?.selectedExpenses ?? [])
   const [isDisabilityDiscount, setIsDisabilityDiscount] = useState(restoredTripSnapshot?.isDisabilityDiscount ?? false)
+  const [settlementDiscount, setSettlementDiscount] = useState(defaultMeterSettings.discount)
   const [taxiTickets, setTaxiTickets] = useState<TaxiTicket[]>(restoredTripSnapshot?.taxiTickets ?? [])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(restoredTripSnapshot?.paymentMethod ?? '現金')
   const [paymentAmounts, setPaymentAmounts] = useState<Record<PaymentMethod, number>>(
@@ -765,6 +766,9 @@ export function CasePage() {
         setCurrentDispatchMenuItems(settings.dispatchMenuItems)
         setCurrentSpecialVehicleMenuItems(settings.specialVehicleMenuItems)
         setCurrentExpensePresets(settings.expensePresets)
+        if (!operationStartedAtRef.current) {
+          setSettlementDiscount(settings.discount)
+        }
         setSettingsMessage('Firestore設定をリアルタイム反映しています。')
       },
       (error: Error) => {
@@ -928,7 +932,7 @@ export function CasePage() {
       escortFare: currentEscortFareSettings,
       meterTimeFare: currentMeterSettings.meterTimeFare,
       waitingFare: currentWaitingFareSettings,
-      discount: currentMeterSettings.discount,
+      discount: settlementDiscount,
     },
   })
 
@@ -1004,6 +1008,7 @@ export function CasePage() {
     gps.position,
     gps.speedSource,
     isDisabilityDiscount,
+    settlementDiscount,
     shouldPersistTripSnapshot,
     paymentAmounts,
     paymentMethod,
@@ -2865,6 +2870,7 @@ export function CasePage() {
                   businessDistanceKm={gps.businessDistanceKm}
                   chargeableDistanceKm={gps.chargeableDistanceKm}
                   isDisabilityDiscount={isDisabilityDiscount}
+                  settlementDiscount={settlementDiscount}
                   paymentAmounts={paymentAmounts}
                   paymentMethod={paymentMethod}
                   receiptName={receiptName}
@@ -2873,6 +2879,7 @@ export function CasePage() {
                   taxiTickets={taxiTickets}
                   onAddTaxiTicket={addTaxiTicket}
                   onDisabilityDiscountChange={setIsDisabilityDiscount}
+                  onSettlementDiscountChange={setSettlementDiscount}
                   onPaymentAmountChange={updatePaymentAmount}
                   onPaymentMethodChange={setPaymentMethod}
                   onReceiptNameChange={setReceiptName}
