@@ -6796,3 +6796,44 @@ h1 {
   display: block;
   height: 100%;
 }
+
+.hq-hero-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hq-hero-actions span {
+  color: #475569;
+  font-weight: 900;
+}
+
+.hq-viewing-banner {
+  align-items: center;
+  background: #0f172a;
+  border-radius: 18px;
+  color: #e2e8f0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin: 0 auto 16px;
+  max-width: 1120px;
+  padding: 14px 18px;
+  position: sticky;
+  top: 8px;
+  z-index: 10;
+}
+
+.hq-viewing-banner strong {
+  color: #fff;
+}
+
+.admin-page--hq-view .content-card button,
+.admin-page--hq-view .content-card input,
+.admin-page--hq-view .content-card select,
+.admin-page--hq-view .content-card textarea {
+  opacity: 0.65;
+  pointer-events: none;
+}

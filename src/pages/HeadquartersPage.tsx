@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ensureDefaultCompany, fetchCompanies, saveCompany, updateCompanyStatus } from '../services/companies'
 import { fetchCaseRecords } from '../services/caseRecords'
 import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
 import { fetchStores, saveStore } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
-import { loadAuthStaffSession } from '../services/authSession'
+import { clearAuthStaffSession, loadAuthStaffSession, saveHqViewingSession } from '../services/authSession'
 import { defaultFranchiseeId } from '../services/tenancy'
 import { defaultHeadquartersInfo, fetchHeadquartersInfo, saveHeadquartersInfo } from '../services/hqSettings'
 import type { HeadquartersInfo } from '../services/hqSettings'
@@ -149,6 +149,7 @@ const formatMembership = (start?: string) => {
 
 export function HeadquartersPage() {
   const workSession = useWorkSession()
+  const navigate = useNavigate()
   const authSession = loadAuthStaffSession()
   const [companies, setCompanies] = useState<Company[]>([])
   const [stores, setStores] = useState<Store[]>([])
@@ -261,6 +262,7 @@ export function HeadquartersPage() {
     const monthSalesYen = companySummaries.reduce((total, summary) => total + summary.monthSalesYen, 0)
     const monthCaseCount = companySummaries.reduce((total, summary) => total + summary.monthCaseCount, 0)
     const totalMembershipMonths = franchiseCompanies.reduce((total, company) => total + getMembershipMonths(company.contractStartDate), 0)
+    const monthlyFranchiseFeeYen = franchiseCompanies.reduce((total, company) => total + (company.monthlyFee ?? 0), 0)
 
     return {
       activeCompanies,
@@ -268,6 +270,7 @@ export function HeadquartersPage() {
       averageMembershipMonths: franchiseCompanies.length > 0 ? Math.round(totalMembershipMonths / franchiseCompanies.length) : 0,
       monthCaseCount,
       monthSalesYen,
+      monthlyFranchiseFeeYen,
       retentionRate: franchiseCompanies.length > 0 ? (retainedCompanies.length / franchiseCompanies.length) * 100 : 0,
     }
   }, [companySummaries, franchiseCompanies])
@@ -279,6 +282,8 @@ export function HeadquartersPage() {
   const planItems = planRatioItems(franchiseCompanies)
   const areaRanking = areaCompanyItems(franchiseCompanies)
   const salesCategoryItems = salesCategoryRatioItems(franchiseCaseRecords)
+  const franchiseRevenueItems = planRevenueRatioItems(franchiseCompanies)
+  const planRevenueRanking = planRevenueItems(franchiseCompanies)
 
   const updateDraftCompany = (key: keyof Company, value: string | boolean | number) => setDraftCompany((currentCompany) => ({ ...currentCompany, [key]: value }))
   const updateHeadquartersInfo = (key: keyof HeadquartersInfo, value: string) => setHeadquartersInfo((currentInfo) => ({ ...currentInfo, [key]: value }))
@@ -365,6 +370,29 @@ export function HeadquartersPage() {
     }
   }
 
+  const handleLogout = () => {
+    workSession.logout()
+    clearAuthStaffSession()
+    sessionStorage.clear()
+    localStorage.clear()
+    navigate('/')
+  }
+
+  const handleOpenCompanyTop = (summary: CompanySummary) => {
+    const ownerStaff = getOwnerStaffForCompany(staffMembers, summary.company.id)
+    const ownerStore = stores.find((store) => store.companyId === summary.company.id)
+    saveHqViewingSession({
+      companyId: summary.company.id,
+      franchiseeId: summary.company.franchiseeId || summary.company.id,
+      id: ownerStaff?.id || `${summary.company.id}_hq_viewer`,
+      name: ownerStaff?.name || summary.company.representativeName || summary.company.ownerName || 'FC本部閲覧',
+      role: 'owner',
+      storeId: ownerStaff?.storeId || ownerStore?.id || `${summary.company.id}_main-store`,
+      storeName: ownerStaff?.storeName || ownerStore?.name || summary.company.name,
+    }, summary.company.name, authSession, '/hq')
+    navigate('/owner')
+  }
+
   const handleDevelopmentDataReset = async () => {
     const confirmed = window.confirm('加盟店・売上・勤務・従業員・車両データを削除し、FC本部の初期データのみ再作成します。実行しますか？')
     if (!confirmed) return
@@ -400,10 +428,14 @@ export function HeadquartersPage() {
           <h1 id="hq-title">株式会社千葉福祉サポート</h1>
           <p className="lead">FC本部として加盟店を管理・分析・支援する画面です。FC本部は加盟店一覧、ランキング、契約管理の対象外です。</p>
         </div>
-        <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>開発データリセット</button>
+        <div className="hq-hero-actions">
+          <span>管理者：{authSession?.name || workSession.currentSession?.staffName || '未設定'}</span>
+          <button className="secondary-action" type="button" onClick={handleLogout}>ログアウト</button>
+          <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>開発データリセット</button>
+        </div>
       </section>
       <nav className="hq-menu" aria-label="FC本部メニュー">
-        {['要対応加盟店','FC全体KPI','加盟店管理','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
+        {['要対応加盟店','FC全体KPI','加盟店管理','FC収益分析','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
       </nav>
       <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
 
@@ -416,7 +448,7 @@ export function HeadquartersPage() {
               <article className="hq-support-card" key={summary.company.id}>
                 <h3>⚠ {summary.company.name}</h3>
                 <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-                <button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>加盟店詳細</button>
+                <button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>加盟店詳細</button><button type="button" onClick={() => handleOpenCompanyTop(summary)}>加盟店TOP確認</button>
               </article>
             ))}
           </div>
@@ -433,6 +465,7 @@ export function HeadquartersPage() {
           <Kpi label="月間総売上" value={`${formatFareYen(kpis.monthSalesYen)}円`} />
           <Kpi label="月間総案件数" value={`${kpis.monthCaseCount}件`} />
           <Kpi label="平均単価" value={`${formatFareYen(kpis.averageFareYen)}円`} />
+          <Kpi label="今月加盟料" value={`${formatFareYen(kpis.monthlyFranchiseFeeYen)}円`} />
         </div>
         <div className="hq-rankings">
           <RatioChart title="加盟プラン比率" items={planItems} />
@@ -474,8 +507,17 @@ export function HeadquartersPage() {
         <div className="admin-table-wrapper hq-table-wrapper">
           <table className="admin-table hq-company-table hq-company-table--simple">
             <thead><tr>{['加盟店名','加盟年数','プラン','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
-            <tbody>{sortedCompanySummaries.map((summary) => <tr key={summary.company.id}><td>{summary.company.name}</td><td>{formatMembership(summary.company.contractStartDate)}</td><td>{summary.company.plan || '未設定'}</td><td><StatusBadge status={getCompanyStatus(summary.company)} /></td><td>{formatFareYen(summary.monthSalesYen)}円</td><td>{summary.monthCaseCount}</td><td>{summary.company.lastLoginAt || '未記録'}</td><td className="hq-actions"><button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button><button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button></td></tr>)}</tbody>
+            <tbody>{sortedCompanySummaries.map((summary) => <tr key={summary.company.id}><td>{summary.company.name}</td><td>{formatMembership(summary.company.contractStartDate)}</td><td>{summary.company.plan || '未設定'}</td><td><StatusBadge status={getCompanyStatus(summary.company)} /></td><td>{formatFareYen(summary.monthSalesYen)}円</td><td>{summary.monthCaseCount}</td><td>{summary.company.lastLoginAt || '未記録'}</td><td className="hq-actions"><button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button><button type="button" onClick={() => handleOpenCompanyTop(summary)}>加盟店TOP確認</button><button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button></td></tr>)}</tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="admin-section" id="FC収益分析">
+        <h2>FC収益分析</h2>
+        <div className="hq-rankings">
+          <Ranking title="プラン別加盟店数" items={planItems.map((item) => [item.label, `${item.value}社`])} />
+          <Ranking title="プラン別加盟料収益" items={planRevenueRanking} />
+          <RatioChart title="プラン別加盟料構成比" items={franchiseRevenueItems} />
         </div>
       </section>
 
@@ -573,6 +615,8 @@ function planRatioItems(companies: Company[]): RatioItem[] {
   const total = companies.length || 1
   return ['標準プラン', 'プレミアムプラン', 'その他プラン'].map((label) => ({ label, value: counts.get(label) ?? 0, percent: ((counts.get(label) ?? 0) / total) * 100 }))
 }
+function planRevenueItems(companies: Company[]): Array<[string, string]> { const totals = new Map<string, number>(); companies.forEach((company) => { const plan = company.plan || 'その他プラン'; totals.set(plan, (totals.get(plan) ?? 0) + (company.monthlyFee ?? 0)) }); return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([plan, fee]) => [plan, `${formatFareYen(fee)}円`]) }
+function planRevenueRatioItems(companies: Company[]): RatioItem[] { const items = planRevenueItems(companies).map(([label, value]) => ({ label, value: Number(value.replace(/[^0-9]/g, '')) || 0 })); const total = items.reduce((sum, item) => sum + item.value, 0) || 1; return items.map((item) => ({ ...item, percent: (item.value / total) * 100, suffix: '円' })) }
 function areaCompanyItems(companies: Company[]): Array<[string, string]> { const counts = new Map<string, number>(); companies.forEach((company) => { const area = company.area || '未設定'; counts.set(area, (counts.get(area) ?? 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([area, count]) => [area, `${count}社`]) }
 function salesCategoryRatioItems(records: StoredCaseRecord[]): RatioItem[] {
   const totals = [
