@@ -3,6 +3,7 @@ import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
+import { createPdfFileName, drawPdfText } from './pdfDrawing'
 import type { ExpenseItem } from '../types/case'
 
 export type ThermalReceiptIssueOptions = {
@@ -28,9 +29,9 @@ const thermalReceiptPaper = {
 }
 
 const thermalReceiptFileName = (caseNumber: string) =>
-  `thermal-receipt-${caseNumber.replaceAll(/[^a-zA-Z0-9-]/g, '-')}.pdf`
+  createPdfFileName('thermal-receipt', caseNumber)
 
-function drawText(
+const drawThermalText = (
   context: CanvasRenderingContext2D,
   text: string,
   x: number,
@@ -39,15 +40,12 @@ function drawText(
     align?: CanvasTextAlign
     font?: string
   } = {},
-) {
-  context.save()
-  context.fillStyle = '#111827'
-  context.font = options.font ?? '28px sans-serif'
-  context.textAlign = options.align ?? 'left'
-  context.textBaseline = 'alphabetic'
-  context.fillText(text, x, y)
-  context.restore()
-}
+) =>
+  drawPdfText(context, text, x, y, {
+    color: '#111827',
+    font: '28px sans-serif',
+    ...options,
+  })
 
 function drawDivider(context: CanvasRenderingContext2D, y: number) {
   context.save()
@@ -131,13 +129,13 @@ function createThermalReceiptCanvas(
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  drawText(context, companyName, canvas.width / 2, y, {
+  drawThermalText(context, companyName, canvas.width / 2, y, {
     align: 'center',
     font: 'bold 30px sans-serif',
   })
   y += 38
   if (corporateName && corporateName !== companyName) {
-    drawText(context, corporateName, canvas.width / 2, y, {
+    drawThermalText(context, corporateName, canvas.width / 2, y, {
       align: 'center',
       font: '28px sans-serif',
     })
@@ -151,7 +149,7 @@ function createThermalReceiptCanvas(
   ]
     .filter((line) => line.trim())
     .forEach((line) => {
-      drawText(context, line, canvas.width / 2, y, {
+      drawThermalText(context, line, canvas.width / 2, y, {
         align: 'center',
         font: '22px sans-serif',
       })
@@ -161,12 +159,12 @@ function createThermalReceiptCanvas(
   y += 16
   drawDivider(context, y)
   y += 52
-  drawText(context, issueOptions.isReissue ? '領収書（再発行）' : '領収書', canvas.width / 2, y, {
+  drawThermalText(context, issueOptions.isReissue ? '領収書（再発行）' : '領収書', canvas.width / 2, y, {
     align: 'center',
     font: 'bold 48px sans-serif',
   })
   y += 52
-  drawText(context, customerName ? `${customerName} 様` : '________________ 様', 48, y, {
+  drawThermalText(context, customerName ? `${customerName} 様` : '________________ 様', 48, y, {
     font: 'bold 30px sans-serif',
   })
   y += 40
@@ -178,8 +176,8 @@ function createThermalReceiptCanvas(
     ['利用日', formatCaseDateTime(caseRecord.closedAt)],
     ['案件番号', caseRecord.caseNumber],
   ].forEach(([label, value]) => {
-    drawText(context, label, 48, y, { font: '24px sans-serif' })
-    drawText(context, value, canvas.width - 48, y, {
+    drawThermalText(context, label, 48, y, { font: '24px sans-serif' })
+    drawThermalText(context, value, canvas.width - 48, y, {
       align: 'right',
       font: '24px sans-serif',
     })
@@ -190,10 +188,10 @@ function createThermalReceiptCanvas(
   drawDivider(context, y)
   y += 42
   createThermalReceiptLines(caseRecord, issueOptions.expenseItems).forEach((line) => {
-    drawText(context, line.label, line.indent ? 74 : 48, y, {
+    drawThermalText(context, line.label, line.indent ? 74 : 48, y, {
       font: line.indent ? '22px sans-serif' : '24px sans-serif',
     })
-    drawText(context, line.value, canvas.width - 48, y, {
+    drawThermalText(context, line.value, canvas.width - 48, y, {
       align: 'right',
       font: line.indent ? '22px sans-serif' : '24px sans-serif',
     })
@@ -203,14 +201,14 @@ function createThermalReceiptCanvas(
   y += 10
   drawDivider(context, y)
   y += 58
-  drawText(context, '合計', 48, y, { font: 'bold 34px sans-serif' })
-  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, canvas.width - 48, y, {
+  drawThermalText(context, '合計', 48, y, { font: 'bold 34px sans-serif' })
+  drawThermalText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, canvas.width - 48, y, {
     align: 'right',
     font: 'bold 46px sans-serif',
   })
   y += 58
-  drawText(context, '支払方法', 48, y, { font: '24px sans-serif' })
-  drawText(context, caseRecord.paymentMethod || '未設定', canvas.width - 48, y, {
+  drawThermalText(context, '支払方法', 48, y, { font: '24px sans-serif' })
+  drawThermalText(context, caseRecord.paymentMethod || '未設定', canvas.width - 48, y, {
     align: 'right',
     font: '24px sans-serif',
   })
@@ -219,8 +217,8 @@ function createThermalReceiptCanvas(
     ? caseRecord.payments
     : [{ amount: caseRecord.totalFareYen, id: 'legacy-payment', type: caseRecord.paymentMethod }]
   paymentLines.forEach((payment) => {
-    drawText(context, `支払内訳 ${payment.type}`, 48, y, { font: '22px sans-serif' })
-    drawText(context, `${formatFareYen(payment.amount)}円`, canvas.width - 48, y, {
+    drawThermalText(context, `支払内訳 ${payment.type}`, 48, y, { font: '22px sans-serif' })
+    drawThermalText(context, `${formatFareYen(payment.amount)}円`, canvas.width - 48, y, {
       align: 'right',
       font: '22px sans-serif',
     })
@@ -231,21 +229,21 @@ function createThermalReceiptCanvas(
   if (receiptNote) {
     drawDivider(context, y)
     y += 38
-    drawText(context, '但し書き', 48, y, { font: 'bold 24px sans-serif' })
+    drawThermalText(context, '但し書き', 48, y, { font: 'bold 24px sans-serif' })
     y += 32
-    drawText(context, receiptNote, 48, y, { font: '24px sans-serif' })
+    drawThermalText(context, receiptNote, 48, y, { font: '24px sans-serif' })
     y += 42
   }
 
   if (invoiceNumber) {
     drawDivider(context, y)
     y += 38
-    drawText(context, '登録番号', canvas.width / 2, y, {
+    drawThermalText(context, '登録番号', canvas.width / 2, y, {
       align: 'center',
       font: 'bold 24px sans-serif',
     })
     y += 32
-    drawText(context, invoiceNumber, canvas.width / 2, y, {
+    drawThermalText(context, invoiceNumber, canvas.width / 2, y, {
       align: 'center',
       font: '24px sans-serif',
     })
@@ -253,11 +251,11 @@ function createThermalReceiptCanvas(
   }
 
   if (issuerName) {
-    drawText(context, `発行担当者 ${issuerName}`, 48, y, { font: '24px sans-serif' })
+    drawThermalText(context, `発行担当者 ${issuerName}`, 48, y, { font: '24px sans-serif' })
     y += 42
   }
 
-  drawText(context, 'ありがとうございました', canvas.width / 2, y + 16, {
+  drawThermalText(context, 'ありがとうございました', canvas.width / 2, y + 16, {
     align: 'center',
     font: 'bold 28px sans-serif',
   })

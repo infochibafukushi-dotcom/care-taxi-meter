@@ -1,12 +1,11 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { MeterMode } from '../types/case'
+import { getDatePartsInJapan, getMonthRangeInJapan, getTodayRangeInJapan } from './japanDate'
+import { meterModeLabels } from './meterConstants'
 
-export const meterModeLabels: Record<MeterMode, string> = {
-  gps: 'GPSM',
-  obd: 'OBDM',
-  time: '時間M',
-}
+export { meterModeLabels }
+export { getMonthRangeInJapan, getTodayRangeInJapan }
 
 export function getActualMeterMode(caseRecord: StoredCaseRecord): MeterMode {
   const mode = (caseRecord.actualMeterMode || caseRecord.meterMode || 'gps') as MeterMode
@@ -145,66 +144,6 @@ export function calculateTodayCaseSummary(caseRecords: StoredCaseRecord[]) {
     ),
   }
 }
-
-function getDatePartsInJapan(date: Date) {
-  const parts = new Intl.DateTimeFormat('ja-JP', {
-    day: '2-digit',
-    month: '2-digit',
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-  }).formatToParts(date)
-
-  return {
-    day: Number(parts.find((part) => part.type === 'day')?.value ?? 1),
-    month: Number(parts.find((part) => part.type === 'month')?.value ?? 1),
-    year: Number(parts.find((part) => part.type === 'year')?.value ?? 1970),
-  }
-}
-
-function createJapanStartOfDayIso(year: number, month: number, day: number) {
-  return new Date(Date.UTC(year, month - 1, day, -9, 0, 0, 0)).toISOString()
-}
-
-export function getTodayRangeInJapan(date = new Date()) {
-  const { day, month, year } = getDatePartsInJapan(date)
-
-  return {
-    endIso: createJapanStartOfDayIso(year, month, day + 1),
-    startIso: createJapanStartOfDayIso(year, month, day),
-  }
-}
-
-export function getMonthRangeInJapan(date = new Date()) {
-  const { month, year } = getDatePartsInJapan(date)
-
-  return {
-    endIso: createJapanStartOfDayIso(year, month + 1, 1),
-    startIso: createJapanStartOfDayIso(year, month, 1),
-  }
-}
-
-export function calculateCaseSummary(caseRecords: StoredCaseRecord[]) {
-  const billableCaseRecords = getBillableCaseRecords(caseRecords)
-
-  return {
-    count: billableCaseRecords.length,
-    salesYen: billableCaseRecords.reduce(
-      (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
-      0,
-    ),
-  }
-}
-
-export function calculateMonthCaseSummary(caseRecords: StoredCaseRecord[]) {
-  const { endIso, startIso } = getMonthRangeInJapan()
-  const monthlyCaseRecords = getBillableCaseRecords(caseRecords).filter(
-    (caseRecord) =>
-      caseRecord.closedAt >= startIso && caseRecord.closedAt < endIso,
-  )
-
-  return calculateCaseSummary(monthlyCaseRecords)
-}
-
 
 export type PaymentMethodSalesSummary = {
   count: number

@@ -4,6 +4,13 @@ import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
+import {
+  createPdfFileName,
+  drawPdfLine,
+  drawPdfText,
+  formatPaymentDetails,
+  formatTaxiTicketDetails,
+} from './pdfDrawing'
 
 export type ReceiptIssueOptions = {
   customerName: string
@@ -25,63 +32,10 @@ const a4Portrait = {
   heightPx: 1754,
 }
 
-const receiptFileName = (caseNumber: string) =>
-  `receipt-${caseNumber.replaceAll(/[^a-zA-Z0-9-]/g, '-')}.pdf`
+const receiptFileName = (caseNumber: string) => createPdfFileName('receipt', caseNumber)
 
 const normalizeReceiptTitle = (value: string) =>
   value.trim() || defaultMeterSettings.receipt.receiptDefault
-
-function drawText(
-  context: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  options: {
-    align?: CanvasTextAlign
-    color?: string
-    font?: string
-  } = {},
-) {
-  context.save()
-  context.fillStyle = options.color ?? '#0f172a'
-  context.font = options.font ?? '32px sans-serif'
-  context.textAlign = options.align ?? 'left'
-  context.textBaseline = 'alphabetic'
-  context.fillText(text, x, y)
-  context.restore()
-}
-
-function drawLine(
-  context: CanvasRenderingContext2D,
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number,
-  color = '#cbd5e1',
-) {
-  context.save()
-  context.strokeStyle = color
-  context.lineWidth = 2
-  context.beginPath()
-  context.moveTo(startX, startY)
-  context.lineTo(endX, endY)
-  context.stroke()
-  context.restore()
-}
-
-const formatPaymentDetails = (caseRecord: StoredCaseRecord) =>
-  caseRecord.payments.length > 0
-    ? caseRecord.payments
-        .map((payment) => `${payment.type} ${formatFareYen(payment.amount)}円`)
-        .join(' / ')
-    : caseRecord.paymentMethod
-
-const formatTaxiTicketDetails = (caseRecord: StoredCaseRecord) =>
-  caseRecord.taxiTickets.length > 0
-    ? caseRecord.taxiTickets
-        .map((ticket) => `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'} ${formatFareYen(ticket.amount)}円`)
-        .join(' / ')
-    : '未使用'
 
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   const careOptionLines =
@@ -132,7 +86,7 @@ function drawCompanyInformation({
   lines
     .filter((line) => line.trim())
     .forEach((line, index) => {
-      drawText(context, line, 1120, 292 + index * 30, {
+      drawPdfText(context, line, 1120, 292 + index * 30, {
         align: 'right',
         color: '#475569',
         font: index === 0 ? 'bold 28px sans-serif' : '22px sans-serif',
@@ -159,20 +113,20 @@ function drawReceiptHeader({
   drawCompanyInformation({ context, lines: companyLines })
 
   if (customerName) {
-    drawText(context, `${customerName} 様`, 130, 325, {
+    drawPdfText(context, `${customerName} 様`, 130, 325, {
       color: '#0f172a',
       font: 'bold 38px sans-serif',
     })
-    drawLine(context, 130, 346, 560, 346, '#94a3b8')
+    drawPdfLine(context, 130, 346, 560, 346, '#94a3b8')
   } else {
-    drawLine(context, 130, 346, 520, 346, '#94a3b8')
-    drawText(context, '様', 535, 325, {
+    drawPdfLine(context, 130, 346, 520, 346, '#94a3b8')
+    drawPdfText(context, '様', 535, 325, {
       color: '#0f172a',
       font: 'bold 34px sans-serif',
     })
   }
 
-  drawText(context, '下記の通り領収いたしました。', 130, 405, {
+  drawPdfText(context, '下記の通り領収いたしました。', 130, 405, {
     color: '#334155',
     font: '30px sans-serif',
   })
@@ -214,13 +168,13 @@ function createReceiptCanvas(
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  drawText(context, issueOptions.isReissue ? `${receiptTitle}（再発行）` : receiptTitle, canvas.width / 2, 150, {
+  drawPdfText(context, issueOptions.isReissue ? `${receiptTitle}（再発行）` : receiptTitle, canvas.width / 2, 150, {
     align: 'center',
     font: 'bold 72px sans-serif',
   })
-  drawLine(context, 430, 178, 810, 178, '#0f172a')
+  drawPdfLine(context, 430, 178, 810, 178, '#0f172a')
 
-  drawText(context, statementTitle, canvas.width / 2, 230, {
+  drawPdfText(context, statementTitle, canvas.width / 2, 230, {
     align: 'center',
     color: '#0369a1',
     font: 'bold 30px sans-serif',
@@ -241,22 +195,22 @@ function createReceiptCanvas(
   context.stroke()
   context.restore()
 
-  drawText(context, '合計金額', 170, 575, {
+  drawPdfText(context, '合計金額', 170, 575, {
     color: '#075985',
     font: 'bold 30px sans-serif',
   })
-  drawText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 625, {
+  drawPdfText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, 1070, 625, {
     align: 'right',
     color: '#0f172a',
     font: 'bold 64px sans-serif',
   })
 
   if (receiptNote) {
-    drawText(context, '但し書き', 120, 715, {
+    drawPdfText(context, '但し書き', 120, 715, {
       color: '#475569',
       font: 'bold 26px sans-serif',
     })
-    drawText(context, receiptNote, 270, 715, {
+    drawPdfText(context, receiptNote, 270, 715, {
       color: '#0f172a',
       font: '28px sans-serif',
     })
@@ -278,42 +232,42 @@ function createReceiptCanvas(
       context.fillRect(tableX, rowY, tableWidth, rowHeight)
     }
 
-    drawLine(context, tableX, rowY, tableX + tableWidth, rowY)
-    drawLine(context, tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight)
-    drawText(context, line.label, tableX + 32, rowY + 38, {
+    drawPdfLine(context, tableX, rowY, tableX + tableWidth, rowY)
+    drawPdfLine(context, tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight)
+    drawPdfText(context, line.label, tableX + 32, rowY + 38, {
       color: '#475569',
       font: 'bold 22px sans-serif',
     })
-    drawText(context, line.value, tableX + tableWidth - 32, rowY + 38, {
+    drawPdfText(context, line.value, tableX + tableWidth - 32, rowY + 38, {
       align: 'right',
       font: isTotal ? 'bold 30px sans-serif' : '24px sans-serif',
     })
   })
 
   const tableBottom = tableTop + lines.length * rowHeight
-  drawLine(context, tableX, tableBottom, tableX + tableWidth, tableBottom)
-  drawLine(context, tableX, tableTop, tableX, tableBottom)
-  drawLine(context, tableX + tableWidth, tableTop, tableX + tableWidth, tableBottom)
+  drawPdfLine(context, tableX, tableBottom, tableX + tableWidth, tableBottom)
+  drawPdfLine(context, tableX, tableTop, tableX, tableBottom)
+  drawPdfLine(context, tableX + tableWidth, tableTop, tableX + tableWidth, tableBottom)
 
-  drawText(context, '発行日', 120, 1510, {
+  drawPdfText(context, '発行日', 120, 1510, {
     color: '#475569',
     font: '28px sans-serif',
   })
-  drawText(context, formatCaseDateTime(new Date().toISOString()), 240, 1510, {
+  drawPdfText(context, formatCaseDateTime(new Date().toISOString()), 240, 1510, {
     font: '28px sans-serif',
   })
 
   if (issuerName) {
-    drawText(context, '発行担当者', 120, 1560, {
+    drawPdfText(context, '発行担当者', 120, 1560, {
       color: '#475569',
       font: '28px sans-serif',
     })
-    drawText(context, issuerName, 290, 1560, {
+    drawPdfText(context, issuerName, 290, 1560, {
       font: '28px sans-serif',
     })
   }
 
-  drawText(context, '※本領収書は保存済み案件データをもとに発行しています。', 120, 1625, {
+  drawPdfText(context, '※本領収書は保存済み案件データをもとに発行しています。', 120, 1625, {
     color: '#64748b',
     font: '24px sans-serif',
   })

@@ -55,7 +55,14 @@ import type {
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
+import { extractAreaFromAddress } from '../utils/address'
+import {
+  createEmptyPaymentAmounts,
+  isProtectedOperationStatus,
+  meterModeLabels,
+} from '../utils/meterConstants'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
+import { formatTimerClock } from '../utils/time'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import {
   captureAddressLocationFromCoordinates,
@@ -83,16 +90,6 @@ import type {
   TimerKey,
 } from '../types/case'
 
-const extractAreaFromAddress = (address: string) => {
-  const normalizedAddress = address
-    .replace(/〒?\d{3}-?\d{4}/g, '')
-    .replace(/\s+/g, '')
-    .replace(/^(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/, '')
-    .trim()
-  const townMatch = /^(.+?[市区町村](?:.+?区)?[^0-9０-９一二三四五六七八九十-]+?)(?:[0-9０-９一二三四五六七八九十-]|丁目|番|号|$)/.exec(normalizedAddress)
-  return townMatch?.[1]?.replace(/[、,].*$/, '') ?? ''
-}
-
 type KeypadTarget = {
   amountYen: number
   mode: 'care' | 'expense'
@@ -113,7 +110,6 @@ type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
 const meterModeStorageKey = 'careTaxiMeterMode'
-const meterModeLabels: Record<MeterMode, string> = { gps: 'GPSM', time: '時間M', obd: 'OBDM' }
 const meterModeOrder: MeterMode[] = ['gps', 'time', 'obd']
 const readStoredMeterMode = (): MeterMode => {
   const storedMode = window.localStorage.getItem(meterModeStorageKey)
@@ -121,13 +117,6 @@ const readStoredMeterMode = (): MeterMode => {
 }
 const isDevelopmentMode = import.meta.env.DEV
 const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
-const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
-  QR決済: 0,
-  その他: 0,
-  クレジット: 0,
-  現金: 0,
-  請求書: 0,
-})
 const emptyTimerSeconds: TimerSeconds = {
   accompanying: 0,
   driving: 0,
@@ -151,17 +140,6 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
   待機中: 'waiting',
   院内付き添い中: 'accompanying',
 }
-
-const protectedOperationStatuses = new Set<OperationStatus>([
-  '走行中',
-  '待機中',
-  '院内付き添い中',
-  '精算前',
-  '精算修正',
-])
-
-const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
-  typeof value === 'string' && protectedOperationStatuses.has(value as OperationStatus)
 
 let lastRestorationDecision: {
   caseNumber: string
@@ -306,19 +284,6 @@ const createRestoredActivityHistories = (
 
 const toPositiveNumber = (value: string, minimum = 0) =>
   Math.max(Number(value) || minimum, minimum)
-
-const formatClockSegment = (value: number) => value.toString().padStart(2, '0')
-
-const formatTimerClock = (totalSeconds: number, includesHours = false) => {
-  const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
-  const hours = Math.floor(normalizedSeconds / 3600)
-  const minutes = Math.floor((normalizedSeconds % 3600) / 60)
-  const seconds = normalizedSeconds % 60
-
-  return includesHours
-    ? `${formatClockSegment(hours)}:${formatClockSegment(minutes)}:${formatClockSegment(seconds)}`
-    : `${formatClockSegment(minutes + hours * 60)}:${formatClockSegment(seconds)}`
-}
 
 const createFareSnapshot = ({
   assistItems,

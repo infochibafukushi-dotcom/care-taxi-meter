@@ -129,10 +129,6 @@ export const expenseSettings: ExpenseSettings = {
   defaultNames: ["駐車場", "高速", "有料道路", "フェリー", "その他"],
 };
 
-export const DEFAULT_BASIC_FARE_SETTINGS = basicFareSettings;
-export const DEFAULT_WAITING_FARE_SETTINGS = waitingFareSettings;
-export const DEFAULT_ACCOMPANIMENT_FARE_SETTINGS = escortFareSettings;
-export const DEFAULT_METER_TIME_FARE_SETTINGS = meterTimeFareSettings;
 export type DiscountSettings = {
   name: string;
   method: "percentage" | "fixed";
@@ -144,7 +140,6 @@ export const DEFAULT_DISCOUNT_SETTINGS: DiscountSettings = {
   method: "percentage",
   value: 10,
 };
-export const DEFAULT_DISABILITY_DISCOUNT_RATE = 0.1;
 
 export const roundDownToTenYen = (amountYen: number) =>
   Math.floor(Math.max(amountYen, 0) / 10) * 10;
@@ -189,14 +184,6 @@ export function calculateMeterTimeFareYen(
   }
 
   return Math.floor(elapsedSeconds / settings.unitSeconds) * settings.unitFareYen;
-}
-
-export function calculateWaitingFareYen(elapsedSeconds: number) {
-  return calculateTimeFareYen(elapsedSeconds, waitingFareSettings);
-}
-
-export function calculateAccompanimentFareYen(elapsedSeconds: number) {
-  return calculateTimeFareYen(elapsedSeconds, escortFareSettings);
 }
 
 export function calculateCareOptionTotalYen(
