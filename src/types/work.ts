@@ -11,6 +11,19 @@ export type StandardVehicleType = '1BOX' | 'ミニバン' | '軽自動車' | '�
 
 export type WorkSessionStatus = 'working' | 'closed'
 
+export type SubscriptionPlan = 'standard' | 'professional' | 'premium'
+
+export type MeterPermissions = {
+  gps: boolean
+  time: boolean
+  obd: boolean
+}
+
+export type NotificationSettings = {
+  email: boolean
+  line: boolean
+}
+
 export type Company = {
   id: string
   franchiseeId?: string
@@ -23,8 +36,12 @@ export type Company = {
   representativeInitialPassword?: string
   area?: string
   status?: CompanyStatus
+  subscriptionPlan?: SubscriptionPlan
   plan?: string
   monthlyFee?: number
+  meterPermissions?: MeterPermissions
+  notificationSettings?: NotificationSettings
+  obdAdapterLoanEnabled?: boolean
   initialFee?: number
   contractStartDate?: string
   contractEndDate?: string

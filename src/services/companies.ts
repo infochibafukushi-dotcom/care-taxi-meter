@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -10,8 +11,14 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import type { Company } from '../types/work'
+import type { Company, MeterPermissions, NotificationSettings, SubscriptionPlan } from '../types/work'
 import { defaultFranchiseeId } from './tenancy'
+import {
+  isSubscriptionPlan,
+  migrateCompanySubscriptionFields,
+  resolveMeterPermissions,
+  resolveNotificationSettings,
+} from './subscriptionPlans'
 
 const companiesCollectionName = 'companies'
 
@@ -48,6 +55,25 @@ const toBoolean = (value: unknown, fallback = false) =>
   typeof value === 'boolean' ? value : fallback
 const toNumber = (value: unknown) => (typeof value === 'number' ? value : 0)
 
+function toMeterPermissions(value: unknown): MeterPermissions | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const permissions = value as Record<string, unknown>
+  return {
+    gps: toBoolean(permissions.gps, true),
+    time: toBoolean(permissions.time, true),
+    obd: toBoolean(permissions.obd, false),
+  }
+}
+
+function toNotificationSettings(value: unknown): NotificationSettings | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const settings = value as Record<string, unknown>
+  return {
+    email: toBoolean(settings.email, true),
+    line: toBoolean(settings.line, false),
+  }
+}
+
 function getCompaniesCollection() {
   const db = getFirestore(getFirebaseApp())
   return collection(db, companiesCollectionName)
@@ -72,8 +98,12 @@ function toCompany(id: string, data: Record<string, unknown>): Company {
     representativeInitialPassword: toString(data.representativeInitialPassword) || toString(data.ownerPassword) || toString(data.initialPassword),
     area: toString(data.area),
     status: companyStatuses.includes(status as Company['status']) ? status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
+    subscriptionPlan: isSubscriptionPlan(data.subscriptionPlan) ? data.subscriptionPlan : undefined,
     plan: toString(data.plan) || toString(data.planName),
     monthlyFee: toNumber(data.monthlyFee) || toNumber(data.monthlyPrice),
+    meterPermissions: toMeterPermissions(data.meterPermissions),
+    notificationSettings: toNotificationSettings(data.notificationSettings),
+    obdAdapterLoanEnabled: typeof data.obdAdapterLoanEnabled === 'boolean' ? data.obdAdapterLoanEnabled : undefined,
     initialFee: toNumber(data.initialFee),
     contractStartDate: toString(data.contractStartDate),
     contractEndDate: toString(data.contractEndDate),
@@ -96,6 +126,34 @@ export async function fetchCompanies() {
   const snapshots = await getDocs(query(getCompaniesCollection(), orderBy('sortOrder', 'asc')))
 
   return snapshots.docs.map((snapshot) => toCompany(snapshot.id, snapshot.data()))
+}
+
+export async function fetchCompanyById(companyId: string) {
+  if (!companyId) return null
+  const snapshot = await getDoc(getCompanyRef(companyId))
+  if (!snapshot.exists()) return null
+  return toCompany(snapshot.id, snapshot.data())
+}
+
+export async function migrateCompaniesSubscriptionPlans() {
+  const companies = await fetchCompanies()
+  const migratedCompanies = companies
+    .map((company) => migrateCompanySubscriptionFields(company))
+    .filter((company): company is Company => company !== null)
+
+  await Promise.all(migratedCompanies.map((company) => saveCompany(company)))
+  return migratedCompanies.length
+}
+
+export function getCompanyMeterPermissions(company: Company | null | undefined) {
+  if (company?.plan === 'FC本部' || company?.id === defaultFranchiseeId) {
+    return { gps: true, time: true, obd: true }
+  }
+  return resolveMeterPermissions(company)
+}
+
+export function getCompanyNotificationSettings(company: Company | null | undefined) {
+  return resolveNotificationSettings(company)
 }
 
 

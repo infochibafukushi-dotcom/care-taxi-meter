@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ensureDefaultCompany, fetchCompanies, saveCompany, updateCompanyStatus } from '../services/companies'
+import { ensureDefaultCompany, fetchCompanies, migrateCompaniesSubscriptionPlans, saveCompany, updateCompanyStatus } from '../services/companies'
 import { fetchCaseRecords } from '../services/caseRecords'
 import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
 import { fetchStores, saveStore } from '../services/stores'
@@ -15,6 +15,16 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { getActualFareYen } from '../utils/caseRecords'
 import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
+import {
+  applySubscriptionPlanToCompany,
+  defaultSubscriptionPlan,
+  formatPermissionIndicator,
+  getSubscriptionPlanLabel,
+  getSubscriptionPlanMonthlyFee,
+  isSubscriptionPlan,
+  subscriptionPlanDefinitions,
+} from '../services/subscriptionPlans'
+import type { SubscriptionPlan } from '../types/work'
 
 const companyStatusLabels: Record<CompanyStatus, string> = {
   screening: '審査中',
@@ -35,34 +45,36 @@ const editableCompanyStatuses: CompanyStatus[] = [
   'terminated',
 ]
 
-const createCompanyDraft = (sortOrder: number): Company => ({
-  id: '',
-  name: '',
-  corporateName: '',
-  representativeName: '',
-  representativeLoginId: '',
-  representativeInitialPassword: '',
-  area: '',
-  status: 'screening',
-  plan: '標準プラン',
-  monthlyFee: 50000,
-  initialFee: 0,
-  contractStartDate: '',
-  contractEndDate: '',
-  contractStatus: '契約前',
-  billingStatus: '未請求',
-  lastBillingMonth: '',
-  paymentStatus: '未請求',
-  enabled: true,
-  sortOrder,
-  ownerName: '',
-  phoneNumber: '',
-  postalCode: '',
-  invoiceNumber: '',
-  email: '',
-  address: '',
-  memo: '',
-})
+const createCompanyDraft = (sortOrder: number): Company =>
+  applySubscriptionPlanToCompany(
+    {
+      id: '',
+      name: '',
+      corporateName: '',
+      representativeName: '',
+      representativeLoginId: '',
+      representativeInitialPassword: '',
+      area: '',
+      status: 'screening',
+      initialFee: 0,
+      contractStartDate: '',
+      contractEndDate: '',
+      contractStatus: '契約前',
+      billingStatus: '未請求',
+      lastBillingMonth: '',
+      paymentStatus: '未請求',
+      enabled: true,
+      sortOrder,
+      ownerName: '',
+      phoneNumber: '',
+      postalCode: '',
+      invoiceNumber: '',
+      email: '',
+      address: '',
+      memo: '',
+    },
+    defaultSubscriptionPlan,
+  )
 
 type OwnerLoginDraft = {
   password: string
@@ -169,6 +181,7 @@ export function HeadquartersPage() {
     setIsLoading(true)
     try {
       await ensureDefaultCompany()
+      const migratedCount = await migrateCompaniesSubscriptionPlans()
       const [companyItems, storeItems, staffItems, vehicleItems, records, hqInfo] = await Promise.all([
         fetchCompanies(),
         fetchStores(),
@@ -187,7 +200,7 @@ export function HeadquartersPage() {
       setSelectedCompanyId((currentCompanyId) => currentCompanyId && franchiseCompanyItems.some((company) => company.id === currentCompanyId) ? currentCompanyId : franchiseCompanyItems[0]?.id || '')
       setDraftCompany(createCompanyDraft(franchiseCompanyItems.length + 1))
       setOwnerLoginDraft(createOwnerLoginDraft())
-      setMessage('加盟店情報を読み込みました。')
+      setMessage(migratedCount > 0 ? `加盟店情報を読み込みました。${migratedCount}件の契約プランを初期化しました。` : '加盟店情報を読み込みました。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '加盟店情報の読み込みに失敗しました。')
     } finally {
@@ -287,6 +300,7 @@ export function HeadquartersPage() {
   const planRevenueRanking = planRevenueItems(franchiseCompanies)
 
   const updateDraftCompany = (key: keyof Company, value: string | boolean | number) => setDraftCompany((currentCompany) => ({ ...currentCompany, [key]: value }))
+  const updateDraftSubscriptionPlan = (plan: SubscriptionPlan) => setDraftCompany((currentCompany) => applySubscriptionPlanToCompany(currentCompany, plan))
   const updateHeadquartersInfo = (key: keyof HeadquartersInfo, value: string) => setHeadquartersInfo((currentInfo) => ({ ...currentInfo, [key]: value }))
   const updateOwnerLoginDraft = (key: keyof OwnerLoginDraft, value: string) => setOwnerLoginDraft((currentOwnerLogin) => ({ ...currentOwnerLogin, [key]: value }))
 
@@ -304,18 +318,25 @@ export function HeadquartersPage() {
 
     const ownerName = draftCompany.representativeName?.trim() || draftCompany.ownerName.trim() || ownerUserId
     const nextStatus = draftCompany.status ?? 'screening'
+    const subscriptionPlan = isSubscriptionPlan(draftCompany.subscriptionPlan)
+      ? draftCompany.subscriptionPlan
+      : defaultSubscriptionPlan
+    const companyToSave = applySubscriptionPlanToCompany(
+      {
+        ...draftCompany,
+        id: companyId,
+        name: companyName,
+        ownerName,
+        representativeName: ownerName,
+        representativeLoginId: ownerUserId,
+        representativeInitialPassword: ownerPassword || draftCompany.representativeInitialPassword || existingCompany?.representativeInitialPassword || '',
+        enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
+        status: nextStatus,
+      },
+      subscriptionPlan,
+    )
     setMessage(isExistingCompany ? '加盟店情報を保存中です。' : '加盟店と代表アカウントを保存中です。')
-    await saveCompany({
-      ...draftCompany,
-      id: companyId,
-      name: companyName,
-      ownerName,
-      representativeName: ownerName,
-      representativeLoginId: ownerUserId,
-      representativeInitialPassword: ownerPassword || draftCompany.representativeInitialPassword || existingCompany?.representativeInitialPassword || '',
-      enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
-      status: nextStatus,
-    })
+    await saveCompany(companyToSave)
 
     const initialStoreId = `${companyId}_main-store`
     const initialStoreName = companyName
@@ -498,7 +519,17 @@ export function HeadquartersPage() {
               <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
               <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
               <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
-              <Input label="プラン" value={draftCompany.plan ?? ''} onChange={(value) => updateDraftCompany('plan', value)} />
+              <label>
+                契約プラン
+                <select
+                  value={draftCompany.subscriptionPlan ?? defaultSubscriptionPlan}
+                  onChange={(event) => updateDraftSubscriptionPlan(event.target.value as SubscriptionPlan)}
+                >
+                  {subscriptionPlanDefinitions.map((plan) => (
+                    <option key={plan.id} value={plan.id}>{plan.displayLabel}</option>
+                  ))}
+                </select>
+              </label>
               <label>加盟店ステータス<select value={draftCompany.status ?? 'screening'} onChange={(event) => updateDraftCompany('status', event.target.value)}>{editableCompanyStatuses.map((status) => <option key={status} value={status}>{companyStatusLabels[status]}</option>)}</select></label>
             </div>
             <div className="hq-form-actions"><button className="primary-action" type="button" onClick={handleCompanySave}>加盟店情報を保存</button></div>
@@ -507,8 +538,27 @@ export function HeadquartersPage() {
         </div>
         <div className="admin-table-wrapper hq-table-wrapper">
           <table className="admin-table hq-company-table hq-company-table--simple">
-            <thead><tr>{['加盟店名','加盟年数','プラン','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
-            <tbody>{sortedCompanySummaries.map((summary) => <tr key={summary.company.id}><td>{summary.company.name}</td><td>{formatMembership(summary.company.contractStartDate)}</td><td>{summary.company.plan || '未設定'}</td><td><StatusBadge status={getCompanyStatus(summary.company)} /></td><td>{formatFareYen(summary.monthSalesYen)}円</td><td>{summary.monthCaseCount}</td><td>{summary.company.lastLoginAt || '未記録'}</td><td className="hq-actions"><button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button><button type="button" onClick={() => handleOpenCompanyTop(summary)}>加盟店TOP確認</button><button type="button" onClick={() => { setDraftCompany(summary.company); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button></td></tr>)}</tbody>
+            <thead><tr>{['加盟店名','契約プラン','月額料金','メール通知','LINE通知','OBDM','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
+            <tbody>{sortedCompanySummaries.map((summary) => {
+              const plan = summary.company.subscriptionPlan ?? defaultSubscriptionPlan
+              const notificationSettings = summary.company.notificationSettings
+              const meterPermissions = summary.company.meterPermissions
+              return (
+                <tr key={summary.company.id}>
+                  <td>{summary.company.name}</td>
+                  <td>{getSubscriptionPlanLabel(plan)}</td>
+                  <td>{formatFareYen(summary.company.monthlyFee ?? getSubscriptionPlanMonthlyFee(plan))}円</td>
+                  <td>{formatPermissionIndicator(notificationSettings?.email ?? true)}</td>
+                  <td>{formatPermissionIndicator(notificationSettings?.line ?? false)}</td>
+                  <td>{formatPermissionIndicator(meterPermissions?.obd ?? false)}</td>
+                  <td><StatusBadge status={getCompanyStatus(summary.company)} /></td>
+                  <td>{formatFareYen(summary.monthSalesYen)}円</td>
+                  <td>{summary.monthCaseCount}</td>
+                  <td>{summary.company.lastLoginAt || '未記録'}</td>
+                  <td className="hq-actions"><button type="button" onClick={() => setSelectedCompanyId(summary.company.id)}>詳細</button><button type="button" onClick={() => handleOpenCompanyTop(summary)}>加盟店TOP確認</button><button type="button" onClick={() => { setDraftCompany(summary.company.subscriptionPlan ? summary.company : applySubscriptionPlanToCompany(summary.company, defaultSubscriptionPlan)); setSelectedCompanyId(summary.company.id); setOwnerLoginDraft(createOwnerLoginDraftFromCompany(summary.company, staffMembers)) }}>編集</button></td>
+                </tr>
+              )
+            })}</tbody>
           </table>
         </div>
       </section>
@@ -554,8 +604,12 @@ export function HeadquartersPage() {
               ['加盟日', formatDate(selectedCompany.contractStartDate)],
               ['加盟期間', formatMembership(selectedCompany.contractStartDate)],
               ['ステータス', companyStatusLabels[getCompanyStatus(selectedCompany)]],
-              ['プラン', selectedCompany.plan || '未設定'],
-              ['月額料金', `${formatFareYen(selectedCompany.monthlyFee ?? 0)}円`],
+              ['契約プラン', getSubscriptionPlanLabel(selectedCompany.subscriptionPlan ?? defaultSubscriptionPlan)],
+              ['月額料金', `${formatFareYen(selectedCompany.monthlyFee ?? getSubscriptionPlanMonthlyFee(selectedCompany.subscriptionPlan ?? defaultSubscriptionPlan))}円`],
+              ['メール通知', formatPermissionIndicator(selectedCompany.notificationSettings?.email ?? true)],
+              ['LINE通知', formatPermissionIndicator(selectedCompany.notificationSettings?.line ?? false)],
+              ['OBDM', formatPermissionIndicator(selectedCompany.meterPermissions?.obd ?? false)],
+              ['OBD貸与', formatPermissionIndicator(selectedCompany.obdAdapterLoanEnabled ?? false)],
               ['店舗数', `${selectedSummary.storeCount}店舗`],
               ['従業員数', `${selectedSummary.staffCount}人`],
               ['車両数', `${selectedSummary.vehicleCount}台`],
@@ -610,13 +664,24 @@ function supportReasons(summary: CompanySummary, thirtyDaysAgo: Date) {
 function planRatioItems(companies: Company[]): RatioItem[] {
   const counts = new Map<string, number>()
   companies.forEach((company) => {
-    const plan = company.plan?.includes('プレミアム') ? 'プレミアムプラン' : company.plan?.includes('標準') ? '標準プラン' : 'その他プラン'
+    const plan = getSubscriptionPlanLabel(company.subscriptionPlan ?? defaultSubscriptionPlan)
     counts.set(plan, (counts.get(plan) ?? 0) + 1)
   })
   const total = companies.length || 1
-  return ['標準プラン', 'プレミアムプラン', 'その他プラン'].map((label) => ({ label, value: counts.get(label) ?? 0, percent: ((counts.get(label) ?? 0) / total) * 100 }))
+  return subscriptionPlanDefinitions.map((definition) => ({
+    label: definition.label,
+    value: counts.get(definition.label) ?? 0,
+    percent: ((counts.get(definition.label) ?? 0) / total) * 100,
+  }))
 }
-function planRevenueItems(companies: Company[]): Array<[string, string]> { const totals = new Map<string, number>(); companies.forEach((company) => { const plan = company.plan || 'その他プラン'; totals.set(plan, (totals.get(plan) ?? 0) + (company.monthlyFee ?? 0)) }); return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([plan, fee]) => [plan, `${formatFareYen(fee)}円`]) }
+function planRevenueItems(companies: Company[]): Array<[string, string]> {
+  const totals = new Map<string, number>()
+  companies.forEach((company) => {
+    const plan = getSubscriptionPlanLabel(company.subscriptionPlan ?? defaultSubscriptionPlan)
+    totals.set(plan, (totals.get(plan) ?? 0) + (company.monthlyFee ?? getSubscriptionPlanMonthlyFee(company.subscriptionPlan ?? defaultSubscriptionPlan)))
+  })
+  return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([plan, fee]) => [plan, `${formatFareYen(fee)}円`])
+}
 function planRevenueRatioItems(companies: Company[]): RatioItem[] { const items = planRevenueItems(companies).map(([label, value]) => ({ label, value: Number(value.replace(/[^0-9]/g, '')) || 0 })); const total = items.reduce((sum, item) => sum + item.value, 0) || 1; return items.map((item) => ({ ...item, percent: (item.value / total) * 100, suffix: '円' })) }
 function areaCompanyItems(companies: Company[]): Array<[string, string]> { const counts = new Map<string, number>(); companies.forEach((company) => { const area = company.area || '未設定'; counts.set(area, (counts.get(area) ?? 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([area, count]) => [area, `${count}社`]) }
 function salesCategoryRatioItems(records: StoredCaseRecord[]): RatioItem[] {
