@@ -1,29 +1,49 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
   query,
+  where,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
-import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
+import { ensureDefaultCompany, fetchCompanies } from './companies'
+import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore, fetchStores, saveStore } from './stores'
+import { createAuditLog } from './auditLogs'
+import type { AuditActor } from './auditLogs'
+import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import type { TenantAccessScope } from './tenancy'
 
 const staffMembersCollectionName = 'staffMembers'
-const validRoles: StaffRole[] = ['admin', 'manager', 'driver', 'staff']
+const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
+
+
+const normalizeLoginInput = (value: string) => value.trim()
+const normalizeLoginIdentifier = (value: string) => normalizeLoginInput(value).replace(/[\s\u3000]+/g, '')
+const normalizeCompanyIdInput = (value: string) =>
+  value.trim().toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+
+export const defaultAdminStaffMemberId = 'staff_admin'
+export const defaultAdminStaffUserId = '山本信勝'
+export const defaultAdminStaffPassword = '123'
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
   typeof value === 'boolean' ? value : fallback
 const toNumberValue = (value: unknown, fallback = 0) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
-const toRole = (value: unknown): StaffRole =>
-  typeof value === 'string' && validRoles.includes(value as StaffRole)
+const toRole = (value: unknown): StaffRole => {
+  if (value === 'superAdmin' || value === 'hq_admin') return 'hq_admin'
+  return typeof value === 'string' && validRoles.includes(value as StaffRole)
     ? (value as StaffRole)
     : 'driver'
+}
 
 const toStaffMember = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -32,16 +52,30 @@ const toStaffMember = (
 
   return {
     id: toStringValue(data.id) || snapshot.id,
+    companyId: getFranchiseeId(data),
+    franchiseeId: getFranchiseeId(data),
+    storeId: getStoreId(data),
+    storeName: toStringValue(data.storeName),
+    userId: toStringValue(data.userId),
+    loginId: toStringValue(data.loginId) || toStringValue(data.userId),
+    password: toStringValue(data.password),
     name: toStringValue(data.name) || '名称未設定のスタッフ',
     role: toRole(data.role),
+    canDrive: toBooleanValue(data.canDrive, toRole(data.role) === 'owner' || toRole(data.role) === 'driver'),
+    isActive: toBooleanValue(data.isActive ?? data.enabled),
+    status: ['employed', 'leave', 'retired', 'disabled'].includes(toStringValue(data.status)) ? data.status as StaffMember['status'] : (toBooleanValue(data.enabled) ? 'employed' : 'disabled'),
+    joinedAt: toStringValue(data.joinedAt),
+    retiredAt: toStringValue(data.retiredAt),
+    lastLoginAt: toStringValue(data.lastLoginAt),
+    phoneNumber: toStringValue(data.phoneNumber),
+    email: toStringValue(data.email),
+    address: toStringValue(data.address),
+    licenseNumber: toStringValue(data.licenseNumber),
+    licenseExpiresAt: toStringValue(data.licenseExpiresAt),
+    accidentHistory: toStringValue(data.accidentHistory),
+    memo: toStringValue(data.memo),
     enabled: toBooleanValue(data.enabled),
     sortOrder: toNumberValue(data.sortOrder),
-    authUid: toStringValue(data.authUid),
-    email: toStringValue(data.email),
-    storeId: toStringValue(data.storeId),
-    storeName: toStringValue(data.storeName),
-    tenantId: toStringValue(data.tenantId),
-    organizationId: toStringValue(data.organizationId),
   }
 }
 
@@ -50,24 +84,293 @@ function getStaffMembersCollection() {
   return collection(db, staffMembersCollectionName)
 }
 
-export async function fetchStaffMembers() {
-  const snapshots = await getDocs(
-    query(getStaffMembersCollection(), orderBy('sortOrder', 'asc')),
-  )
-
-  return snapshots.docs.map(toStaffMember)
+function getStaffMemberRef(staffMemberId: string) {
+  const db = getFirestore(getFirebaseApp())
+  return doc(db, staffMembersCollectionName, staffMemberId)
 }
 
-export async function saveStaffMember(staffMember: StaffMember) {
-  const db = getFirestore(getFirebaseApp())
+const createStaffMemberTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || scope.role === 'hq_admin') return []
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('franchiseeId', '==', franchiseeId))
+  }
+
+  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  if (scope.role === 'driver' && scope.staffId) {
+    constraints.push(where('id', '==', scope.staffId))
+  }
+
+  return constraints
+}
+
+export async function fetchStaffMembers(scope?: TenantAccessScope) {
+  const snapshots = await getDocs(
+    query(
+      getStaffMembersCollection(),
+      ...createStaffMemberTenantConstraints(scope),
+      orderBy('sortOrder', 'asc'),
+    ),
+  )
+
+  return snapshots.docs.map(toStaffMember).filter((staffMember) => matchesTenantScope(staffMember, scope))
+}
+
+export async function saveStaffMember(staffMember: StaffMember, actor?: AuditActor | null) {
+  const staffMemberRef = getStaffMemberRef(staffMember.id)
+  const snapshot = await getDoc(staffMemberRef)
   const document = {
     ...staffMember,
-    createdAt: serverTimestamp(),
+    companyId: staffMember.franchiseeId || staffMember.companyId,
+    franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+    loginId: staffMember.loginId || staffMember.userId || staffMember.name,
+    userId: staffMember.userId || staffMember.loginId || staffMember.name,
+    isActive: staffMember.isActive ?? staffMember.enabled,
+    canDrive: staffMember.canDrive ?? (staffMember.role === 'owner' || staffMember.role === 'driver'),
+    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(doc(db, staffMembersCollectionName, staffMember.id), document, {
-    merge: true,
+  const previousStaffMember = snapshot.exists() ? toStaffMember(snapshot) : null
+
+  await setDoc(staffMemberRef, document, { merge: true })
+
+  if (actor && previousStaffMember?.role && previousStaffMember.role !== staffMember.role) {
+    await createAuditLog({
+      action: 'role_change',
+      actor,
+      after: { role: staffMember.role },
+      before: { role: previousStaffMember.role },
+      franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+      reason: 'スタッフ権限変更',
+      storeId: staffMember.storeId,
+      targetId: staffMember.id,
+      targetType: 'staffMember',
+    })
+  }
+
+  if (actor && previousStaffMember?.enabled === true && staffMember.enabled === false) {
+    await createAuditLog({
+      action: 'staff_delete',
+      actor,
+      after: { enabled: false },
+      before: { enabled: true },
+      franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+      reason: 'スタッフ無効化',
+      storeId: staffMember.storeId,
+      targetId: staffMember.id,
+      targetType: 'staffMember',
+    })
+  }
+
+  return staffMember
+}
+
+export async function ensureDefaultAdminStaffMember() {
+  await ensureDefaultCompany()
+  await ensureDefaultStore(defaultCompanyId)
+  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
+  const staffMemberRef = getStaffMemberRef(defaultAdminStaffMemberId)
+  const snapshot = await getDoc(staffMemberRef)
+
+  if (snapshot.exists()) {
+    const existingStaffMember = toStaffMember(snapshot)
+    if (
+      existingStaffMember.userId === defaultAdminStaffUserId ||
+      existingStaffMember.userId === 'admin' ||
+      existingStaffMember.name === '山本信勝'
+    ) {
+      const migratedStaffMember: StaffMember = {
+        ...existingStaffMember,
+        name: '山本信勝',
+        userId: defaultAdminStaffUserId,
+        password: defaultAdminStaffPassword,
+        role: 'hq_admin',
+        enabled: true,
+        storeId: headquartersStore.id,
+        storeName: headquartersStore.name,
+        memo: existingStaffMember.memo || '株式会社千葉福祉サポート初期管理者アカウント',
+      }
+
+      await setDoc(staffMemberRef, {
+        ...migratedStaffMember,
+        updatedAt: serverTimestamp(),
+      }, { merge: true })
+      return migratedStaffMember
+    }
+
+    return existingStaffMember
+  }
+
+  const staffMember: StaffMember = {
+    id: defaultAdminStaffMemberId,
+    companyId: defaultCompanyId,
+    franchiseeId: defaultCompanyId,
+    storeId: headquartersStore.id,
+    storeName: '株式会社千葉福祉サポート',
+    userId: defaultAdminStaffUserId,
+    password: defaultAdminStaffPassword,
+    name: '山本信勝',
+    role: 'hq_admin',
+    canDrive: false,
+    isActive: true,
+    phoneNumber: '',
+    email: '',
+    address: '',
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: '株式会社千葉福祉サポート初期管理者アカウント',
+    enabled: true,
+    sortOrder: 1,
+  }
+
+  await setDoc(staffMemberRef, {
+    ...staffMember,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
   return staffMember
+}
+
+
+async function migrateLegacySuperAdminStaffMembers() {
+  const staffMembers = await fetchStaffMembers()
+  const legacySuperAdminStaffMembers = staffMembers.filter(
+    (staffMember) =>
+      (staffMember.id === defaultAdminStaffMemberId || staffMember.companyId === defaultCompanyId) &&
+      (staffMember.userId === defaultAdminStaffUserId ||
+        staffMember.userId === 'admin' ||
+        staffMember.name === '山本信勝'),
+  )
+
+  if (legacySuperAdminStaffMembers.length === 0) {
+    return
+  }
+
+  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
+  await Promise.all(
+    legacySuperAdminStaffMembers.map((staffMember) =>
+      setDoc(
+        getStaffMemberRef(staffMember.id),
+        {
+          ...staffMember,
+          companyId: defaultCompanyId,
+          franchiseeId: defaultCompanyId,
+          storeId: headquartersStore.id,
+          storeName: headquartersStore.name,
+          role: 'hq_admin',
+          userId: defaultAdminStaffUserId,
+          password: defaultAdminStaffPassword,
+          enabled: true,
+          memo: staffMember.memo || '株式会社千葉福祉サポート管理者アカウント',
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      ),
+    ),
+  )
+}
+
+export async function authenticateStaff({
+  companyId,
+  password,
+  userId,
+}: {
+  companyId: string
+  password: string
+  userId: string
+}) {
+  await ensureDefaultAdminStaffMember()
+  await migrateLegacySuperAdminStaffMembers()
+  const normalizedCompanyId = normalizeLoginInput(companyId)
+  const normalizedCompanyIdSlug = normalizeCompanyIdInput(companyId)
+  const normalizedUserId = normalizeLoginInput(userId)
+  const normalizedUserLoginIdentifier = normalizeLoginIdentifier(userId)
+  const normalizedPassword = normalizeLoginInput(password)
+  const [staffMembers, companies] = await Promise.all([fetchStaffMembers(), fetchCompanies()])
+  const matchedCompanies = companies.filter(
+    (company) =>
+      company.id === normalizedCompanyId ||
+      company.name === normalizedCompanyId ||
+      company.corporateName === normalizedCompanyId ||
+      company.id === normalizedCompanyIdSlug,
+  )
+  const candidateCompanyIds = new Set([normalizedCompanyId, normalizedCompanyIdSlug, ...matchedCompanies.map((company) => company.id)])
+  const matchedStaffMember = staffMembers.find(
+    (staffMember) =>
+      staffMember.enabled &&
+      candidateCompanyIds.has(staffMember.companyId) &&
+      (
+        normalizeLoginIdentifier(staffMember.userId) === normalizedUserLoginIdentifier ||
+        normalizeLoginIdentifier(staffMember.loginId || staffMember.userId) === normalizedUserLoginIdentifier ||
+        normalizeLoginIdentifier(staffMember.name) === normalizedUserLoginIdentifier
+      ) &&
+      staffMember.password === normalizedPassword,
+  )
+
+  if (matchedStaffMember) {
+    return matchedStaffMember
+  }
+
+  const representativeCompany = matchedCompanies.find((company) => {
+    const representativeLoginId = company.representativeLoginId || company.representativeName || company.ownerName
+    const representativePassword = company.representativeInitialPassword || defaultAdminStaffPassword
+    return normalizeLoginIdentifier(representativeLoginId) === normalizedUserLoginIdentifier && representativePassword === normalizedPassword
+  })
+
+  if (!representativeCompany) {
+    return null
+  }
+
+  const companyStores = await fetchStores(representativeCompany.id)
+  const ownerStore = companyStores[0] ?? await saveStore({
+    id: `${representativeCompany.id}_main-store`,
+    companyId: representativeCompany.id,
+    franchiseeId: representativeCompany.id,
+    name: representativeCompany.name,
+    storeName: representativeCompany.name,
+    companyName: representativeCompany.name,
+    ownerName: representativeCompany.representativeName || representativeCompany.ownerName,
+    address: representativeCompany.address,
+    phoneNumber: representativeCompany.phoneNumber,
+    email: representativeCompany.email,
+    status: 'active',
+    enabled: true,
+    isActive: true,
+    sortOrder: 1,
+  })
+  const repairedOwnerStaffMember: StaffMember = {
+    id: `${representativeCompany.id}_owner`,
+    companyId: representativeCompany.id,
+    franchiseeId: representativeCompany.id,
+    storeId: ownerStore.id,
+    storeName: ownerStore.name,
+    userId: normalizedUserId,
+    loginId: normalizedUserId,
+    password: normalizedPassword,
+    name: representativeCompany.representativeName || representativeCompany.ownerName || normalizedUserId,
+    role: 'owner',
+    canDrive: true,
+    isActive: true,
+    status: 'employed',
+    phoneNumber: representativeCompany.phoneNumber,
+    email: representativeCompany.email,
+    address: representativeCompany.address,
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: '加盟店代表者ログイン時に復旧したオーナーアカウント',
+    enabled: true,
+    sortOrder: 1,
+  }
+
+  await saveStaffMember(repairedOwnerStaffMember)
+  return repairedOwnerStaffMember
 }

@@ -1,26 +1,745 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useWorkSession } from '../hooks/useWorkSession'
+import { authenticateStaff } from '../services/staffMembers'
+import { defaultCompany, fetchCompanies } from '../services/companies'
+import { fetchStores } from '../services/stores'
+import { fetchCaseRecords } from '../services/caseRecords'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { StoredCaseRecord } from '../services/caseRecords'
+import { formatFareYen } from '../services/fare'
+import type { StaffMember, Store, WorkSession } from '../types/work'
+import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
+import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
+import type { AuthStaffSession } from '../services/authSession'
+import { formatElapsedTime } from '../utils/time'
+import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
+import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
+
+const defaultCompanyName = defaultCompany.name
+
+type LoginForm = {
+  companyId: string
+  userId: string
+  password: string
+}
+
+type LoggedInUser = {
+  companyName: string
+  staffMember: StaffMember
+  store: Store
+}
+
+type RestorableStaffSession = AuthStaffSession | WorkSession
+
+const isWorkSessionRestoreSource = (source: RestorableStaffSession): source is WorkSession =>
+  'staffId' in source
+
+const createLoggedInUserFromRestoredSession = ({
+  authSession,
+  currentSession,
+}: {
+  authSession: AuthStaffSession | null
+  currentSession: WorkSession | null
+}): LoggedInUser | null => {
+  const source = currentSession ?? authSession
+
+  if (!source) {
+    return null
+  }
+
+  const companyId = source.franchiseeId || source.companyId
+  const staffId = isWorkSessionRestoreSource(source) ? source.staffId : source.id
+  const staffName = isWorkSessionRestoreSource(source) ? source.staffName : source.name
+  const staffRole = isWorkSessionRestoreSource(source) ? source.staffRole : source.role
+  const storeName = source.storeName || currentSession?.storeName || '未設定'
+  const companyName = currentSession?.companyName || authSession?.companyName || defaultCompanyName
+
+  const staffMember: StaffMember = {
+    id: staffId,
+    companyId,
+    franchiseeId: source.franchiseeId || source.companyId,
+    storeId: source.storeId,
+    storeName,
+    userId: '',
+    password: '',
+    name: staffName || '未ログイン',
+    role: staffRole,
+    canDrive: staffRole === 'owner' || staffRole === 'driver',
+    isActive: true,
+    phoneNumber: '',
+    email: '',
+    address: '',
+    licenseNumber: '',
+    licenseExpiresAt: '',
+    accidentHistory: '',
+    memo: '',
+    enabled: true,
+    sortOrder: 0,
+  }
+
+  const store: Store = {
+    id: source.storeId,
+    companyId,
+    franchiseeId: source.franchiseeId || source.companyId,
+    name: storeName,
+    storeName,
+    companyName,
+    status: 'active',
+    enabled: true,
+    isActive: true,
+    sortOrder: 0,
+  }
+
+  return {
+    companyName,
+    staffMember,
+    store,
+  }
+}
+
+type CaseRecordState = {
+  errorMessage: string
+  records: StoredCaseRecord[]
+}
+
+type SummaryDialogState = CaseRecordState & {
+  isLoading: boolean
+  isOpen: boolean
+}
+
+const calculateAverageYen = (salesYen: number, count: number) =>
+  count > 0 ? Math.round(salesYen / count) : 0
+
+const calculateSummary = ({
+  currentSessionId,
+  records,
+  staffId,
+}: {
+  currentSessionId: string
+  records: StoredCaseRecord[]
+  staffId: string
+}) => {
+  const todayRange = getTodayRangeInJapan()
+  const monthRange = getMonthRangeInJapan()
+  const belongsToCurrentStaff = (caseRecord: StoredCaseRecord) => {
+    if (!staffId) {
+      return true
+    }
+
+    return currentSessionId
+      ? caseRecord.workSessionId === currentSessionId ||
+          (!caseRecord.workSessionId && caseRecord.staffId === staffId)
+      : caseRecord.staffId === staffId
+  }
+  const todayRecords = records.filter(
+    (caseRecord) =>
+      belongsToCurrentStaff(caseRecord) &&
+      caseRecord.closedAt >= todayRange.startIso &&
+      caseRecord.closedAt < todayRange.endIso,
+  )
+  const monthRecords = records.filter(
+    (caseRecord) =>
+      belongsToCurrentStaff(caseRecord) &&
+      caseRecord.closedAt >= monthRange.startIso &&
+      caseRecord.closedAt < monthRange.endIso,
+  )
+  const todaySalesYen = todayRecords.reduce(
+    (total, caseRecord) => total + caseRecord.totalFareYen,
+    0,
+  )
+
+  return {
+    averageYen: calculateAverageYen(todaySalesYen, todayRecords.length),
+    monthCount: monthRecords.length,
+    monthSalesYen: monthRecords.reduce(
+      (total, caseRecord) => total + caseRecord.totalFareYen,
+      0,
+    ),
+    todayAccompanyingSeconds: todayRecords.reduce(
+      (total, caseRecord) => total + caseRecord.accompanyingSeconds,
+      0,
+    ),
+    todayCount: todayRecords.length,
+    todayDistanceKm: todayRecords.reduce(
+      (total, caseRecord) => total + caseRecord.distanceKm,
+      0,
+    ),
+    todayDrivingSeconds: todayRecords.reduce(
+      (total, caseRecord) => total + caseRecord.drivingSeconds,
+      0,
+    ),
+    todaySalesYen,
+    todayWaitingSeconds: todayRecords.reduce(
+      (total, caseRecord) => total + caseRecord.waitingSeconds,
+      0,
+    ),
+  }
+}
 
 export function HomePage() {
+  const workSession = useWorkSession()
+  const navigate = useNavigate()
+  const [loginForm, setLoginForm] = useState<LoginForm>({
+    companyId: '',
+    userId: '',
+    password: '',
+  })
+  const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(null)
+  const [loginMessage, setLoginMessage] = useState('会社ID・ログインID・パスワードでログインしてください。')
+  const [isLoginSubmitting, setIsLoginSubmitting] = useState(false)
+
+  useEffect(() => {
+    logDiagnostic('HomePage mount')
+    return () => logDiagnostic('HomePage unmount')
+  }, [])
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [dashboardRecordsState, setDashboardRecordsState] = useState<CaseRecordState>({
+    errorMessage: '',
+    records: [],
+  })
+  const [summaryDialog, setSummaryDialog] = useState<SummaryDialogState>({
+    errorMessage: '',
+    isLoading: false,
+    isOpen: false,
+    records: [],
+  })
+  const [activeTripSnapshot, setActiveTripSnapshot] =
+    useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
+
+  const { subscribeToWorkingSession } = workSession
+  const currentSession = workSession.currentSession
+  const currentStaffId = currentSession?.staffId ?? loggedInUser?.staffMember.id ?? ''
+  const currentSessionId = currentSession?.id ?? ''
+  const dashboardCompanyName = currentSession?.companyName || loggedInUser?.companyName || defaultCompanyName
+  const dashboardStoreName = currentSession?.storeName || loggedInUser?.store.name || '未設定'
+  const dashboardStaffName = currentSession?.staffName || loggedInUser?.staffMember.name || '未ログイン'
+  const dashboardRole = currentSession?.staffRole ?? loggedInUser?.staffMember.role ?? ''
+  const isHqAdmin = dashboardRole === 'hq_admin'
+  const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
+  const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
+  const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
+  const currentSessionCompanyId = currentSession?.companyId ?? ''
+  const currentSessionFranchiseeId = currentSession?.franchiseeId ?? ''
+  const currentSessionStaffId = currentSession?.staffId ?? ''
+  const currentSessionStaffName = currentSession?.staffName ?? ''
+  const currentSessionStaffRole = currentSession?.staffRole ?? 'driver'
+  const currentSessionStoreId = currentSession?.storeId ?? ''
+  const currentSessionStoreName = currentSession?.storeName ?? ''
+  const subscriptionStaffMember = useMemo<StaffMember | null>(() => {
+    if (loggedInUser) {
+      return loggedInUser.staffMember
+    }
+
+    if (!currentSessionStaffId) {
+      return null
+    }
+
+    return {
+      id: currentSessionStaffId,
+      companyId: currentSessionCompanyId,
+      franchiseeId: currentSessionFranchiseeId || currentSessionCompanyId,
+      storeId: currentSessionStoreId,
+      storeName: currentSessionStoreName,
+      userId: '',
+      password: '',
+      name: currentSessionStaffName || '未ログイン',
+      role: currentSessionStaffRole,
+      canDrive: currentSessionStaffRole === 'owner' || currentSessionStaffRole === 'driver',
+      isActive: true,
+      phoneNumber: '',
+      email: '',
+      address: '',
+      licenseNumber: '',
+      licenseExpiresAt: '',
+      accidentHistory: '',
+      memo: '',
+      enabled: true,
+      sortOrder: 0,
+    }
+  }, [
+    currentSessionCompanyId,
+    currentSessionFranchiseeId,
+    currentSessionStaffId,
+    currentSessionStaffName,
+    currentSessionStaffRole,
+    currentSessionStoreId,
+    currentSessionStoreName,
+    loggedInUser,
+  ])
+
+  useEffect(() => {
+    console.info('[HomePage] session state', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      loggedInStaffId: loggedInUser?.staffMember.id ?? null,
+      currentSessionId: currentSession?.id ?? null,
+      currentSessionStaffId: currentSession?.staffId ?? null,
+    })
+  }, [currentSession?.id, currentSession?.staffId, loggedInUser])
+
+  useEffect(() => {
+    if (loggedInUser) {
+      return
+    }
+
+    const authSession = loadAuthStaffSession()
+    const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
+      authSession,
+      currentSession,
+    })
+
+    if (!restoredLoggedInUser) {
+      return
+    }
+
+    console.info('[HomePage] restored loggedInUser for work session subscription', {
+      fromAuthSession: Boolean(authSession),
+      fromCurrentSession: Boolean(currentSession),
+      staffId: restoredLoggedInUser.staffMember.id,
+      storeId: restoredLoggedInUser.staffMember.storeId,
+    })
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoggedInUser(restoredLoggedInUser)
+      setLoginMessage('ログイン状態を復元しました。勤務状態を同期しています。')
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession, loggedInUser])
+
+  useEffect(() => {
+    const effectRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    logDiagnostic('HomePage work session subscription effect run', {
+      effectRunId,
+      hasSubscriptionStaffMember: Boolean(subscriptionStaffMember),
+      subscriptionStaffId: subscriptionStaffMember?.id ?? null,
+      subscriptionStoreId: subscriptionStaffMember?.storeId ?? null,
+      subscriptionRole: subscriptionStaffMember?.role ?? null,
+      hasLoggedInUser: Boolean(loggedInUser),
+      restoredFromSessionIdentity: !loggedInUser && Boolean(subscriptionStaffMember),
+    })
+
+    if (!subscriptionStaffMember || subscriptionStaffMember.role === 'hq_admin') {
+      logDiagnostic('HomePage work session subscription skipped', {
+        effectRunId,
+        reason: !subscriptionStaffMember ? 'no subscription staff member' : 'hq_admin',
+      })
+      return undefined
+    }
+
+    console.info('[HomePage] subscribeToWorkingSession started', {
+      hasLoggedInUser: Boolean(loggedInUser),
+      restoredFromCurrentSession: !loggedInUser && Boolean(subscriptionStaffMember),
+      staffId: subscriptionStaffMember.id,
+      storeId: subscriptionStaffMember.storeId,
+    })
+    const unsubscribe = subscribeToWorkingSession(subscriptionStaffMember)
+
+    return () => {
+      logDiagnostic('HomePage work session subscription effect cleanup', {
+        effectRunId,
+        staffId: subscriptionStaffMember.id,
+        storeId: subscriptionStaffMember.storeId,
+      })
+      unsubscribe()
+    }
+  }, [loggedInUser, subscribeToWorkingSession, subscriptionStaffMember])
+
+  useEffect(() => {
+    if (currentSession) {
+      return undefined
+    }
+
+    let isActive = true
+    void Promise.resolve().then(() => {
+      if (isActive) {
+        setElapsedSeconds(0)
+      }
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [currentSession])
+
+  useEffect(() => {
+    if (!currentSession) {
+      return undefined
+    }
+
+    const updateElapsedSeconds = () => {
+      setElapsedSeconds(
+        Math.max(
+          Math.floor((Date.now() - new Date(currentSession.clockInAt).getTime()) / 1000),
+          0,
+        ),
+      )
+    }
+
+    updateElapsedSeconds()
+    const timerId = window.setInterval(updateElapsedSeconds, 1000)
+    return () => window.clearInterval(timerId)
+  }, [currentSession])
+
+  useEffect(() => {
+    const refreshActiveTripSnapshot = () => {
+      setActiveTripSnapshot(readActiveTripSnapshot())
+    }
+
+    window.addEventListener('focus', refreshActiveTripSnapshot)
+    window.addEventListener('storage', refreshActiveTripSnapshot)
+
+    return () => {
+      window.removeEventListener('focus', refreshActiveTripSnapshot)
+      window.removeEventListener('storage', refreshActiveTripSnapshot)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentStaffId) {
+      return undefined
+    }
+
+    let isMounted = true
+
+    fetchCaseRecords()
+      .then((records) => {
+        if (!isMounted) {
+          return
+        }
+
+        setDashboardRecordsState({ errorMessage: '', records })
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setDashboardRecordsState({
+          errorMessage: error instanceof Error ? error.message : '本日実績を取得できませんでした。',
+          records: [],
+        })
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [currentStaffId, currentSessionId])
+
+  const dashboardSummary = useMemo(
+    () =>
+      calculateSummary({
+        currentSessionId,
+        records: dashboardRecordsState.records,
+        staffId: currentStaffId,
+      }),
+    [currentSessionId, currentStaffId, dashboardRecordsState.records],
+  )
+
+  const clockOutSummary = useMemo(
+    () =>
+      calculateSummary({
+        currentSessionId,
+        records: summaryDialog.records,
+        staffId: currentStaffId,
+      }),
+    [currentSessionId, currentStaffId, summaryDialog.records],
+  )
+
+  const handleRestoreActiveTrip = () => {
+    navigate('/case')
+  }
+
+  const activeTripRestoreNotice = activeTripSnapshot ? (
+    <section className="hero-card active-trip-restore-card" aria-labelledby="active-trip-restore-title">
+      <p className="eyebrow">Trip Restore</p>
+      <h2 id="active-trip-restore-title">未終了の運行があります。</h2>
+      <p className="lead">案件番号 {activeTripSnapshot.caseNumber} / 状態 {activeTripSnapshot.status} の運行データを復元できます。</p>
+      <button className="primary-action home-button" type="button" onClick={handleRestoreActiveTrip}>
+        運行を復元
+      </button>
+    </section>
+  ) : null
+
+  const handleLoginChange = (key: keyof LoginForm, value: string) => {
+    setLoginForm((currentForm) => ({ ...currentForm, [key]: value }))
+  }
+
+  const handleLogin = async () => {
+    if (isLoginSubmitting) {
+      return
+    }
+
+    setIsLoginSubmitting(true)
+    setLoginMessage('認証中です。')
+    try {
+      const staffMember = await authenticateStaff(loginForm)
+      if (!staffMember) {
+        setLoginMessage('会社ID・ログインID・パスワードが一致するスタッフが見つかりません。')
+        return
+      }
+
+      const companies = await fetchCompanies()
+      const company = companies.find((item) => item.id === staffMember.companyId) ?? null
+      const stores = await fetchStores(staffMember.companyId)
+      const store = stores.find((item) => item.id === staffMember.storeId) ?? stores[0]
+      if (!store) {
+        setLoginMessage('所属店舗が見つかりません。管理画面で店舗を登録してください。')
+        return
+      }
+
+      const nextLoggedInUser = {
+        companyName: company?.name ?? defaultCompanyName,
+        staffMember,
+        store,
+      }
+      setLoggedInUser(nextLoggedInUser)
+      saveAuthStaffSession(staffMember, nextLoggedInUser.companyName)
+
+      if (staffMember.role === 'hq_admin') {
+        setLoginMessage('FC本部管理者としてログインしました。現場業務の出勤処理は行いません。')
+        navigate(roleHomePaths[staffMember.role])
+        return
+      }
+
+      setLoginMessage('ログインしました。Dashboard TOPの出勤ボタンから勤務を開始してください。')
+      navigate('/')
+    } catch (error) {
+      setLoginMessage(
+        error instanceof Error ? `ログインできませんでした。${error.message}` : 'ログインできませんでした。',
+      )
+    } finally {
+      setIsLoginSubmitting(false)
+    }
+  }
+
+  const handleClockIn = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。出勤操作の前に運行を復元してください。')
+      return
+    }
+
+    if (!loggedInUser) {
+      setLoginMessage('先にログインしてください。')
+      return
+    }
+
+    setLoginMessage('出勤位置を取得して勤務を開始しています。')
+    try {
+      await workSession.clockIn({
+        companyName: loggedInUser.companyName,
+        staffMember: loggedInUser.staffMember,
+        store: loggedInUser.store,
+      })
+      setLoginMessage('出勤しました。')
+    } catch (error) {
+      setLoginMessage(
+        error instanceof Error ? `出勤できませんでした。${error.message}` : '出勤できませんでした。',
+      )
+    }
+  }
+
+  const handleLogout = () => {
+    setLoggedInUser(null)
+    clearAuthStaffSession()
+    setLoginForm((currentForm) => ({ ...currentForm, password: '' }))
+    setLoginMessage('ログアウトしました。')
+  }
+
+  const openClockOutSummary = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      return
+    }
+
+    setSummaryDialog({ errorMessage: '', isLoading: true, isOpen: true, records: [] })
+    try {
+      const records = await fetchCaseRecords()
+      setSummaryDialog({ errorMessage: '', isLoading: false, isOpen: true, records })
+      setDashboardRecordsState({ errorMessage: '', records })
+    } catch (error) {
+      setSummaryDialog({
+        errorMessage: error instanceof Error ? error.message : '退勤サマリーを取得できませんでした。',
+        isLoading: false,
+        isOpen: true,
+        records: [],
+      })
+    }
+  }
+
+  const confirmClockOut = async () => {
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
+      return
+    }
+
+    await workSession.clockOut()
+    setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
+    setLoginMessage('退勤しました。お疲れ様でした。')
+  }
+
+  if (!loggedInUser && !currentSession) {
+    return (
+      <main className="page page--home page--login" aria-labelledby="home-title">
+        {activeTripRestoreNotice}
+        <section className="hero-card login-card">
+          <div className="login-intro">
+            <h1 id="home-title">ケアタクシー業務システム</h1>
+            <p className="lead login-subtitle">ログイン</p>
+          </div>
+          <div className="login-form">
+            <label>
+              会社ID
+              <input placeholder="会社IDを入力" value={loginForm.companyId} onChange={(event) => handleLoginChange('companyId', event.target.value)} />
+              <span className="login-field-hint">※FC加盟時に設定した法人名または屋号名を入力してください。例）株式会社千葉福祉サポート / ちばケアタクシー</span>
+            </label>
+            <label>
+              ログインID
+              <input value={loginForm.userId} onChange={(event) => handleLoginChange('userId', event.target.value)} />
+              <span className="login-field-hint">※従業員氏名を入力してください。例）東京太郎</span>
+            </label>
+            <label>
+              パスワード
+              <input type="password" value={loginForm.password} onChange={(event) => handleLoginChange('password', event.target.value)} />
+            </label>
+            <button className="primary-action login-submit" type="button" disabled={isLoginSubmitting} onClick={handleLogin}>
+              {isLoginSubmitting ? '処理中' : 'ログイン'}
+            </button>
+          </div>
+          <p className="save-note">{loginMessage}</p>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page page--home" aria-labelledby="home-title">
-      <section className="hero-card">
-        <p className="eyebrow">Care Taxi Meter</p>
-        <h1 id="home-title">ケアタクシーメーター</h1>
-        <p className="lead">
-          介護タクシー専用メーターアプリの画面構成土台です。GPS、料金計算、領収書はまだ実装していません。
-        </p>
-        <nav className="home-actions" aria-label="主要メニュー">
-          <Link className="primary-action" to="/case">
-            案件開始ボタン
-          </Link>
-          <Link className="secondary-action" to="/cases">
-            案件一覧ボタン
-          </Link>
-          <Link className="secondary-action" to="/admin">
-            管理画面ボタン
-          </Link>
+      {activeTripRestoreNotice}
+      <section className="hero-card dashboard-card">
+        <header className="dashboard-header">
+          <div>
+            <p className="eyebrow">Dashboard</p>
+            <h1 id="home-title">TOP</h1>
+          </div>
+          {!isHqAdmin ? (
+            currentSession ? (
+              <button className="secondary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={openClockOutSummary}>退勤</button>
+            ) : (
+              <button className="primary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={handleClockIn}>出勤</button>
+            )
+          ) : null}
+        </header>
+        <div className="dashboard-content">
+          <section className="work-dashboard-grid dashboard-status-grid" aria-label="勤務状況">
+            <div><span>会社</span><strong>{dashboardCompanyName}</strong></div>
+            <div><span>店舗</span><strong>{dashboardStoreName}</strong></div>
+            <div><span>担当</span><strong>{dashboardStaffName}</strong></div>
+            <div><span>出勤</span><strong>{currentSession ? formatCaseDateTime(currentSession.clockInAt) : '未出勤'}</strong></div>
+            <div><span>勤務時間</span><strong>{currentSession ? formatElapsedTime(elapsedSeconds) : '00:00:00'}</strong></div>
+            <div><span>出勤状態</span><strong>{currentSession ? '● 出勤中' : '○ 未出勤'}</strong></div>
+          </section>
+          <section className="work-dashboard-grid dashboard-results-grid" aria-label="本日実績">
+            <div><span>本日件数</span><strong>{dashboardSummary.todayCount}件</strong></div>
+            <div><span>本日売上</span><strong>{formatFareYen(dashboardSummary.todaySalesYen)}円</strong></div>
+            <div><span>本日走行距離</span><strong>{dashboardSummary.todayDistanceKm.toFixed(1)}km</strong></div>
+            <div><span>本日待機時間</span><strong>{formatElapsedTime(dashboardSummary.todayWaitingSeconds)}</strong></div>
+            <div><span>本日付き添い時間</span><strong>{formatElapsedTime(dashboardSummary.todayAccompanyingSeconds)}</strong></div>
+          </section>
+        </div>
+        {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
+        <p className="save-note">{loginMessage}</p>
+        <nav className="home-actions dashboard-actions" aria-label="主要メニュー">
+          {currentSession && !isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="primary-action home-button" type="button" disabled>案件開始</button>
+            ) : (
+              <Link
+                className="primary-action"
+                to="/case/start"
+                onClick={() => logNavigationClick({ label: '案件開始', to: '/case/start' })}
+              >
+                案件開始
+              </Link>
+            )
+          ) : null}
+          {!isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="secondary-action home-button" type="button" disabled>案件一覧</button>
+            ) : (
+              <Link
+                className="secondary-action"
+                to="/cases"
+                onClick={() => logNavigationClick({ label: '案件一覧', to: '/cases' })}
+              >
+                案件一覧
+              </Link>
+            )
+          ) : null}
+          {canOpenManagement ? (
+            <Link
+              className="secondary-action"
+              to={dashboardRole === 'manager' ? '/manager' : '/owner'}
+              onClick={() => logNavigationClick({
+                label: '管理センター',
+                to: dashboardRole === 'manager' ? '/manager' : '/owner',
+              })}
+            >
+              管理センター
+            </Link>
+          ) : null}
+          {!isHqAdmin && canOpenAnalytics ? (
+            <Link
+              className="secondary-action"
+              to="/admin/analytics"
+              onClick={() => logNavigationClick({ label: '売上分析', to: '/admin/analytics' })}
+            >
+              売上分析
+            </Link>
+          ) : null}
+          {!currentSession ? (
+            <button className="secondary-action home-button" type="button" onClick={handleLogout}>ログアウト</button>
+          ) : null}
         </nav>
       </section>
+
+      {summaryDialog.isOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section className="settings-modal clock-out-summary" role="dialog" aria-modal="true" aria-labelledby="clock-out-summary-title">
+            <header className="settings-header">
+              <div><span>Clock Out</span><h2 id="clock-out-summary-title">本日の実績</h2></div>
+              <button type="button" onClick={() => setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))}>閉じる</button>
+            </header>
+            {summaryDialog.isLoading ? <p className="empty-note">実績を取得中です。</p> : null}
+            {summaryDialog.errorMessage ? <p className="case-error">{summaryDialog.errorMessage}</p> : null}
+            {!summaryDialog.isLoading ? (
+              <div className="work-dashboard-grid">
+                <div><span>案件数</span><strong>{clockOutSummary.todayCount}件</strong></div>
+                <div><span>売上</span><strong>{formatFareYen(clockOutSummary.todaySalesYen)}円</strong></div>
+                <div><span>走行距離</span><strong>{clockOutSummary.todayDistanceKm.toFixed(1)}km</strong></div>
+                <div><span>運転時間</span><strong>{formatElapsedTime(clockOutSummary.todayDrivingSeconds)}</strong></div>
+                <div><span>待機時間</span><strong>{formatElapsedTime(clockOutSummary.todayWaitingSeconds)}</strong></div>
+                <div><span>付き添い時間</span><strong>{formatElapsedTime(clockOutSummary.todayAccompanyingSeconds)}</strong></div>
+                <div><span>勤務時間</span><strong>{formatElapsedTime(elapsedSeconds)}</strong></div>
+                <div><span>平均単価</span><strong>{formatFareYen(clockOutSummary.averageYen)}円</strong></div>
+                <div><span>今月売上</span><strong>{formatFareYen(clockOutSummary.monthSalesYen)}円</strong></div>
+                <div><span>今月件数</span><strong>{clockOutSummary.monthCount}件</strong></div>
+              </div>
+            ) : null}
+            <p className="lead">お疲れ様でした</p>
+            <button className="work-session-primary-button work-session-primary-button--danger" type="button" onClick={confirmClockOut}>
+              退勤する
+            </button>
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }

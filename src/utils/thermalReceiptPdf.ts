@@ -1,14 +1,17 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
 import type { ExpenseItem } from '../types/case'
 
 export type ThermalReceiptIssueOptions = {
   customerName: string
+  isReissue?: boolean
   expenseItems: ExpenseItem[]
   issuerName: string
   receiptNote: string
+  company?: Company | null
 }
 
 type ThermalLine = {
@@ -80,6 +83,15 @@ function createThermalReceiptLines(
     })
   })
 
+  lines.push({ label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' })
+  lines.push({ label: 'タクシー券', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` })
+  caseRecord.taxiTickets.forEach((ticket) => {
+    lines.push({
+      indent: true,
+      label: `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'}`,
+      value: `${formatFareYen(ticket.amount)}円`,
+    })
+  })
   lines.push({ label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` })
   expenseItems
     .filter((expenseItem) => expenseItem.name.trim())
@@ -108,9 +120,10 @@ function createThermalReceiptCanvas(
     throw new Error('レシートPDFの作成に失敗しました。')
   }
 
-  const companyName = settings.company.companyName.trim() || 'ちばケアタクシー'
+  const companyName = settings.company.tradeName.trim() || settings.company.companyName.trim() || 'ちばケアタクシー'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
   const customerName = issueOptions.customerName.trim()
-  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const receiptNote = issueOptions.receiptNote.trim()
   const issuerName = issueOptions.issuerName.trim()
   let y = 58
@@ -123,16 +136,18 @@ function createThermalReceiptCanvas(
     font: 'bold 30px sans-serif',
   })
   y += 38
-  drawText(context, 'ちばケアタクシー', canvas.width / 2, y, {
-    align: 'center',
-    font: '28px sans-serif',
-  })
-  y += 34
+  if (corporateName && corporateName !== companyName) {
+    drawText(context, corporateName, canvas.width / 2, y, {
+      align: 'center',
+      font: '28px sans-serif',
+    })
+    y += 34
+  }
 
   ;[
-    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
+    settings.company.postalCode ? `〒${settings.company.postalCode}` : '',
     settings.company.address,
+    settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
   ]
     .filter((line) => line.trim())
     .forEach((line) => {
@@ -146,7 +161,7 @@ function createThermalReceiptCanvas(
   y += 16
   drawDivider(context, y)
   y += 52
-  drawText(context, '領収書', canvas.width / 2, y, {
+  drawText(context, issueOptions.isReissue ? '領収書（再発行）' : '領収書', canvas.width / 2, y, {
     align: 'center',
     font: 'bold 48px sans-serif',
   })
@@ -199,7 +214,19 @@ function createThermalReceiptCanvas(
     align: 'right',
     font: '24px sans-serif',
   })
-  y += 42
+  y += 34
+  const paymentLines = caseRecord.payments.length > 0
+    ? caseRecord.payments
+    : [{ amount: caseRecord.totalFareYen, id: 'legacy-payment', type: caseRecord.paymentMethod }]
+  paymentLines.forEach((payment) => {
+    drawText(context, `支払内訳 ${payment.type}`, 48, y, { font: '22px sans-serif' })
+    drawText(context, `${formatFareYen(payment.amount)}円`, canvas.width - 48, y, {
+      align: 'right',
+      font: '22px sans-serif',
+    })
+    y += 30
+  })
+  y += 12
 
   if (receiptNote) {
     drawDivider(context, y)
@@ -210,18 +237,20 @@ function createThermalReceiptCanvas(
     y += 42
   }
 
-  drawDivider(context, y)
-  y += 38
-  drawText(context, '登録番号', canvas.width / 2, y, {
-    align: 'center',
-    font: 'bold 24px sans-serif',
-  })
-  y += 32
-  drawText(context, invoiceNumber, canvas.width / 2, y, {
-    align: 'center',
-    font: '24px sans-serif',
-  })
-  y += 40
+  if (invoiceNumber) {
+    drawDivider(context, y)
+    y += 38
+    drawText(context, '登録番号', canvas.width / 2, y, {
+      align: 'center',
+      font: 'bold 24px sans-serif',
+    })
+    y += 32
+    drawText(context, invoiceNumber, canvas.width / 2, y, {
+      align: 'center',
+      font: '24px sans-serif',
+    })
+    y += 40
+  }
 
   if (issuerName) {
     drawText(context, `発行担当者 ${issuerName}`, 48, y, { font: '24px sans-serif' })

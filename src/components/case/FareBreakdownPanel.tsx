@@ -1,8 +1,11 @@
 import type { FareBreakdown } from '../../services/fare'
 import { formatFareYen } from '../../services/fare'
+import type { PaymentMethod } from '../../types/case'
 
 type FareBreakdownPanelProps = {
   breakdown: FareBreakdown
+  hideTotal?: boolean
+  paymentMethod?: PaymentMethod
 }
 
 export function FareBreakdownPanel({ breakdown }: FareBreakdownPanelProps) {
@@ -21,10 +24,18 @@ export function FareBreakdownPanel({ breakdown }: FareBreakdownPanelProps) {
             <dd>{formatFareYen(item.amountYen)}円</dd>
           </div>
         ))}
-        <div className="fare-breakdown__total">
-          <dt>合計金額</dt>
-          <dd>{formatFareYen(breakdown.totalFareYen)}円</dd>
-        </div>
+        {paymentMethod ? (
+          <div>
+            <dt>支払方法</dt>
+            <dd>{paymentMethod}</dd>
+          </div>
+        ) : null}
+        {!hideTotal ? (
+          <div className="fare-breakdown__total">
+            <dt>合計金額</dt>
+            <dd>{formatFareYen(breakdown.totalFareYen)}円</dd>
+          </div>
+        ) : null}
       </dl>
     </section>
   )

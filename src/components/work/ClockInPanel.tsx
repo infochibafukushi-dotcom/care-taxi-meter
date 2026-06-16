@@ -29,19 +29,18 @@ export function ClockInPanel({
 }: ClockInPanelProps) {
   const enabledStores = stores
     .filter((store) => store.enabled)
-    .sort((firstStore, secondStore) => firstStore.sortOrder - secondStore.sortOrder)
+    .sort((firstStore, secondStore) => firstStore.name.localeCompare(secondStore.name, 'ja'))
   const selectableStaffMembers = staffMembers
     .filter(
       (staffMember) =>
-        staffMember.enabled && (!selectedStoreId || staffMember.storeId === selectedStoreId),
+        staffMember.enabled,
     )
     .sort((firstStaff, secondStaff) => firstStaff.sortOrder - secondStaff.sortOrder)
   const selectableVehicles = vehicles
     .filter(
       (vehicle) =>
         vehicle.enabled &&
-        vehicle.status === '稼働中' &&
-        (!selectedStoreId || vehicle.storeId === selectedStoreId),
+        vehicle.status === '稼働中',
     )
     .sort((firstVehicle, secondVehicle) => firstVehicle.sortOrder - secondVehicle.sortOrder)
   const canClockIn = Boolean(selectedStoreId && selectedStaffId && selectedVehicleId)

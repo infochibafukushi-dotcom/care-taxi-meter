@@ -14,6 +14,10 @@ export type TimeFareSettings = {
   unitFareYen: number;
 };
 
+export type MeterTimeFareSettings = TimeFareSettings & {
+  lowSpeedThresholdKmh: number;
+};
+
 export type AssistItem = {
   id: string;
   name: string;
@@ -23,6 +27,8 @@ export type AssistItem = {
 };
 
 export type CareOptionMasterItem = AssistItem;
+export type DispatchMenuItem = AssistItem;
+export type SpecialVehicleMenuItem = AssistItem;
 
 export type ExpenseSettings = {
   defaultItems: Array<{
@@ -48,11 +54,23 @@ export type TimeMeterFareBreakdown = {
 };
 
 export type FareBreakdown = {
+  dispatchFareYen: number;
+  specialVehicleFareYen: number;
   basicFareYen: number;
   waitingFareYen: number;
+  meterTimeFareYen: number;
   escortFareYen: number;
   careOptionFareYen: number;
   expenseFareYen: number;
+  grossFareYen: number;
+  discountableFareYen: number;
+  isDisabilityDiscount: boolean;
+  disabilityDiscountRate: number;
+  disabilityDiscountAmount: number;
+  discountName: string;
+  discountMethod: DiscountSettings["method"];
+  discountValue: number;
+  taxiTicketAmountYen: number;
   totalFareYen: number;
   lineItems: FareLineItem[];
   meterMode: MeterMode;
@@ -75,6 +93,20 @@ export const escortFareSettings: TimeFareSettings = {
   unitSeconds: 1800,
   unitFareYen: 300,
 };
+
+export const meterTimeFareSettings: MeterTimeFareSettings = {
+  lowSpeedThresholdKmh: 10,
+  unitSeconds: 90,
+  unitFareYen: 90,
+};
+
+export const dispatchMenuMaster: DispatchMenuItem[] = [
+  { id: "reservedPickup", name: "予約迎車", amount: 800, enabled: true, sortOrder: 1 },
+];
+
+export const specialVehicleMenuMaster: SpecialVehicleMenuItem[] = [
+  { id: "oneBoxLift", name: "1BOXリフト車両", amount: 1000, enabled: true, sortOrder: 1 },
+];
 
 export const careOptionMaster: CareOptionMasterItem[] = [
   { id: "basicAssist", name: "基本介助", amount: 500, enabled: true, sortOrder: 1 },
@@ -100,6 +132,22 @@ export const expenseSettings: ExpenseSettings = {
 export const DEFAULT_BASIC_FARE_SETTINGS = basicFareSettings;
 export const DEFAULT_WAITING_FARE_SETTINGS = waitingFareSettings;
 export const DEFAULT_ACCOMPANIMENT_FARE_SETTINGS = escortFareSettings;
+export const DEFAULT_METER_TIME_FARE_SETTINGS = meterTimeFareSettings;
+export type DiscountSettings = {
+  name: string;
+  method: "percentage" | "fixed";
+  value: number;
+};
+
+export const DEFAULT_DISCOUNT_SETTINGS: DiscountSettings = {
+  name: "割引",
+  method: "percentage",
+  value: 10,
+};
+export const DEFAULT_DISABILITY_DISCOUNT_RATE = 0.1;
+
+export const roundDownToTenYen = (amountYen: number) =>
+  Math.floor(Math.max(amountYen, 0) / 10) * 10;
 
 export function calculateBasicFareYen(
   distanceKm: number,
@@ -132,6 +180,17 @@ export function calculateTimeFareYen(
   );
 }
 
+export function calculateMeterTimeFareYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+) {
+  if (elapsedSeconds < settings.unitSeconds) {
+    return 0;
+  }
+
+  return Math.floor(elapsedSeconds / settings.unitSeconds) * settings.unitFareYen;
+}
+
 export function calculateWaitingFareYen(elapsedSeconds: number) {
   return calculateTimeFareYen(elapsedSeconds, waitingFareSettings);
 }
@@ -160,8 +219,13 @@ export function calculateFareBreakdown({
   distanceKm,
   waitingSeconds,
   escortSeconds,
+  meterTimeSeconds = 0,
+  dispatchCharges = [],
+  specialVehicleCharges = [],
   careOptions,
   expenses,
+  isDisabilityDiscount = false,
+  taxiTickets = [],
   settings = {},
   meterMode = 'gps',
   drivingSeconds = 0,
@@ -170,12 +234,19 @@ export function calculateFareBreakdown({
   distanceKm: number;
   waitingSeconds: number;
   escortSeconds: number;
+  meterTimeSeconds?: number;
+  dispatchCharges?: Array<{ amountYen: number }>;
+  specialVehicleCharges?: Array<{ amountYen: number }>;
   careOptions: Array<{ amountYen: number }>;
   expenses: Array<{ amountYen: number }>;
+  isDisabilityDiscount?: boolean;
+  taxiTickets?: Array<{ amount: number }>;
   settings?: {
     basicFare?: BasicFareSettings;
     escortFare?: TimeFareSettings;
+    meterTimeFare?: TimeFareSettings;
     waitingFare?: TimeFareSettings;
+    discount?: DiscountSettings;
   };
   meterMode?: MeterMode;
   drivingSeconds?: number;
@@ -184,6 +255,10 @@ export function calculateFareBreakdown({
   const waitingFareYen = calculateTimeFareYen(
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
+  );
+  const meterTimeFareYen = calculateMeterTimeFareYen(
+    meterTimeSeconds,
+    settings.meterTimeFare ?? meterTimeFareSettings,
   );
   const escortFareYen = calculateTimeFareYen(
     escortSeconds,
@@ -242,19 +317,39 @@ export function calculateFareBreakdown({
     escortFareYen +
     careOptionFareYen +
     expenseFareYen;
+  const grossFareYen = discountableFareYen + otherChargesYen;
+  const totalFareYen = Math.max(
+    discountedMeterFareYen - taxiTicketAmountYen + otherChargesYen,
+    0,
+  );
 
   return {
+    dispatchFareYen,
+    specialVehicleFareYen,
     basicFareYen,
     waitingFareYen,
+    meterTimeFareYen,
     escortFareYen,
     careOptionFareYen,
     expenseFareYen,
+    grossFareYen,
+    discountableFareYen,
+    isDisabilityDiscount,
+    disabilityDiscountRate: discountRate,
+    disabilityDiscountAmount,
+    discountName,
+    discountMethod: discountSettings.method,
+    discountValue,
+    taxiTicketAmountYen,
     totalFareYen,
     lineItems: [
-      { label: "基本運賃", amountYen: basicFareYen },
-      { label: "待機料金", amountYen: waitingFareYen },
-      { label: "院内付き添い料金", amountYen: escortFareYen },
+      { label: "基本運賃", amountYen: basicFareYen + meterTimeFareYen },
+      { label: discountName, amountYen: -disabilityDiscountAmount },
+      { label: "タクシー券", amountYen: -taxiTicketAmountYen },
+      { label: "予約・迎車料金", amountYen: dispatchFareYen },
+      { label: "特殊車両料金", amountYen: specialVehicleFareYen },
       { label: "介助料金", amountYen: careOptionFareYen },
+      { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
     meterMode,

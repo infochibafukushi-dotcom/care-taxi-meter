@@ -1,13 +1,16 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { defaultMeterSettings } from '../services/meterSettings'
 import type { MeterSettings } from '../services/meterSettings'
+import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
 
 export type ReceiptIssueOptions = {
   customerName: string
+  isReissue?: boolean
   issuerName: string
   receiptNote: string
+  company?: Company | null
 }
 
 type ReceiptLine = {
@@ -66,6 +69,20 @@ function drawLine(
   context.restore()
 }
 
+const formatPaymentDetails = (caseRecord: StoredCaseRecord) =>
+  caseRecord.payments.length > 0
+    ? caseRecord.payments
+        .map((payment) => `${payment.type} ${formatFareYen(payment.amount)}円`)
+        .join(' / ')
+    : caseRecord.paymentMethod
+
+const formatTaxiTicketDetails = (caseRecord: StoredCaseRecord) =>
+  caseRecord.taxiTickets.length > 0
+    ? caseRecord.taxiTickets
+        .map((ticket) => `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'} ${formatFareYen(ticket.amount)}円`)
+        .join(' / ')
+    : '未使用'
+
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   const careOptionLines =
     caseRecord.assistCharges.length > 0
@@ -88,15 +105,20 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
 
   return [
     { label: '案件番号', value: caseRecord.caseNumber },
+    { label: '宛名', value: caseRecord.receiptName || '未入力' },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
     ...createPrimaryFareReceiptLines(caseRecord),
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,
+    { label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
+    { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
+    { label: 'タクシー券適用額', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` },
     { label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` },
     { label: '合計金額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
     { label: '支払方法', value: caseRecord.paymentMethod },
+    { label: '支払内訳', value: formatPaymentDetails(caseRecord) },
   ]
 }
 
@@ -174,24 +196,25 @@ function createReceiptCanvas(
   const statementTitle =
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
-  const companyName = settings.company.companyName.trim() || '介護タクシーメーター'
+  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
+  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
   const receiptNote = issueOptions.receiptNote.trim()
-  const invoiceNumber = settings.receipt.invoiceNumber.trim() || '未登録'
+  const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const companyLines = [
-    companyName,
+    tradeName,
+    corporateName && corporateName !== tradeName ? corporateName : '',
+    address,
     settings.company.phoneNumber ? `TEL ${settings.company.phoneNumber}` : '',
-    settings.company.email ? `MAIL ${settings.company.email}` : '',
-    settings.company.address,
-    '登録番号',
-    invoiceNumber,
+    invoiceNumber ? `登録番号 ${invoiceNumber}` : '',
   ]
 
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  drawText(context, receiptTitle, canvas.width / 2, 150, {
+  drawText(context, issueOptions.isReissue ? `${receiptTitle}（再発行）` : receiptTitle, canvas.width / 2, 150, {
     align: 'center',
     font: 'bold 72px sans-serif',
   })

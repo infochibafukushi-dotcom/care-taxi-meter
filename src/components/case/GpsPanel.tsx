@@ -1,10 +1,12 @@
 import type { GpsPosition } from '../../types/case'
+import type { SpeedSource } from '../../services/gpsSpeed'
 
 type GpsPanelProps = {
   errorMessage: string | null
   gpsLogCount: number
   isActive: boolean
   position: GpsPosition | null
+  speedSource: SpeedSource
   status: 'idle' | 'locating' | 'ready' | 'error' | 'unsupported'
   totalDistanceKm: number
 }
@@ -23,6 +25,7 @@ export function GpsPanel({
   gpsLogCount,
   isActive,
   position,
+  speedSource,
   status,
   totalDistanceKm,
 }: GpsPanelProps) {
@@ -60,17 +63,21 @@ export function GpsPanel({
           <strong>{formatSpeed(position?.speed)}</strong>
         </div>
         <div>
+          <span>速度取得方式</span>
+          <strong>{speedSource === 'gps' ? 'GPS speed' : speedSource === 'fallback' ? '距離÷時間' : '未取得'}</strong>
+        </div>
+        <div>
           <span>GPSログ件数</span>
           <strong>{gpsLogCount}件</strong>
         </div>
         <div>
-          <span>累計走行距離</span>
+          <span>運賃距離</span>
           <strong>{totalDistanceKm.toFixed(3)}km</strong>
         </div>
       </div>
       {errorMessage ? <p className="gps-error">{errorMessage}</p> : null}
       <p className="gps-note">
-        運行開始で5秒ごとに取得し、案件終了で停止します。GPS精度50m超と5秒500m以上の移動は距離計算から除外します。
+        運行開始で5秒ごとに取得し、案件終了で停止します。GPS精度30m超と5秒500m以上の移動は距離計算から除外します。
       </p>
     </section>
   )

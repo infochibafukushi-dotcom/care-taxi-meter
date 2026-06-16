@@ -5,6 +5,8 @@ import { AdminPage } from './pages/AdminPage'
 import { CaseDetailPage } from './pages/CaseDetailPage'
 import { CaseListPage } from './pages/CaseListPage'
 import { CasePage } from './pages/CasePage'
+import { CaseStartPage } from './pages/CaseStartPage'
+import { HeadquartersPage } from './pages/HeadquartersPage'
 import { HomePage } from './pages/HomePage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 
@@ -23,6 +25,10 @@ const router = createBrowserRouter([
         element: <HomePage />,
       },
       {
+        path: 'case/start',
+        element: <CaseStartPage />,
+      },
+      {
         path: 'case',
         element: <CasePage />,
       },
@@ -35,6 +41,22 @@ const router = createBrowserRouter([
         element: <CaseDetailPage />,
       },
       {
+        path: 'driver',
+        element: <HomePage />,
+      },
+      {
+        path: 'manager',
+        element: <AdminPage />,
+      },
+      {
+        path: 'owner',
+        element: <AdminPage />,
+      },
+      {
+        path: 'hq',
+        element: <HeadquartersPage />,
+      },
+      {
         path: 'admin',
         element: <AdminPage />,
       },
@@ -42,11 +64,17 @@ const router = createBrowserRouter([
         path: 'admin/analytics',
         element: <SalesAnalyticsPage />,
       },
+      {
+        path: 'superadmin',
+        element: <HeadquartersPage />,
+      },
     ],
   },
 ], { basename: routerBaseName })
 
 function App() {
+  console.info('[App] RouterProvider render')
+
   return <RouterProvider router={router} />
 }
 

@@ -6,6 +6,7 @@ export type OperationStatus =
   | '院内付き添い中'
   | '走行中'
   | '精算前'
+  | '精算修正'
   | '案件終了'
 
 export type StatusTone =
@@ -18,6 +19,15 @@ export type StatusTone =
 
 export type TimerKey = 'driving' | 'waiting' | 'accompanying'
 
+export type ActivityHistoryType = 'waiting' | 'accompanying'
+
+export type ActivityHistoryEntry = {
+  endAt: string
+  id: string
+  startAt: string
+  type: ActivityHistoryType
+}
+
 export type GpsPosition = {
   latitude: number
   longitude: number
@@ -25,6 +35,8 @@ export type GpsPosition = {
   speed: number | null
   updatedAt: number
 }
+
+export type MeterMovementState = 'normal' | 'low-speed' | 'unknown'
 
 export type GpsLogEntry = {
   capturedAt: number
@@ -48,6 +60,19 @@ export type ExpenseItem = {
 }
 
 export type PaymentMethod = '現金' | 'クレジット' | 'QR決済' | '請求書' | 'その他'
+
+export type TaxiTicket = {
+  amount: number
+  id: string
+  municipality: string
+  ticketNumber: string
+}
+
+export type PaymentAllocation = {
+  amount: number
+  id: string
+  type: PaymentMethod
+}
 
 export type MeterMetric = {
   label: string

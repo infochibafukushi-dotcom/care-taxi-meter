@@ -1,17 +1,28 @@
-import { doc, getDoc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
+import { defaultFranchiseeId, defaultStoreId, tenantFields } from './tenancy'
+import type { TenantScope } from './tenancy'
+import { createAuditLog } from './auditLogs'
 import {
   basicFareSettings,
   careOptionMaster,
+  dispatchMenuMaster,
   escortFareSettings,
   expenseSettings,
+  meterTimeFareSettings,
+  specialVehicleMenuMaster,
   waitingFareSettings,
+  DEFAULT_DISCOUNT_SETTINGS,
 } from './fare'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
+  DispatchMenuItem,
+  MeterTimeFareSettings,
+  SpecialVehicleMenuItem,
   TimeFareSettings,
+  DiscountSettings,
 } from './fare'
 
 export type ExpensePreset = {
@@ -22,8 +33,11 @@ export type ExpensePreset = {
 
 export type CompanySettings = {
   companyName: string
+  corporateName: string
+  tradeName: string
   phoneNumber: string
   email: string
+  postalCode: string
   address: string
 }
 
@@ -54,21 +68,29 @@ export type TimeMeterSettings = {
 }
 
 export type MeterSettings = {
+  meterSettings: MeterSettingsByMode
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
   time: TimeMeterSettings
   assistItems: CareOptionMasterItem[]
+  dispatchMenuItems: DispatchMenuItem[]
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
   receipt: ReceiptSettings
+  discount: DiscountSettings
 }
 
 export type MeterSettingsDocument = MeterSettings & {
+  franchiseeId: string
+  storeId: string
+  companyId: string
   updatedAt: FieldValue
 }
 
-const settingsCollectionName = 'appSettings'
+const legacySettingsCollectionName = 'appSettings'
+const settingsCollectionName = 'meterSettings'
 const meterSettingsDocumentId = 'meterSettings'
 export const fixedTimeFareUnitSeconds = 30 * 60
 
@@ -91,16 +113,44 @@ export const defaultTimeMeterSettings: TimeMeterSettings = {
 }
 
 export const defaultMeterSettings: MeterSettings = {
+  meterSettings: {
+    gps: {
+      assistItems: careOptionMaster,
+      basicFare: basicFareSettings,
+      discount: DEFAULT_DISCOUNT_SETTINGS,
+      dispatchMenuItems: dispatchMenuMaster,
+      escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+      meterTimeFare: meterTimeFareSettings,
+      specialVehicleMenuItems: specialVehicleMenuMaster,
+      waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+    },
+    time: defaultTimeMeterSettings,
+    obd: {
+      assistItems: careOptionMaster,
+      basicFare: basicFareSettings,
+      discount: DEFAULT_DISCOUNT_SETTINGS,
+      dispatchMenuItems: dispatchMenuMaster,
+      escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+      meterTimeFare: meterTimeFareSettings,
+      specialVehicleMenuItems: specialVehicleMenuMaster,
+      waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+    },
+  },
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   time: defaultTimeMeterSettings,
   assistItems: careOptionMaster,
+  dispatchMenuItems: dispatchMenuMaster,
+  specialVehicleMenuItems: specialVehicleMenuMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
     address: '',
     companyName: '',
+    corporateName: '',
+    tradeName: '',
     email: '',
+    postalCode: '',
     phoneNumber: '',
   },
   receipt: {
@@ -110,7 +160,9 @@ export const defaultMeterSettings: MeterSettings = {
     invoiceNumber: '',
     defaultReceiptNote: '介護タクシー利用料として',
   },
+  discount: DEFAULT_DISCOUNT_SETTINGS,
 }
+
 
 const toPositiveNumber = (value: unknown, fallback: number, minimum = 0) => {
   const numberValue = Number(value)
@@ -140,9 +192,17 @@ const legacyAssistItemIds: Record<string, string> = {
   'other-care': 'otherAssist',
 }
 
-function getMeterSettingsRef() {
+const getMeterSettingsDocumentId = (scope: TenantScope = { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }) =>
+  `${scope.franchiseeId}_${scope.storeId}`
+
+function getLegacyMeterSettingsRef() {
   const db = getFirestore(getFirebaseApp())
-  return doc(db, settingsCollectionName, meterSettingsDocumentId)
+  return doc(db, legacySettingsCollectionName, meterSettingsDocumentId)
+}
+
+function getMeterSettingsRef(scope?: TenantScope) {
+  const db = getFirestore(getFirebaseApp())
+  return doc(db, settingsCollectionName, getMeterSettingsDocumentId(scope))
 }
 
 function sanitizeBasicFare(value: unknown): BasicFareSettings {
@@ -170,12 +230,36 @@ function sanitizeBasicFare(value: unknown): BasicFareSettings {
   }
 }
 
-function sanitizeTimeFare(value: unknown, fallback: TimeFareSettings): TimeFareSettings {
+function sanitizeFixedTimeFare(value: unknown, fallback: TimeFareSettings): TimeFareSettings {
   const source = toObject(value)
 
   return {
     unitFareYen: toPositiveNumber(source.unitFareYen, fallback.unitFareYen),
     unitSeconds: fixedTimeFareUnitSeconds,
+  }
+}
+
+function sanitizeMeterTimeFare(value: unknown): MeterTimeFareSettings {
+  const source = toObject(value)
+
+  return {
+    lowSpeedThresholdKmh: toPositiveNumber(
+      source.lowSpeedThresholdKmh,
+      defaultMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+      0,
+    ),
+    unitFareYen: toPositiveNumber(
+      source.unitFareYen,
+      defaultMeterSettings.meterTimeFare.unitFareYen,
+    ),
+    unitSeconds: Math.max(
+      Math.floor(toPositiveNumber(
+        source.unitSeconds,
+        defaultMeterSettings.meterTimeFare.unitSeconds,
+        1,
+      )),
+      1,
+    ),
   }
 }
 
@@ -233,6 +317,69 @@ function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
   )
 }
 
+function sanitizeMenuItems<TMenuItem extends {
+  amount: number
+  enabled: boolean
+  id: string
+  name: string
+  sortOrder: number
+}>(value: unknown, fallbackItems: TMenuItem[], idPrefix: string): TMenuItem[] {
+  if (!Array.isArray(value)) {
+    return fallbackItems
+  }
+
+  const defaultsById = new Map(
+    fallbackItems.map((defaultItem) => [defaultItem.id, defaultItem]),
+  )
+  const sanitizedItems = value
+    .map((item, index) => {
+      const sourceItem = toObject(item)
+      const id = toStringValue(sourceItem.id, `${idPrefix}-${index + 1}`).trim()
+      const defaultItem = defaultsById.get(id)
+      const name = toStringValue(sourceItem.name, defaultItem?.name ?? '').trim()
+
+      if (!id || !name) {
+        return null
+      }
+
+      return {
+        id,
+        name,
+        amount: Math.floor(
+          toPositiveNumber(sourceItem.amount, defaultItem?.amount ?? 0),
+        ),
+        enabled:
+          typeof sourceItem.enabled === 'boolean'
+            ? sourceItem.enabled
+            : defaultItem?.enabled ?? true,
+        sortOrder: Math.floor(
+          toPositiveNumber(sourceItem.sortOrder, defaultItem?.sortOrder ?? index + 1),
+        ),
+      } as TMenuItem
+    })
+    .filter((item): item is TMenuItem => Boolean(item))
+
+  return sanitizedItems.sort(
+    (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
+  )
+}
+
+function sanitizeDispatchMenuItems(value: unknown): DispatchMenuItem[] {
+  return sanitizeMenuItems(
+    value,
+    defaultMeterSettings.dispatchMenuItems,
+    'dispatch',
+  )
+}
+
+function sanitizeSpecialVehicleMenuItems(value: unknown): SpecialVehicleMenuItem[] {
+  return sanitizeMenuItems(
+    value,
+    defaultMeterSettings.specialVehicleMenuItems,
+    'special-vehicle',
+  )
+}
+
 function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
   const source = Array.isArray(value) ? value : defaultMeterSettings.expensePresets
 
@@ -250,13 +397,29 @@ function sanitizeExpensePresets(value: unknown): ExpensePreset[] {
     .filter((item) => item.name)
 }
 
+function sanitizeDiscount(value: unknown): DiscountSettings {
+  const source = toObject(value)
+  const method = source.method === 'fixed' ? 'fixed' : 'percentage'
+
+  return {
+    name: toStringValue(source.name, DEFAULT_DISCOUNT_SETTINGS.name).trim() || DEFAULT_DISCOUNT_SETTINGS.name,
+    method,
+    value: toPositiveNumber(source.value, DEFAULT_DISCOUNT_SETTINGS.value),
+  }
+}
+
 function sanitizeCompany(value: unknown): CompanySettings {
   const source = toObject(value)
 
+  const legacyCompanyName = toStringValue(source.companyName)
+
   return {
     address: toStringValue(source.address),
-    companyName: toStringValue(source.companyName),
+    companyName: legacyCompanyName,
+    corporateName: toStringValue(source.corporateName, legacyCompanyName),
+    tradeName: toStringValue(source.tradeName, legacyCompanyName),
     email: toStringValue(source.email),
+    postalCode: toStringValue(source.postalCode) || toStringValue(source.zipCode),
     phoneNumber: toStringValue(source.phoneNumber),
   }
 }
@@ -341,38 +504,187 @@ function sanitizeReceipt(value: unknown): ReceiptSettings {
   }
 }
 
-export function sanitizeMeterSettings(value: unknown): MeterSettings {
+function sanitizeMeterModeFareSettings(value: unknown, fallback: MeterModeFareSettings): MeterModeFareSettings {
   const source = toObject(value)
 
   return {
+    assistItems: sanitizeAssistItems(source.assistItems ?? fallback.assistItems),
+    basicFare: sanitizeBasicFare(source.basicFare ?? fallback.basicFare),
+    discount: sanitizeDiscount(source.discount ?? fallback.discount),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems ?? fallback.dispatchMenuItems),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, fallback.escortFare),
+    meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare ?? fallback.meterTimeFare),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems ?? fallback.specialVehicleMenuItems),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, fallback.waitingFare),
+  }
+}
+
+function sanitizeTimeMeterSettings(value: unknown, fallback: MeterSettingsByMode['time']): MeterSettingsByMode['time'] {
+  const source = toObject(value)
+
+  return {
+    additionalFare: sanitizeFixedTimeFare(source.additionalFare, fallback.additionalFare),
+    assistItems: sanitizeAssistItems(source.assistItems ?? fallback.assistItems),
+    baseFareYen: toPositiveNumber(source.baseFareYen ?? source.baseFare, fallback.baseFareYen),
+    baseMinutes: Math.max(Math.floor(toPositiveNumber(source.baseMinutes, fallback.baseMinutes, 1)), 1),
+    discount: sanitizeDiscount(source.discount ?? fallback.discount),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems ?? fallback.dispatchMenuItems),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, fallback.escortFare),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems ?? fallback.specialVehicleMenuItems),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, fallback.waitingFare),
+  }
+}
+
+export function selectMeterModeSettings(settings: MeterSettings, mode: MeterMode): MeterSettings {
+  if (mode === 'gps' || mode === 'obd') {
+    const modeSettings = settings.meterSettings[mode]
+    return { ...settings, ...modeSettings }
+  }
+
+  const timeSettings = settings.meterSettings.time
+  return {
+    ...settings,
+    assistItems: timeSettings.assistItems,
+    basicFare: { initialDistanceKm: 1, initialFareYen: timeSettings.baseFareYen, additionalDistanceKm: 1, additionalFareYen: 0 },
+    discount: timeSettings.discount,
+    dispatchMenuItems: timeSettings.dispatchMenuItems,
+    escortFare: timeSettings.escortFare,
+    meterTimeFare: { lowSpeedThresholdKmh: 999, unitFareYen: timeSettings.additionalFare.unitFareYen, unitSeconds: timeSettings.additionalFare.unitSeconds },
+    specialVehicleMenuItems: timeSettings.specialVehicleMenuItems,
+    waitingFare: timeSettings.waitingFare,
+  }
+}
+
+export function sanitizeMeterSettings(value: unknown): MeterSettings {
+  const source = toObject(value)
+  const legacyGps = {
     basicFare: sanitizeBasicFare(source.basicFare),
     assistItems: sanitizeAssistItems(source.assistItems ?? source.careOptions),
+    discount: sanitizeDiscount(source.discount),
+    dispatchMenuItems: sanitizeDispatchMenuItems(source.dispatchMenuItems),
+    escortFare: sanitizeFixedTimeFare(source.escortFare, defaultMeterSettings.escortFare),
+    meterTimeFare: sanitizeMeterTimeFare(source.meterTimeFare),
+    specialVehicleMenuItems: sanitizeSpecialVehicleMenuItems(source.specialVehicleMenuItems),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
+  }
+  const modeSource = toObject(source.meterSettings)
+  const gps = sanitizeMeterModeFareSettings(modeSource.gps ?? source.gps ?? legacyGps, legacyGps)
+  const obd = sanitizeMeterModeFareSettings(modeSource.obd ?? source.obd ?? gps, gps)
+  const time = sanitizeTimeMeterSettings(modeSource.time ?? source.time, defaultMeterSettings.meterSettings.time)
+
+  return {
+    meterSettings: { gps, time, obd },
+    basicFare: gps.basicFare,
+    assistItems: gps.assistItems,
     company: sanitizeCompany(source.company),
-    escortFare: sanitizeTimeFare(source.escortFare, defaultMeterSettings.escortFare),
+    discount: gps.discount,
+    dispatchMenuItems: gps.dispatchMenuItems,
+    specialVehicleMenuItems: gps.specialVehicleMenuItems,
+    escortFare: gps.escortFare,
     expensePresets: sanitizeExpensePresets(source.expensePresets),
+    meterTimeFare: gps.meterTimeFare,
     receipt: sanitizeReceipt(source.receipt),
     time: sanitizeTimeMeter(source.time),
     waitingFare: sanitizeTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
   }
 }
 
-export async function fetchMeterSettings() {
-  const snapshot = await getDoc(getMeterSettingsRef())
+export async function fetchMeterSettings(scope?: TenantScope) {
+  const settingsRef = getMeterSettingsRef(scope)
+  const snapshot = await getDoc(settingsRef)
 
-  if (!snapshot.exists()) {
-    return defaultMeterSettings
+  if (snapshot.exists()) {
+    return sanitizeMeterSettings(snapshot.data())
   }
 
-  return sanitizeMeterSettings(snapshot.data())
+  const targetScope = scope ?? { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }
+  const isDefaultScope =
+    targetScope.franchiseeId === defaultFranchiseeId && targetScope.storeId === defaultStoreId
+
+  if (isDefaultScope) {
+    const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
+    if (legacySnapshot.exists()) {
+      const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
+      await saveMeterSettings(migratedSettings, scope)
+      return migratedSettings
+    }
+  }
+
+  await saveMeterSettings(defaultMeterSettings, scope)
+  return defaultMeterSettings
 }
 
-export async function saveMeterSettings(settings: MeterSettings) {
-  const sanitizedSettings = sanitizeMeterSettings(settings)
+export function subscribeMeterSettings(
+  scopeOrOnUpdate: TenantScope | ((settings: MeterSettings) => void),
+  onUpdateOrOnError?: ((settings: MeterSettings) => void) | ((error: Error) => void),
+  onError?: (error: Error) => void,
+) {
+  const scope = typeof scopeOrOnUpdate === 'function' ? undefined : scopeOrOnUpdate
+  const onUpdate = typeof scopeOrOnUpdate === 'function' ? scopeOrOnUpdate : onUpdateOrOnError as (settings: MeterSettings) => void
+  const errorHandler = typeof scopeOrOnUpdate === 'function' ? onUpdateOrOnError as ((error: Error) => void) | undefined : onError
+  return onSnapshot(
+    getMeterSettingsRef(scope),
+    (snapshot) => {
+      onUpdate(snapshot.exists() ? sanitizeMeterSettings(snapshot.data()) : defaultMeterSettings)
+    },
+    (error) => {
+      errorHandler?.(error)
+    },
+  )
+}
+
+export function subscribeLegacyMeterSettings(
+  onUpdate: (settings: MeterSettings) => void,
+  onError?: (error: Error) => void,
+) {
+  return onSnapshot(
+    getMeterSettingsRef(),
+    (snapshot) => {
+      onUpdate(snapshot.exists() ? sanitizeMeterSettings(snapshot.data()) : defaultMeterSettings)
+    },
+    (error) => {
+      onError?.(error)
+    },
+  )
+}
+
+export async function saveMeterSettings(settings: MeterSettings, scope: TenantScope = { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }) {
+  const settingsRef = getMeterSettingsRef(scope)
+  const beforeSnapshot = await getDoc(settingsRef)
+  const settingsWithCurrentGps = {
+    ...settings,
+    meterSettings: {
+      ...settings.meterSettings,
+      gps: {
+        ...settings.meterSettings.gps,
+        assistItems: settings.assistItems,
+        basicFare: settings.basicFare,
+        discount: settings.discount,
+        dispatchMenuItems: settings.dispatchMenuItems,
+        escortFare: settings.escortFare,
+        meterTimeFare: settings.meterTimeFare,
+        specialVehicleMenuItems: settings.specialVehicleMenuItems,
+        waitingFare: settings.waitingFare,
+      },
+    },
+  }
+  const sanitizedSettings = sanitizeMeterSettings(settingsWithCurrentGps)
   const document: MeterSettingsDocument = {
     ...sanitizedSettings,
+    ...tenantFields(scope),
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(getMeterSettingsRef(), document, { merge: true })
+  await setDoc(settingsRef, document, { merge: true })
+  await createAuditLog({
+    action: beforeSnapshot.exists() ? 'settings.updated' : 'settings.created',
+    targetType: 'meterSettings',
+    targetId: getMeterSettingsDocumentId(scope),
+    franchiseeId: scope.franchiseeId,
+    storeId: scope.storeId,
+    before: beforeSnapshot.exists() ? sanitizeMeterSettings(beforeSnapshot.data()) : null,
+    after: sanitizedSettings,
+    reason: '店舗別メーター・帳票・会社設定の保存',
+  })
   return sanitizedSettings
 }

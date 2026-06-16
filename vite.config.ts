@@ -2,8 +2,16 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const githubPagesBase = '/care-taxi-meter/'
+
 // https://vite.dev/config/
 export default defineConfig({
+  base: githubPagesBase,
+  define: {
+    'import.meta.env.VITE_APP_BUILD_VERSION': JSON.stringify(
+      process.env.VITE_APP_BUILD_VERSION ?? new Date().toISOString(),
+    ),
+  },
   plugins: [
     react(),
     VitePWA({
@@ -13,15 +21,15 @@ export default defineConfig({
         name: '介護タクシー専用メーター',
         short_name: '介護タクシー',
         description: '介護タクシー専用メーターアプリのPWA初期設定',
-        theme_color: '#0ea5e9',
-        background_color: '#f8fafc',
-        display: 'standalone',
+        theme_color: '#020617',
+        background_color: '#020617',
+        display: 'fullscreen',
         orientation: 'landscape',
-        start_url: '/',
-        scope: '/',
+        start_url: githubPagesBase,
+        scope: githubPagesBase,
         icons: [
           {
-            src: '/pwa.svg',
+            src: `${githubPagesBase}pwa.svg`,
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any maskable',
@@ -31,6 +39,7 @@ export default defineConfig({
       workbox: {
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        navigateFallback: `${githubPagesBase}index.html`,
       },
     }),
   ],
