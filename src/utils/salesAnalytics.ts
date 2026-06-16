@@ -1,5 +1,5 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
-import { getBillableCaseRecords } from './caseRecords'
+import { getActualFareYen, getBillableCaseRecords } from './caseRecords'
 import type { StaffMember, Vehicle } from '../types/work'
 
 export type AnalyticsPeriod = {
@@ -156,6 +156,15 @@ export type TimeRangeAnalyticsItem = {
   salesYen: number
 }
 
+export type MeterComparisonAnalyticsSummary = {
+  actualSalesYen: number
+  comparableCaseCount: number
+  gpsComparisonSalesYen: number
+  gpsDifferenceYen: number
+  timeComparisonSalesYen: number
+  timeDifferenceYen: number
+}
+
 export type SalesAnalyticsSummary = {
   activeDayCount: number
   areaSummary: AreaAnalyticsItem[]
@@ -190,6 +199,7 @@ export type SalesAnalyticsSummary = {
   totalDistanceKm: number
   totalDrivingSeconds: number
   totalSalesYen: number
+  meterComparisonSummary: MeterComparisonAnalyticsSummary
   vehicleSummary: VehicleAnalyticsItem[]
   weekdaySummary: WeekdayAnalyticsItem[]
 }
@@ -247,7 +257,7 @@ const toTaxiTicketTotalYen = (caseRecord: StoredCaseRecord) => {
 const toPaymentTotalYen = (caseRecord: StoredCaseRecord) =>
   caseRecord.payments.length > 0
     ? caseRecord.payments.reduce((total, payment) => total + toFiniteNumber(payment.amount), 0)
-    : toFiniteNumber(caseRecord.totalFareYen)
+    : getActualFareYen(caseRecord)
 
 const toAverageYen = (salesYen: number, count: number) =>
   count > 0 ? Math.round(salesYen / count) : 0
@@ -450,7 +460,7 @@ function calculateVehicleSummary(
     current.businessDistanceKm += getBusinessDistanceKm(caseRecord)
     current.distanceKm += getBusinessDistanceKm(caseRecord)
     current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
-    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    current.salesYen += getActualFareYen(caseRecord)
     vehicleMap.set(vehicleId, current)
   })
 
@@ -523,7 +533,7 @@ function calculateStaffSummary(
     current.businessDistanceKm += getBusinessDistanceKm(caseRecord)
     current.distanceKm += getBusinessDistanceKm(caseRecord)
     current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
-    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    current.salesYen += getActualFareYen(caseRecord)
     staffMap.set(staffId, current)
   })
 
@@ -623,7 +633,7 @@ function calculateAreaAnalytics(caseRecords: StoredCaseRecord[]) {
   caseRecords.forEach((caseRecord) => {
     const pickupArea = extractAreaName(caseRecord.pickupAddress)
     const dropoffArea = extractAreaName(caseRecord.dropoffAddress)
-    const salesYen = toFiniteNumber(caseRecord.totalFareYen)
+    const salesYen = getActualFareYen(caseRecord)
     const distanceKm = getBusinessDistanceKm(caseRecord)
 
     addDirectionalArea(pickupMap, pickupArea, salesYen, distanceKm)
@@ -696,7 +706,7 @@ function calculateDistanceRangeSummary(caseRecords: StoredCaseRecord[]) {
       return distanceKm >= range.minKm && distanceKm < range.maxKm
     })
     const salesYen = rangeRecords.reduce(
-      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      (total, caseRecord) => total + getActualFareYen(caseRecord),
       0,
     )
     const distanceKm = rangeRecords.reduce(
@@ -720,11 +730,11 @@ function calculateSalesRangeSummary(caseRecords: StoredCaseRecord[]) {
 
   return salesRanges.map((range) => {
     const rangeRecords = caseRecords.filter((caseRecord) => {
-      const salesYen = toFiniteNumber(caseRecord.totalFareYen)
+      const salesYen = getActualFareYen(caseRecord)
       return salesYen >= range.minYen && salesYen < range.maxYen
     })
     const salesYen = rangeRecords.reduce(
-      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      (total, caseRecord) => total + getActualFareYen(caseRecord),
       0,
     )
     const distanceKm = rangeRecords.reduce(
@@ -787,7 +797,7 @@ function calculateWeekdaySummary(caseRecords: StoredCaseRecord[]) {
 
     current.count += 1
     current.drivingSeconds += toFiniteNumber(caseRecord.drivingSeconds)
-    current.salesYen += toFiniteNumber(caseRecord.totalFareYen)
+    current.salesYen += getActualFareYen(caseRecord)
   })
 
   return weekdayDisplayOrder.map((dayIndex) => {
@@ -811,7 +821,7 @@ function calculateTimeRangeSummary(caseRecords: StoredCaseRecord[]) {
       return hour >= range.minHour && hour < range.maxHour
     })
     const salesYen = rangeRecords.reduce(
-      (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+      (total, caseRecord) => total + getActualFareYen(caseRecord),
       0,
     )
 
@@ -860,6 +870,43 @@ export function formatAnalyticsDuration(totalSeconds: number) {
   const minutes = Math.floor((safeSeconds % 3600) / 60)
 
   return `${hours}時間${minutes}分`
+}
+
+export function calculateMeterComparisonSummary(
+  caseRecords: StoredCaseRecord[],
+): MeterComparisonAnalyticsSummary {
+  let actualSalesYen = 0
+  let gpsComparisonSalesYen = 0
+  let timeComparisonSalesYen = 0
+  let comparableCaseCount = 0
+
+  caseRecords.forEach((caseRecord) => {
+    actualSalesYen += getActualFareYen(caseRecord)
+
+    const hasGpsComparison = caseRecord.gpsComparisonFareYen != null
+    const hasTimeComparison = caseRecord.timeComparisonFareYen != null
+
+    if (hasGpsComparison || hasTimeComparison) {
+      comparableCaseCount += 1
+    }
+
+    if (hasGpsComparison) {
+      gpsComparisonSalesYen += toFiniteNumber(caseRecord.gpsComparisonFareYen)
+    }
+
+    if (hasTimeComparison) {
+      timeComparisonSalesYen += toFiniteNumber(caseRecord.timeComparisonFareYen)
+    }
+  })
+
+  return {
+    actualSalesYen,
+    comparableCaseCount,
+    gpsComparisonSalesYen,
+    gpsDifferenceYen: actualSalesYen - gpsComparisonSalesYen,
+    timeComparisonSalesYen,
+    timeDifferenceYen: actualSalesYen - timeComparisonSalesYen,
+  }
 }
 
 export function calculateSalesAnalyticsSummary(
@@ -923,12 +970,13 @@ export function calculateSalesAnalyticsSummary(
   const weekdaySummary = calculateWeekdaySummary(filteredRecords)
   const timeRangeSummary = calculateTimeRangeSummary(filteredRecords)
   const distanceSummary = calculateDistanceSummary(filteredRecords)
+  const meterComparisonSummary = calculateMeterComparisonSummary(filteredRecords)
   const totalSalesYen = filteredRecords.reduce(
-    (total, caseRecord) => total + toFiniteNumber(caseRecord.totalFareYen),
+    (total, caseRecord) => total + getActualFareYen(caseRecord),
     0,
   )
   const totalGrossSalesYen = filteredRecords.reduce(
-    (total, caseRecord) => total + (toFiniteNumber(caseRecord.grossFareYen) || toFiniteNumber(caseRecord.totalFareYen)),
+    (total, caseRecord) => total + (toFiniteNumber(caseRecord.grossFareYen) || getActualFareYen(caseRecord)),
     0,
   )
   const totalDiscountYen = filteredRecords.reduce(
@@ -957,7 +1005,7 @@ export function calculateSalesAnalyticsSummary(
   let totalDrivingSeconds = 0
 
   filteredRecords.forEach((caseRecord) => {
-    const salesYen = toFiniteNumber(caseRecord.totalFareYen)
+    const salesYen = getActualFareYen(caseRecord)
     const chargeableDistanceKm = getChargeableDistanceKm(caseRecord)
     const businessDistanceKm = getBusinessDistanceKm(caseRecord)
     const distanceKm = businessDistanceKm
@@ -1071,14 +1119,14 @@ export function calculateSalesAnalyticsSummary(
       drivingSeconds: toFiniteNumber(caseRecord.drivingSeconds),
       escortFareYen: toFiniteNumber(caseRecord.escortFareYen),
       expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
-      grossFareYen: toFiniteNumber(caseRecord.grossFareYen) || toFiniteNumber(caseRecord.totalFareYen),
+      grossFareYen: toFiniteNumber(caseRecord.grossFareYen) || getActualFareYen(caseRecord),
       disabilityDiscountAmount: toFiniteNumber(caseRecord.disabilityDiscountAmount),
       taxiTicketAmountYen: toTaxiTicketTotalYen(caseRecord),
       actualPaymentYen: toPaymentTotalYen(caseRecord),
       paymentMethod: toPaymentMethodLabel(caseRecord.paymentMethod),
       pickupAreaName: extractAreaName(caseRecord.pickupAddress),
       staffName: toStaffName(caseRecord),
-      totalFareYen: toFiniteNumber(caseRecord.totalFareYen),
+      totalFareYen: getActualFareYen(caseRecord),
       vehicleName: toVehicleName(caseRecord),
       waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
     })),
@@ -1136,8 +1184,8 @@ export function calculateSalesAnalyticsSummary(
     topCases: [...filteredRecords]
       .sort((firstRecord, secondRecord) => {
         const salesDifference =
-          toFiniteNumber(secondRecord.totalFareYen) -
-          toFiniteNumber(firstRecord.totalFareYen)
+          getActualFareYen(secondRecord) -
+          getActualFareYen(firstRecord)
         return (
           salesDifference ||
           secondRecord.closedAt.localeCompare(firstRecord.closedAt)
@@ -1158,7 +1206,7 @@ export function calculateSalesAnalyticsSummary(
         expenseFareYen: toFiniteNumber(caseRecord.expenseFareYen),
         id: caseRecord.id,
         pickupAreaName: extractAreaName(caseRecord.pickupAddress),
-        salesYen: toFiniteNumber(caseRecord.totalFareYen),
+        salesYen: getActualFareYen(caseRecord),
         waitingFareYen: toFiniteNumber(caseRecord.waitingFareYen),
       })),
     totalCount: filteredRecords.length,
@@ -1172,6 +1220,7 @@ export function calculateSalesAnalyticsSummary(
     totalDistanceKm,
     totalDrivingSeconds,
     totalSalesYen,
+    meterComparisonSummary,
     vehicleSummary,
     weekdaySummary,
   }

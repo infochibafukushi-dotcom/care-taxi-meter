@@ -9,6 +9,11 @@ import { canManageCaseRecord } from '../types/permissions'
 import {
   calculateTodayCaseSummary,
   formatCaseDateTime,
+  formatComparisonDifferenceYen,
+  getActualFareYen,
+  getActualMeterMode,
+  getCaseComparisonDisplay,
+  meterModeLabels,
 } from '../utils/caseRecords'
 import { logDiagnostic } from '../utils/diagnostics'
 
@@ -149,7 +154,11 @@ export function CaseListPage() {
         ) : null}
 
         <div className="case-record-list" aria-label="保存済み案件">
-          {visibleCaseRecords.map((caseRecord) => (
+          {visibleCaseRecords.map((caseRecord) => {
+            const actualMeterMode = getActualMeterMode(caseRecord)
+            const comparisonDisplay = getCaseComparisonDisplay(caseRecord)
+
+            return (
             <Link
               className="case-record-row case-record-row--with-addresses"
               key={caseRecord.id}
@@ -203,12 +212,27 @@ export function CaseListPage() {
                 <small>運賃/営業距離</small>
                 <strong>{caseRecord.chargeableDistanceKm.toFixed(3)} / {caseRecord.businessDistanceKm.toFixed(3)} km</strong>
               </span>
-              <span>
-                <small>合計金額</small>
-                <strong>{formatFareYen(caseRecord.totalFareYen)}円</strong>
+              <span className="case-record-meter-summary">
+                <small>使用メーター</small>
+                <strong>
+                  <span className={`meter-mode-badge meter-mode-badge--${actualMeterMode}`}>
+                    {meterModeLabels[actualMeterMode]}
+                  </span>
+                </strong>
+                <small>請求額</small>
+                <strong>{formatFareYen(getActualFareYen(caseRecord))}円</strong>
+                {comparisonDisplay ? (
+                  <>
+                    <small>{comparisonDisplay.comparisonLabel}</small>
+                    <strong>{formatFareYen(comparisonDisplay.comparisonFareYen)}円</strong>
+                    <small>差額</small>
+                    <strong>{formatComparisonDifferenceYen(comparisonDisplay.differenceYen)}</strong>
+                  </>
+                ) : null}
               </span>
             </Link>
-          ))}
+            )
+          })}
         </div>
 
         <p className="osm-attribution">

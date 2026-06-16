@@ -8,11 +8,7 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantScopeFromSession } from '../services/tenancy'
 import type { StaffMember, Vehicle } from '../types/work'
 import { formatFareYen } from '../services/fare'
-import {
-  calculateSalesAnalyticsSummary,
-  formatAnalyticsDuration,
-  getDefaultAnalyticsPeriod,
-} from '../utils/salesAnalytics'
+import { formatComparisonDifferenceYen } from '../utils/caseRecords'
 import { logDiagnostic } from '../utils/diagnostics'
 import type {
   AnalyticsBreakdownItem,
@@ -26,6 +22,11 @@ import type {
   TopCaseAnalyticsItem,
   VehicleAnalyticsItem,
   WeekdayAnalyticsItem,
+} from '../utils/salesAnalytics'
+import {
+  calculateSalesAnalyticsSummary,
+  formatAnalyticsDuration,
+  getDefaultAnalyticsPeriod,
 } from '../utils/salesAnalytics'
 
 const pieColors = [
@@ -836,6 +837,44 @@ export function SalesAnalyticsPage() {
             <strong>{analyticsSummary.totalBusinessDistanceKm.toFixed(3)}km</strong>
           </div>
         </section>
+
+        <details className="analytics-details analytics-meter-comparison">
+          <summary>メーター比較分析</summary>
+          {analyticsSummary.meterComparisonSummary.comparableCaseCount === 0 ? (
+            <p className="empty-note">比較データがある案件がありません。</p>
+          ) : (
+            <section className="analytics-kpi-grid analytics-kpi-grid--meter-comparison" aria-label="メーター比較分析">
+              <div>
+                <span>実売上</span>
+                <strong>{formatFareYen(analyticsSummary.meterComparisonSummary.actualSalesYen)}円</strong>
+              </div>
+              <div>
+                <span>GPSM換算売上</span>
+                <strong>{formatFareYen(analyticsSummary.meterComparisonSummary.gpsComparisonSalesYen)}円</strong>
+              </div>
+              <div>
+                <span>時間M換算売上</span>
+                <strong>{formatFareYen(analyticsSummary.meterComparisonSummary.timeComparisonSalesYen)}円</strong>
+              </div>
+              <div>
+                <span>GPSMとの差額</span>
+                <strong>{formatComparisonDifferenceYen(analyticsSummary.meterComparisonSummary.gpsDifferenceYen)}</strong>
+              </div>
+              <div>
+                <span>時間Mとの差額</span>
+                <strong>{formatComparisonDifferenceYen(analyticsSummary.meterComparisonSummary.timeDifferenceYen)}</strong>
+              </div>
+              <div>
+                <span>比較データあり件数</span>
+                <strong>{analyticsSummary.meterComparisonSummary.comparableCaseCount}件</strong>
+              </div>
+              <div>
+                <span>OBDM</span>
+                <strong>未対応</strong>
+              </div>
+            </section>
+          )}
+        </details>
 
         <h2 className="analytics-section-title">メイン分析</h2>
         <div className="analytics-grid analytics-grid--three">

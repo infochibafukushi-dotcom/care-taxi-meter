@@ -40,6 +40,7 @@ import {
   selectMeterModeSettings,
   subscribeMeterSettings,
 } from '../services/meterSettings'
+import { calculateMeterComparisonFares } from '../services/meterComparisonFare'
 import {
   calculateTimeMeterFareIncreaseProgress,
   formatTimeMeterFareIncreaseProgressLabel,
@@ -1830,6 +1831,20 @@ export function CasePage() {
       const closedAt = new Date().toISOString()
       const currentCaseNumberAssignment = caseNumberAssignmentRef.current
       const currentFareSnapshot = fareSnapshotRef.current
+      const comparisonFares = calculateMeterComparisonFares({
+        careOptions: selectedCareOptions,
+        dispatchCharges: selectedDispatchCharges,
+        distanceKm: gps.chargeableDistanceKm,
+        drivingSeconds: finalDrivingSeconds,
+        escortSeconds: escortFareSeconds,
+        expenses,
+        isDisabilityDiscount,
+        lowSpeedSeconds: gps.lowSpeedSeconds,
+        meterSettings: latestMeterSettingsRef.current,
+        specialVehicleCharges: selectedSpecialVehicleCharges,
+        taxiTickets,
+        waitingSeconds: adjustedWaitingSeconds,
+      })
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
         caseDate: currentCaseNumberAssignment?.caseDate,
@@ -1858,6 +1873,9 @@ export function CasePage() {
         selectedSpecialVehicleCharges,
         selectedExpenses: expenses,
         dropoffLocation: dropoffLocationRef.current,
+        gpsComparisonFareYen: comparisonFares.gpsComparisonFareYen,
+        timeComparisonFareYen: comparisonFares.timeComparisonFareYen,
+        obdComparisonFareYen: comparisonFares.obdComparisonFareYen,
       })
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
@@ -1962,6 +1980,11 @@ export function CasePage() {
         initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
         additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
         meterMode: fareBreakdown.meterMode,
+        actualMeterMode: fareBreakdown.meterMode,
+        actualFareYen: fareBreakdown.totalFareYen,
+        gpsComparisonFareYen: comparisonFares.gpsComparisonFareYen,
+        timeComparisonFareYen: comparisonFares.timeComparisonFareYen,
+        obdComparisonFareYen: comparisonFares.obdComparisonFareYen,
       }
 
       clearActiveTripSnapshot()

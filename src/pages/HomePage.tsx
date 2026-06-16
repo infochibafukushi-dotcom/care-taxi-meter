@@ -14,7 +14,7 @@ import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
 import type { AuthStaffSession } from '../services/authSession'
 import { formatElapsedTime } from '../utils/time'
-import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime } from '../utils/caseRecords'
+import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime, getActualFareYen } from '../utils/caseRecords'
 import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
 
 const defaultCompanyName = defaultCompany.name
@@ -146,7 +146,7 @@ const calculateSummary = ({
       caseRecord.closedAt < monthRange.endIso,
   )
   const todaySalesYen = todayRecords.reduce(
-    (total, caseRecord) => total + caseRecord.totalFareYen,
+    (total, caseRecord) => total + getActualFareYen(caseRecord),
     0,
   )
 
@@ -154,7 +154,7 @@ const calculateSummary = ({
     averageYen: calculateAverageYen(todaySalesYen, todayRecords.length),
     monthCount: monthRecords.length,
     monthSalesYen: monthRecords.reduce(
-      (total, caseRecord) => total + caseRecord.totalFareYen,
+      (total, caseRecord) => total + getActualFareYen(caseRecord),
       0,
     ),
     todayAccompanyingSeconds: todayRecords.reduce(
