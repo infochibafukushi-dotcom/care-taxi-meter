@@ -2140,39 +2140,26 @@ export function CasePage() {
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
-            <div className="r9-fare-screen">
-              <div className="r9-fare-screen__top">
-                <span>現在料金</span>
-                <em>支払前</em>
+            <section
+              aria-label="現在料金"
+              className="r9-fare-card"
+              onPointerCancel={handleMeterModeLongPressEnd}
+              onPointerDown={handleMeterModeLongPressStart}
+              onPointerLeave={handleMeterModeLongPressEnd}
+              onPointerUp={handleMeterModeLongPressEnd}
+            >
+              <div className="r9-fare-screen">
+                <h1>
+                  合計金額
+                  <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>
+                    {meterModeLabels[meterMode]}
+                  </span>
+                </h1>
+                <div className="r9-fare-amount">
+                  <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
+                  <span className="r9-fare-unit">円</span>
+                </div>
               </div>
-              <strong
-                onPointerCancel={handleMeterModeLongPressEnd}
-                onPointerDown={handleMeterModeLongPressStart}
-                onPointerLeave={handleMeterModeLongPressEnd}
-                onPointerUp={handleMeterModeLongPressEnd}
-              >
-                {formatFareYen(fareBreakdown.totalFareYen)}
-              </strong>
-              <span className="r9-fare-unit">円</span>
-            </div>
-
-            {meterMode === 'gps' || meterMode === 'obd' ? (
-            <div className="fare-increase-panel">
-              <div className="fare-increase-panel__label">
-                <span>運賃上昇予告</span>
-                <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
-              </div>
-              <div className="fare-increase-track">
-                <span style={{ width: `${fareIncreasePercent}%` }} />
-                <i />
-              </div>
-              <small>
-                次回加算まで 約{fareIncrease.remainingDistanceKm.toFixed(3)}km
-              </small>
-            </div>
-            ) : null}
-
-            <MeterFareBreakdownPanel breakdown={fareBreakdown} />
 
               {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
@@ -2269,6 +2256,8 @@ export function CasePage() {
                 ) : null}
               </div>
             </section>
+
+          </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
