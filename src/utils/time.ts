@@ -24,6 +24,10 @@ export function formatBreakMinutes(totalSeconds: number) {
   return `${Math.floor(Math.max(totalSeconds, 0) / 60)}分`
 }
 
+export function formatBoundTimeDetail(restSeconds: number, effectiveWorkSeconds: number) {
+  return `（休憩${formatBreakMinutes(restSeconds)}／実働${formatDurationHoursMinutesJapanese(effectiveWorkSeconds)}）`
+}
+
 export function formatTimerClock(totalSeconds: number, includesHours = false) {
   const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
   const hours = Math.floor(normalizedSeconds / 3600)
