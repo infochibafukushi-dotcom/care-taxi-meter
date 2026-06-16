@@ -1,7 +1,7 @@
 import type { GpsLogEntry, GpsPosition } from '../types/case'
 import { calculateDistanceMeters } from '../utils/distance'
 
-export type SpeedSource = 'gps' | 'fallback' | 'unavailable'
+export type SpeedSource = 'gps' | 'fallback' | 'obd' | 'unavailable'
 
 export type SpeedReading = {
   speedKmh: number | null

@@ -5,7 +5,7 @@ import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/cas
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
 import { SettlementPanel } from '../components/case/SettlementPanel'
-import { useCurrentPosition } from '../hooks/useCurrentPosition'
+import { useMeterTelemetry } from '../hooks/useMeterTelemetry'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import type { TimerSeconds } from '../hooks/useOperationTimers'
@@ -556,7 +556,34 @@ export function CasePage() {
     meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
     meterResetKey,
   )
-  const gps = useCurrentPosition(isGpsActive)
+  const initialObdTelemetryState = useMemo(
+    () =>
+      restoredTripSnapshot && readStoredMeterMode() === 'obd'
+        ? {
+            businessDistanceKm: restoredTripSnapshot.distances.businessDistanceKm,
+            chargeableDistanceKm: restoredTripSnapshot.distances.chargeableDistanceKm,
+            currentSpeedKmh: restoredTripSnapshot.gps.currentSpeedKmh,
+            lowSpeedSeconds: restoredTripSnapshot.gps.lowSpeedSeconds,
+            movementState: restoredTripSnapshot.gps.movementState,
+          }
+        : undefined,
+    [restoredTripSnapshot],
+  )
+  const gps = useMeterTelemetry({
+    initialObdState: initialObdTelemetryState,
+    isActive: isGpsActive,
+    lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
+    meterMode,
+    meterResetKey,
+  })
+  const obdRestoreConnectAttemptedRef = useRef(false)
+  const tryConnectObd = (interactive = true) => {
+    if (meterMode !== 'obd' || !isGpsActive) {
+      return
+    }
+
+    void gps.connectObd({ interactive })
+  }
   const workSession = useWorkSession()
   const syncedActiveTripKeyRef = useRef('')
   const currentScope = tenantScopeFromSession(workSession.currentSession)
@@ -859,6 +886,20 @@ export function CasePage() {
 
 
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])
+
+  const connectObd = gps.connectObd
+  useEffect(() => {
+    if (obdRestoreConnectAttemptedRef.current) {
+      return
+    }
+
+    if (!isGpsActive || meterMode !== 'obd' || status !== '走行中') {
+      return
+    }
+
+    obdRestoreConnectAttemptedRef.current = true
+    void connectObd({ interactive: false })
+  }, [connectObd, isGpsActive, meterMode, status])
 
   const reverseGeocodeCauseLabel = getReverseGeocodeCauseLabel({
     diagnostic: reverseGeocodeDiagnostic,
@@ -1377,6 +1418,8 @@ export function CasePage() {
         return
       }
 
+      tryConnectObd(true)
+
       setSettingsMessage('送迎開始時の料金設定スナップショットで計算中です。')
       setCaseSaveState('idle')
       setCaseSaveMessage('送迎を開始しました。精算・終了で保存します。')
@@ -1714,6 +1757,7 @@ export function CasePage() {
 
     if (nextStatus === '走行中') {
       setIsGpsActive(true)
+      tryConnectObd(true)
     }
 
     if (nextStatus === '待機中') {
@@ -2359,13 +2403,13 @@ export function CasePage() {
                 >
                   <summary>GPS診断</summary>
                   <GpsPanel
-                    errorMessage={gps.errorMessage}
-                    gpsLogCount={gps.gpsLogCount}
-                    isActive={gps.isActive}
-                    position={gps.position}
-                    status={gps.status}
-                    speedSource={gps.speedSource}
-                    totalDistanceKm={gps.chargeableDistanceKm}
+                    errorMessage={gps.gpsRaw.errorMessage}
+                    gpsLogCount={gps.gpsRaw.gpsLogCount}
+                    isActive={gps.gpsRaw.isActive}
+                    position={gps.gpsRaw.position}
+                    status={gps.gpsRaw.status}
+                    speedSource={gps.gpsRaw.speedSource}
+                    totalDistanceKm={gps.gpsRaw.chargeableDistanceKm}
                   />
                 </details>
 
