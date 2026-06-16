@@ -1,3 +1,7 @@
+import type { MeterMode } from '../types/case'
+import type { TimeMeterSettings } from './meterSettings'
+import { calculateTimeMeterFare } from './timeMeterFare'
+
 export type BasicFareSettings = {
   initialDistanceKm: number;
   initialFareYen: number;
@@ -40,6 +44,15 @@ export type FareLineItem = {
   amountYen: number;
 };
 
+export type TimeMeterFareBreakdown = {
+  actualTimeFare: number;
+  legalTimeFare: number;
+  timeDiscountAmount: number;
+  timeDiscountEnabled: boolean;
+  initialMinutes: number;
+  additionalSeconds: number;
+};
+
 export type FareBreakdown = {
   dispatchFareYen: number;
   specialVehicleFareYen: number;
@@ -60,6 +73,8 @@ export type FareBreakdown = {
   taxiTicketAmountYen: number;
   totalFareYen: number;
   lineItems: FareLineItem[];
+  meterMode: MeterMode;
+  timeMeter: TimeMeterFareBreakdown | null;
 };
 
 export const basicFareSettings: BasicFareSettings = {
@@ -196,6 +211,10 @@ export function calculateExpenseTotalYen(
   return expenses.reduce((total, expense) => total + expense.amountYen, 0);
 }
 
+export function formatFareYen(fareYen: number) {
+  return fareYen.toLocaleString("ja-JP");
+}
+
 export function calculateFareBreakdown({
   distanceKm,
   waitingSeconds,
@@ -208,6 +227,9 @@ export function calculateFareBreakdown({
   isDisabilityDiscount = false,
   taxiTickets = [],
   settings = {},
+  meterMode = 'gps',
+  drivingSeconds = 0,
+  timeMeterSettings,
 }: {
   distanceKm: number;
   waitingSeconds: number;
@@ -226,13 +248,10 @@ export function calculateFareBreakdown({
     waitingFare?: TimeFareSettings;
     discount?: DiscountSettings;
   };
+  meterMode?: MeterMode;
+  drivingSeconds?: number;
+  timeMeterSettings?: TimeMeterSettings;
 }): FareBreakdown {
-  const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
-  const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
-  const basicFareYen = calculateBasicFareYen(
-    distanceKm,
-    settings.basicFare ?? basicFareSettings,
-  );
   const waitingFareYen = calculateTimeFareYen(
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
@@ -247,31 +266,53 @@ export function calculateFareBreakdown({
   );
   const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
   const expenseFareYen = calculateExpenseTotalYen(expenses);
-  const discountableFareYen = basicFareYen + meterTimeFareYen;
-  const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
-  const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
-  const discountValue = Math.max(Number(discountSettings.value) || 0, 0);
-  const discountRate = discountSettings.method === "percentage" ? discountValue / 100 : 0;
-  const disabilityDiscountAmount = isDisabilityDiscount
-    ? Math.min(
-        discountSettings.method === "percentage"
-          ? roundDownToTenYen(discountableFareYen * discountRate)
-          : Math.round(discountValue),
-        discountableFareYen,
-      )
-    : 0;
-  const discountedMeterFareYen = Math.max(
-    discountableFareYen - disabilityDiscountAmount,
-    0,
+
+  if (meterMode === 'time' && timeMeterSettings) {
+    const timeMeterResult = calculateTimeMeterFare({
+      elapsedSeconds: drivingSeconds,
+      discountSettings: timeMeterSettings.discount,
+      legalSettings: timeMeterSettings.legal,
+    });
+    const basicFareYen = timeMeterResult.actualTimeFare;
+    const totalFareYen =
+      basicFareYen +
+      waitingFareYen +
+      escortFareYen +
+      careOptionFareYen +
+      expenseFareYen;
+
+    return {
+      basicFareYen,
+      waitingFareYen,
+      escortFareYen,
+      careOptionFareYen,
+      expenseFareYen,
+      totalFareYen,
+      lineItems: [
+        { label: '時間制運賃', amountYen: basicFareYen },
+        { label: '待機料金', amountYen: waitingFareYen },
+        { label: '院内付き添い料金', amountYen: escortFareYen },
+        { label: '介助料金', amountYen: careOptionFareYen },
+        { label: '実費', amountYen: expenseFareYen },
+      ],
+      meterMode: 'time',
+      timeMeter: {
+        actualTimeFare: timeMeterResult.actualTimeFare,
+        legalTimeFare: timeMeterResult.legalTimeFare,
+        timeDiscountAmount: timeMeterResult.timeDiscountAmount,
+        timeDiscountEnabled: timeMeterResult.timeDiscountEnabled,
+        initialMinutes: timeMeterResult.initialMinutes,
+        additionalSeconds: timeMeterResult.additionalSeconds,
+      },
+    };
+  }
+
+  const basicFareYen = calculateBasicFareYen(
+    distanceKm,
+    settings.basicFare ?? basicFareSettings,
   );
-  const taxiTicketRequestedYen = taxiTickets.reduce(
-    (total, ticket) => total + Math.max(Math.round(ticket.amount) || 0, 0),
-    0,
-  );
-  const taxiTicketAmountYen = Math.min(taxiTicketRequestedYen, discountedMeterFareYen);
-  const otherChargesYen =
-    dispatchFareYen +
-    specialVehicleFareYen +
+  const totalFareYen =
+    basicFareYen +
     waitingFareYen +
     escortFareYen +
     careOptionFareYen +
@@ -311,6 +352,8 @@ export function calculateFareBreakdown({
       { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
+    meterMode,
+    timeMeter: null,
   };
 }
 
@@ -348,33 +391,4 @@ export function calculateFareIncreaseProgress(
     remainingDistanceKm,
     nextIncreaseYen: settings.additionalFareYen,
   };
-}
-
-export function calculateTimeFareIncreaseProgress(
-  elapsedSeconds: number,
-  settings: TimeFareSettings,
-) {
-  if (elapsedSeconds <= 0) {
-    return {
-      progressRate: 0,
-      remainingSeconds: settings.unitSeconds,
-      nextIncreaseYen: settings.unitFareYen,
-    };
-  }
-
-  const secondsIntoCurrentUnit = elapsedSeconds % settings.unitSeconds;
-  const remainingSeconds =
-    secondsIntoCurrentUnit === 0
-      ? settings.unitSeconds
-      : settings.unitSeconds - secondsIntoCurrentUnit;
-
-  return {
-    progressRate: Math.min(secondsIntoCurrentUnit / settings.unitSeconds, 1),
-    remainingSeconds,
-    nextIncreaseYen: settings.unitFareYen,
-  };
-}
-
-export function formatFareYen(fareYen: number) {
-  return fareYen.toLocaleString("ja-JP");
 }

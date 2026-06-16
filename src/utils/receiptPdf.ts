@@ -3,7 +3,7 @@ import { defaultMeterSettings } from '../services/meterSettings'
 import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
-import { formatCaseDateTime } from './caseRecords'
+import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
 
 export type ReceiptIssueOptions = {
   customerName: string
@@ -108,7 +108,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '宛名', value: caseRecord.receiptName || '未入力' },
     { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
-    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
+    ...createPrimaryFareReceiptLines(caseRecord),
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,

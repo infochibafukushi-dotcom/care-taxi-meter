@@ -2,7 +2,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
-import { formatCaseDateTime } from './caseRecords'
+import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
 import type { ExpenseItem } from '../types/case'
 
 export type ThermalReceiptIssueOptions = {
@@ -66,7 +66,10 @@ function createThermalReceiptLines(
   expenseItems: ExpenseItem[],
 ): ThermalLine[] {
   const lines: ThermalLine[] = [
-    { label: '基本運賃（時間距離併用含む）', value: `${formatFareYen(caseRecord.basicFareYen + caseRecord.meterTimeFareYen)}円` },
+    ...createPrimaryFareReceiptLines(caseRecord).map((line) => ({
+      label: line.label,
+      value: line.value,
+    })),
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     { label: '介助料金', value: `${formatFareYen(caseRecord.careOptionFareYen)}円` },

@@ -202,7 +202,13 @@ export type CaseRecordDocument = {
   dispatchCharges: AssistCharge[]
   specialVehicleCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
-  createdAt?: FieldValue
+  timeDiscountEnabled: boolean
+  legalTimeFare: number
+  timeDiscountAmount: number
+  actualTimeFare: number
+  initialMinutes: number
+  additionalSeconds: number
+  meterMode: string
   savedAt: FieldValue
 }
 
@@ -389,155 +395,8 @@ const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
-const extractAreaFromAddress = (address: string) => {
-  const normalized = address.replace(/^日本、?/, '').trim()
-  const cityMatch = normalized.match(/(?:千葉市|船橋市|市川市|佐倉市|四街道市|習志野市|八千代市|浦安市|成田市|柏市|松戸市|市原市)(?:[^\s、,]*区)?/)
-  if (cityMatch) return cityMatch[0]
-  const wardMatch = normalized.match(/[^\s、,]+区/)
-  if (wardMatch) return wardMatch[0]
-  return ''
-}
-
 const toBoolean = (value: unknown, fallback = false) =>
   typeof value === 'boolean' ? value : fallback
-
-const toStringArray = (value: unknown, fallback: string[]) =>
-  Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : fallback
-
-const toBasicFareSnapshot = (value: unknown): BasicFareSettings | null => {
-  const source = toObject(value)
-  const initialDistanceKm = toNumber(source.initialDistanceKm)
-  const initialFareYen = toNumber(source.initialFareYen)
-  const additionalDistanceKm = toNumber(source.additionalDistanceKm)
-  const additionalFareYen = toNumber(source.additionalFareYen)
-
-  return initialDistanceKm > 0 || initialFareYen > 0 || additionalDistanceKm > 0 || additionalFareYen > 0
-    ? { additionalDistanceKm, additionalFareYen, initialDistanceKm, initialFareYen }
-    : null
-}
-
-const toTimeFareSnapshot = (value: unknown): TimeFareSettings | null => {
-  const source = toObject(value)
-  const unitSeconds = toNumber(source.unitSeconds)
-  const unitFareYen = toNumber(source.unitFareYen)
-
-  return unitSeconds > 0 || unitFareYen > 0 ? { unitFareYen, unitSeconds } : null
-}
-
-const toMeterTimeFareSnapshot = (value: unknown): MeterTimeFareSettings | null => {
-  const source = toObject(value)
-  const baseTimeFare = toTimeFareSnapshot(source)
-
-  return baseTimeFare
-    ? {
-        ...baseTimeFare,
-        lowSpeedThresholdKmh: toNumber(source.lowSpeedThresholdKmh),
-      }
-    : null
-}
-
-const toSnapshotMenuItems = (value: unknown): CareOptionMasterItem[] =>
-  Array.isArray(value)
-    ? value
-        .map((item) => {
-          const source = toObject(item)
-          const id = toString(source.id)
-          const name = toString(source.name)
-
-          return id && name
-            ? {
-                amount: toNumber(source.amount),
-                enabled: toBoolean(source.enabled, true),
-                id,
-                name,
-                sortOrder: toNumber(source.sortOrder),
-              }
-            : null
-        })
-        .filter((item): item is CareOptionMasterItem => Boolean(item))
-    : []
-
-const toSnapshotExpensePresets = (value: unknown): FareSnapshot['expensePresets'] =>
-  Array.isArray(value)
-    ? value
-        .map((item) => {
-          const source = toObject(item)
-          const id = toString(source.id)
-          const name = toString(source.name)
-          const defaultAmountYen = toNumber(source.defaultAmountYen ?? source.amount)
-
-          return id && name
-            ? {
-                amount: toNumber(source.amount ?? defaultAmountYen),
-                defaultAmountYen,
-                enabled: toBoolean(source.enabled, true),
-                id,
-                name,
-                sortOrder: toNumber(source.sortOrder),
-              }
-            : null
-        })
-        .filter((item): item is FareSnapshot['expensePresets'][number] => Boolean(item))
-    : []
-
-const toFareSnapshot = (value: unknown): FareSnapshot | null => {
-  const source = toObject(value)
-  const basicFare = toBasicFareSnapshot(source.basicFare)
-  const meterTimeFare = toMeterTimeFareSnapshot(source.meterTimeFare)
-  const waitingFare = toTimeFareSnapshot(source.waitingFare)
-  const escortFare = toTimeFareSnapshot(source.escortFare)
-
-  if (!basicFare || !meterTimeFare || !waitingFare || !escortFare) {
-    return null
-  }
-
-  const midnightEarlyMorning = toObject(source.midnightEarlyMorning)
-  const timeSpecificFare = toObject(source.timeSpecificFare)
-  const disabilityDiscount = toObject(source.disabilityDiscount)
-  const taxiVoucher = toObject(source.taxiVoucher)
-
-  return {
-    assistItems: toSnapshotMenuItems(source.assistItems),
-    basicFare,
-    capturedAt: toString(source.capturedAt),
-    disabilityDiscount: {
-      appliesTo: toStringArray(disabilityDiscount.appliesTo, ['basicFare', 'meterTimeFare']),
-      discountRate: toNumber(disabilityDiscount.discountRate),
-      enabled: toBoolean(disabilityDiscount.enabled),
-      rounding: 'floorToTenYen',
-    },
-    dispatchMenuItems: toSnapshotMenuItems(source.dispatchMenuItems),
-    escortFare,
-    expensePresets: toSnapshotExpensePresets(source.expensePresets),
-    meterTimeFare,
-    midnightEarlyMorning: {
-      appliesTo: toStringArray(midnightEarlyMorning.appliesTo, ['basicFare', 'meterTimeFare']),
-      enabled: toBoolean(midnightEarlyMorning.enabled),
-      endTime: toString(midnightEarlyMorning.endTime),
-      startTime: toString(midnightEarlyMorning.startTime),
-      surchargeRate: toNumber(midnightEarlyMorning.surchargeRate),
-    },
-    specialVehicleMenuItems: toSnapshotMenuItems(source.specialVehicleMenuItems),
-    taxiVoucher: {
-      multipleAllowed: toBoolean(taxiVoucher.multipleAllowed, true),
-      storesMunicipalityName: toBoolean(taxiVoucher.storesMunicipalityName, true),
-      storesVoucherNumber: toBoolean(taxiVoucher.storesVoucherNumber, true),
-    },
-    timeSpecificFare: {
-      enabled: toBoolean(timeSpecificFare.enabled),
-      fixedFareYen: toNumber(timeSpecificFare.fixedFareYen),
-      timeBands: [],
-    },
-    waitingFare,
-  }
-}
-
-const toJapanDateInputValue = (dateValue: string) => {
-  const date = new Date(dateValue)
-  return Number.isNaN(date.getTime()) ? '' : dateInputFormatter.format(date)
-}
 
 const toStoredCaseRecord = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -626,6 +485,13 @@ const toStoredCaseRecord = (
     dispatchCharges: toAssistCharges(data.dispatchCharges),
     specialVehicleCharges: toAssistCharges(data.specialVehicleCharges),
     expenseCharges: toExpenseCharges(data.expenseCharges),
+    timeDiscountEnabled: toBoolean(data.timeDiscountEnabled),
+    legalTimeFare: toNumber(data.legalTimeFare),
+    timeDiscountAmount: toNumber(data.timeDiscountAmount),
+    actualTimeFare: toNumber(data.actualTimeFare),
+    initialMinutes: toNumber(data.initialMinutes),
+    additionalSeconds: toNumber(data.additionalSeconds),
+    meterMode: toString(data.meterMode) || 'gps',
   }
 }
 
@@ -831,7 +697,13 @@ export async function saveCaseRecord({
       name: expense.name,
       amount: expense.amountYen,
     })),
-    createdAt: serverTimestamp(),
+    timeDiscountEnabled: fareBreakdown.timeMeter?.timeDiscountEnabled ?? false,
+    legalTimeFare: fareBreakdown.timeMeter?.legalTimeFare ?? 0,
+    timeDiscountAmount: fareBreakdown.timeMeter?.timeDiscountAmount ?? 0,
+    actualTimeFare: fareBreakdown.timeMeter?.actualTimeFare ?? 0,
+    initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
+    additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
+    meterMode: fareBreakdown.meterMode,
     savedAt: serverTimestamp(),
   }
 

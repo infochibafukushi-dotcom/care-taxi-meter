@@ -1,4 +1,48 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
+import { formatFareYen } from '../services/fare'
+
+export type ReceiptFareLine = {
+  label: string
+  value: string
+}
+
+export function createPrimaryFareReceiptLines(
+  caseRecord: StoredCaseRecord,
+): ReceiptFareLine[] {
+  if (caseRecord.meterMode === 'time') {
+    if (caseRecord.timeDiscountEnabled) {
+      return [
+        {
+          label: '時間制運賃',
+          value: `${formatFareYen(caseRecord.legalTimeFare)}円`,
+        },
+        {
+          label: '時間割引',
+          value: `-${formatFareYen(caseRecord.timeDiscountAmount)}円`,
+        },
+      ]
+    }
+
+    const timeFareYen =
+      caseRecord.actualTimeFare > 0
+        ? caseRecord.actualTimeFare
+        : caseRecord.basicFareYen
+
+    return [
+      {
+        label: '時間制運賃',
+        value: `${formatFareYen(timeFareYen)}円`,
+      },
+    ]
+  }
+
+  return [
+    {
+      label: '基本運賃',
+      value: `${formatFareYen(caseRecord.basicFareYen)}円`,
+    },
+  ]
+}
 
 export const isCanceledCaseRecord = (caseRecord: StoredCaseRecord) =>
   caseRecord.status === 'canceled'

@@ -65,8 +65,7 @@ import type {
 } from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
-  ActivityHistoryEntry,
-  ActivityHistoryType,
+  MeterMode,
   OperationStatus,
   PaymentAllocation,
   PaymentMethod,
@@ -107,30 +106,8 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
-const meterModeStorageKey = 'careTaxiMeterMode'
-const meterModeLabels: Record<MeterMode, string> = { gps: 'GPSM', time: '時間M', obd: 'OBDM' }
-const meterModeOrder: MeterMode[] = ['gps', 'time', 'obd']
-const readStoredMeterMode = (): MeterMode => {
-  const storedMode = window.localStorage.getItem(meterModeStorageKey)
-  return storedMode === 'time' || storedMode === 'obd' ? storedMode : 'gps'
-}
-
-const isDevelopmentMode = import.meta.env.DEV
-const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
-const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
-  QR決済: 0,
-  その他: 0,
-  クレジット: 0,
-  現金: 0,
-  請求書: 0,
-})
-const emptyTimerSeconds: TimerSeconds = {
-  accompanying: 0,
-  driving: 0,
-  waiting: 0,
-}
-
-const emptyActivityHistories: ActivityHistoryEntry[] = []
+const meterModeCycle: MeterMode[] = ['gps', 'time', 'obd']
+const meterModeLongPressMs = 600
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
   空車: 'vacant',
@@ -556,18 +533,8 @@ export function CasePage() {
     restoredTripSnapshot?.fareSnapshot?.expensePresets ?? defaultMeterSettings.expensePresets,
   )
   const [currentMeterSettings, setCurrentMeterSettings] =
-    useState<MeterSettings>({
-      ...defaultMeterSettings,
-      assistItems: restoredTripSnapshot?.fareSnapshot?.assistItems ?? defaultMeterSettings.assistItems,
-      basicFare: restoredTripSnapshot?.fareSnapshot?.basicFare ?? defaultMeterSettings.basicFare,
-      dispatchMenuItems: restoredTripSnapshot?.fareSnapshot?.dispatchMenuItems ?? defaultMeterSettings.dispatchMenuItems,
-      escortFare: restoredTripSnapshot?.fareSnapshot?.escortFare ?? defaultMeterSettings.escortFare,
-      expensePresets: restoredTripSnapshot?.fareSnapshot?.expensePresets ?? defaultMeterSettings.expensePresets,
-      meterTimeFare: restoredTripSnapshot?.fareSnapshot?.meterTimeFare ?? defaultMeterSettings.meterTimeFare,
-      specialVehicleMenuItems: restoredTripSnapshot?.fareSnapshot?.specialVehicleMenuItems ?? defaultMeterSettings.specialVehicleMenuItems,
-      waitingFare: restoredTripSnapshot?.fareSnapshot?.waitingFare ?? defaultMeterSettings.waitingFare,
-      discount: defaultMeterSettings.discount,
-    })
+    useState<MeterSettings>(defaultMeterSettings)
+  const [meterMode, setMeterMode] = useState<MeterMode>('gps')
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
@@ -600,33 +567,9 @@ export function CasePage() {
   const dropoffCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
     null,
   )
-  const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
-    useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
-  const elapsedTimers = useOperationTimers(activeTimer, meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds), meterResetKey)
-  const gps = useCurrentPosition(
-    isGpsActive,
-    currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
-    status === '走行中',
-    status !== '精算前' && status !== '案件終了',
-    restoredTripSnapshot && meterResetKey === 0
-      ? {
-          businessDistanceKm: restoredTripSnapshot.distances.businessDistanceKm,
-          chargeableDistanceKm: restoredTripSnapshot.distances.chargeableDistanceKm,
-          currentSpeedKmh: restoredTripSnapshot.gps.currentSpeedKmh,
-          lowSpeedSeconds: restoredTripSnapshot.gps.lowSpeedSeconds,
-          movementState: restoredTripSnapshot.gps.movementState,
-          position: restoredTripSnapshot.gps.position,
-          lastLog: shouldBridgeRestoredGpsDistance && restoredTripSnapshot.gps.position
-            ? createGpsLogEntryFromPosition(restoredTripSnapshot.gps.position)
-            : null,
-          forceInitialSegmentDistance: shouldBridgeRestoredGpsDistance,
-          speedSource: restoredTripSnapshot.gps.speedSource === 'gps' || restoredTripSnapshot.gps.speedSource === 'fallback'
-            ? restoredTripSnapshot.gps.speedSource
-            : 'unavailable',
-        }
-      : undefined,
-    meterResetKey,
-  )
+  const meterModeLongPressTimerRef = useRef<number | null>(null)
+  const elapsedTimers = useOperationTimers(activeTimer)
+  const gps = useCurrentPosition(isGpsActive)
   const workSession = useWorkSession()
   const syncedActiveTripKeyRef = useRef('')
   const currentScope = tenantScopeFromSession(workSession.currentSession)
@@ -955,6 +898,9 @@ export function CasePage() {
       waitingFare: currentWaitingFareSettings,
       discount: settlementDiscount,
     },
+    meterMode,
+    drivingSeconds: elapsedTimers.seconds.driving,
+    timeMeterSettings: currentMeterSettings.time,
   })
 
   const paymentTotalYen = paymentMethods.reduce(
@@ -1047,26 +993,25 @@ export function CasePage() {
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
-  const distanceFareUnitKm =
-    gps.chargeableDistanceKm < currentBasicFareSettings.initialDistanceKm
-      ? currentBasicFareSettings.initialDistanceKm
-      : currentBasicFareSettings.additionalDistanceKm
-  const distanceFareElapsedMeters = Math.max(
-    0,
-    Math.round((distanceFareUnitKm - fareIncrease.remainingDistanceKm) * 1000),
-  )
-  const distanceFareUnitMeters = Math.round(distanceFareUnitKm * 1000)
-  const timeFareIncrease = calculateTimeFareIncreaseProgress(
-    gps.lowSpeedSeconds,
-    currentMeterSettings.meterTimeFare,
-  )
-  const timeFareIncreasePercent = Math.round(timeFareIncrease.progressRate * 100)
-  const timeFareElapsedSeconds = Math.max(
-    0,
-    Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
-  )
-  const currentSpeedValueLabel =
-    gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
+
+  const handleMeterModeLongPressStart = () => {
+    meterModeLongPressTimerRef.current = window.setTimeout(() => {
+      setMeterMode((currentMode) => {
+        const currentIndex = meterModeCycle.indexOf(currentMode)
+        const nextIndex =
+          currentIndex >= 0 ? (currentIndex + 1) % meterModeCycle.length : 0
+
+        return meterModeCycle[nextIndex]
+      })
+    }, meterModeLongPressMs)
+  }
+
+  const handleMeterModeLongPressEnd = () => {
+    if (meterModeLongPressTimerRef.current !== null) {
+      window.clearTimeout(meterModeLongPressTimerRef.current)
+      meterModeLongPressTimerRef.current = null
+    }
+  }
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -1953,6 +1898,13 @@ export function CasePage() {
           name: expense.name,
           amount: expense.amountYen,
         })),
+        timeDiscountEnabled: fareBreakdown.timeMeter?.timeDiscountEnabled ?? false,
+        legalTimeFare: fareBreakdown.timeMeter?.legalTimeFare ?? 0,
+        timeDiscountAmount: fareBreakdown.timeMeter?.timeDiscountAmount ?? 0,
+        actualTimeFare: fareBreakdown.timeMeter?.actualTimeFare ?? 0,
+        initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
+        additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
+        meterMode: fareBreakdown.meterMode,
       }
 
       clearActiveTripSnapshot()
@@ -2170,14 +2122,39 @@ export function CasePage() {
 
         <div className="r9-meter-console">
           <section className="r9-left-panel" aria-label="料金メーター">
-            <section className="r9-fare-card" aria-label="現在料金" onPointerDown={startMeterModeHold} onPointerLeave={cancelMeterModeHold} onPointerUp={cancelMeterModeHold}>
-              <div className="r9-fare-screen">
-                <h1>合計金額 <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>{meterModeLabels[meterMode]}</span></h1>
-                <div className="r9-fare-amount">
-                  <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
-                  <span className="r9-fare-unit">円</span>
-                </div>
+            <div className="r9-fare-screen">
+              <div className="r9-fare-screen__top">
+                <span>現在料金</span>
+                <em>支払前</em>
               </div>
+              <strong
+                onPointerCancel={handleMeterModeLongPressEnd}
+                onPointerDown={handleMeterModeLongPressStart}
+                onPointerLeave={handleMeterModeLongPressEnd}
+                onPointerUp={handleMeterModeLongPressEnd}
+              >
+                {formatFareYen(fareBreakdown.totalFareYen)}
+              </strong>
+              <span className="r9-fare-unit">円</span>
+            </div>
+
+            {meterMode === 'gps' || meterMode === 'obd' ? (
+            <div className="fare-increase-panel">
+              <div className="fare-increase-panel__label">
+                <span>運賃上昇予告</span>
+                <strong>次回 +{formatFareYen(fareIncrease.nextIncreaseYen)}円</strong>
+              </div>
+              <div className="fare-increase-track">
+                <span style={{ width: `${fareIncreasePercent}%` }} />
+                <i />
+              </div>
+              <small>
+                次回加算まで 約{fareIncrease.remainingDistanceKm.toFixed(3)}km
+              </small>
+            </div>
+            ) : null}
+
+            <FareBreakdownPanel breakdown={fareBreakdown} />
 
               {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
