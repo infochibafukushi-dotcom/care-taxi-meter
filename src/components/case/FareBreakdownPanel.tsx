@@ -8,7 +8,7 @@ type FareBreakdownPanelProps = {
   paymentMethod?: PaymentMethod
 }
 
-export function FareBreakdownPanel({ breakdown }: FareBreakdownPanelProps) {
+export function FareBreakdownPanel({ breakdown, hideTotal, paymentMethod }: FareBreakdownPanelProps) {
   const meterLineItems =
     breakdown.meterMode === 'time'
       ? breakdown.lineItems.filter((item) => item.label === '時間制運賃')

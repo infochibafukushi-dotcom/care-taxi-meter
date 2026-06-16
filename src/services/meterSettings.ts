@@ -67,11 +67,37 @@ export type TimeMeterSettings = {
   discount: TimeMeterDiscountSettings
 }
 
+export type MeterMode = 'gps' | 'time' | 'obd'
+
+export type TimeMeterModeSettings = {
+  additionalFare: TimeFareSettings
+  baseFareYen: number
+  baseMinutes: number
+}
+
+export type MeterModeFareSettings = {
+  basicFare: BasicFareSettings
+  waitingFare: TimeFareSettings
+  escortFare: TimeFareSettings
+  meterTimeFare: MeterTimeFareSettings
+  assistItems: CareOptionMasterItem[]
+  dispatchMenuItems: DispatchMenuItem[]
+  specialVehicleMenuItems: SpecialVehicleMenuItem[]
+  discount: DiscountSettings
+}
+
+export type MeterSettingsByMode = {
+  gps: MeterModeFareSettings
+  time: TimeMeterModeSettings & Pick<MeterModeFareSettings, 'waitingFare' | 'escortFare' | 'assistItems' | 'dispatchMenuItems' | 'specialVehicleMenuItems' | 'discount'>
+  obd: MeterModeFareSettings
+}
+
 export type MeterSettings = {
   meterSettings: MeterSettingsByMode
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
+  meterTimeFare: MeterTimeFareSettings
   time: TimeMeterSettings
   assistItems: CareOptionMasterItem[]
   dispatchMenuItems: DispatchMenuItem[]
@@ -112,6 +138,18 @@ export const defaultTimeMeterSettings: TimeMeterSettings = {
   discount: defaultTimeMeterDiscountSettings,
 }
 
+const defaultTimeMeterModeSettings: MeterSettingsByMode['time'] = {
+  additionalFare: { unitFareYen: 2000, unitSeconds: fixedTimeFareUnitSeconds },
+  assistItems: careOptionMaster,
+  baseFareYen: 4000,
+  baseMinutes: 30,
+  discount: DEFAULT_DISCOUNT_SETTINGS,
+  dispatchMenuItems: dispatchMenuMaster,
+  escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+  specialVehicleMenuItems: specialVehicleMenuMaster,
+  waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+}
+
 export const defaultMeterSettings: MeterSettings = {
   meterSettings: {
     gps: {
@@ -124,7 +162,7 @@ export const defaultMeterSettings: MeterSettings = {
       specialVehicleMenuItems: specialVehicleMenuMaster,
       waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
     },
-    time: defaultTimeMeterSettings,
+    time: defaultTimeMeterModeSettings,
     obd: {
       assistItems: careOptionMaster,
       basicFare: basicFareSettings,
@@ -139,6 +177,7 @@ export const defaultMeterSettings: MeterSettings = {
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+  meterTimeFare: meterTimeFareSettings,
   time: defaultTimeMeterSettings,
   assistItems: careOptionMaster,
   dispatchMenuItems: dispatchMenuMaster,
@@ -585,7 +624,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     meterTimeFare: gps.meterTimeFare,
     receipt: sanitizeReceipt(source.receipt),
     time: sanitizeTimeMeter(source.time),
-    waitingFare: sanitizeTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
+    waitingFare: sanitizeFixedTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
   }
 }
 

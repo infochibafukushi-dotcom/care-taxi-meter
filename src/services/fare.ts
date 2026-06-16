@@ -211,6 +211,31 @@ export function calculateExpenseTotalYen(
   return expenses.reduce((total, expense) => total + expense.amountYen, 0);
 }
 
+export function calculateTimeFareIncreaseProgress(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+) {
+  if (elapsedSeconds <= 0) {
+    return {
+      progressRate: 0,
+      remainingSeconds: settings.unitSeconds,
+      nextIncreaseYen: settings.unitFareYen,
+    };
+  }
+
+  const secondsIntoCurrentUnit = elapsedSeconds % settings.unitSeconds;
+  const remainingSeconds =
+    secondsIntoCurrentUnit === 0
+      ? settings.unitSeconds
+      : settings.unitSeconds - secondsIntoCurrentUnit;
+
+  return {
+    progressRate: Math.min(secondsIntoCurrentUnit / settings.unitSeconds, 1),
+    remainingSeconds,
+    nextIncreaseYen: settings.unitFareYen,
+  };
+}
+
 export function formatFareYen(fareYen: number) {
   return fareYen.toLocaleString("ja-JP");
 }
@@ -252,6 +277,8 @@ export function calculateFareBreakdown({
   drivingSeconds?: number;
   timeMeterSettings?: TimeMeterSettings;
 }): FareBreakdown {
+  const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
+  const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
   const waitingFareYen = calculateTimeFareYen(
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
@@ -266,6 +293,10 @@ export function calculateFareBreakdown({
   );
   const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
   const expenseFareYen = calculateExpenseTotalYen(expenses);
+  const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
+  const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
+  const discountValue = Math.max(Number(discountSettings.value) || 0, 0);
+  const discountRate = discountSettings.method === "percentage" ? discountValue / 100 : 0;
 
   if (meterMode === 'time' && timeMeterSettings) {
     const timeMeterResult = calculateTimeMeterFare({
@@ -274,19 +305,55 @@ export function calculateFareBreakdown({
       legalSettings: timeMeterSettings.legal,
     });
     const basicFareYen = timeMeterResult.actualTimeFare;
-    const totalFareYen =
-      basicFareYen +
+    const discountableFareYen = basicFareYen;
+    const disabilityDiscountAmount = isDisabilityDiscount
+      ? Math.min(
+          discountSettings.method === "percentage"
+            ? roundDownToTenYen(discountableFareYen * discountRate)
+            : Math.round(discountValue),
+          discountableFareYen,
+        )
+      : 0;
+    const discountedMeterFareYen = Math.max(
+      discountableFareYen - disabilityDiscountAmount,
+      0,
+    );
+    const taxiTicketRequestedYen = taxiTickets.reduce(
+      (total, ticket) => total + Math.max(Math.round(ticket.amount) || 0, 0),
+      0,
+    );
+    const taxiTicketAmountYen = Math.min(taxiTicketRequestedYen, discountedMeterFareYen);
+    const otherChargesYen =
+      dispatchFareYen +
+      specialVehicleFareYen +
       waitingFareYen +
       escortFareYen +
       careOptionFareYen +
       expenseFareYen;
+    const grossFareYen = discountableFareYen + otherChargesYen;
+    const totalFareYen = Math.max(
+      discountedMeterFareYen - taxiTicketAmountYen + otherChargesYen,
+      0,
+    );
 
     return {
+      dispatchFareYen,
+      specialVehicleFareYen,
       basicFareYen,
       waitingFareYen,
+      meterTimeFareYen: 0,
       escortFareYen,
       careOptionFareYen,
       expenseFareYen,
+      grossFareYen,
+      discountableFareYen,
+      isDisabilityDiscount,
+      disabilityDiscountRate: discountRate,
+      disabilityDiscountAmount,
+      discountName,
+      discountMethod: discountSettings.method,
+      discountValue,
+      taxiTicketAmountYen,
       totalFareYen,
       lineItems: [
         { label: '時間制運賃', amountYen: basicFareYen },
@@ -311,8 +378,27 @@ export function calculateFareBreakdown({
     distanceKm,
     settings.basicFare ?? basicFareSettings,
   );
-  const totalFareYen =
-    basicFareYen +
+  const discountableFareYen = basicFareYen + meterTimeFareYen;
+  const disabilityDiscountAmount = isDisabilityDiscount
+    ? Math.min(
+        discountSettings.method === "percentage"
+          ? roundDownToTenYen(discountableFareYen * discountRate)
+          : Math.round(discountValue),
+        discountableFareYen,
+      )
+    : 0;
+  const discountedMeterFareYen = Math.max(
+    discountableFareYen - disabilityDiscountAmount,
+    0,
+  );
+  const taxiTicketRequestedYen = taxiTickets.reduce(
+    (total, ticket) => total + Math.max(Math.round(ticket.amount) || 0, 0),
+    0,
+  );
+  const taxiTicketAmountYen = Math.min(taxiTicketRequestedYen, discountedMeterFareYen);
+  const otherChargesYen =
+    dispatchFareYen +
+    specialVehicleFareYen +
     waitingFareYen +
     escortFareYen +
     careOptionFareYen +

@@ -1,16 +1,27 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { StaffManagementPanel } from '../components/admin/StaffManagementPanel'
-import { StoreManagementPanel } from '../components/admin/StoreManagementPanel'
-import { TimeMeterDiscountSettingsPanel } from '../components/admin/TimeMeterDiscountSettingsPanel'
-import { VehicleManagementPanel } from '../components/admin/VehicleManagementPanel'
-import { fetchCaseRecords } from '../services/caseRecords'
-import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
-import { defaultStore, ensureDefaultStore, fetchStores } from '../services/stores'
-import { fetchVehicles, saveVehicle } from '../services/vehicles'
-import type { StoredCaseRecord } from '../services/caseRecords'
-import { formatFareYen } from '../services/fare'
-import type { BasicFareSettings, CareOptionMasterItem } from '../services/fare'
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
+import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
+import { TimeMeterDiscountSettingsPanel } from "../components/admin/TimeMeterDiscountSettingsPanel";
+import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
+import { fetchCaseRecords } from "../services/caseRecords";
+import { fetchStaffMembers, saveStaffMember } from "../services/staffMembers";
+import {
+  defaultCompanyId,
+  ensureDefaultStore,
+  fetchStores,
+} from "../services/stores";
+import { fetchVehicles, saveVehicle } from "../services/vehicles";
+import { fetchClosedWorkSessionsInClockOutRange, fetchWorkingWorkSessionCount } from "../services/workSessions";
+import type { StoredCaseRecord } from "../services/caseRecords";
+import { formatFareYen } from "../services/fare";
+import type {
+  BasicFareSettings,
+  CareOptionMasterItem,
+  DispatchMenuItem,
+  MeterTimeFareSettings,
+  SpecialVehicleMenuItem,
+} from "../services/fare";
 import {
   defaultMeterSettings,
   fetchMeterSettings,
@@ -753,25 +764,6 @@ export function AdminPage() {
       ...currentSettings,
       discount: { ...currentSettings.discount, ...updates },
     }));
-  };
-
-  const updateTimeMeterFare = (key: "baseMinutes" | "baseFareYen" | "additionalMinutes" | "additionalFareYen", value: string) => {
-    setSettings((currentSettings) => {
-      const timeSettings = currentSettings.meterSettings.time;
-      return {
-        ...currentSettings,
-        meterSettings: {
-          ...currentSettings.meterSettings,
-          time: {
-            ...timeSettings,
-            ...(key === "baseMinutes" ? { baseMinutes: Math.max(Math.floor(Number(value) || 1), 1) } : {}),
-            ...(key === "baseFareYen" ? { baseFareYen: toPositiveNumber(value) } : {}),
-            ...(key === "additionalMinutes" ? { additionalFare: { ...timeSettings.additionalFare, unitSeconds: Math.max(Math.floor(Number(value) || 1), 1) * 60 } } : {}),
-            ...(key === "additionalFareYen" ? { additionalFare: { ...timeSettings.additionalFare, unitFareYen: toPositiveNumber(value) } } : {}),
-          },
-        },
-      };
-    });
   };
 
   const updateObdMeterTimeFare = (key: keyof MeterTimeFareSettings, value: string) => {
@@ -1937,16 +1929,143 @@ export function AdminPage() {
                   実費を追加
                 </button>
               </fieldset>
+                </div>
+              </details>
 
-              <TimeMeterDiscountSettingsPanel
-                timeSettings={settings.time}
-                onChange={(time) =>
-                  setSettings((currentSettings) => ({
-                    ...currentSettings,
-                    time,
-                  }))
-                }
-              />
+              <details className="fare-settings-accordion">
+                <summary>時間制メーター料金設定</summary>
+                <div className="admin-settings-grid">
+                  <TimeMeterDiscountSettingsPanel
+                    timeSettings={settings.time}
+                    onChange={(time) =>
+                      setSettings((currentSettings) => ({
+                        ...currentSettings,
+                        time,
+                        meterSettings: {
+                          ...currentSettings.meterSettings,
+                          time: {
+                            ...currentSettings.meterSettings.time,
+                            baseMinutes: time.legal.baseMinutes,
+                            baseFareYen: time.legal.baseFareYen,
+                            additionalFare: {
+                              ...currentSettings.meterSettings.time.additionalFare,
+                              unitSeconds: time.legal.additionalMinutes * 60,
+                              unitFareYen: time.legal.additionalFareYen,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                  />
+                </div>
+              </details>
+
+              <details className="fare-settings-accordion">
+                <summary>OBDメーター料金設定</summary>
+                <div className="admin-settings-grid">
+                  <fieldset className="admin-settings-wide">
+                    <legend>GPS料金コピー</legend>
+                    <button type="button" onClick={copyGpsFareToObd}>
+                      GPS料金をコピー
+                    </button>
+                  </fieldset>
+                  <fieldset>
+                    <legend>OBD基本運賃設定</legend>
+                    <label>
+                      初乗距離(km)
+                      <input
+                        min="0"
+                        step="0.001"
+                        type="number"
+                        value={settings.meterSettings.obd.basicFare.initialDistanceKm}
+                        onChange={(event) =>
+                          updateObdBasicFare('initialDistanceKm', event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      初乗運賃(円)
+                      <input
+                        min="0"
+                        type="number"
+                        value={settings.meterSettings.obd.basicFare.initialFareYen}
+                        onChange={(event) =>
+                          updateObdBasicFare('initialFareYen', event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                  <fieldset>
+                    <legend>OBD距離加算設定</legend>
+                    <label>
+                      距離加算距離（m）
+                      <input
+                        min="1"
+                        step="1"
+                        type="number"
+                        value={Math.round(
+                          settings.meterSettings.obd.basicFare.additionalDistanceKm * 1000,
+                        )}
+                        onChange={(event) =>
+                          updateObdBasicFare(
+                            'additionalDistanceKm',
+                            String(toPositiveNumber(event.target.value, 1) / 1000),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      距離加算金額（円）
+                      <input
+                        min="0"
+                        type="number"
+                        value={settings.meterSettings.obd.basicFare.additionalFareYen}
+                        onChange={(event) =>
+                          updateObdBasicFare('additionalFareYen', event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                  <fieldset>
+                    <legend>OBD時間加算設定</legend>
+                    <label>
+                      低速判定速度（km/h）
+                      <input
+                        min="0"
+                        step="0.1"
+                        type="number"
+                        value={settings.meterSettings.obd.meterTimeFare.lowSpeedThresholdKmh}
+                        onChange={(event) =>
+                          updateObdMeterTimeFare('lowSpeedThresholdKmh', event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      時間加算秒数（秒）
+                      <input
+                        min="1"
+                        step="1"
+                        type="number"
+                        value={settings.meterSettings.obd.meterTimeFare.unitSeconds}
+                        onChange={(event) =>
+                          updateObdMeterTimeFare('unitSeconds', event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      時間加算金額（円）
+                      <input
+                        min="0"
+                        type="number"
+                        value={settings.meterSettings.obd.meterTimeFare.unitFareYen}
+                        onChange={(event) =>
+                          updateObdMeterTimeFare('unitFareYen', event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                </div>
+              </details>
             </div>
           ) : null}
 
