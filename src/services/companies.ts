@@ -11,7 +11,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import type { Company, MeterPermissions, NotificationSettings, SubscriptionPlan } from '../types/work'
+import type { Company, MeterPermissions, NotificationSettings } from '../types/work'
 import { defaultFranchiseeId } from './tenancy'
 import {
   isSubscriptionPlan,
