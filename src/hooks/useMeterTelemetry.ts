@@ -1,14 +1,17 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { useCurrentPosition } from './useCurrentPosition'
 import {
   useObdMeterTelemetry,
   type InitialObdMeterState,
+  type ObdConnectOptions,
+  type ObdIndicatorState,
 } from './useObdMeterTelemetry'
 import type { MeterMode } from '../types/case'
 
 type UseMeterTelemetryOptions = {
   initialObdState?: InitialObdMeterState
   isActive: boolean
+  isTripStarted: boolean
   lowSpeedThresholdKmh: number
   meterMode: MeterMode
   meterResetKey?: number
@@ -17,6 +20,7 @@ type UseMeterTelemetryOptions = {
 export function useMeterTelemetry({
   initialObdState,
   isActive,
+  isTripStarted,
   lowSpeedThresholdKmh,
   meterMode,
   meterResetKey = 0,
@@ -34,17 +38,12 @@ export function useMeterTelemetry({
 
   const obd = useObdMeterTelemetry({
     initialState: initialObdState,
-    isActive: isActive && isObdMode,
+    isEnabled: isObdMode,
+    isTripActive: isActive && isObdMode,
     lowSpeedThresholdKmh,
     resetKey: meterResetKey,
   })
   const disconnectObdTelemetry = obd.disconnect
-
-  useEffect(() => {
-    if (!isActive || !isObdMode) {
-      void disconnectObdTelemetry()
-    }
-  }, [disconnectObdTelemetry, isActive, isObdMode])
 
   useEffect(() => {
     if (meterMode !== 'obd') {
@@ -52,33 +51,36 @@ export function useMeterTelemetry({
     }
   }, [disconnectObdTelemetry, meterMode])
 
-  const isUsingObdTelemetry = isObdMode && obd.isConnected
+  const isUsingObdTelemetry = isObdMode && obd.isStableForTelemetry
 
-  const merged = useMemo(() => {
-    if (!isUsingObdTelemetry) {
-      return gpsRaw
-    }
+  const merged = isUsingObdTelemetry
+    ? {
+        ...gpsRaw,
+        businessDistanceKm: obd.businessDistanceKm,
+        chargeableDistanceKm: obd.chargeableDistanceKm,
+        currentSpeedKmh: obd.currentSpeedKmh,
+        lowSpeedSeconds: obd.lowSpeedSeconds,
+        movementState: obd.movementState,
+        speedSource: obd.speedSource,
+        totalDistanceKm: obd.businessDistanceKm,
+      }
+    : gpsRaw
 
-    return {
-      ...gpsRaw,
-      businessDistanceKm: obd.businessDistanceKm,
-      chargeableDistanceKm: obd.chargeableDistanceKm,
-      currentSpeedKmh: obd.currentSpeedKmh,
-      lowSpeedSeconds: obd.lowSpeedSeconds,
-      movementState: obd.movementState,
-      speedSource: obd.speedSource,
-      totalDistanceKm: obd.businessDistanceKm,
-    }
-  }, [gpsRaw, isUsingObdTelemetry, obd])
+  const connectObd = (options?: ObdConnectOptions) => obd.connect(options)
+
+  const obdIndicator: ObdIndicatorState = isObdMode && isTripStarted && obd.indicator.visible
+    ? obd.indicator
+    : { label: '', variant: 'disconnected', visible: false }
 
   return {
     ...merged,
-    connectObd: obd.connect,
+    connectObd,
     disconnectObd: obd.disconnect,
     gpsRaw,
-    isObdConnected: obd.isConnected,
+    isObdConnected: obd.isStableForTelemetry,
     isUsingObdTelemetry,
-    obdConnectionStatus: obd.connectionStatus,
+    obdConnectionPhase: obd.connectionPhase,
     obdErrorMessage: obd.errorMessage,
+    obdIndicator,
   }
 }

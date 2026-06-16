@@ -4,6 +4,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
+import { ObdConnectionIndicator } from '../components/case/ObdConnectionIndicator'
+import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionRequiredDialog'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { useMeterTelemetry } from '../hooks/useMeterTelemetry'
 import { isFirebaseConfigured } from '../lib/firebase'
@@ -465,6 +467,7 @@ export function CasePage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [meterMode, setMeterMode] = useState<MeterMode>(readStoredMeterMode)
   const [meterModeToast, setMeterModeToast] = useState('')
+  const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
       ? '未終了の運行データを復元しました。'
@@ -556,6 +559,7 @@ export function CasePage() {
     meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
     meterResetKey,
   )
+  const isTripStarted = status !== '空車'
   const initialObdTelemetryState = useMemo(
     () =>
       restoredTripSnapshot && readStoredMeterMode() === 'obd'
@@ -572,17 +576,17 @@ export function CasePage() {
   const gps = useMeterTelemetry({
     initialObdState: initialObdTelemetryState,
     isActive: isGpsActive,
+    isTripStarted,
     lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     meterMode,
     meterResetKey,
   })
+  const connectObd = gps.connectObd
   const obdRestoreConnectAttemptedRef = useRef(false)
-  const tryConnectObd = (interactive = true) => {
-    if (meterMode !== 'obd' || !isGpsActive) {
-      return
-    }
-
-    void gps.connectObd({ interactive })
+  const applyMeterMode = (nextMode: MeterMode) => {
+    setMeterMode(nextMode)
+    setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
+    setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
   }
   const workSession = useWorkSession()
   const syncedActiveTripKeyRef = useRef('')
@@ -608,7 +612,6 @@ export function CasePage() {
     ? Math.max(adjustedAccompanyingSeconds, 1)
     : 0
 
-  const isTripStarted = status !== '空車'
   const isCaseClosed = status === '案件終了'
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
   const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
@@ -887,7 +890,6 @@ export function CasePage() {
 
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])
 
-  const connectObd = gps.connectObd
   useEffect(() => {
     if (obdRestoreConnectAttemptedRef.current) {
       return
@@ -898,7 +900,7 @@ export function CasePage() {
     }
 
     obdRestoreConnectAttemptedRef.current = true
-    void connectObd({ interactive: false })
+    void connectObd({ interactive: false, isReconnect: true })
   }, [connectObd, isGpsActive, meterMode, status])
 
   const reverseGeocodeCauseLabel = getReverseGeocodeCauseLabel({
@@ -1064,9 +1066,7 @@ export function CasePage() {
       const currentIndex = meterModeOrder.indexOf(meterMode)
       const nextMode = meterModeOrder[(currentIndex + 1) % meterModeOrder.length]
       if (!window.confirm(`${meterModeLabels[nextMode]}へ切り替えますか？`)) return
-      setMeterMode(nextMode)
-      setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
-      setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
+      applyMeterMode(nextMode)
     }, meterModeLongPressMs)
   }
 
@@ -1378,6 +1378,26 @@ export function CasePage() {
     return allowedTransitions[currentStatus].includes(nextStatus)
   }
 
+  const handleObdReconnect = async () => {
+    const connected = await connectObd({
+      interactive: true,
+      isInitialTripConnect: true,
+    })
+    if (connected) {
+      setIsObdConnectionDialogOpen(false)
+    }
+  }
+
+  const handleObdSwitchToGps = () => {
+    applyMeterMode('gps')
+    setIsObdConnectionDialogOpen(false)
+  }
+
+  const handleObdSwitchToTime = () => {
+    applyMeterMode('time')
+    setIsObdConnectionDialogOpen(false)
+  }
+
   const handleDrivingStart = async () => {
     if (!canStartTrip || !workSession.currentSession || operationStartedAtRef.current) {
       setCaseSaveState('error')
@@ -1392,6 +1412,17 @@ export function CasePage() {
     }
 
     try {
+      if (meterMode === 'obd') {
+        const connected = await connectObd({
+          interactive: true,
+          isInitialTripConnect: true,
+        })
+        if (!connected) {
+          setIsObdConnectionDialogOpen(true)
+          return
+        }
+      }
+
       const assignment = await generateCaseNumber({
         franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
         storeId: workSession.currentSession.storeId,
@@ -1417,8 +1448,6 @@ export function CasePage() {
       if (!handleStatusChange('走行中')) {
         return
       }
-
-      tryConnectObd(true)
 
       setSettingsMessage('送迎開始時の料金設定スナップショットで計算中です。')
       setCaseSaveState('idle')
@@ -1757,7 +1786,12 @@ export function CasePage() {
 
     if (nextStatus === '走行中') {
       setIsGpsActive(true)
-      tryConnectObd(true)
+      if (
+        meterMode === 'obd' &&
+        (status === '待機中' || status === '院内付き添い中' || status === '精算前' || status === '精算修正')
+      ) {
+        void connectObd({ interactive: false, isReconnect: true })
+      }
     }
 
     if (nextStatus === '待機中') {
@@ -2207,8 +2241,13 @@ export function CasePage() {
               <div className="r9-fare-screen">
                 <h1>
                   合計金額
-                  <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>
-                    {meterModeLabels[meterMode]}
+                  <span className="meter-mode-badge-row">
+                    <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>
+                      {meterModeLabels[meterMode]}
+                    </span>
+                    {meterMode === 'obd' ? (
+                      <ObdConnectionIndicator indicator={gps.obdIndicator} />
+                    ) : null}
                   </span>
                 </h1>
                 <div className="r9-fare-amount">
@@ -3156,6 +3195,16 @@ export function CasePage() {
           onConfirm={handleKeypadConfirm}
         />
       ) : null}
+
+      <ObdConnectionRequiredDialog
+        isOpen={isObdConnectionDialogOpen}
+        onCancel={() => setIsObdConnectionDialogOpen(false)}
+        onReconnect={() => {
+          void handleObdReconnect()
+        }}
+        onSwitchToGps={handleObdSwitchToGps}
+        onSwitchToTime={handleObdSwitchToTime}
+      />
     </main>
   )
 }
