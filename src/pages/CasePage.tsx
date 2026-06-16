@@ -47,7 +47,7 @@ import type {
   SpecialVehicleMenuItem,
   TimeFareSettings,
 } from '../services/fare'
-import type { ExpensePreset, MeterMode, MeterSettings } from '../services/meterSettings'
+import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
@@ -64,12 +64,13 @@ import type {
   ReverseGeocodeDiagnosticState,
 } from '../utils/reverseGeocode'
 import type {
+  ActivityHistoryEntry,
+  ActivityHistoryType,
   ExpenseItem,
   MeterMode,
   OperationStatus,
   PaymentAllocation,
   PaymentMethod,
-  GpsLogEntry,
   GpsPosition,
   SelectedCareOption,
   TaxiTicket,
@@ -106,7 +107,28 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
-const meterModeCycle: MeterMode[] = ['gps', 'time', 'obd']
+const meterModeStorageKey = 'careTaxiMeterMode'
+const meterModeLabels: Record<MeterMode, string> = { gps: 'GPSM', time: '時間M', obd: 'OBDM' }
+const meterModeOrder: MeterMode[] = ['gps', 'time', 'obd']
+const readStoredMeterMode = (): MeterMode => {
+  const storedMode = window.localStorage.getItem(meterModeStorageKey)
+  return storedMode === 'time' || storedMode === 'obd' ? storedMode : 'gps'
+}
+const isDevelopmentMode = import.meta.env.DEV
+const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
+const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
+  QR決済: 0,
+  その他: 0,
+  クレジット: 0,
+  現金: 0,
+  請求書: 0,
+})
+const emptyTimerSeconds: TimerSeconds = {
+  accompanying: 0,
+  driving: 0,
+  waiting: 0,
+}
+const emptyActivityHistories: ActivityHistoryEntry[] = []
 const meterModeLongPressMs = 600
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
@@ -147,14 +169,6 @@ type RestoredTripState = {
   shouldBridgeGpsDistance: boolean
   snapshot: ActiveTripSnapshot | null
 }
-
-const createGpsLogEntryFromPosition = (position: GpsPosition): GpsLogEntry => ({
-  accuracy: position.accuracy,
-  capturedAt: position.updatedAt,
-  latitude: position.latitude,
-  longitude: position.longitude,
-  speed: position.speed,
-})
 
 const resolveActiveTripRestoration = (snapshot: ActiveTripSnapshot | null): RestoredTripState => {
   if (!snapshot) {
@@ -444,7 +458,6 @@ export function CasePage() {
   const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
   const [restoredTripState] = useState(() => resolveActiveTripRestoration(readActiveTripSnapshot()))
   const restoredTripSnapshot = restoredTripState.snapshot
-  const shouldBridgeRestoredGpsDistance = restoredTripState.shouldBridgeGpsDistance
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
   const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
   const fareSnapshotRef = useRef<FareSnapshot | null>(restoredTripSnapshot?.fareSnapshot ?? null)
@@ -534,7 +547,6 @@ export function CasePage() {
   )
   const [currentMeterSettings, setCurrentMeterSettings] =
     useState<MeterSettings>(defaultMeterSettings)
-  const [meterMode, setMeterMode] = useState<MeterMode>('gps')
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
@@ -546,7 +558,6 @@ export function CasePage() {
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const latestMeterSettingsRef = useRef<MeterSettings>(defaultMeterSettings)
-  const meterModeHoldTimerRef = useRef<number | null>(null)
   const settlementHoldTimerRef = useRef<number | null>(null)
   const resumeHoldTimerRef = useRef<number | null>(null)
   const [pickupLocation, setPickupLocation] = useState<CapturedAddressLocation>(
@@ -568,7 +579,13 @@ export function CasePage() {
     null,
   )
   const meterModeLongPressTimerRef = useRef<number | null>(null)
-  const elapsedTimers = useOperationTimers(activeTimer)
+  const [reverseGeocodeDiagnostic, setReverseGeocodeDiagnostic] =
+    useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
+  const elapsedTimers = useOperationTimers(
+    activeTimer,
+    meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
+    meterResetKey,
+  )
   const gps = useCurrentPosition(isGpsActive)
   const workSession = useWorkSession()
   const syncedActiveTripKeyRef = useRef('')
@@ -993,16 +1010,35 @@ export function CasePage() {
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
+  const distanceFareUnitKm =
+    gps.chargeableDistanceKm <= currentBasicFareSettings.initialDistanceKm
+      ? currentBasicFareSettings.initialDistanceKm
+      : currentBasicFareSettings.additionalDistanceKm
+  const distanceFareElapsedMeters = Math.max(
+    0,
+    Math.round((distanceFareUnitKm - fareIncrease.remainingDistanceKm) * 1000),
+  )
+  const distanceFareUnitMeters = Math.round(distanceFareUnitKm * 1000)
+  const timeFareIncrease = calculateTimeFareIncreaseProgress(
+    gps.lowSpeedSeconds,
+    currentMeterSettings.meterTimeFare,
+  )
+  const timeFareIncreasePercent = Math.round(timeFareIncrease.progressRate * 100)
+  const timeFareElapsedSeconds = Math.max(
+    0,
+    Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
+  )
+  const currentSpeedValueLabel =
+    gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
 
   const handleMeterModeLongPressStart = () => {
     meterModeLongPressTimerRef.current = window.setTimeout(() => {
-      setMeterMode((currentMode) => {
-        const currentIndex = meterModeCycle.indexOf(currentMode)
-        const nextIndex =
-          currentIndex >= 0 ? (currentIndex + 1) % meterModeCycle.length : 0
-
-        return meterModeCycle[nextIndex]
-      })
+      const currentIndex = meterModeOrder.indexOf(meterMode)
+      const nextMode = meterModeOrder[(currentIndex + 1) % meterModeOrder.length]
+      if (!window.confirm(`${meterModeLabels[nextMode]}へ切り替えますか？`)) return
+      setMeterMode(nextMode)
+      setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
+      setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
     }, meterModeLongPressMs)
   }
 
@@ -2075,24 +2111,6 @@ export function CasePage() {
     return () => window.clearTimeout(timerId)
   }, [meterModeToast])
 
-  const handleMeterModeSwitchRequest = () => {
-    const currentIndex = meterModeOrder.indexOf(meterMode)
-    const nextMode = meterModeOrder[(currentIndex + 1) % meterModeOrder.length]
-    if (!window.confirm(`${meterModeLabels[nextMode]}へ切り替えますか？`)) return
-    setMeterMode(nextMode)
-    setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
-    setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
-  }
-
-  const startMeterModeHold = () => {
-    meterModeHoldTimerRef.current = window.setTimeout(handleMeterModeSwitchRequest, 2000)
-  }
-  const cancelMeterModeHold = () => {
-    if (meterModeHoldTimerRef.current === null) return
-    window.clearTimeout(meterModeHoldTimerRef.current)
-    meterModeHoldTimerRef.current = null
-  }
-
   const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
   const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
   const waitingClockLabel = formatTimerClock(adjustedWaitingSeconds, true)
@@ -2154,7 +2172,7 @@ export function CasePage() {
             </div>
             ) : null}
 
-            <FareBreakdownPanel breakdown={fareBreakdown} />
+            <MeterFareBreakdownPanel breakdown={fareBreakdown} />
 
               {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
@@ -2251,8 +2269,6 @@ export function CasePage() {
                 ) : null}
               </div>
             </section>
-
-          </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel

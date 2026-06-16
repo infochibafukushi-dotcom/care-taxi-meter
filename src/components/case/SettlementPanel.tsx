@@ -47,6 +47,12 @@ export function SettlementPanel({
   onRemoveTaxiTicket,
   onSettlePaymentRemainder,
 }: SettlementPanelProps) {
+  const paymentTotalYen = paymentMethods.reduce(
+    (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
+    0,
+  )
+  const paymentDifferenceYen = breakdown.totalFareYen - paymentTotalYen
+
   const showTimeDiscount =
     breakdown.meterMode === 'time' &&
     breakdown.timeMeter?.timeDiscountEnabled === true
