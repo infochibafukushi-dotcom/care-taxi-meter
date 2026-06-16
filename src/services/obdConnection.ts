@@ -30,6 +30,9 @@ const createLogEntry = (type: ObdLogType, message: string): ObdLogEntry => ({
   type,
 })
 
+const isObdDeviceName = (name: string | undefined) =>
+  Boolean(name && (name.startsWith('OBD') || name.startsWith('VEEPEAK')))
+
 export class ObdConnection {
   private device: BluetoothDevice | null = null
   private notifyCharacteristic: BluetoothRemoteGATTCharacteristic | null = null
@@ -37,6 +40,7 @@ export class ObdConnection {
   private responseBuffer = ''
   private pendingCommands: PendingCommand[] = []
   private activeCommand: PendingCommand | null = null
+  private onDisconnected: (() => void) | null = null
   private onLog: ObdLogHandler = () => undefined
   private handleNotify = (event: Event) => {
     const target = event.target as BluetoothRemoteGATTCharacteristic | null
@@ -75,10 +79,15 @@ export class ObdConnection {
     this.writeCharacteristic = null
     this.device = null
     this.responseBuffer = ''
+    this.onDisconnected?.()
   }
 
   setLogHandler(handler: ObdLogHandler) {
     this.onLog = handler
+  }
+
+  setDisconnectedHandler(handler: (() => void) | null) {
+    this.onDisconnected = handler
   }
 
   get connectedDeviceName() {
@@ -87,6 +96,23 @@ export class ObdConnection {
 
   isConnected() {
     return Boolean(this.device?.gatt?.connected)
+  }
+
+  async connectPermittedDevice(): Promise<boolean> {
+    if (!navigator.bluetooth?.getDevices) {
+      return false
+    }
+
+    const permittedDevices = await navigator.bluetooth.getDevices()
+    const device = permittedDevices.find((candidate) => isObdDeviceName(candidate.name))
+
+    if (!device) {
+      return false
+    }
+
+    this.onLog(createLogEntry('info', '許可済み OBD デバイスへ再接続します'))
+    await this.attachToDevice(device)
+    return true
   }
 
   async connect(): Promise<void> {
@@ -105,6 +131,10 @@ export class ObdConnection {
       optionalServices: [OBD_SERVICE],
     })
 
+    await this.attachToDevice(device)
+  }
+
+  private async attachToDevice(device: BluetoothDevice) {
     device.addEventListener('gattserverdisconnected', this.handleDisconnect)
 
     this.onLog(createLogEntry('info', `${device.name ?? 'OBDデバイス'} を選択しました`))

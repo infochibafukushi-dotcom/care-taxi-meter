@@ -64,6 +64,7 @@ interface BluetoothLEScanFilter {
 }
 
 interface Bluetooth extends EventTarget {
+  getDevices(): Promise<BluetoothDevice[]>
   requestDevice(options?: RequestDeviceOptions): Promise<BluetoothDevice>
 }
 
