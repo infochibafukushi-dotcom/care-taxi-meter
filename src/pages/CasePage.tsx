@@ -45,6 +45,7 @@ import {
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import type {
   ExpenseItem,
+  MeterMode,
   OperationStatus,
   PaymentMethod,
   SelectedCareOption,
@@ -71,6 +72,8 @@ type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
+const meterModeCycle: MeterMode[] = ['gps', 'time', 'obd']
+const meterModeLongPressMs = 600
 
 const statusToneMap: Record<OperationStatus, StatusTone> = {
   空車: 'vacant',
@@ -165,6 +168,7 @@ export function CasePage() {
   )
   const [currentMeterSettings, setCurrentMeterSettings] =
     useState<MeterSettings>(defaultMeterSettings)
+  const [meterMode, setMeterMode] = useState<MeterMode>('gps')
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
@@ -196,6 +200,7 @@ export function CasePage() {
   const dropoffCapturePromiseRef = useRef<Promise<CapturedAddressLocation> | null>(
     null,
   )
+  const meterModeLongPressTimerRef = useRef<number | null>(null)
   const elapsedTimers = useOperationTimers(activeTimer)
   const gps = useCurrentPosition(isGpsActive)
   const workSession = useWorkSession()
@@ -306,6 +311,9 @@ export function CasePage() {
       escortFare: currentEscortFareSettings,
       waitingFare: currentWaitingFareSettings,
     },
+    meterMode,
+    drivingSeconds: elapsedTimers.seconds.driving,
+    timeMeterSettings: currentMeterSettings.time,
   })
 
   const fareIncrease = calculateFareIncreaseProgress(
@@ -313,6 +321,25 @@ export function CasePage() {
     currentBasicFareSettings,
   )
   const fareIncreasePercent = Math.round(fareIncrease.progressRate * 100)
+
+  const handleMeterModeLongPressStart = () => {
+    meterModeLongPressTimerRef.current = window.setTimeout(() => {
+      setMeterMode((currentMode) => {
+        const currentIndex = meterModeCycle.indexOf(currentMode)
+        const nextIndex =
+          currentIndex >= 0 ? (currentIndex + 1) % meterModeCycle.length : 0
+
+        return meterModeCycle[nextIndex]
+      })
+    }, meterModeLongPressMs)
+  }
+
+  const handleMeterModeLongPressEnd = () => {
+    if (meterModeLongPressTimerRef.current !== null) {
+      window.clearTimeout(meterModeLongPressTimerRef.current)
+      meterModeLongPressTimerRef.current = null
+    }
+  }
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
@@ -640,6 +667,13 @@ export function CasePage() {
           name: expense.name,
           amount: expense.amountYen,
         })),
+        timeDiscountEnabled: fareBreakdown.timeMeter?.timeDiscountEnabled ?? false,
+        legalTimeFare: fareBreakdown.timeMeter?.legalTimeFare ?? 0,
+        timeDiscountAmount: fareBreakdown.timeMeter?.timeDiscountAmount ?? 0,
+        actualTimeFare: fareBreakdown.timeMeter?.actualTimeFare ?? 0,
+        initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
+        additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
+        meterMode: fareBreakdown.meterMode,
       }
 
       setSavedCaseRecord(savedRecord)
@@ -817,10 +851,18 @@ export function CasePage() {
                 <span>現在料金</span>
                 <em>支払前</em>
               </div>
-              <strong>{formatFareYen(fareBreakdown.totalFareYen)}</strong>
+              <strong
+                onPointerCancel={handleMeterModeLongPressEnd}
+                onPointerDown={handleMeterModeLongPressStart}
+                onPointerLeave={handleMeterModeLongPressEnd}
+                onPointerUp={handleMeterModeLongPressEnd}
+              >
+                {formatFareYen(fareBreakdown.totalFareYen)}
+              </strong>
               <span className="r9-fare-unit">円</span>
             </div>
 
+            {meterMode === 'gps' || meterMode === 'obd' ? (
             <div className="fare-increase-panel">
               <div className="fare-increase-panel__label">
                 <span>運賃上昇予告</span>
@@ -834,6 +876,7 @@ export function CasePage() {
                 次回加算まで 約{fareIncrease.remainingDistanceKm.toFixed(3)}km
               </small>
             </div>
+            ) : null}
 
             <FareBreakdownPanel breakdown={fareBreakdown} />
 

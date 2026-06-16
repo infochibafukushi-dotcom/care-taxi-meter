@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StaffManagementPanel } from '../components/admin/StaffManagementPanel'
 import { StoreManagementPanel } from '../components/admin/StoreManagementPanel'
+import { TimeMeterDiscountSettingsPanel } from '../components/admin/TimeMeterDiscountSettingsPanel'
 import { VehicleManagementPanel } from '../components/admin/VehicleManagementPanel'
 import { fetchCaseRecords } from '../services/caseRecords'
 import { fetchStaffMembers, saveStaffMember } from '../services/staffMembers'
@@ -888,6 +889,16 @@ export function AdminPage() {
                   実費を追加
                 </button>
               </fieldset>
+
+              <TimeMeterDiscountSettingsPanel
+                timeSettings={settings.time}
+                onChange={(time) =>
+                  setSettings((currentSettings) => ({
+                    ...currentSettings,
+                    time,
+                  }))
+                }
+              />
             </div>
           ) : null}
 

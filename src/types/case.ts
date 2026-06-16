@@ -1,3 +1,5 @@
+export type MeterMode = 'gps' | 'time' | 'obd'
+
 export type OperationStatus =
   | '空車'
   | '待機中'

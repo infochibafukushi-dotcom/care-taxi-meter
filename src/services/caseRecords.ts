@@ -70,6 +70,13 @@ export type CaseRecordDocument = {
   dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
+  timeDiscountEnabled: boolean
+  legalTimeFare: number
+  timeDiscountAmount: number
+  actualTimeFare: number
+  initialMinutes: number
+  additionalSeconds: number
+  meterMode: string
   savedAt: FieldValue
 }
 
@@ -135,6 +142,9 @@ const toExpenseCharges = (value: unknown): ExpenseCharge[] =>
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
 
+const toBoolean = (value: unknown, fallback = false) =>
+  typeof value === 'boolean' ? value : fallback
+
 const toStoredCaseRecord = (
   snapshot: QueryDocumentSnapshot<DocumentData>,
 ): StoredCaseRecord => {
@@ -177,6 +187,13 @@ const toStoredCaseRecord = (
     dropoffCapturedAt: toString(data.dropoffCapturedAt) || null,
     assistCharges: toAssistCharges(data.assistCharges),
     expenseCharges: toExpenseCharges(data.expenseCharges),
+    timeDiscountEnabled: toBoolean(data.timeDiscountEnabled),
+    legalTimeFare: toNumber(data.legalTimeFare),
+    timeDiscountAmount: toNumber(data.timeDiscountAmount),
+    actualTimeFare: toNumber(data.actualTimeFare),
+    initialMinutes: toNumber(data.initialMinutes),
+    additionalSeconds: toNumber(data.additionalSeconds),
+    meterMode: toString(data.meterMode) || 'gps',
   }
 }
 
@@ -245,6 +262,13 @@ export async function saveCaseRecord({
       name: expense.name,
       amount: expense.amountYen,
     })),
+    timeDiscountEnabled: fareBreakdown.timeMeter?.timeDiscountEnabled ?? false,
+    legalTimeFare: fareBreakdown.timeMeter?.legalTimeFare ?? 0,
+    timeDiscountAmount: fareBreakdown.timeMeter?.timeDiscountAmount ?? 0,
+    actualTimeFare: fareBreakdown.timeMeter?.actualTimeFare ?? 0,
+    initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
+    additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
+    meterMode: fareBreakdown.meterMode,
     savedAt: serverTimestamp(),
   }
 

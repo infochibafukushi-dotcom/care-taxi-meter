@@ -35,10 +35,29 @@ export type ReceiptSettings = {
   defaultReceiptNote: string
 }
 
+export type TimeMeterLegalSettings = {
+  baseFareYen: number
+  baseMinutes: number
+  additionalMinutes: number
+  additionalFareYen: number
+}
+
+export type TimeMeterDiscountSettings = {
+  enabled: boolean
+  initialMinutes: number
+  additionalSeconds: number
+}
+
+export type TimeMeterSettings = {
+  legal: TimeMeterLegalSettings
+  discount: TimeMeterDiscountSettings
+}
+
 export type MeterSettings = {
   basicFare: BasicFareSettings
   waitingFare: TimeFareSettings
   escortFare: TimeFareSettings
+  time: TimeMeterSettings
   assistItems: CareOptionMasterItem[]
   expensePresets: ExpensePreset[]
   company: CompanySettings
@@ -53,10 +72,29 @@ const settingsCollectionName = 'appSettings'
 const meterSettingsDocumentId = 'meterSettings'
 export const fixedTimeFareUnitSeconds = 30 * 60
 
+export const defaultTimeMeterLegalSettings: TimeMeterLegalSettings = {
+  baseFareYen: 4050,
+  baseMinutes: 30,
+  additionalMinutes: 30,
+  additionalFareYen: 4050,
+}
+
+export const defaultTimeMeterDiscountSettings: TimeMeterDiscountSettings = {
+  enabled: false,
+  initialMinutes: 4,
+  additionalSeconds: 60,
+}
+
+export const defaultTimeMeterSettings: TimeMeterSettings = {
+  legal: defaultTimeMeterLegalSettings,
+  discount: defaultTimeMeterDiscountSettings,
+}
+
 export const defaultMeterSettings: MeterSettings = {
   basicFare: basicFareSettings,
   waitingFare: { ...waitingFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
+  time: defaultTimeMeterSettings,
   assistItems: careOptionMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
@@ -223,6 +261,65 @@ function sanitizeCompany(value: unknown): CompanySettings {
   }
 }
 
+function sanitizeTimeMeterLegal(value: unknown): TimeMeterLegalSettings {
+  const source = toObject(value)
+
+  return {
+    additionalFareYen: toPositiveNumber(
+      source.additionalFareYen,
+      defaultTimeMeterLegalSettings.additionalFareYen,
+    ),
+    additionalMinutes: toPositiveNumber(
+      source.additionalMinutes,
+      defaultTimeMeterLegalSettings.additionalMinutes,
+      1,
+    ),
+    baseFareYen: toPositiveNumber(
+      source.baseFareYen,
+      defaultTimeMeterLegalSettings.baseFareYen,
+    ),
+    baseMinutes: toPositiveNumber(
+      source.baseMinutes,
+      defaultTimeMeterLegalSettings.baseMinutes,
+      1,
+    ),
+  }
+}
+
+function sanitizeTimeMeterDiscount(value: unknown): TimeMeterDiscountSettings {
+  const source = toObject(value)
+
+  return {
+    additionalSeconds: Math.floor(
+      toPositiveNumber(
+        source.additionalSeconds,
+        defaultTimeMeterDiscountSettings.additionalSeconds,
+        1,
+      ),
+    ),
+    enabled:
+      typeof source.enabled === 'boolean'
+        ? source.enabled
+        : defaultTimeMeterDiscountSettings.enabled,
+    initialMinutes: Math.floor(
+      toPositiveNumber(
+        source.initialMinutes,
+        defaultTimeMeterDiscountSettings.initialMinutes,
+        1,
+      ),
+    ),
+  }
+}
+
+function sanitizeTimeMeter(value: unknown): TimeMeterSettings {
+  const source = toObject(value)
+
+  return {
+    discount: sanitizeTimeMeterDiscount(source.discount),
+    legal: sanitizeTimeMeterLegal(source.legal),
+  }
+}
+
 function sanitizeReceipt(value: unknown): ReceiptSettings {
   const source = toObject(value)
 
@@ -254,6 +351,7 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
     escortFare: sanitizeTimeFare(source.escortFare, defaultMeterSettings.escortFare),
     expensePresets: sanitizeExpensePresets(source.expensePresets),
     receipt: sanitizeReceipt(source.receipt),
+    time: sanitizeTimeMeter(source.time),
     waitingFare: sanitizeTimeFare(source.waitingFare, defaultMeterSettings.waitingFare),
   }
 }
