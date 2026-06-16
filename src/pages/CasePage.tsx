@@ -23,6 +23,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
+import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
 import { createAuditLog } from '../services/auditLogs'
 import {
@@ -43,10 +44,12 @@ import {
   subscribeMeterSettings,
 } from '../services/meterSettings'
 import { calculateMeterComparisonFares } from '../services/meterComparisonFare'
+import { calculateTimeMeterFareIncreaseProgress, formatTimeMeterFareIncreaseProgressLabel } from '../services/timeMeterFare'
 import {
-  calculateTimeMeterFareIncreaseProgress,
-  formatTimeMeterFareIncreaseProgressLabel,
-} from '../services/timeMeterFare'
+  defaultMeterPermissions,
+  getAllowedMeterModes,
+  isMeterModeAllowed,
+} from '../services/subscriptionPlans'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
@@ -55,7 +58,7 @@ import type {
   TimeFareSettings,
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
-import type { Vehicle } from '../types/work'
+import type { MeterPermissions, Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { extractAreaFromAddress } from '../utils/address'
 import {
@@ -112,7 +115,6 @@ type SettlementFlowStep = 'receipt' | 'saved'
 
 const inputHistoryStorageKey = 'careTaxiMeterInputHistory'
 const meterModeStorageKey = 'careTaxiMeterMode'
-const meterModeOrder: MeterMode[] = ['gps', 'time', 'obd']
 const readStoredMeterMode = (): MeterMode => {
   const storedMode = window.localStorage.getItem(meterModeStorageKey)
   return storedMode === 'time' || storedMode === 'obd' ? storedMode : 'gps'
@@ -466,6 +468,7 @@ export function CasePage() {
   const [settlementEditBaseline, setSettlementEditBaseline] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [meterMode, setMeterMode] = useState<MeterMode>(readStoredMeterMode)
+  const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [meterModeToast, setMeterModeToast] = useState('')
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState(
@@ -593,6 +596,11 @@ export function CasePage() {
   const currentScope = tenantScopeFromSession(workSession.currentSession)
   const currentFranchiseeId = currentScope.franchiseeId
   const currentStoreId = currentScope.storeId
+  const allowedMeterModes = useMemo(
+    () => getAllowedMeterModes(meterPermissions),
+    [meterPermissions],
+  )
+  const canCycleMeterModes = allowedMeterModes.length > 1
   const closedWaitingSeconds = calculateActivityHistorySeconds(activityHistories, 'waiting')
   const closedAccompanyingSeconds = calculateActivityHistorySeconds(activityHistories, 'accompanying')
   const adjustedWaitingSeconds = closedWaitingSeconds + (
@@ -1062,9 +1070,11 @@ export function CasePage() {
     gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
 
   const handleMeterModeLongPressStart = () => {
+    if (!canCycleMeterModes) return
     meterModeLongPressTimerRef.current = window.setTimeout(() => {
-      const currentIndex = meterModeOrder.indexOf(meterMode)
-      const nextMode = meterModeOrder[(currentIndex + 1) % meterModeOrder.length]
+      const currentIndex = allowedMeterModes.indexOf(meterMode)
+      const resolvedIndex = currentIndex >= 0 ? currentIndex : 0
+      const nextMode = allowedMeterModes[(resolvedIndex + 1) % allowedMeterModes.length]
       if (!window.confirm(`${meterModeLabels[nextMode]}へ切り替えますか？`)) return
       applyMeterMode(nextMode)
     }, meterModeLongPressMs)
@@ -2191,6 +2201,25 @@ export function CasePage() {
   useEffect(() => {
     window.localStorage.setItem(meterModeStorageKey, meterMode)
   }, [meterMode])
+
+  useEffect(() => {
+    if (!currentFranchiseeId) {
+      setMeterPermissions(defaultMeterPermissions)
+      return
+    }
+
+    void fetchCompanyById(currentFranchiseeId).then((company) => {
+      setMeterPermissions(getCompanyMeterPermissions(company))
+    })
+  }, [currentFranchiseeId])
+
+  useEffect(() => {
+    if (isMeterModeAllowed(meterMode, meterPermissions)) return
+    const fallbackMode = allowedMeterModes[0] ?? 'gps'
+    if (fallbackMode === meterMode) return
+    setMeterMode(fallbackMode)
+    setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, fallbackMode))
+  }, [allowedMeterModes, meterMode, meterPermissions])
 
   useEffect(() => {
     if (!meterModeToast) return
