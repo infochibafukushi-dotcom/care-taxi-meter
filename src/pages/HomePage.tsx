@@ -104,11 +104,6 @@ type CaseRecordState = {
   records: StoredCaseRecord[]
 }
 
-type SummaryDialogState = CaseRecordState & {
-  isLoading: boolean
-  isOpen: boolean
-}
-
 const calculateAverageYen = (salesYen: number, count: number) =>
   count > 0 ? Math.round(salesYen / count) : 0
 
@@ -178,6 +173,39 @@ const calculateSummary = ({
   }
 }
 
+const hasTodayPerformance = (summary: ReturnType<typeof calculateSummary>) =>
+  summary.todayCount > 0 ||
+  summary.todaySalesYen > 0 ||
+  summary.todayDistanceKm > 0 ||
+  summary.todayDrivingSeconds > 0 ||
+  summary.todayWaitingSeconds > 0 ||
+  summary.todayAccompanyingSeconds > 0
+
+type TodayPerformanceSummary = ReturnType<typeof calculateSummary>
+
+function TodayPerformanceGrid({
+  summary,
+  workSeconds,
+}: {
+  summary: TodayPerformanceSummary
+  workSeconds: number
+}) {
+  return (
+    <div className="work-dashboard-grid">
+      <div><span>案件数</span><strong>{summary.todayCount}件</strong></div>
+      <div><span>売上</span><strong>{formatFareYen(summary.todaySalesYen)}円</strong></div>
+      <div><span>走行距離</span><strong>{summary.todayDistanceKm.toFixed(1)}km</strong></div>
+      <div><span>運転時間</span><strong>{formatElapsedTime(summary.todayDrivingSeconds)}</strong></div>
+      <div><span>待機時間</span><strong>{formatElapsedTime(summary.todayWaitingSeconds)}</strong></div>
+      <div><span>付き添い時間</span><strong>{formatElapsedTime(summary.todayAccompanyingSeconds)}</strong></div>
+      <div><span>勤務時間</span><strong>{formatElapsedTime(workSeconds)}</strong></div>
+      <div><span>平均単価</span><strong>{formatFareYen(summary.averageYen)}円</strong></div>
+      <div><span>今月売上</span><strong>{formatFareYen(summary.monthSalesYen)}円</strong></div>
+      <div><span>今月件数</span><strong>{summary.monthCount}件</strong></div>
+    </div>
+  )
+}
+
 export function HomePage() {
   const workSession = useWorkSession()
   const navigate = useNavigate()
@@ -199,12 +227,11 @@ export function HomePage() {
     errorMessage: '',
     records: [],
   })
-  const [summaryDialog, setSummaryDialog] = useState<SummaryDialogState>({
-    errorMessage: '',
-    isLoading: false,
-    isOpen: false,
-    records: [],
-  })
+  const [isClockOutConfirmOpen, setIsClockOutConfirmOpen] = useState(false)
+  const [isClockOutProcessing, setIsClockOutProcessing] = useState(false)
+  const [isTodaySalesOpen, setIsTodaySalesOpen] = useState(false)
+  const [isTodaySalesLoading, setIsTodaySalesLoading] = useState(false)
+  const [todayWorkSeconds, setTodayWorkSeconds] = useState(0)
   const [activeTripSnapshot, setActiveTripSnapshot] =
     useState<ActiveTripSnapshot | null>(readActiveTripSnapshot)
 
@@ -443,15 +470,7 @@ export function HomePage() {
     [currentSessionId, currentStaffId, dashboardRecordsState.records],
   )
 
-  const clockOutSummary = useMemo(
-    () =>
-      calculateSummary({
-        currentSessionId,
-        records: summaryDialog.records,
-        staffId: currentStaffId,
-      }),
-    [currentSessionId, currentStaffId, summaryDialog.records],
-  )
+  const todaySalesWorkSeconds = currentSession ? elapsedSeconds : todayWorkSeconds
 
   const handleRestoreActiveTrip = () => {
     navigate('/case')
@@ -538,6 +557,7 @@ export function HomePage() {
         staffMember: loggedInUser.staffMember,
         store: loggedInUser.store,
       })
+      setTodayWorkSeconds(0)
       setLoginMessage('出勤しました。')
     } catch (error) {
       setLoginMessage(
@@ -553,37 +573,61 @@ export function HomePage() {
     setLoginMessage('ログアウトしました。')
   }
 
-  const openClockOutSummary = async () => {
+  const openClockOutConfirm = () => {
     if (hasActiveTripSnapshot) {
       setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
       return
     }
 
-    setSummaryDialog({ errorMessage: '', isLoading: true, isOpen: true, records: [] })
+    setIsClockOutConfirmOpen(true)
+  }
+
+  const handleConfirmClockOut = async () => {
+    if (isClockOutProcessing) {
+      return
+    }
+
+    if (hasActiveTripSnapshot) {
+      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
+      setIsClockOutConfirmOpen(false)
+      return
+    }
+
+    setIsClockOutProcessing(true)
+    setTodayWorkSeconds(elapsedSeconds)
+
     try {
-      const records = await fetchCaseRecords()
-      setSummaryDialog({ errorMessage: '', isLoading: false, isOpen: true, records })
-      setDashboardRecordsState({ errorMessage: '', records })
+      await workSession.clockOut()
+      setIsClockOutConfirmOpen(false)
+      setLoginMessage('退勤しました。お疲れ様でした。')
     } catch (error) {
-      setSummaryDialog({
-        errorMessage: error instanceof Error ? error.message : '退勤サマリーを取得できませんでした。',
-        isLoading: false,
-        isOpen: true,
-        records: [],
-      })
+      setLoginMessage(
+        error instanceof Error ? `退勤できませんでした。${error.message}` : '退勤できませんでした。',
+      )
+    } finally {
+      setIsClockOutProcessing(false)
     }
   }
 
-  const confirmClockOut = async () => {
-    if (hasActiveTripSnapshot) {
-      setLoginMessage('未終了の運行があります。退勤操作の前に運行を復元してください。')
-      setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
+  const openTodaySales = async () => {
+    setIsTodaySalesOpen(true)
+
+    if (!currentStaffId) {
       return
     }
 
-    await workSession.clockOut()
-    setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))
-    setLoginMessage('退勤しました。お疲れ様でした。')
+    setIsTodaySalesLoading(true)
+    try {
+      const records = await fetchCaseRecords()
+      setDashboardRecordsState({ errorMessage: '', records })
+    } catch (error) {
+      setDashboardRecordsState({
+        errorMessage: error instanceof Error ? error.message : '本日の実績を取得できませんでした。',
+        records: dashboardRecordsState.records,
+      })
+    } finally {
+      setIsTodaySalesLoading(false)
+    }
   }
 
   if (!loggedInUser && !currentSession) {
@@ -631,7 +675,14 @@ export function HomePage() {
           </div>
           {!isHqAdmin ? (
             currentSession ? (
-              <button className="secondary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={openClockOutSummary}>退勤</button>
+              <button
+                className="secondary-action home-button dashboard-attendance-button"
+                type="button"
+                disabled={hasActiveTripSnapshot || isClockOutProcessing}
+                onClick={openClockOutConfirm}
+              >
+                {isClockOutProcessing ? '退勤処理中...' : '退勤'}
+              </button>
             ) : (
               <button className="primary-action home-button dashboard-attendance-button" type="button" disabled={hasActiveTripSnapshot} onClick={handleClockIn}>出勤</button>
             )
@@ -683,6 +734,11 @@ export function HomePage() {
               </Link>
             )
           ) : null}
+          {!isHqAdmin ? (
+            <button className="secondary-action home-button" type="button" onClick={openTodaySales}>
+              本日の売上
+            </button>
+          ) : null}
           {canOpenManagement ? (
             <Link
               className="secondary-action"
@@ -710,33 +766,61 @@ export function HomePage() {
         </nav>
       </section>
 
-      {summaryDialog.isOpen ? (
+      {isClockOutConfirmOpen ? (
         <div className="settings-backdrop" role="presentation">
-          <section className="settings-modal clock-out-summary" role="dialog" aria-modal="true" aria-labelledby="clock-out-summary-title">
+          <section
+            aria-labelledby="clock-out-confirm-title"
+            aria-modal="true"
+            className="settings-modal r9-settlement-confirm"
+            role="dialog"
+          >
             <header className="settings-header">
-              <div><span>Clock Out</span><h2 id="clock-out-summary-title">本日の実績</h2></div>
-              <button type="button" onClick={() => setSummaryDialog((currentDialog) => ({ ...currentDialog, isOpen: false }))}>閉じる</button>
-            </header>
-            {summaryDialog.isLoading ? <p className="empty-note">実績を取得中です。</p> : null}
-            {summaryDialog.errorMessage ? <p className="case-error">{summaryDialog.errorMessage}</p> : null}
-            {!summaryDialog.isLoading ? (
-              <div className="work-dashboard-grid">
-                <div><span>案件数</span><strong>{clockOutSummary.todayCount}件</strong></div>
-                <div><span>売上</span><strong>{formatFareYen(clockOutSummary.todaySalesYen)}円</strong></div>
-                <div><span>走行距離</span><strong>{clockOutSummary.todayDistanceKm.toFixed(1)}km</strong></div>
-                <div><span>運転時間</span><strong>{formatElapsedTime(clockOutSummary.todayDrivingSeconds)}</strong></div>
-                <div><span>待機時間</span><strong>{formatElapsedTime(clockOutSummary.todayWaitingSeconds)}</strong></div>
-                <div><span>付き添い時間</span><strong>{formatElapsedTime(clockOutSummary.todayAccompanyingSeconds)}</strong></div>
-                <div><span>勤務時間</span><strong>{formatElapsedTime(elapsedSeconds)}</strong></div>
-                <div><span>平均単価</span><strong>{formatFareYen(clockOutSummary.averageYen)}円</strong></div>
-                <div><span>今月売上</span><strong>{formatFareYen(clockOutSummary.monthSalesYen)}円</strong></div>
-                <div><span>今月件数</span><strong>{clockOutSummary.monthCount}件</strong></div>
+              <div>
+                <span>Clock Out</span>
+                <h2 id="clock-out-confirm-title">退勤しますか？</h2>
               </div>
+              <button type="button" disabled={isClockOutProcessing} onClick={() => setIsClockOutConfirmOpen(false)}>
+                閉じる
+              </button>
+            </header>
+            <div className="r9-confirm-actions">
+              <button
+                className="secondary-action"
+                type="button"
+                disabled={isClockOutProcessing}
+                onClick={() => setIsClockOutConfirmOpen(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="work-session-primary-button work-session-primary-button--danger"
+                type="button"
+                disabled={isClockOutProcessing}
+                onClick={handleConfirmClockOut}
+              >
+                {isClockOutProcessing ? '退勤処理中...' : '退勤する'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isTodaySalesOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section className="settings-modal clock-out-summary" role="dialog" aria-modal="true" aria-labelledby="today-sales-title">
+            <header className="settings-header">
+              <div><span>Dashboard</span><h2 id="today-sales-title">本日の売上</h2></div>
+              <button type="button" onClick={() => setIsTodaySalesOpen(false)}>閉じる</button>
+            </header>
+            {isTodaySalesLoading ? <p className="empty-note">実績を取得中です。</p> : null}
+            {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
+            {!isTodaySalesLoading && !dashboardRecordsState.errorMessage ? (
+              hasTodayPerformance(dashboardSummary) || todaySalesWorkSeconds > 0 ? (
+                <TodayPerformanceGrid summary={dashboardSummary} workSeconds={todaySalesWorkSeconds} />
+              ) : (
+                <p className="empty-note">本日の実績はありません</p>
+              )
             ) : null}
-            <p className="lead">お疲れ様でした</p>
-            <button className="work-session-primary-button work-session-primary-button--danger" type="button" onClick={confirmClockOut}>
-              退勤する
-            </button>
           </section>
         </div>
       ) : null}
