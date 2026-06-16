@@ -283,15 +283,17 @@ export function useWorkSession() {
       return null
     }
 
-    setMessage({ tone: 'saving', text: '退勤位置を取得して保存中です。' })
+    const sessionToClose = currentSession
+    persistCurrentSession(null)
+    setMessage({ tone: 'saving', text: '退勤処理中...' })
+
     const location = await captureWorkLocation()
     try {
       const closedSession = await clockOutWorkSession({
         location,
-        workSession: currentSession,
+        workSession: sessionToClose,
       })
 
-      persistCurrentSession(null)
       setMessage({
         tone: 'saved',
         text: location.latitude === null
@@ -303,9 +305,9 @@ export function useWorkSession() {
       console.warn('[workSession] clockOut error', error)
 
       const activeSession = await fetchOpenWorkingWorkSession({
-        companyId: currentSession.companyId,
-        staffId: currentSession.staffId,
-        storeId: currentSession.storeId,
+        companyId: sessionToClose.companyId,
+        staffId: sessionToClose.staffId,
+        storeId: sessionToClose.storeId,
       })
 
       if (!activeSession) {

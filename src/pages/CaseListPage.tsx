@@ -102,12 +102,12 @@ export function CaseListPage() {
       <section className="content-card case-list-card">
         <div className="case-list-header">
           <div>
+            <Link className="text-link" to="/">
+              ← TOPへ戻る
+            </Link>
             <p className="eyebrow">Case Records</p>
             <h1 id="case-list-title">案件一覧</h1>
           </div>
-          <Link className="text-link" to="/case">
-            新規案件へ
-          </Link>
         </div>
 
         <div className="case-summary-grid" aria-label="本日の集計">
