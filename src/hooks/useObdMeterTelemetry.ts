@@ -7,8 +7,29 @@ import {
 } from '../services/obdConnection'
 
 const POLL_INTERVAL_MS = 1000
+const STABLE_POLLS_REQUIRED = 5
+const RECOVERED_FLASH_MS = 3000
 
-export type ObdMeterConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+export type ObdConnectionPhase =
+  | 'idle'
+  | 'connecting'
+  | 'reconnecting'
+  | 'stabilizing'
+  | 'connected'
+  | 'disconnected'
+
+export type ObdIndicatorVariant =
+  | 'connected'
+  | 'connecting'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'recovered'
+
+export type ObdIndicatorState = {
+  label: string
+  variant: ObdIndicatorVariant
+  visible: boolean
+}
 
 export type InitialObdMeterState = Partial<{
   businessDistanceKm: number
@@ -18,10 +39,17 @@ export type InitialObdMeterState = Partial<{
   movementState: MeterMovementState
 }>
 
+export type ObdConnectOptions = {
+  interactive?: boolean
+  isInitialTripConnect?: boolean
+  isReconnect?: boolean
+}
+
 type UseObdMeterTelemetryOptions = {
   enableLogging?: boolean
   initialState?: InitialObdMeterState
-  isActive: boolean
+  isEnabled: boolean
+  isTripActive: boolean
   lowSpeedThresholdKmh: number
   resetKey?: number
 }
@@ -40,15 +68,22 @@ const deriveMovementState = (
 export function useObdMeterTelemetry({
   enableLogging = false,
   initialState = {},
-  isActive,
+  isEnabled,
+  isTripActive,
   lowSpeedThresholdKmh,
   resetKey = 0,
 }: UseObdMeterTelemetryOptions) {
   const connectionRef = useRef<ObdConnection | null>(null)
   const pollTimerRef = useRef<number | null>(null)
   const isInitialResetRenderRef = useRef(true)
+  const stablePollCountRef = useRef(0)
+  const recoveredFlashTimerRef = useRef<number | null>(null)
 
-  const [connectionStatus, setConnectionStatus] = useState<ObdMeterConnectionStatus>('disconnected')
+  const [connectionPhase, setConnectionPhase] = useState<ObdConnectionPhase>('idle')
+  const [isBleConnected, setIsBleConnected] = useState(false)
+  const [requiresStabilization, setRequiresStabilization] = useState(false)
+  const [isStableForTelemetry, setIsStableForTelemetry] = useState(false)
+  const [showRecoveredFlash, setShowRecoveredFlash] = useState(false)
   const [currentSpeedKmh, setCurrentSpeedKmh] = useState<number | null>(initialState.currentSpeedKmh ?? null)
   const [businessDistanceKm, setBusinessDistanceKm] = useState(initialState.businessDistanceKm ?? 0)
   const [chargeableDistanceKm, setChargeableDistanceKm] = useState(initialState.chargeableDistanceKm ?? 0)
@@ -67,6 +102,13 @@ export function useObdMeterTelemetry({
     setLogs((currentLogs) => [...currentLogs, entry].slice(-200))
   }, [enableLogging])
 
+  const clearRecoveredFlashTimer = useCallback(() => {
+    if (recoveredFlashTimerRef.current !== null) {
+      window.clearTimeout(recoveredFlashTimerRef.current)
+      recoveredFlashTimerRef.current = null
+    }
+  }, [])
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
       window.clearInterval(pollTimerRef.current)
@@ -74,11 +116,34 @@ export function useObdMeterTelemetry({
     }
   }, [])
 
+  const markDisconnected = useCallback((message?: string) => {
+    stopPolling()
+    connectionRef.current = null
+    stablePollCountRef.current = 0
+    setIsBleConnected(false)
+    setIsStableForTelemetry(false)
+    setCurrentSpeedKmh(null)
+    setMovementState('unknown')
+    setConnectionPhase('disconnected')
+    if (message) {
+      setErrorMessage(message)
+    }
+    if (isTripActive) {
+      setRequiresStabilization(true)
+    }
+  }, [isTripActive, stopPolling])
+
   const resetTelemetry = useCallback(() => {
     stopPolling()
+    clearRecoveredFlashTimer()
     connectionRef.current?.setDisconnectedHandler(null)
     connectionRef.current = null
-    setConnectionStatus('disconnected')
+    setRequiresStabilization(false)
+    stablePollCountRef.current = 0
+    setConnectionPhase('idle')
+    setIsBleConnected(false)
+    setIsStableForTelemetry(false)
+    setShowRecoveredFlash(false)
     setCurrentSpeedKmh(null)
     setBusinessDistanceKm(0)
     setChargeableDistanceKm(0)
@@ -88,7 +153,34 @@ export function useObdMeterTelemetry({
     if (enableLogging) {
       setLogs([])
     }
-  }, [enableLogging, stopPolling])
+  }, [clearRecoveredFlashTimer, enableLogging, stopPolling])
+
+  const handleStableConnection = useCallback(() => {
+    setIsStableForTelemetry(true)
+    setConnectionPhase('connected')
+
+    if (requiresStabilization) {
+      setRequiresStabilization(false)
+      setShowRecoveredFlash(true)
+      clearRecoveredFlashTimer()
+      recoveredFlashTimerRef.current = window.setTimeout(() => {
+        setShowRecoveredFlash(false)
+        recoveredFlashTimerRef.current = null
+      }, RECOVERED_FLASH_MS)
+    }
+  }, [clearRecoveredFlashTimer, requiresStabilization])
+
+  const registerStablePoll = useCallback(() => {
+    if (!requiresStabilization) {
+      handleStableConnection()
+      return
+    }
+
+    stablePollCountRef.current += 1
+    if (stablePollCountRef.current >= STABLE_POLLS_REQUIRED) {
+      handleStableConnection()
+    }
+  }, [handleStableConnection, requiresStabilization])
 
   const pollTelemetry = useCallback(async () => {
     const connection = connectionRef.current
@@ -100,6 +192,7 @@ export function useObdMeterTelemetry({
       const nextSpeedKmh = await connection.readVehicleSpeed()
       setCurrentSpeedKmh(nextSpeedKmh)
       setMovementState(deriveMovementState(nextSpeedKmh, lowSpeedThresholdKmh))
+      registerStablePoll()
 
       if (nextSpeedKmh == null) {
         return
@@ -120,11 +213,9 @@ export function useObdMeterTelemetry({
         timestamp: Date.now(),
         type: 'error',
       })
-      setConnectionStatus('error')
-      setErrorMessage(message)
-      stopPolling()
+      markDisconnected(message)
     }
-  }, [lowSpeedThresholdKmh, pushLog, stopPolling])
+  }, [lowSpeedThresholdKmh, markDisconnected, pushLog, registerStablePoll])
 
   const startPolling = useCallback(() => {
     stopPolling()
@@ -135,9 +226,12 @@ export function useObdMeterTelemetry({
 
   const disconnect = useCallback(async () => {
     stopPolling()
+    clearRecoveredFlashTimer()
 
     const connection = connectionRef.current
     connectionRef.current = null
+    setRequiresStabilization(false)
+    stablePollCountRef.current = 0
 
     if (connection) {
       connection.setDisconnectedHandler(null)
@@ -154,26 +248,54 @@ export function useObdMeterTelemetry({
       }
     }
 
-    setConnectionStatus('disconnected')
+    setConnectionPhase('idle')
+    setIsBleConnected(false)
+    setIsStableForTelemetry(false)
+    setShowRecoveredFlash(false)
     setCurrentSpeedKmh(null)
     setMovementState('unknown')
     setErrorMessage(null)
-  }, [pushLog, stopPolling])
+  }, [clearRecoveredFlashTimer, pushLog, stopPolling])
 
-  const connect = useCallback(async (options?: { interactive?: boolean }) => {
+  const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
     const interactive = options?.interactive ?? true
+    const isInitialTripConnect = options?.isInitialTripConnect ?? false
+    const isReconnect = options?.isReconnect ?? false
 
-    if (!isActive || connectionStatus === 'connecting' || connectionStatus === 'connected') {
-      return
+    if (!isEnabled) {
+      return false
+    }
+
+    if (
+      connectionPhase === 'connecting' ||
+      connectionPhase === 'reconnecting' ||
+      connectionPhase === 'stabilizing'
+    ) {
+      return false
+    }
+
+    if (connectionRef.current?.isConnected()) {
+      return isStableForTelemetry
     }
 
     if (!navigator.bluetooth) {
-      setConnectionStatus('error')
       setErrorMessage('このブラウザは Web Bluetooth に対応していません')
-      return
+      setConnectionPhase('disconnected')
+      return false
     }
 
-    setConnectionStatus('connecting')
+    const shouldStabilize = !isInitialTripConnect && (isReconnect || isTripActive)
+
+    if (isInitialTripConnect) {
+      setRequiresStabilization(false)
+    } else if (shouldStabilize) {
+      setRequiresStabilization(true)
+    }
+
+    stablePollCountRef.current = 0
+    setIsStableForTelemetry(false)
+    setShowRecoveredFlash(false)
+    setConnectionPhase(isReconnect ? 'reconnecting' : 'connecting')
     setErrorMessage(null)
 
     const connection = new ObdConnection()
@@ -181,16 +303,12 @@ export function useObdMeterTelemetry({
       pushLog(entry)
     })
     connection.setDisconnectedHandler(() => {
-      stopPolling()
-      connectionRef.current = null
-      setConnectionStatus('disconnected')
-      setCurrentSpeedKmh(null)
-      setMovementState('unknown')
       pushLog({
         message: 'BLE接続が切断されました',
         timestamp: Date.now(),
         type: 'info',
       })
+      markDisconnected()
     })
     connectionRef.current = connection
 
@@ -198,18 +316,30 @@ export function useObdMeterTelemetry({
       const reconnected = await connection.connectPermittedDevice()
       if (!reconnected) {
         if (!interactive) {
-          setConnectionStatus('disconnected')
+          markDisconnected()
           connectionRef.current = null
-          return
+          return false
         }
 
         await connection.connect()
       }
 
       await connection.initialize()
-      setConnectionStatus('connected')
-      startPolling()
-      void pollTelemetry()
+
+      setIsBleConnected(true)
+
+      if (shouldStabilize) {
+        setConnectionPhase('stabilizing')
+      } else {
+        handleStableConnection()
+      }
+
+      if (isTripActive) {
+        startPolling()
+        void pollTelemetry()
+      }
+
+      return !shouldStabilize
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
       pushLog({
@@ -217,8 +347,7 @@ export function useObdMeterTelemetry({
         timestamp: Date.now(),
         type: 'error',
       })
-      setConnectionStatus('disconnected')
-      setErrorMessage(message)
+      markDisconnected(message)
       connectionRef.current = null
 
       try {
@@ -226,8 +355,33 @@ export function useObdMeterTelemetry({
       } catch {
         // Ignore cleanup errors after a failed connect.
       }
+
+      return false
     }
-  }, [connectionStatus, isActive, pollTelemetry, pushLog, startPolling, stopPolling])
+  }, [
+    connectionPhase,
+    handleStableConnection,
+    isEnabled,
+    isStableForTelemetry,
+    isTripActive,
+    markDisconnected,
+    pollTelemetry,
+    pushLog,
+    startPolling,
+  ])
+
+  useEffect(() => {
+    if (!isTripActive || !connectionRef.current?.isConnected()) {
+      return undefined
+    }
+
+    startPolling()
+    void pollTelemetry()
+
+    return () => {
+      stopPolling()
+    }
+  }, [isTripActive, pollTelemetry, startPolling, stopPolling])
 
   useEffect(() => {
     if (isInitialResetRenderRef.current) {
@@ -244,26 +398,60 @@ export function useObdMeterTelemetry({
 
   useEffect(() => () => {
     stopPolling()
+    clearRecoveredFlashTimer()
     const connection = connectionRef.current
     connectionRef.current = null
     if (connection) {
       connection.setDisconnectedHandler(null)
       void connection.disconnect()
     }
-  }, [stopPolling])
+  }, [clearRecoveredFlashTimer, stopPolling])
 
-  const isConnected = connectionStatus === 'connected'
-  const speedSource: SpeedSource = isConnected ? 'obd' : 'unavailable'
+  const isConnected =
+    isBleConnected ||
+    connectionPhase === 'connected' ||
+    connectionPhase === 'stabilizing'
+  const speedSource: SpeedSource = isStableForTelemetry ? 'obd' : 'unavailable'
+
+  const indicator = ((): ObdIndicatorState => {
+    if (!isEnabled) {
+      return { label: '', variant: 'disconnected', visible: false }
+    }
+
+    if (showRecoveredFlash) {
+      return { label: 'OBD復帰', variant: 'recovered', visible: true }
+    }
+
+    if (connectionPhase === 'connecting') {
+      return { label: 'OBD接続中…', variant: 'connecting', visible: true }
+    }
+
+    if (connectionPhase === 'reconnecting' || connectionPhase === 'stabilizing') {
+      return { label: 'OBD再接続中', variant: 'reconnecting', visible: true }
+    }
+
+    if (isStableForTelemetry) {
+      return { label: 'OBD接続中', variant: 'connected', visible: true }
+    }
+
+    if (connectionPhase === 'disconnected' && (isTripActive || requiresStabilization)) {
+      return { label: 'OBD切断（GPS補正中）', variant: 'disconnected', visible: true }
+    }
+
+    return { label: '', variant: 'disconnected', visible: false }
+  })()
 
   return {
     businessDistanceKm,
     chargeableDistanceKm,
     connect,
-    connectionStatus,
+    connectionPhase,
     currentSpeedKmh,
     disconnect,
     errorMessage,
+    indicator,
     isConnected,
+    isStableForTelemetry,
     logs,
     lowSpeedSeconds,
     movementState,

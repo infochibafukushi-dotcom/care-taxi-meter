@@ -6903,6 +6903,87 @@ h1 {
 .meter-mode-badge--time { background: #a855f7; }
 .meter-mode-badge--obd { background: #10b981; }
 
+.meter-mode-badge-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.meter-mode-badge-row .meter-mode-badge {
+  margin-left: 0;
+}
+
+.obd-connection-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.56em;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.obd-connection-indicator__dot {
+  width: 0.72em;
+  height: 0.72em;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0.45em currentColor;
+}
+
+.obd-connection-indicator--connected,
+.obd-connection-indicator--recovered {
+  background: rgb(21 128 61 / 92%);
+}
+
+.obd-connection-indicator--connecting,
+.obd-connection-indicator--reconnecting {
+  background: rgb(29 78 216 / 92%);
+}
+
+.obd-connection-indicator--connecting .obd-connection-indicator__dot,
+.obd-connection-indicator--reconnecting .obd-connection-indicator__dot {
+  animation: obd-indicator-blink 1s step-end infinite;
+}
+
+.obd-connection-indicator--disconnected {
+  background: rgb(185 28 28 / 92%);
+}
+
+.obd-connection-dialog__message {
+  margin: 0 0 12px;
+  line-height: 1.7;
+}
+
+.obd-connection-dialog__list {
+  margin: 0 0 12px;
+  padding-left: 1.2rem;
+  line-height: 1.7;
+}
+
+.obd-connection-dialog__hint {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.obd-connection-dialog__actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+@keyframes obd-indicator-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .meter-mode-toast {
   margin: 10px 16px 0;
   padding: 10px 14px;
