@@ -1,5 +1,67 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
+import type { MeterMode } from '../types/case'
+
+export const meterModeLabels: Record<MeterMode, string> = {
+  gps: 'GPSM',
+  obd: 'OBDM',
+  time: '時間M',
+}
+
+export function getActualMeterMode(caseRecord: StoredCaseRecord): MeterMode {
+  const mode = (caseRecord.actualMeterMode || caseRecord.meterMode || 'gps') as MeterMode
+  return mode === 'time' || mode === 'obd' ? mode : 'gps'
+}
+
+export function getActualFareYen(caseRecord: StoredCaseRecord): number {
+  if (typeof caseRecord.actualFareYen === 'number' && Number.isFinite(caseRecord.actualFareYen)) {
+    return caseRecord.actualFareYen
+  }
+
+  return typeof caseRecord.totalFareYen === 'number' && Number.isFinite(caseRecord.totalFareYen)
+    ? caseRecord.totalFareYen
+    : 0
+}
+
+export type CaseComparisonDisplay = {
+  comparisonFareYen: number
+  comparisonLabel: string
+  differenceYen: number
+}
+
+export function getCaseComparisonDisplay(
+  caseRecord: StoredCaseRecord,
+): CaseComparisonDisplay | null {
+  const actualFareYen = getActualFareYen(caseRecord)
+  const meterMode = getActualMeterMode(caseRecord)
+
+  if (meterMode === 'time' && caseRecord.gpsComparisonFareYen != null) {
+    return {
+      comparisonFareYen: caseRecord.gpsComparisonFareYen,
+      comparisonLabel: 'GPSM換算',
+      differenceYen: actualFareYen - caseRecord.gpsComparisonFareYen,
+    }
+  }
+
+  if ((meterMode === 'gps' || meterMode === 'obd') && caseRecord.timeComparisonFareYen != null) {
+    return {
+      comparisonFareYen: caseRecord.timeComparisonFareYen,
+      comparisonLabel: '時間M換算',
+      differenceYen: actualFareYen - caseRecord.timeComparisonFareYen,
+    }
+  }
+
+  return null
+}
+
+export function formatComparisonDifferenceYen(differenceYen: number) {
+  if (differenceYen === 0) {
+    return '±0円'
+  }
+
+  const prefix = differenceYen > 0 ? '+' : '-'
+  return `${prefix}${formatFareYen(Math.abs(differenceYen))}円`
+}
 
 export type ReceiptFareLine = {
   label: string
@@ -78,7 +140,7 @@ export function calculateTodayCaseSummary(caseRecords: StoredCaseRecord[]) {
   return {
     count: todaysCaseRecords.length,
     salesYen: todaysCaseRecords.reduce(
-      (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
+      (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
       0,
     ),
   }
@@ -127,7 +189,7 @@ export function calculateCaseSummary(caseRecords: StoredCaseRecord[]) {
   return {
     count: billableCaseRecords.length,
     salesYen: billableCaseRecords.reduce(
-      (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
+      (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
       0,
     ),
   }
@@ -238,15 +300,15 @@ export function calculateSalesSummary(
     )
   })
   const totalSalesYen = billableCaseRecords.reduce(
-    (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
+    (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
     0,
   )
   const todaySalesYen = todayRecords.reduce(
-    (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
+    (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
     0,
   )
   const thisMonthSalesYen = thisMonthRecords.reduce(
-    (total, caseRecord) => total + toSalesYen(caseRecord.totalFareYen),
+    (total, caseRecord) => total + toSalesYen(getActualFareYen(caseRecord)),
     0,
   )
   const paymentMethodMap = new Map<string, { count: number; salesYen: number }>()
@@ -261,7 +323,7 @@ export function calculateSalesSummary(
     }
     paymentMethodMap.set(paymentMethod, {
       count: currentPaymentSummary.count + 1,
-      salesYen: currentPaymentSummary.salesYen + toSalesYen(caseRecord.totalFareYen),
+      salesYen: currentPaymentSummary.salesYen + toSalesYen(getActualFareYen(caseRecord)),
     })
 
     const closedDate = toValidClosedDate(caseRecord.closedAt)
@@ -272,7 +334,7 @@ export function calculateSalesSummary(
     const dateLabel = displayDateFormatter.format(closedDate)
     dailySalesMap.set(
       dateLabel,
-      (dailySalesMap.get(dateLabel) ?? 0) + toSalesYen(caseRecord.totalFareYen),
+      (dailySalesMap.get(dateLabel) ?? 0) + toSalesYen(getActualFareYen(caseRecord)),
     )
 
     const monthLabel = displayMonthFormatter.format(closedDate)
@@ -282,7 +344,7 @@ export function calculateSalesSummary(
     }
     monthlySalesMap.set(monthLabel, {
       count: currentMonthSummary.count + 1,
-      salesYen: currentMonthSummary.salesYen + toSalesYen(caseRecord.totalFareYen),
+      salesYen: currentMonthSummary.salesYen + toSalesYen(getActualFareYen(caseRecord)),
     })
   })
 

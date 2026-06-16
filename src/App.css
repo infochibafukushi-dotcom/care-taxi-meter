@@ -4287,6 +4287,28 @@ h1 {
   line-height: 1.65;
 }
 
+.case-record-meter-summary {
+  display: grid;
+  gap: 4px 12px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  padding: 10px 0 4px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.case-record-meter-summary .meter-mode-badge {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.analytics-meter-comparison {
+  margin-bottom: 18px;
+}
+
+.analytics-kpi-grid--meter-comparison {
+  margin-top: 12px;
+}
+
 .osm-attribution {
   margin: 18px 0 0;
   color: #64748b;

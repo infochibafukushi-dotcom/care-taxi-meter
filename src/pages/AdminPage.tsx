@@ -37,7 +37,7 @@ import type {
 import type { StaffMember, StaffRole, Store, Vehicle, WorkSession } from "../types/work";
 import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
-import { calculateSalesSummary, getMonthRangeInJapan } from "../utils/caseRecords";
+import { calculateSalesSummary, getActualFareYen, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
 import { tenantScopeFromSession } from "../services/tenancy";
 import { loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
@@ -284,7 +284,7 @@ const getPersonalOperationDays = ({
       const isHoliday = isSaturday || isSunday;
       const totalCases = dayRecords.length;
       const salesYen = dayRecords.reduce(
-        (total, caseRecord) => total + caseRecord.totalFareYen,
+        (total, caseRecord) => total + getActualFareYen(caseRecord),
         0,
       );
       const drivingSeconds = dayRecords.reduce(

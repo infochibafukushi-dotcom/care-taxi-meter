@@ -52,6 +52,9 @@ export type CaseRecordInput = {
   selectedSpecialVehicleCharges?: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
   dropoffLocation: CapturedAddressLocation
+  gpsComparisonFareYen?: number | null
+  timeComparisonFareYen?: number | null
+  obdComparisonFareYen?: number | null
 }
 
 export type CaseRecordStatus = 'completed' | 'canceled'
@@ -209,6 +212,11 @@ export type CaseRecordDocument = {
   initialMinutes: number
   additionalSeconds: number
   meterMode: string
+  actualMeterMode: string
+  actualFareYen: number
+  gpsComparisonFareYen: number | null
+  timeComparisonFareYen: number | null
+  obdComparisonFareYen: number | null
   savedAt: FieldValue
 }
 
@@ -640,6 +648,11 @@ const toStoredCaseRecord = (
     initialMinutes: toNumber(data.initialMinutes),
     additionalSeconds: toNumber(data.additionalSeconds),
     meterMode: toString(data.meterMode) || 'gps',
+    actualMeterMode: toString(data.actualMeterMode) || toString(data.meterMode) || 'gps',
+    actualFareYen: toNullableNumber(data.actualFareYen) ?? toNumber(data.totalFareYen),
+    gpsComparisonFareYen: toNullableNumber(data.gpsComparisonFareYen),
+    timeComparisonFareYen: toNullableNumber(data.timeComparisonFareYen),
+    obdComparisonFareYen: toNullableNumber(data.obdComparisonFareYen),
   }
 }
 
@@ -740,6 +753,9 @@ export async function saveCaseRecord({
   selectedSpecialVehicleCharges = [],
   selectedExpenses,
   dropoffLocation,
+  gpsComparisonFareYen = null,
+  timeComparisonFareYen = null,
+  obdComparisonFareYen = null,
 }: CaseRecordInput) {
   const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
   const staffId = workSession?.staffId ?? ''
@@ -852,6 +868,11 @@ export async function saveCaseRecord({
     initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
     additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
     meterMode: fareBreakdown.meterMode,
+    actualMeterMode: fareBreakdown.meterMode,
+    actualFareYen: fareBreakdown.totalFareYen,
+    gpsComparisonFareYen,
+    timeComparisonFareYen,
+    obdComparisonFareYen,
     savedAt: serverTimestamp(),
   }
 
@@ -1006,12 +1027,14 @@ export async function updateCaseRecordEditableValues(
     ...caseRecord,
     ...normalizedValues,
     totalFareYen: calculateTotalFareYen(caseRecord, normalizedValues),
+    actualFareYen: calculateTotalFareYen(caseRecord, normalizedValues),
     changeHistory: [...(caseRecord.changeHistory ?? []), ...changeEntries],
   }
 
   await updateDoc(doc(getFirestore(getFirebaseApp()), caseRecordsCollectionName, caseRecord.id), {
     ...normalizedValues,
     totalFareYen: updatedRecord.totalFareYen,
+    actualFareYen: updatedRecord.actualFareYen,
     changeHistory: updatedRecord.changeHistory,
     savedAt: serverTimestamp(),
   })

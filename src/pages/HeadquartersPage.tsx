@@ -13,6 +13,7 @@ import type { HeadquartersInfo } from '../services/hqSettings'
 import type { Company, CompanyStatus, StaffMember, Store, Vehicle } from '../types/work'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
+import { getActualFareYen } from '../utils/caseRecords'
 import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
 
 const companyStatusLabels: Record<CompanyStatus, string> = {
@@ -219,10 +220,10 @@ export function HeadquartersPage() {
     const previousMonthRecords = companyRecords.filter((caseRecord) => isBetween(caseRecord.closedAt, previousMonthStart, currentMonthStart))
     const yearAgoMonthRecords = companyRecords.filter((caseRecord) => isBetween(caseRecord.closedAt, yearAgoMonthStart, yearAgoNextMonthStart))
     const todayRecords = companyRecords.filter((caseRecord) => isBetween(caseRecord.closedAt, todayStart, tomorrowStart))
-    const monthSalesYen = monthRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0)
-    const previousMonthSalesYen = previousMonthRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0)
-    const yearAgoMonthSalesYen = yearAgoMonthRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0)
-    const salesYen = companyRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0)
+    const monthSalesYen = monthRecords.reduce((total, caseRecord) => total + getActualFareYen(caseRecord), 0)
+    const previousMonthSalesYen = previousMonthRecords.reduce((total, caseRecord) => total + getActualFareYen(caseRecord), 0)
+    const yearAgoMonthSalesYen = yearAgoMonthRecords.reduce((total, caseRecord) => total + getActualFareYen(caseRecord), 0)
+    const salesYen = companyRecords.reduce((total, caseRecord) => total + getActualFareYen(caseRecord), 0)
     const lastCaseAt = companyRecords[0]?.closedAt ?? ''
 
     return {
@@ -239,7 +240,7 @@ export function HeadquartersPage() {
       salesYen,
       staffCount: companyStaffMembers.length,
       storeCount: companyStores.length,
-      todaySalesYen: todayRecords.reduce((total, caseRecord) => total + caseRecord.totalFareYen, 0),
+      todaySalesYen: todayRecords.reduce((total, caseRecord) => total + getActualFareYen(caseRecord), 0),
       vehicleCount: companyVehicles.length,
       yearAgoMonthSalesYen,
       yearAgoMonthCaseCount: yearAgoMonthRecords.length,
