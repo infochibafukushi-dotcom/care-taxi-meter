@@ -8,6 +8,7 @@ import { CasePage } from './pages/CasePage'
 import { CaseStartPage } from './pages/CaseStartPage'
 import { HeadquartersPage } from './pages/HeadquartersPage'
 import { HomePage } from './pages/HomePage'
+import { ObdPocPage } from './pages/ObdPocPage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 
 const routerBaseName =
@@ -67,6 +68,10 @@ const router = createBrowserRouter([
       {
         path: 'superadmin',
         element: <HeadquartersPage />,
+      },
+      {
+        path: 'dev/obd',
+        element: <ObdPocPage />,
       },
     ],
   },
