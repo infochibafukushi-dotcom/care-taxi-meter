@@ -40,6 +40,10 @@ import {
   selectMeterModeSettings,
   subscribeMeterSettings,
 } from '../services/meterSettings'
+import {
+  calculateTimeMeterFareIncreaseProgress,
+  formatTimeMeterFareIncreaseProgressLabel,
+} from '../services/timeMeterFare'
 import type {
   BasicFareSettings,
   CareOptionMasterItem,
@@ -1019,14 +1023,31 @@ export function CasePage() {
     Math.round((distanceFareUnitKm - fareIncrease.remainingDistanceKm) * 1000),
   )
   const distanceFareUnitMeters = Math.round(distanceFareUnitKm * 1000)
-  const timeFareIncrease = calculateTimeFareIncreaseProgress(
+  const gpsTimeFareIncrease = calculateTimeFareIncreaseProgress(
     gps.lowSpeedSeconds,
     currentMeterSettings.meterTimeFare,
   )
-  const timeFareIncreasePercent = Math.round(timeFareIncrease.progressRate * 100)
-  const timeFareElapsedSeconds = Math.max(
+  const timeMeterFareIncreaseProgress =
+    meterMode === 'time'
+      ? calculateTimeMeterFareIncreaseProgress(
+          elapsedTimers.seconds.driving,
+          currentMeterSettings.time.discount,
+          currentMeterSettings.time.legal,
+        )
+      : null
+  const timeFareIncreasePercent =
+    meterMode === 'time'
+      ? Math.round((timeMeterFareIncreaseProgress?.progressRate ?? 0) * 100)
+      : Math.round(gpsTimeFareIncrease.progressRate * 100)
+  const timeFareIndicatorLabel =
+    meterMode === 'time'
+      ? (timeMeterFareIncreaseProgress?.label ?? '時間加算まで')
+      : '時間加算まで'
+  const gpsTimeFareElapsedSeconds = Math.max(
     0,
-    Math.round(currentMeterSettings.meterTimeFare.unitSeconds - timeFareIncrease.remainingSeconds),
+    Math.round(
+      currentMeterSettings.meterTimeFare.unitSeconds - gpsTimeFareIncrease.remainingSeconds,
+    ),
   )
   const currentSpeedValueLabel =
     gps.currentSpeedKmh == null ? '取得中...' : gps.currentSpeedKmh.toFixed(1)
@@ -2111,7 +2132,10 @@ export function CasePage() {
     return () => window.clearTimeout(timerId)
   }, [meterModeToast])
 
-  const timeFareElapsedLabel = `${Math.floor(timeFareElapsedSeconds / 60)}分 ${timeFareElapsedSeconds % 60}秒`
+  const timeFareElapsedLabel =
+    meterMode === 'time' && timeMeterFareIncreaseProgress
+      ? formatTimeMeterFareIncreaseProgressLabel(timeMeterFareIncreaseProgress)
+      : `${Math.floor(gpsTimeFareElapsedSeconds / 60)}分 ${gpsTimeFareElapsedSeconds % 60}秒`
   const drivingClockLabel = formatTimerClock(elapsedTimers.seconds.driving)
   const waitingClockLabel = formatTimerClock(adjustedWaitingSeconds, true)
   const accompanyingClockLabel = formatTimerClock(adjustedAccompanyingSeconds, true)
@@ -2164,25 +2188,37 @@ export function CasePage() {
               {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
               <div className="fare-increase-stack" aria-label="加算インジケーター">
-                <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
-                  <span className="fare-increase-icon" aria-hidden="true">●</span>
-                  <div className="fare-increase-content">
-                    <div className="fare-increase-panel__label">
-                      <span>距離加算まで</span>
-                      <strong>{distanceFareElapsedMeters}m / {distanceFareUnitMeters}m</strong>
-                    </div>
-                    <div className="fare-increase-track">
-                      <span style={{ width: `${fareIncreasePercent}%` }} />
-                      <i />
+                {meterMode !== 'time' ? (
+                  <div className={`fare-increase-panel ${status === '走行中' && gps.movementState === 'normal' ? 'fare-increase-panel--active' : ''}`}>
+                    <span className="fare-increase-icon" aria-hidden="true">●</span>
+                    <div className="fare-increase-content">
+                      <div className="fare-increase-panel__label">
+                        <span>距離加算まで</span>
+                        <strong>{distanceFareElapsedMeters}m / {distanceFareUnitMeters}m</strong>
+                      </div>
+                      <div className="fare-increase-track">
+                        <span style={{ width: `${fareIncreasePercent}%` }} />
+                        <i />
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
-                <div className={`fare-increase-panel fare-increase-panel--time ${status === '走行中' && gps.movementState === 'low-speed' ? 'fare-increase-panel--active' : ''}`}>
+                <div
+                  className={`fare-increase-panel fare-increase-panel--time ${
+                    meterMode === 'time'
+                      ? status === '走行中'
+                        ? 'fare-increase-panel--active'
+                        : ''
+                      : status === '走行中' && gps.movementState === 'low-speed'
+                        ? 'fare-increase-panel--active'
+                        : ''
+                  }`}
+                >
                   <span className="fare-increase-icon" aria-hidden="true">◷</span>
                   <div className="fare-increase-content">
                     <div className="fare-increase-panel__label">
-                      <span>時間加算まで</span>
+                      <span>{timeFareIndicatorLabel}</span>
                       <strong>{timeFareElapsedLabel}</strong>
                     </div>
                     <div className="fare-increase-track">
@@ -2195,33 +2231,35 @@ export function CasePage() {
             </section>
 
             <section className="r9-driving-card" aria-label="走行情報">
-              <div className="r9-drive-summary">
-                <div className="r9-speed-gauge">
-                  <span>現在速度</span>
-                  <strong>{currentSpeedValueLabel}</strong>
-                  <em>km/h</em>
+              {meterMode !== 'time' ? (
+                <div className="r9-drive-summary">
+                  <div className="r9-speed-gauge">
+                    <span>現在速度</span>
+                    <strong>{currentSpeedValueLabel}</strong>
+                    <em>km/h</em>
+                  </div>
+                  <button
+                    className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
+                    type="button"
+                    aria-pressed={isBusinessDistanceVisible}
+                    onClick={() => setIsBusinessDistanceVisible((current) => !current)}
+                  >
+                    {isBusinessDistanceVisible ? (
+                      <>
+                        <span>実走行距離（営業距離）</span>
+                        <strong>{gps.businessDistanceKm.toFixed(1)}<em>km</em></strong>
+                        <small>（タップで距離加算距離表示）</small>
+                      </>
+                    ) : (
+                      <>
+                        <span>距離加算距離（運賃距離）</span>
+                        <strong>{gps.chargeableDistanceKm.toFixed(1)}<em>km</em></strong>
+                        <small>（タップで実走行距離表示）</small>
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button
-                  className={`r9-business-distance-toggle ${isBusinessDistanceVisible ? 'r9-business-distance-toggle--open' : ''}`}
-                  type="button"
-                  aria-pressed={isBusinessDistanceVisible}
-                  onClick={() => setIsBusinessDistanceVisible((current) => !current)}
-                >
-                  {isBusinessDistanceVisible ? (
-                    <>
-                      <span>実走行距離（営業距離）</span>
-                      <strong>{gps.businessDistanceKm.toFixed(1)}<em>km</em></strong>
-                      <small>（タップで距離加算距離表示）</small>
-                    </>
-                  ) : (
-                    <>
-                      <span>距離加算距離（運賃距離）</span>
-                      <strong>{gps.chargeableDistanceKm.toFixed(1)}<em>km</em></strong>
-                      <small>（タップで実走行距離表示）</small>
-                    </>
-                  )}
-                </button>
-              </div>
+              ) : null}
 
               <div className="r9-timer-action-grid" aria-label="時間操作">
                 <div className="r9-timer-display">

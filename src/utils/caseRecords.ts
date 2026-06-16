@@ -10,19 +10,6 @@ export function createPrimaryFareReceiptLines(
   caseRecord: StoredCaseRecord,
 ): ReceiptFareLine[] {
   if (caseRecord.meterMode === 'time') {
-    if (caseRecord.timeDiscountEnabled) {
-      return [
-        {
-          label: '時間制運賃',
-          value: `${formatFareYen(caseRecord.legalTimeFare)}円`,
-        },
-        {
-          label: '時間割引',
-          value: `-${formatFareYen(caseRecord.timeDiscountAmount)}円`,
-        },
-      ]
-    }
-
     const timeFareYen =
       caseRecord.actualTimeFare > 0
         ? caseRecord.actualTimeFare
