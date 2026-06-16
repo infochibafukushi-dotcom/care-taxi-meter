@@ -357,10 +357,13 @@ export function calculateFareBreakdown({
       totalFareYen,
       lineItems: [
         { label: '時間制運賃', amountYen: basicFareYen },
-        { label: '待機料金', amountYen: waitingFareYen },
-        { label: '院内付き添い料金', amountYen: escortFareYen },
         { label: '介助料金', amountYen: careOptionFareYen },
+        { label: '待機/付き添い料金', amountYen: waitingFareYen + escortFareYen },
+        { label: '予約・迎車料金', amountYen: dispatchFareYen },
+        { label: '特殊車両料金', amountYen: specialVehicleFareYen },
         { label: '実費', amountYen: expenseFareYen },
+        { label: discountName, amountYen: -disabilityDiscountAmount },
+        { label: 'タクシー券', amountYen: -taxiTicketAmountYen },
       ],
       meterMode: 'time',
       timeMeter: {
