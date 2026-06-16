@@ -12,6 +12,18 @@ export function formatMinutesSeconds(totalSeconds: number) {
 
 const formatClockSegment = (value: number) => value.toString().padStart(2, '0')
 
+export function formatDurationHoursMinutesJapanese(totalSeconds: number) {
+  const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
+  const hours = Math.floor(normalizedSeconds / 3600)
+  const minutes = Math.floor((normalizedSeconds % 3600) / 60)
+
+  return `${hours}時間${String(minutes).padStart(2, '0')}分`
+}
+
+export function formatBreakMinutes(totalSeconds: number) {
+  return `${Math.floor(Math.max(totalSeconds, 0) / 60)}分`
+}
+
 export function formatTimerClock(totalSeconds: number, includesHours = false) {
   const normalizedSeconds = Math.max(Math.floor(totalSeconds), 0)
   const hours = Math.floor(normalizedSeconds / 3600)
