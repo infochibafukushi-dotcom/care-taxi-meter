@@ -13,7 +13,7 @@ import type { StaffMember, Store, WorkSession } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
 import type { AuthStaffSession } from '../services/authSession'
-import { formatElapsedTime, formatBreakMinutes, formatDurationHoursMinutesJapanese } from '../utils/time'
+import { formatBreakMinutes, formatBoundTimeDetail, formatDurationHoursMinutesJapanese } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime, getActualFareYen } from '../utils/caseRecords'
 import {
   calculateBoundSeconds,
@@ -185,12 +185,10 @@ type TodaySalesSummary = Pick<
 
 function TodaySalesModalCards({
   boundSeconds,
-  restLabel,
   restSeconds,
   summary,
 }: {
   boundSeconds: number
-  restLabel: string
   restSeconds: number
   summary: TodaySalesSummary
 }) {
@@ -209,13 +207,12 @@ function TodaySalesModalCards({
       <article className="today-sales-card today-sales-card--bound">
         <p className="today-sales-card__label">拘束時間</p>
         <p className="today-sales-card__value">{formatDurationHoursMinutesJapanese(boundSeconds)}</p>
-        <div className="today-sales-card__details">
-          <p>{restLabel}：{formatBreakMinutes(restSeconds)}</p>
-          <p>実働目安：{formatDurationHoursMinutesJapanese(effectiveWorkSeconds)}</p>
-        </div>
+        <p className="today-sales-card__details">
+          {formatBoundTimeDetail(restSeconds, effectiveWorkSeconds)}
+        </p>
       </article>
       <article className="today-sales-card">
-        <p className="today-sales-card__label">今月の売上</p>
+        <p className="today-sales-card__label">今月売上</p>
         <p className="today-sales-card__value">{formatFareYen(summary.monthSalesYen)}円</p>
       </article>
       <article className="today-sales-card">
@@ -490,16 +487,24 @@ export function HomePage() {
     [currentSessionId, currentStaffId, dashboardRecordsState.records],
   )
 
-  const todaySalesBoundSeconds = currentSession
-    ? calculateBoundSeconds({
-        clockInAt: currentSession.clockInAt,
-        clockOutAt: null,
-      })
-    : todayWorkSeconds
-  const todaySalesRestBreak = resolveRestBreak({
-    boundSeconds: todaySalesBoundSeconds,
-    workSession: currentSession,
-  })
+  const workTimeMetrics = useMemo(() => {
+    const boundSeconds = currentSession
+      ? calculateBoundSeconds({
+          clockInAt: currentSession.clockInAt,
+          clockOutAt: null,
+        })
+      : todayWorkSeconds
+    const { restSeconds } = resolveRestBreak({
+      boundSeconds,
+      workSession: currentSession,
+    })
+
+    return {
+      boundSeconds,
+      effectiveWorkSeconds: calculateEffectiveWorkSeconds(boundSeconds, restSeconds),
+      restSeconds,
+    }
+  }, [currentSession, elapsedSeconds, todayWorkSeconds])
 
   const handleRestoreActiveTrip = () => {
     navigate('/case')
@@ -721,10 +726,18 @@ export function HomePage() {
           <section className="work-dashboard-grid dashboard-status-grid" aria-label="勤務状況">
             <div><span>会社</span><strong>{dashboardCompanyName}</strong></div>
             <div><span>店舗</span><strong>{dashboardStoreName}</strong></div>
-            <div><span>担当</span><strong>{dashboardStaffName}</strong></div>
-            <div><span>出勤</span><strong>{currentSession ? formatCaseDateTime(currentSession.clockInAt) : '未出勤'}</strong></div>
-            <div><span>勤務時間</span><strong>{currentSession ? formatElapsedTime(elapsedSeconds) : '00:00:00'}</strong></div>
-            <div><span>出勤状態</span><strong>{currentSession ? '● 出勤中' : '○ 未出勤'}</strong></div>
+            <div><span>担当者</span><strong>{dashboardStaffName}</strong></div>
+            {currentSession ? (
+              <>
+                <div><span>出勤</span><strong>{formatCaseDateTime(currentSession.clockInAt)}</strong></div>
+                <div><span>出勤状態</span><strong>● 出勤中</strong></div>
+                <div><span>拘束時間</span><strong>{formatDurationHoursMinutesJapanese(workTimeMetrics.boundSeconds)}</strong></div>
+                <div><span>法定休憩</span><strong>{formatBreakMinutes(workTimeMetrics.restSeconds)}</strong></div>
+                <div><span>実働目安</span><strong>{formatDurationHoursMinutesJapanese(workTimeMetrics.effectiveWorkSeconds)}</strong></div>
+              </>
+            ) : (
+              <div><span>出勤状態</span><strong>○ 未出勤</strong></div>
+            )}
           </section>
         </div>
         {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
@@ -838,9 +851,8 @@ export function HomePage() {
             {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
             {!isTodaySalesLoading && !dashboardRecordsState.errorMessage ? (
               <TodaySalesModalCards
-                boundSeconds={todaySalesBoundSeconds}
-                restLabel={todaySalesRestBreak.restLabel}
-                restSeconds={todaySalesRestBreak.restSeconds}
+                boundSeconds={workTimeMetrics.boundSeconds}
+                restSeconds={workTimeMetrics.restSeconds}
                 summary={dashboardSummary}
               />
             ) : null}

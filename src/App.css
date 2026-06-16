@@ -4784,15 +4784,9 @@ h1 {
 }
 
 .today-sales-card__details {
-  display: grid;
-  gap: 4px;
   margin-top: 10px;
   color: #475569;
   font-size: 0.88rem;
-}
-
-.today-sales-card__details p {
-  margin: 0;
 }
 
 .today-sales-card--bound .today-sales-card__value {
