@@ -13,8 +13,13 @@ import type { StaffMember, Store, WorkSession } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
 import type { AuthStaffSession } from '../services/authSession'
-import { formatElapsedTime } from '../utils/time'
+import { formatElapsedTime, formatBreakMinutes, formatDurationHoursMinutesJapanese } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime, getActualFareYen } from '../utils/caseRecords'
+import {
+  calculateBoundSeconds,
+  calculateEffectiveWorkSeconds,
+  resolveRestBreak,
+} from '../utils/workSessionMetrics'
 import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
 
 const defaultCompanyName = defaultCompany.name
@@ -173,35 +178,50 @@ const calculateSummary = ({
   }
 }
 
-const hasTodayPerformance = (summary: ReturnType<typeof calculateSummary>) =>
-  summary.todayCount > 0 ||
-  summary.todaySalesYen > 0 ||
-  summary.todayDistanceKm > 0 ||
-  summary.todayDrivingSeconds > 0 ||
-  summary.todayWaitingSeconds > 0 ||
-  summary.todayAccompanyingSeconds > 0
+type TodaySalesSummary = Pick<
+  ReturnType<typeof calculateSummary>,
+  'monthCount' | 'monthSalesYen' | 'todayCount' | 'todaySalesYen'
+>
 
-type TodayPerformanceSummary = ReturnType<typeof calculateSummary>
-
-function TodayPerformanceGrid({
+function TodaySalesModalCards({
+  boundSeconds,
+  restLabel,
+  restSeconds,
   summary,
-  workSeconds,
 }: {
-  summary: TodayPerformanceSummary
-  workSeconds: number
+  boundSeconds: number
+  restLabel: string
+  restSeconds: number
+  summary: TodaySalesSummary
 }) {
+  const effectiveWorkSeconds = calculateEffectiveWorkSeconds(boundSeconds, restSeconds)
+
   return (
-    <div className="work-dashboard-grid">
-      <div><span>案件数</span><strong>{summary.todayCount}件</strong></div>
-      <div><span>売上</span><strong>{formatFareYen(summary.todaySalesYen)}円</strong></div>
-      <div><span>走行距離</span><strong>{summary.todayDistanceKm.toFixed(1)}km</strong></div>
-      <div><span>運転時間</span><strong>{formatElapsedTime(summary.todayDrivingSeconds)}</strong></div>
-      <div><span>待機時間</span><strong>{formatElapsedTime(summary.todayWaitingSeconds)}</strong></div>
-      <div><span>付き添い時間</span><strong>{formatElapsedTime(summary.todayAccompanyingSeconds)}</strong></div>
-      <div><span>勤務時間</span><strong>{formatElapsedTime(workSeconds)}</strong></div>
-      <div><span>平均単価</span><strong>{formatFareYen(summary.averageYen)}円</strong></div>
-      <div><span>今月売上</span><strong>{formatFareYen(summary.monthSalesYen)}円</strong></div>
-      <div><span>今月件数</span><strong>{summary.monthCount}件</strong></div>
+    <div className="today-sales-cards">
+      <article className="today-sales-card">
+        <p className="today-sales-card__label">本日の売上</p>
+        <p className="today-sales-card__value">{formatFareYen(summary.todaySalesYen)}円</p>
+      </article>
+      <article className="today-sales-card">
+        <p className="today-sales-card__label">本日の件数</p>
+        <p className="today-sales-card__value">{summary.todayCount}件</p>
+      </article>
+      <article className="today-sales-card today-sales-card--bound">
+        <p className="today-sales-card__label">拘束時間</p>
+        <p className="today-sales-card__value">{formatDurationHoursMinutesJapanese(boundSeconds)}</p>
+        <div className="today-sales-card__details">
+          <p>{restLabel}：{formatBreakMinutes(restSeconds)}</p>
+          <p>実働目安：{formatDurationHoursMinutesJapanese(effectiveWorkSeconds)}</p>
+        </div>
+      </article>
+      <article className="today-sales-card">
+        <p className="today-sales-card__label">今月の売上</p>
+        <p className="today-sales-card__value">{formatFareYen(summary.monthSalesYen)}円</p>
+      </article>
+      <article className="today-sales-card">
+        <p className="today-sales-card__label">今月件数</p>
+        <p className="today-sales-card__value">{summary.monthCount}件</p>
+      </article>
     </div>
   )
 }
@@ -470,7 +490,16 @@ export function HomePage() {
     [currentSessionId, currentStaffId, dashboardRecordsState.records],
   )
 
-  const todaySalesWorkSeconds = currentSession ? elapsedSeconds : todayWorkSeconds
+  const todaySalesBoundSeconds = currentSession
+    ? calculateBoundSeconds({
+        clockInAt: currentSession.clockInAt,
+        clockOutAt: null,
+      })
+    : todayWorkSeconds
+  const todaySalesRestBreak = resolveRestBreak({
+    boundSeconds: todaySalesBoundSeconds,
+    workSession: currentSession,
+  })
 
   const handleRestoreActiveTrip = () => {
     navigate('/case')
@@ -697,13 +726,6 @@ export function HomePage() {
             <div><span>勤務時間</span><strong>{currentSession ? formatElapsedTime(elapsedSeconds) : '00:00:00'}</strong></div>
             <div><span>出勤状態</span><strong>{currentSession ? '● 出勤中' : '○ 未出勤'}</strong></div>
           </section>
-          <section className="work-dashboard-grid dashboard-results-grid" aria-label="本日実績">
-            <div><span>本日件数</span><strong>{dashboardSummary.todayCount}件</strong></div>
-            <div><span>本日売上</span><strong>{formatFareYen(dashboardSummary.todaySalesYen)}円</strong></div>
-            <div><span>本日走行距離</span><strong>{dashboardSummary.todayDistanceKm.toFixed(1)}km</strong></div>
-            <div><span>本日待機時間</span><strong>{formatElapsedTime(dashboardSummary.todayWaitingSeconds)}</strong></div>
-            <div><span>本日付き添い時間</span><strong>{formatElapsedTime(dashboardSummary.todayAccompanyingSeconds)}</strong></div>
-          </section>
         </div>
         {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
         <p className="save-note">{loginMessage}</p>
@@ -815,11 +837,12 @@ export function HomePage() {
             {isTodaySalesLoading ? <p className="empty-note">実績を取得中です。</p> : null}
             {dashboardRecordsState.errorMessage ? <p className="case-error">{dashboardRecordsState.errorMessage}</p> : null}
             {!isTodaySalesLoading && !dashboardRecordsState.errorMessage ? (
-              hasTodayPerformance(dashboardSummary) || todaySalesWorkSeconds > 0 ? (
-                <TodayPerformanceGrid summary={dashboardSummary} workSeconds={todaySalesWorkSeconds} />
-              ) : (
-                <p className="empty-note">本日の実績はありません</p>
-              )
+              <TodaySalesModalCards
+                boundSeconds={todaySalesBoundSeconds}
+                restLabel={todaySalesRestBreak.restLabel}
+                restSeconds={todaySalesRestBreak.restSeconds}
+                summary={dashboardSummary}
+              />
             ) : null}
           </section>
         </div>
