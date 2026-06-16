@@ -15,6 +15,10 @@ import {
   emptyCapturedAddressLocation,
   type CapturedAddressLocation,
 } from '../utils/reverseGeocode'
+import {
+  createEmptyPaymentAmounts,
+  isProtectedOperationStatus,
+} from '../utils/meterConstants'
 
 export const activeTripSnapshotStorageKey = 'careTaxiMeterActiveTripSnapshot'
 
@@ -70,25 +74,6 @@ const activeTimerMap: Partial<Record<OperationStatus, TimerKey>> = {
   待機中: 'waiting',
   院内付き添い中: 'accompanying',
 }
-
-const protectedOperationStatuses = new Set<OperationStatus>([
-  '走行中',
-  '待機中',
-  '院内付き添い中',
-  '精算前',
-  '精算修正',
-])
-
-const createEmptyPaymentAmounts = (): Record<PaymentMethod, number> => ({
-  QR決済: 0,
-  その他: 0,
-  クレジット: 0,
-  現金: 0,
-  請求書: 0,
-})
-
-const isProtectedOperationStatus = (value: unknown): value is OperationStatus =>
-  typeof value === 'string' && protectedOperationStatuses.has(value as OperationStatus)
 
 const toFiniteSnapshotNumber = (value: unknown, fallback = 0) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
