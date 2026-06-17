@@ -7113,3 +7113,34 @@ h1 {
 .fare-settings-accordion > .admin-settings-grid {
   padding: 0 16px 16px;
 }
+
+.r9-top-return-fab {
+  position: fixed;
+  right: clamp(12px, 2.4vw, 20px);
+  bottom: clamp(12px, 2.4vh, 20px);
+  z-index: 120;
+  min-width: 112px;
+  padding: 12px 18px;
+  border: 1px solid rgb(59 130 246 / 72%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at top left, rgb(30 64 175 / 36%), transparent 52%),
+    linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  box-shadow:
+    0 8px 24px rgb(2 6 23 / 48%),
+    inset 0 0 0 1px rgb(255 255 255 / 8%);
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.r9-top-return-fab:active {
+  transform: scale(0.97);
+}
+
+.r9-top-return-fab:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
