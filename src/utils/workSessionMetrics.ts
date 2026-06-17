@@ -1,9 +1,3 @@
-type WorkSessionRestSource = {
-  restSeconds?: number
-  breakSeconds?: number
-  breakTimeSeconds?: number
-}
-
 const getOptionalNumber = (source: unknown, keys: string[]) => {
   if (!source || typeof source !== 'object') {
     return 0
@@ -17,7 +11,7 @@ const getOptionalNumber = (source: unknown, keys: string[]) => {
   return typeof matchedValue === 'number' ? Math.max(Math.floor(matchedValue), 0) : 0
 }
 
-export const getWorkSessionRestSeconds = (workSession: WorkSessionRestSource | null | undefined) =>
+export const getWorkSessionRestSeconds = (workSession: unknown) =>
   getOptionalNumber(workSession, ['restSeconds', 'breakSeconds', 'breakTimeSeconds'])
 
 export const calculateAutoBreakSeconds = (boundSeconds: number) => {
@@ -67,7 +61,7 @@ export const resolveRestBreak = ({
   workSession,
 }: {
   boundSeconds: number
-  workSession?: WorkSessionRestSource | null
+  workSession?: unknown
 }) => {
   const actualRestSeconds = getWorkSessionRestSeconds(workSession)
 
