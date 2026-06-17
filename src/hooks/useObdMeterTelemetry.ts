@@ -59,6 +59,18 @@ type UseObdMeterTelemetryOptions = {
   sessionResetKey?: number
 }
 
+const START_READY_PHASES = new Set<ObdConnectionPhase>(['connected', 'stabilizing', 'reconnecting'])
+
+export const isObdStartReadyPhase = (phase: ObdConnectionPhase) => START_READY_PHASES.has(phase)
+
+export const isObdBleLinkUp = (connection: ObdConnection | null) => Boolean(connection?.isConnected())
+
+export const isObdConnectedForStartState = (
+  phase: ObdConnectionPhase,
+  bleConnected: boolean,
+  connection: ObdConnection | null,
+) => bleConnected && isObdBleLinkUp(connection) && isObdStartReadyPhase(phase)
+
 const deriveMovementState = (
   speedKmh: number | null,
   lowSpeedThresholdKmh: number,
@@ -318,25 +330,61 @@ export function useObdMeterTelemetry({
     const isInitialTripConnect = options?.isInitialTripConnect ?? false
     const isReconnect = options?.isReconnect ?? false
 
+    const logConnectResult = (
+      connected: boolean,
+      snapshot?: {
+        connectionPhase?: ObdConnectionPhase
+        isBleConnected?: boolean
+        isStableForTelemetry?: boolean
+      },
+    ) => {
+      if (!isInitialTripConnect) {
+        return
+      }
+
+      const phase = snapshot?.connectionPhase ?? connectionPhase
+      const bleConnected = snapshot?.isBleConnected ?? isBleConnected
+      const stableForTelemetry = snapshot?.isStableForTelemetry ?? isStableForTelemetry
+
+      console.log('[OBDM] connect() 送迎開始接続', {
+        connected,
+        connectionPhase: phase,
+        isBleConnected: bleConnected,
+        isObdConnectedForStart: isObdConnectedForStartState(
+          phase,
+          bleConnected,
+          connectionRef.current,
+        ),
+        isObdStableForTelemetry: stableForTelemetry,
+      })
+    }
+
     if (!isEnabled) {
+      logConnectResult(false)
+      return false
+    }
+
+    if (connectionPhase === 'connecting') {
+      logConnectResult(false)
       return false
     }
 
     if (
-      connectionPhase === 'connecting' ||
-      connectionPhase === 'reconnecting' ||
-      connectionPhase === 'stabilizing'
+      isObdConnectedForStartState(connectionPhase, isBleConnected, connectionRef.current)
     ) {
-      return false
+      logConnectResult(true)
+      return true
     }
 
-    if (connectionRef.current?.isConnected()) {
-      return isStableForTelemetry
+    if (connectionPhase === 'reconnecting' || connectionPhase === 'stabilizing') {
+      logConnectResult(false)
+      return false
     }
 
     if (!navigator.bluetooth) {
       setErrorMessage('このブラウザは Web Bluetooth に対応していません')
       setConnectionPhase('disconnected')
+      logConnectResult(false)
       return false
     }
 
@@ -378,6 +426,7 @@ export function useObdMeterTelemetry({
           if (isReconnect || isTripActive) {
             scheduleReconnect()
           }
+          logConnectResult(false)
           return false
         }
 
@@ -401,7 +450,12 @@ export function useObdMeterTelemetry({
 
       reconnectAttemptRef.current = 0
       clearReconnectTimer()
-      return !shouldStabilize
+      logConnectResult(true, {
+        connectionPhase: shouldStabilize ? 'stabilizing' : 'connected',
+        isBleConnected: true,
+        isStableForTelemetry: !shouldStabilize,
+      })
+      return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
       pushLog({
@@ -422,12 +476,14 @@ export function useObdMeterTelemetry({
         scheduleReconnect()
       }
 
+      logConnectResult(false)
       return false
     }
   }, [
     clearReconnectTimer,
     connectionPhase,
     handleStableConnection,
+    isBleConnected,
     isEnabled,
     isStableForTelemetry,
     isTripActive,
@@ -509,6 +565,11 @@ export function useObdMeterTelemetry({
     isBleConnected ||
     connectionPhase === 'connected' ||
     connectionPhase === 'stabilizing'
+  const isConnectedForStart = isObdConnectedForStartState(
+    connectionPhase,
+    isBleConnected,
+    connectionRef.current,
+  )
   const speedSource: SpeedSource = isStableForTelemetry ? 'obd' : 'unavailable'
 
   const obdMeterStatus: ObdMeterStatus = (() => {
@@ -541,23 +602,31 @@ export function useObdMeterTelemetry({
       return { label: 'OBD復帰', variant: 'recovered', visible: true }
     }
 
-    if (connectionPhase === 'connecting') {
-      return { label: 'OBD接続中…', variant: 'connecting', visible: true }
+    if (isStableForTelemetry && isTripActive) {
+      return { label: 'OBD状態：OBD計測中', variant: 'connected', visible: true }
     }
 
-    if (connectionPhase === 'reconnecting' || connectionPhase === 'stabilizing') {
-      return { label: 'OBD再接続中', variant: 'reconnecting', visible: true }
+    if (isTripActive && isConnectedForStart && !isStableForTelemetry) {
+      return { label: 'OBD計測未安定（GPS補正中）', variant: 'reconnecting', visible: true }
     }
 
-    if (isStableForTelemetry) {
-      return { label: 'OBD接続中', variant: 'connected', visible: true }
+    if (connectionPhase === 'connecting' || connectionPhase === 'reconnecting') {
+      return { label: 'OBD状態：接続中', variant: 'connecting', visible: true }
     }
 
-    if (connectionPhase === 'disconnected' && (isTripActive || requiresStabilization)) {
+    if (connectionPhase === 'stabilizing') {
+      return { label: 'OBD状態：安定化中', variant: 'reconnecting', visible: true }
+    }
+
+    if (isConnectedForStart) {
+      return { label: 'OBD状態：接続済み', variant: 'connected', visible: true }
+    }
+
+    if (connectionPhase === 'disconnected' && isTripActive) {
       return { label: 'OBD切断（GPS補正中）', variant: 'disconnected', visible: true }
     }
 
-    return { label: '', variant: 'disconnected', visible: false }
+    return { label: 'OBD状態：未接続', variant: 'disconnected', visible: true }
   })()
 
   return {
@@ -569,7 +638,9 @@ export function useObdMeterTelemetry({
     disconnect,
     errorMessage,
     indicator,
+    isBleConnected,
     isConnected,
+    isConnectedForStart,
     isStableForTelemetry,
     logs,
     lowSpeedSeconds,
