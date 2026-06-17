@@ -150,8 +150,8 @@ function createReceiptCanvas(
   const statementTitle =
     settings.receipt.statementDefault.trim() ||
     defaultMeterSettings.receipt.statementDefault
-  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
-  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const tradeName = settings.company.tradeName.trim() || settings.company.corporateName.trim()
+  const corporateName = settings.company.corporateName.trim()
   const address = [settings.company.postalCode ? `〒${settings.company.postalCode}` : '', settings.company.address].filter((line) => line.trim()).join(' ')
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()

@@ -134,8 +134,8 @@ function createStatementCanvas(
     throw new Error('利用明細書PDFの作成に失敗しました。')
   }
 
-  const tradeName = settings.company.tradeName.trim() || settings.company.companyName.trim() || '介護タクシーメーター'
-  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const tradeName = settings.company.tradeName.trim() || settings.company.corporateName.trim()
+  const corporateName = settings.company.corporateName.trim()
   const title = settings.receipt.statementDefault.trim() || defaultMeterSettings.receipt.statementDefault || '利用明細書'
   const customerName = issueOptions.customerName.trim()
   const issuerName = issueOptions.issuerName.trim()
