@@ -1,3 +1,4 @@
+import { getLastObdDevice, saveLastObdDevice } from './obdDeviceStorage'
 import { parseEngineRpm, parseVehicleSpeed } from '../utils/obdPidParser'
 
 export const OBD_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb'
@@ -104,7 +105,12 @@ export class ObdConnection {
     }
 
     const permittedDevices = await navigator.bluetooth.getDevices()
-    const device = permittedDevices.find((candidate) => isObdDeviceName(candidate.name))
+    const lastDevice = getLastObdDevice()
+    const device =
+      (lastDevice
+        ? permittedDevices.find((candidate) => candidate.id === lastDevice.id)
+        : undefined) ??
+      permittedDevices.find((candidate) => isObdDeviceName(candidate.name))
 
     if (!device) {
       return false
@@ -157,6 +163,7 @@ export class ObdConnection {
     this.notifyCharacteristic = notifyCharacteristic
     this.writeCharacteristic = writeCharacteristic
 
+    saveLastObdDevice(device)
     this.onLog(createLogEntry('info', '接続成功'))
   }
 

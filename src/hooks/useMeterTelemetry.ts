@@ -11,37 +11,43 @@ import type { MeterMode } from '../types/case'
 type UseMeterTelemetryOptions = {
   initialObdState?: InitialObdMeterState
   isActive: boolean
+  isDistanceAccumulating?: boolean
   isTripStarted: boolean
   lowSpeedThresholdKmh: number
   meterMode: MeterMode
   meterResetKey?: number
+  sessionResetKey?: number
 }
 
 export function useMeterTelemetry({
   initialObdState,
   isActive,
+  isDistanceAccumulating = true,
   isTripStarted,
   lowSpeedThresholdKmh,
   meterMode,
   meterResetKey = 0,
+  sessionResetKey = 0,
 }: UseMeterTelemetryOptions) {
   const isObdMode = meterMode === 'obd'
 
   const gpsRaw = useCurrentPosition(
     isActive,
     lowSpeedThresholdKmh,
-    isActive,
-    isActive,
+    isDistanceAccumulating,
+    isDistanceAccumulating,
     {},
-    meterResetKey,
+    sessionResetKey,
   )
 
   const obd = useObdMeterTelemetry({
     initialState: initialObdState,
+    isDistanceAccumulating,
     isEnabled: isObdMode,
     isTripActive: isActive && isObdMode,
     lowSpeedThresholdKmh,
     resetKey: meterResetKey,
+    sessionResetKey,
   })
   const disconnectObdTelemetry = obd.disconnect
 
@@ -82,5 +88,6 @@ export function useMeterTelemetry({
     obdConnectionPhase: obd.connectionPhase,
     obdErrorMessage: obd.errorMessage,
     obdIndicator,
+    obdMeterStatus: obd.obdMeterStatus,
   }
 }

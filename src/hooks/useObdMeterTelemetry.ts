@@ -9,6 +9,7 @@ import {
 const POLL_INTERVAL_MS = 1000
 const STABLE_POLLS_REQUIRED = 5
 const RECOVERED_FLASH_MS = 3000
+const RECONNECT_DELAYS_MS = [5000, 10000, 30000, 60000] as const
 
 export type ObdConnectionPhase =
   | 'idle'
@@ -24,6 +25,8 @@ export type ObdIndicatorVariant =
   | 'reconnecting'
   | 'disconnected'
   | 'recovered'
+
+export type ObdMeterStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 export type ObdIndicatorState = {
   label: string
@@ -48,10 +51,12 @@ export type ObdConnectOptions = {
 type UseObdMeterTelemetryOptions = {
   enableLogging?: boolean
   initialState?: InitialObdMeterState
+  isDistanceAccumulating?: boolean
   isEnabled: boolean
   isTripActive: boolean
   lowSpeedThresholdKmh: number
   resetKey?: number
+  sessionResetKey?: number
 }
 
 const deriveMovementState = (
@@ -68,16 +73,23 @@ const deriveMovementState = (
 export function useObdMeterTelemetry({
   enableLogging = false,
   initialState = {},
+  isDistanceAccumulating = true,
   isEnabled,
   isTripActive,
   lowSpeedThresholdKmh,
   resetKey = 0,
+  sessionResetKey = 0,
 }: UseObdMeterTelemetryOptions) {
   const connectionRef = useRef<ObdConnection | null>(null)
   const pollTimerRef = useRef<number | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const reconnectAttemptRef = useRef(0)
   const isInitialResetRenderRef = useRef(true)
+  const isInitialSessionResetRenderRef = useRef(true)
   const stablePollCountRef = useRef(0)
   const recoveredFlashTimerRef = useRef<number | null>(null)
+  const isDistanceAccumulatingRef = useRef(isDistanceAccumulating)
+  const connectRef = useRef<(options?: ObdConnectOptions) => Promise<boolean>>(async () => false)
 
   const [connectionPhase, setConnectionPhase] = useState<ObdConnectionPhase>('idle')
   const [isBleConnected, setIsBleConnected] = useState(false)
@@ -93,6 +105,7 @@ export function useObdMeterTelemetry({
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [logs, setLogs] = useState<ObdLogEntry[]>([])
+  const [isAutoReconnectPending, setIsAutoReconnectPending] = useState(false)
 
   const pushLog = useCallback((entry: ObdLogEntry) => {
     if (!enableLogging) {
@@ -109,11 +122,24 @@ export function useObdMeterTelemetry({
     }
   }, [])
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
       window.clearInterval(pollTimerRef.current)
       pollTimerRef.current = null
     }
+  }, [])
+
+  const resetSessionMetrics = useCallback(() => {
+    setBusinessDistanceKm(0)
+    setChargeableDistanceKm(0)
+    setLowSpeedSeconds(0)
   }, [])
 
   const markDisconnected = useCallback((message?: string) => {
@@ -133,8 +159,27 @@ export function useObdMeterTelemetry({
     }
   }, [isTripActive, stopPolling])
 
+  const scheduleReconnect = useCallback(() => {
+    if (!isEnabled || !isTripActive) {
+      return
+    }
+
+    clearReconnectTimer()
+    setIsAutoReconnectPending(true)
+    const delayIndex = Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS_MS.length - 1)
+    const delayMs = RECONNECT_DELAYS_MS[delayIndex]
+
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null
+      reconnectAttemptRef.current += 1
+      void connectRef.current({ interactive: false, isReconnect: true })
+    }, delayMs)
+  }, [clearReconnectTimer, isEnabled, isTripActive])
+
   const resetTelemetry = useCallback(() => {
     stopPolling()
+    clearReconnectTimer()
+    reconnectAttemptRef.current = 0
     clearRecoveredFlashTimer()
     connectionRef.current?.setDisconnectedHandler(null)
     connectionRef.current = null
@@ -150,14 +195,18 @@ export function useObdMeterTelemetry({
     setLowSpeedSeconds(0)
     setMovementState('unknown')
     setErrorMessage(null)
+    setIsAutoReconnectPending(false)
     if (enableLogging) {
       setLogs([])
     }
-  }, [clearRecoveredFlashTimer, enableLogging, stopPolling])
+  }, [clearRecoveredFlashTimer, clearReconnectTimer, enableLogging, stopPolling])
 
   const handleStableConnection = useCallback(() => {
     setIsStableForTelemetry(true)
     setConnectionPhase('connected')
+    reconnectAttemptRef.current = 0
+    clearReconnectTimer()
+    setIsAutoReconnectPending(false)
 
     if (requiresStabilization) {
       setRequiresStabilization(false)
@@ -168,7 +217,7 @@ export function useObdMeterTelemetry({
         recoveredFlashTimerRef.current = null
       }, RECOVERED_FLASH_MS)
     }
-  }, [clearRecoveredFlashTimer, requiresStabilization])
+  }, [clearRecoveredFlashTimer, clearReconnectTimer, requiresStabilization])
 
   const registerStablePoll = useCallback(() => {
     if (!requiresStabilization) {
@@ -195,6 +244,10 @@ export function useObdMeterTelemetry({
       registerStablePoll()
 
       if (nextSpeedKmh == null) {
+        return
+      }
+
+      if (!isDistanceAccumulatingRef.current) {
         return
       }
 
@@ -226,6 +279,8 @@ export function useObdMeterTelemetry({
 
   const disconnect = useCallback(async () => {
     stopPolling()
+    clearReconnectTimer()
+    reconnectAttemptRef.current = 0
     clearRecoveredFlashTimer()
 
     const connection = connectionRef.current
@@ -255,7 +310,8 @@ export function useObdMeterTelemetry({
     setCurrentSpeedKmh(null)
     setMovementState('unknown')
     setErrorMessage(null)
-  }, [clearRecoveredFlashTimer, pushLog, stopPolling])
+    setIsAutoReconnectPending(false)
+  }, [clearRecoveredFlashTimer, clearReconnectTimer, pushLog, stopPolling])
 
   const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
     const interactive = options?.interactive ?? true
@@ -309,6 +365,7 @@ export function useObdMeterTelemetry({
         type: 'info',
       })
       markDisconnected()
+      scheduleReconnect()
     })
     connectionRef.current = connection
 
@@ -318,6 +375,9 @@ export function useObdMeterTelemetry({
         if (!interactive) {
           markDisconnected()
           connectionRef.current = null
+          if (isReconnect || isTripActive) {
+            scheduleReconnect()
+          }
           return false
         }
 
@@ -339,6 +399,8 @@ export function useObdMeterTelemetry({
         void pollTelemetry()
       }
 
+      reconnectAttemptRef.current = 0
+      clearReconnectTimer()
       return !shouldStabilize
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
@@ -356,9 +418,14 @@ export function useObdMeterTelemetry({
         // Ignore cleanup errors after a failed connect.
       }
 
+      if (isReconnect || isTripActive) {
+        scheduleReconnect()
+      }
+
       return false
     }
   }, [
+    clearReconnectTimer,
     connectionPhase,
     handleStableConnection,
     isEnabled,
@@ -367,8 +434,13 @@ export function useObdMeterTelemetry({
     markDisconnected,
     pollTelemetry,
     pushLog,
+    scheduleReconnect,
     startPolling,
   ])
+
+  useEffect(() => {
+    isDistanceAccumulatingRef.current = isDistanceAccumulating
+  }, [isDistanceAccumulating])
 
   useEffect(() => {
     if (!isTripActive || !connectionRef.current?.isConnected()) {
@@ -396,8 +468,30 @@ export function useObdMeterTelemetry({
     return () => window.clearTimeout(resetTimerId)
   }, [resetKey, resetTelemetry])
 
+  useEffect(() => {
+    if (isInitialSessionResetRenderRef.current) {
+      isInitialSessionResetRenderRef.current = false
+      return undefined
+    }
+
+    const resetTimerId = window.setTimeout(() => {
+      resetSessionMetrics()
+    }, 0)
+
+    return () => window.clearTimeout(resetTimerId)
+  }, [resetSessionMetrics, sessionResetKey])
+
+  useEffect(() => {
+    if (!isEnabled || !isTripActive) {
+      clearReconnectTimer()
+      reconnectAttemptRef.current = 0
+      setIsAutoReconnectPending(false)
+    }
+  }, [clearReconnectTimer, isEnabled, isTripActive])
+
   useEffect(() => () => {
     stopPolling()
+    clearReconnectTimer()
     clearRecoveredFlashTimer()
     const connection = connectionRef.current
     connectionRef.current = null
@@ -405,13 +499,34 @@ export function useObdMeterTelemetry({
       connection.setDisconnectedHandler(null)
       void connection.disconnect()
     }
-  }, [clearRecoveredFlashTimer, stopPolling])
+  }, [clearRecoveredFlashTimer, clearReconnectTimer, stopPolling])
 
   const isConnected =
     isBleConnected ||
     connectionPhase === 'connected' ||
     connectionPhase === 'stabilizing'
   const speedSource: SpeedSource = isStableForTelemetry ? 'obd' : 'unavailable'
+
+  const obdMeterStatus: ObdMeterStatus = (() => {
+    if (!isEnabled) {
+      return 'disconnected'
+    }
+
+    if (isStableForTelemetry) {
+      return 'connected'
+    }
+
+    if (
+      connectionPhase === 'connecting' ||
+      connectionPhase === 'reconnecting' ||
+      connectionPhase === 'stabilizing' ||
+      isAutoReconnectPending
+    ) {
+      return 'reconnecting'
+    }
+
+    return 'disconnected'
+  })()
 
   const indicator = ((): ObdIndicatorState => {
     if (!isEnabled) {
@@ -455,6 +570,7 @@ export function useObdMeterTelemetry({
     logs,
     lowSpeedSeconds,
     movementState,
+    obdMeterStatus,
     speedSource,
   }
 }
