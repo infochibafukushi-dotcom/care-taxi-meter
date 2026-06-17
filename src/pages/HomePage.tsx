@@ -18,6 +18,7 @@ import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime, getActu
 import {
   calculateBoundSeconds,
   calculateEffectiveWorkSeconds,
+  calculateTodayOperatingSeconds,
   resolveRestBreak,
 } from '../utils/workSessionMetrics'
 import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
@@ -498,13 +499,30 @@ export function HomePage() {
       boundSeconds,
       workSession: currentSession,
     })
+    const todayRange = getTodayRangeInJapan()
+    const operatingSeconds = calculateTodayOperatingSeconds({
+      records: dashboardRecordsState.records,
+      staffId: currentStaffId,
+      currentSessionId,
+      todayStartIso: todayRange.startIso,
+      todayEndIso: todayRange.endIso,
+      activeTripStartedAt: activeTripSnapshot?.operationStartedAt,
+    })
 
     return {
       boundSeconds,
-      effectiveWorkSeconds: calculateEffectiveWorkSeconds(boundSeconds, restSeconds),
+      operatingSeconds,
       restSeconds,
     }
-  }, [currentSession, elapsedSeconds, todayWorkSeconds])
+  }, [
+    activeTripSnapshot?.operationStartedAt,
+    currentSession,
+    currentSessionId,
+    currentStaffId,
+    dashboardRecordsState.records,
+    elapsedSeconds,
+    todayWorkSeconds,
+  ])
 
   const handleRestoreActiveTrip = () => {
     navigate('/case')
@@ -733,7 +751,7 @@ export function HomePage() {
                 <div><span>出勤状態</span><strong>● 出勤中</strong></div>
                 <div><span>拘束時間</span><strong>{formatDurationHoursMinutesJapanese(workTimeMetrics.boundSeconds)}</strong></div>
                 <div><span>法定休憩</span><strong>{formatBreakMinutes(workTimeMetrics.restSeconds)}</strong></div>
-                <div><span>実働目安</span><strong>{formatDurationHoursMinutesJapanese(workTimeMetrics.effectiveWorkSeconds)}</strong></div>
+                <div><span>運行時間</span><strong>{formatDurationHoursMinutesJapanese(workTimeMetrics.operatingSeconds)}</strong></div>
               </>
             ) : (
               <div><span>出勤状態</span><strong>○ 未出勤</strong></div>
