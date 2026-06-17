@@ -118,8 +118,8 @@ function createThermalReceiptCanvas(
     throw new Error('レシートPDFの作成に失敗しました。')
   }
 
-  const companyName = settings.company.tradeName.trim() || settings.company.companyName.trim() || 'ちばケアタクシー'
-  const corporateName = settings.company.corporateName.trim() || settings.company.companyName.trim()
+  const companyName = settings.company.tradeName.trim() || settings.company.corporateName.trim()
+  const corporateName = settings.company.corporateName.trim()
   const customerName = issueOptions.customerName.trim()
   const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const receiptNote = issueOptions.receiptNote.trim()
