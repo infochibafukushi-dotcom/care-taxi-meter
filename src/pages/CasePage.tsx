@@ -739,8 +739,8 @@ export function CasePage() {
   const canEditCharges = status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving')
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
-  const canAddDispatchCharge = canEditCharges && selectedDispatchCharges.length === 0
-  const canAddSpecialVehicleCharge = canEditCharges && selectedSpecialVehicleCharges.length === 0
+  const canAddDispatchCharge = canEditCharges
+  const canAddSpecialVehicleCharge = canEditCharges
   const canOpenDispatchModal = canEditCharges
 
   useEffect(() => () => {
@@ -1268,6 +1268,14 @@ export function CasePage() {
     () => new Set(selectedCareOptions.map((option) => option.masterId)),
     [selectedCareOptions],
   )
+  const selectedDispatchChargeIds = useMemo(
+    () => new Set(selectedDispatchCharges.map((charge) => charge.masterId)),
+    [selectedDispatchCharges],
+  )
+  const selectedSpecialVehicleChargeIds = useMemo(
+    () => new Set(selectedSpecialVehicleCharges.map((charge) => charge.masterId)),
+    [selectedSpecialVehicleCharges],
+  )
   const expenseTotalYen = expenses.reduce(
     (total, expense) => total + expense.amountYen,
     0,
@@ -1354,34 +1362,46 @@ export function CasePage() {
     }
   }
 
-  const addDispatchCharge = (dispatchItem: DispatchMenuItem) => {
+  const toggleDispatchCharge = (dispatchItem: DispatchMenuItem) => {
     if (!canAddDispatchCharge) {
       return
     }
 
-    setSelectedDispatchCharges([
-      {
-        amountYen: dispatchItem.amount,
-        id: createId(dispatchItem.id),
-        masterId: dispatchItem.id,
-        name: dispatchItem.name,
-      },
-    ])
+    const isSelected = selectedDispatchChargeIds.has(dispatchItem.id)
+
+    setSelectedDispatchCharges(
+      isSelected
+        ? []
+        : [
+            {
+              amountYen: dispatchItem.amount,
+              id: createId(dispatchItem.id),
+              masterId: dispatchItem.id,
+              name: dispatchItem.name,
+            },
+          ],
+    )
   }
 
-  const addSpecialVehicleCharge = (specialItem: SpecialVehicleMenuItem) => {
+  const toggleSpecialVehicleCharge = (specialItem: SpecialVehicleMenuItem) => {
     if (!canAddSpecialVehicleCharge) {
       return
     }
 
-    setSelectedSpecialVehicleCharges([
-      {
-        amountYen: specialItem.amount,
-        id: createId(specialItem.id),
-        masterId: specialItem.id,
-        name: specialItem.name,
-      },
-    ])
+    const isSelected = selectedSpecialVehicleChargeIds.has(specialItem.id)
+
+    setSelectedSpecialVehicleCharges(
+      isSelected
+        ? []
+        : [
+            {
+              amountYen: specialItem.amount,
+              id: createId(specialItem.id),
+              masterId: specialItem.id,
+              name: specialItem.name,
+            },
+          ],
+    )
   }
 
   const addExpense = ({ amountYen, name }: Omit<ExpenseItem, 'id'>) => {
@@ -3060,18 +3080,23 @@ export function CasePage() {
                   {enabledDispatchMenuItems.length === 0 ? (
                     <p className="empty-note">有効な予約迎車メニューはありません。</p>
                   ) : null}
-                  {enabledDispatchMenuItems.map((dispatchItem) => (
-                    <button
-                      className="r9-modal-choice r9-modal-choice--dispatch"
-                      key={dispatchItem.id}
-                      type="button"
-                      disabled={!canAddDispatchCharge}
-                      onClick={() => addDispatchCharge(dispatchItem)}
-                    >
-                      <span>{dispatchItem.name}</span>
-                      <strong>{formatFareYen(dispatchItem.amount)}円</strong>
-                    </button>
-                  ))}
+                  {enabledDispatchMenuItems.map((dispatchItem) => {
+                    const isSelected = selectedDispatchChargeIds.has(dispatchItem.id)
+
+                    return (
+                      <button
+                        className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
+                        key={dispatchItem.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        disabled={!canAddDispatchCharge}
+                        onClick={() => toggleDispatchCharge(dispatchItem)}
+                      >
+                        <span>{isSelected ? '✓ ' : ''}{dispatchItem.name}</span>
+                        <strong>{formatFareYen(dispatchItem.amount)}円</strong>
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
 
@@ -3084,18 +3109,23 @@ export function CasePage() {
                   {enabledSpecialVehicleMenuItems.length === 0 ? (
                     <p className="empty-note">有効な特殊車両メニューはありません。</p>
                   ) : null}
-                  {enabledSpecialVehicleMenuItems.map((specialItem) => (
-                    <button
-                      className="r9-modal-choice r9-modal-choice--special-vehicle"
-                      key={specialItem.id}
-                      type="button"
-                      disabled={!canAddSpecialVehicleCharge}
-                      onClick={() => addSpecialVehicleCharge(specialItem)}
-                    >
-                      <span>{specialItem.name}</span>
-                      <strong>{formatFareYen(specialItem.amount)}円</strong>
-                    </button>
-                  ))}
+                  {enabledSpecialVehicleMenuItems.map((specialItem) => {
+                    const isSelected = selectedSpecialVehicleChargeIds.has(specialItem.id)
+
+                    return (
+                      <button
+                        className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
+                        key={specialItem.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        disabled={!canAddSpecialVehicleCharge}
+                        onClick={() => toggleSpecialVehicleCharge(specialItem)}
+                      >
+                        <span>{isSelected ? '✓ ' : ''}{specialItem.name}</span>
+                        <strong>{formatFareYen(specialItem.amount)}円</strong>
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
             </div>
@@ -3268,7 +3298,6 @@ export function CasePage() {
               <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
               <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>レシート・領収書発行</span>
               <span className={settlementFlowStep === 'saved' ? 'r9-settlement-steps__done' : ''}>発行完了</span>
-              <span>新しい案件を開始</span>
             </div>
 
             {!savedCaseRecord ? (

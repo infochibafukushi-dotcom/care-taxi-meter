@@ -82,3 +82,96 @@ export const resolveRestBreak = ({
 
 export const calculateEffectiveWorkSeconds = (boundSeconds: number, restSeconds: number) =>
   Math.max(Math.floor(boundSeconds) - Math.max(Math.floor(restSeconds), 0), 0)
+
+export const calculateCaseOperatingSeconds = ({
+  startedAt,
+  closedAt,
+  nowMs = Date.now(),
+}: {
+  startedAt: string | null | undefined
+  closedAt?: string | null
+  nowMs?: number
+}) => {
+  if (!startedAt) {
+    return 0
+  }
+
+  const startTime = new Date(startedAt).getTime()
+
+  if (Number.isNaN(startTime)) {
+    return 0
+  }
+
+  const endTime = closedAt ? new Date(closedAt).getTime() : nowMs
+
+  if (Number.isNaN(endTime)) {
+    return 0
+  }
+
+  return Math.max(Math.floor((endTime - startTime) / 1000), 0)
+}
+
+export const calculateTodayOperatingSeconds = ({
+  records,
+  staffId,
+  currentSessionId,
+  todayStartIso,
+  todayEndIso,
+  activeTripStartedAt,
+  nowMs = Date.now(),
+}: {
+  records: Array<{ closedAt: string; startedAt: string; staffId: string; workSessionId: string }>
+  staffId: string
+  currentSessionId: string
+  todayStartIso: string
+  todayEndIso: string
+  activeTripStartedAt?: string | null
+  nowMs?: number
+}) => {
+  const belongsToCurrentStaff = (caseRecord: {
+    staffId: string
+    workSessionId: string
+  }) => {
+    if (!staffId) {
+      return true
+    }
+
+    return currentSessionId
+      ? caseRecord.workSessionId === currentSessionId ||
+          (!caseRecord.workSessionId && caseRecord.staffId === staffId)
+      : caseRecord.staffId === staffId
+  }
+
+  const fromRecords = records
+    .filter(
+      (caseRecord) =>
+        belongsToCurrentStaff(caseRecord) &&
+        caseRecord.closedAt >= todayStartIso &&
+        caseRecord.closedAt < todayEndIso,
+    )
+    .reduce(
+      (total, caseRecord) =>
+        total +
+        calculateCaseOperatingSeconds({
+          startedAt: caseRecord.startedAt,
+          closedAt: caseRecord.closedAt,
+        }),
+      0,
+    )
+
+  if (
+    !activeTripStartedAt ||
+    activeTripStartedAt < todayStartIso ||
+    activeTripStartedAt >= todayEndIso
+  ) {
+    return fromRecords
+  }
+
+  return (
+    fromRecords +
+    calculateCaseOperatingSeconds({
+      startedAt: activeTripStartedAt,
+      nowMs,
+    })
+  )
+}
