@@ -4,10 +4,15 @@ import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
 import { KeypadModal } from '../components/case/KeypadModal'
+import { MeterBlackoutOverlay } from '../components/case/MeterBlackoutOverlay'
 import { ObdConnectionIndicator } from '../components/case/ObdConnectionIndicator'
 import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionRequiredDialog'
+import { ObdMeterStatusBadge } from '../components/case/ObdMeterStatusBadge'
+import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
+import { useMeterBlackout } from '../hooks/useMeterBlackout'
 import { useMeterTelemetry } from '../hooks/useMeterTelemetry'
+import { useWaitingMovementAlert } from '../hooks/useWaitingMovementAlert'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useOperationTimers } from '../hooks/useOperationTimers'
 import type { TimerSeconds } from '../hooks/useOperationTimers'
@@ -526,7 +531,8 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
-  const [meterResetKey, setMeterResetKey] = useState(0)
+  const [meterResetKey] = useState(0)
+  const [sessionResetKey, setSessionResetKey] = useState(0)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
   const [settlementFlowStep, setSettlementFlowStep] =
@@ -559,10 +565,13 @@ export function CasePage() {
     useState<ReverseGeocodeDiagnosticState>(getReverseGeocodeDiagnosticState)
   const elapsedTimers = useOperationTimers(
     activeTimer,
-    meterResetKey > 0 ? emptyTimerSeconds : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
-    meterResetKey,
+    meterResetKey > 0 || sessionResetKey > 0
+      ? emptyTimerSeconds
+      : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
+    sessionResetKey,
   )
   const isTripStarted = status !== '空車'
+  const isDistanceAccumulating = isGpsActive && status !== '待機中'
   const initialObdTelemetryState = useMemo(
     () =>
       restoredTripSnapshot && readStoredMeterMode() === 'obd'
@@ -579,10 +588,12 @@ export function CasePage() {
   const gps = useMeterTelemetry({
     initialObdState: initialObdTelemetryState,
     isActive: isGpsActive,
+    isDistanceAccumulating,
     isTripStarted,
     lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     meterMode,
     meterResetKey,
+    sessionResetKey,
   })
   const connectObd = gps.connectObd
   const obdRestoreConnectAttemptedRef = useRef(false)
@@ -619,6 +630,24 @@ export function CasePage() {
   const escortFareSeconds = billableTimeStarted.accompanying
     ? Math.max(adjustedAccompanyingSeconds, 1)
     : 0
+
+  const isBlackoutEnabled = status === '待機中' || status === '院内付き添い中'
+  const blackoutStatusLabel = status === '待機中' ? '待機中' : '付き添い中'
+  const blackoutElapsedSeconds = status === '待機中'
+    ? adjustedWaitingSeconds
+    : adjustedAccompanyingSeconds
+  const meterBlackout = useMeterBlackout({
+    elapsedSeconds: blackoutElapsedSeconds,
+    isEnabled: isBlackoutEnabled,
+    statusLabel: blackoutStatusLabel,
+  })
+
+  const waitingMovementAlert = useWaitingMovementAlert({
+    currentSpeedKmh: gps.currentSpeedKmh,
+    gpsPosition: gps.gpsRaw.position,
+    isEnabled: meterMode === 'obd' && status === '待機中',
+    isUsingObdTelemetry: gps.isUsingObdTelemetry,
+  })
 
   const isCaseClosed = status === '案件終了'
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
@@ -1424,7 +1453,7 @@ export function CasePage() {
     try {
       if (meterMode === 'obd') {
         const connected = await connectObd({
-          interactive: true,
+          interactive: false,
           isInitialTripConnect: true,
         })
         if (!connected) {
@@ -2146,7 +2175,7 @@ export function CasePage() {
     setSettlementFlowStep('saved')
   }
 
-  const handleStartNewCase = () => {
+  const resetMeterSession = () => {
     if (settlementHoldTimerRef.current !== null) {
       window.clearTimeout(settlementHoldTimerRef.current)
       settlementHoldTimerRef.current = null
@@ -2164,6 +2193,7 @@ export function CasePage() {
     dropoffLocationRef.current = emptyCapturedAddressLocation
     pickupCapturePromiseRef.current = null
     dropoffCapturePromiseRef.current = null
+    obdRestoreConnectAttemptedRef.current = false
 
     setCaseNumber('未採番')
     setIsFareSnapshotLocked(false)
@@ -2195,7 +2225,21 @@ export function CasePage() {
     setSettlementFlowStep('receipt')
     setPickupLocation(emptyCapturedAddressLocation)
     setDropoffLocation(emptyCapturedAddressLocation)
-    setMeterResetKey((currentKey) => currentKey + 1)
+    waitingMovementAlert.resetAlertState()
+    setSessionResetKey((currentKey) => currentKey + 1)
+  }
+
+  const handleStartNewCase = () => {
+    resetMeterSession()
+  }
+
+  const handleWaitingMovementResumeTrip = () => {
+    waitingMovementAlert.dismissAlert()
+    handleStatusChange('走行中')
+  }
+
+  const handleWaitingMovementContinue = () => {
+    waitingMovementAlert.snoozeAlert()
   }
 
   useEffect(() => {
@@ -2252,6 +2296,10 @@ export function CasePage() {
       </div>
 
       <div className="r9-meter-shell">
+        <ObdMeterStatusBadge
+          status={gps.obdMeterStatus}
+          visible={meterMode === 'obd' && isTripStarted}
+        />
         <span className="meter-screw meter-screw--top-left" />
         <span className="meter-screw meter-screw--top-right" />
         <span className="meter-screw meter-screw--bottom-left" />
@@ -3233,6 +3281,19 @@ export function CasePage() {
         }}
         onSwitchToGps={handleObdSwitchToGps}
         onSwitchToTime={handleObdSwitchToTime}
+      />
+
+      <MeterBlackoutOverlay
+        elapsedSeconds={meterBlackout.elapsedSeconds}
+        isActive={meterBlackout.isBlackoutActive}
+        statusLabel={meterBlackout.statusLabel}
+        onDismiss={meterBlackout.dismissBlackout}
+      />
+
+      <WaitingMovementAlert
+        isOpen={waitingMovementAlert.alertState.isOpen}
+        onContinueWaiting={handleWaitingMovementContinue}
+        onResumeTrip={handleWaitingMovementResumeTrip}
       />
     </main>
   )
