@@ -631,7 +631,8 @@ export function CasePage() {
     ? Math.max(adjustedAccompanyingSeconds, 1)
     : 0
 
-  const isBlackoutEnabled = status === '待機中' || status === '院内付き添い中'
+  const isBlackoutEnabled =
+    meterMode === 'obd' && (status === '待機中' || status === '院内付き添い中')
   const blackoutStatusLabel = status === '待機中' ? '待機中' : '付き添い中'
   const blackoutElapsedSeconds = status === '待機中'
     ? adjustedWaitingSeconds
@@ -2194,6 +2195,7 @@ export function CasePage() {
     pickupCapturePromiseRef.current = null
     dropoffCapturePromiseRef.current = null
     obdRestoreConnectAttemptedRef.current = false
+    clearActiveTripSnapshot()
 
     setCaseNumber('未採番')
     setIsFareSnapshotLocked(false)

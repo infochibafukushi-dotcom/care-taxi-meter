@@ -439,6 +439,10 @@ export function useObdMeterTelemetry({
   ])
 
   useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
+
+  useEffect(() => {
     isDistanceAccumulatingRef.current = isDistanceAccumulating
   }, [isDistanceAccumulating])
 

@@ -37,6 +37,8 @@ export function useWaitingMovementAlert({
     snoozedUntil: null,
   })
   const alertStateRef = useRef(alertState)
+  const currentSpeedKmhRef = useRef(currentSpeedKmh)
+  const gpsPositionRef = useRef(gpsPosition)
   const movementSecondsRef = useRef(0)
   const waitingStartPositionRef = useRef<{
     latitude: number
@@ -46,6 +48,14 @@ export function useWaitingMovementAlert({
   useEffect(() => {
     alertStateRef.current = alertState
   }, [alertState])
+
+  useEffect(() => {
+    currentSpeedKmhRef.current = currentSpeedKmh
+  }, [currentSpeedKmh])
+
+  useEffect(() => {
+    gpsPositionRef.current = gpsPosition
+  }, [gpsPosition])
 
   const resetDetection = () => {
     movementSecondsRef.current = 0
@@ -83,8 +93,9 @@ export function useWaitingMovementAlert({
       return undefined
     }
 
-    waitingStartPositionRef.current = gpsPosition
-      ? { latitude: gpsPosition.latitude, longitude: gpsPosition.longitude }
+    const initialPosition = gpsPositionRef.current
+    waitingStartPositionRef.current = initialPosition
+      ? { latitude: initialPosition.latitude, longitude: initialPosition.longitude }
       : null
 
     const intervalId = window.setInterval(() => {
@@ -97,10 +108,12 @@ export function useWaitingMovementAlert({
         return
       }
 
+      const speedKmh = currentSpeedKmhRef.current
+      const gpsPositionSnapshot = gpsPositionRef.current
       let isMoving = false
 
       if (isUsingObdTelemetry) {
-        isMoving = currentSpeedKmh != null && currentSpeedKmh >= OBD_SPEED_THRESHOLD_KMH
+        isMoving = speedKmh != null && speedKmh >= OBD_SPEED_THRESHOLD_KMH
         if (isMoving) {
           movementSecondsRef.current += 1
           if (movementSecondsRef.current >= OBD_DURATION_SECONDS) {
@@ -113,19 +126,20 @@ export function useWaitingMovementAlert({
       }
 
       const hasReliableGps =
-        gpsPosition != null && gpsPosition.accuracy <= MAX_DISTANCE_ACCURACY_METERS
+        gpsPositionSnapshot != null &&
+        gpsPositionSnapshot.accuracy <= MAX_DISTANCE_ACCURACY_METERS
       const gpsSpeedMoving =
         hasReliableGps &&
-        currentSpeedKmh != null &&
-        currentSpeedKmh >= GPS_SPEED_THRESHOLD_KMH
+        speedKmh != null &&
+        speedKmh >= GPS_SPEED_THRESHOLD_KMH
 
       let gpsDistanceMoving = false
       if (hasReliableGps && waitingStartPositionRef.current) {
         const movedMeters = calculateDistanceMeters(
           waitingStartPositionRef.current,
           {
-            latitude: gpsPosition.latitude,
-            longitude: gpsPosition.longitude,
+            latitude: gpsPositionSnapshot.latitude,
+            longitude: gpsPositionSnapshot.longitude,
           },
         )
         gpsDistanceMoving = movedMeters >= GPS_DISTANCE_THRESHOLD_METERS
@@ -139,17 +153,17 @@ export function useWaitingMovementAlert({
         }
       } else {
         movementSecondsRef.current = 0
-        if (hasReliableGps && gpsPosition) {
+        if (hasReliableGps && gpsPositionSnapshot) {
           waitingStartPositionRef.current = {
-            latitude: gpsPosition.latitude,
-            longitude: gpsPosition.longitude,
+            latitude: gpsPositionSnapshot.latitude,
+            longitude: gpsPositionSnapshot.longitude,
           }
         }
       }
     }, 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [currentSpeedKmh, gpsPosition, isEnabled, isUsingObdTelemetry])
+  }, [isEnabled, isUsingObdTelemetry])
 
   return {
     alertState,
