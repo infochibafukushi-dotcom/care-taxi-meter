@@ -57,7 +57,8 @@ export function useMeterTelemetry({
     }
   }, [disconnectObdTelemetry, meterMode])
 
-  const isUsingObdTelemetry = isObdMode && obd.isStableForTelemetry
+  const isObdStableForTelemetry = isObdMode && obd.isStableForTelemetry
+  const isUsingObdTelemetry = isObdStableForTelemetry
 
   const merged = isUsingObdTelemetry
     ? {
@@ -74,16 +75,22 @@ export function useMeterTelemetry({
 
   const connectObd = (options?: ObdConnectOptions) => obd.connect(options)
 
-  const obdIndicator: ObdIndicatorState = isObdMode && isTripStarted && obd.indicator.visible
+  const obdIndicator: ObdIndicatorState = isObdMode && obd.indicator.visible
     ? obd.indicator
     : { label: '', variant: 'disconnected', visible: false }
+
+  const isObdBleConnected = isObdMode && obd.isBleConnected
+  const isObdConnectedForStart = isObdMode && obd.isConnectedForStart
 
   return {
     ...merged,
     connectObd,
     disconnectObd: obd.disconnect,
     gpsRaw,
-    isObdConnected: obd.isStableForTelemetry,
+    isObdBleConnected,
+    isObdConnected: isObdStableForTelemetry,
+    isObdConnectedForStart,
+    isObdStableForTelemetry,
     isUsingObdTelemetry,
     obdConnectionPhase: obd.connectionPhase,
     obdErrorMessage: obd.errorMessage,

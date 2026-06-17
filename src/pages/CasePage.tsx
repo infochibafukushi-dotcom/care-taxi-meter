@@ -492,6 +492,7 @@ export function CasePage() {
   const [meterMode, setMeterMode] = useState<MeterMode>(readStoredMeterMode)
   const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [meterModeToast, setMeterModeToast] = useState('')
+  const [tripStartNotice, setTripStartNotice] = useState('')
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
@@ -1566,7 +1567,11 @@ export function CasePage() {
     })
     if (connected) {
       setIsObdConnectionDialogOpen(false)
+      setTripStartNotice('')
+      return
     }
+
+    setTripStartNotice('OBD接続が完了していません。再接続してください。')
   }
 
   const handleObdSwitchToGps = () => {
@@ -1581,24 +1586,38 @@ export function CasePage() {
 
   const handleDrivingStart = async () => {
     if (!canStartTrip || !workSession.currentSession || operationStartedAtRef.current) {
-      setCaseSaveState('error')
-      setCaseSaveMessage(
+      const message =
         !workSession.currentSession
           ? '出勤してから送迎開始してください。'
           : !selectedVehicleId
             ? '案件車両を選択してください。'
-            : '現在の状態では送迎開始できません。',
-      )
+            : '現在の状態では送迎開始できません。'
+      setCaseSaveState('error')
+      setCaseSaveMessage(message)
+      setTripStartNotice(message)
       return
     }
 
     try {
       if (meterMode === 'obd') {
+        console.log('[OBDM] 送迎開始前', {
+          isObdBleConnected: gps.isObdBleConnected,
+          isObdConnectedForStart: gps.isObdConnectedForStart,
+          isObdStableForTelemetry: gps.isObdStableForTelemetry,
+          obdConnectionPhase: gps.obdConnectionPhase,
+        })
+
         const connected = await connectObd({
           interactive: false,
           isInitialTripConnect: true,
         })
+
         if (!connected) {
+          const message =
+            gps.obdConnectionPhase === 'connecting' || gps.obdConnectionPhase === 'reconnecting'
+              ? 'OBDは接続中です。数秒後にもう一度お試しください。'
+              : 'OBD接続が完了していません。再接続してください。'
+          setTripStartNotice(message)
           setIsObdConnectionDialogOpen(true)
           return
         }
@@ -1633,14 +1652,15 @@ export function CasePage() {
       setSettingsMessage('送迎開始時の料金設定スナップショットで計算中です。')
       setCaseSaveState('idle')
       setCaseSaveMessage('送迎を開始しました。精算・終了で保存します。')
+      setTripStartNotice('')
       void capturePickupLocation()
     } catch (error) {
+      const message = error instanceof Error
+        ? `案件番号の採番に失敗しました。${error.message}`
+        : '案件番号の採番に失敗しました。通信状況とFirebase設定を確認してください。'
       setCaseSaveState('error')
-      setCaseSaveMessage(
-        error instanceof Error
-          ? `案件番号の採番に失敗しました。${error.message}`
-          : '案件番号の採番に失敗しました。通信状況とFirebase設定を確認してください。',
-      )
+      setCaseSaveMessage(message)
+      setTripStartNotice(message)
     }
   }
 
@@ -2378,6 +2398,7 @@ export function CasePage() {
     setReceiptName('')
     setCaseSaveState('idle')
     setCaseSaveMessage('新しい案件を開始しました。送迎を開始できます。')
+    setTripStartNotice('')
     setSavedCaseRecord(null)
     setSettlementFlowStep('receipt')
     setPickupLocation(emptyCapturedAddressLocation)
@@ -2385,7 +2406,7 @@ export function CasePage() {
     waitingMovementAlert.resetAlertState()
     setSessionResetKey((currentKey) => currentKey + 1)
 
-    if (meterMode === 'obd' && !gps.isObdConnected) {
+    if (meterMode === 'obd' && !gps.isObdConnectedForStart) {
       void connectObd({ interactive: false, isReconnect: true })
     }
   }
@@ -2442,6 +2463,12 @@ export function CasePage() {
     return () => window.clearTimeout(timerId)
   }, [meterModeToast])
 
+  useEffect(() => {
+    if (!tripStartNotice) return
+    const timerId = window.setTimeout(() => setTripStartNotice(''), 5000)
+    return () => window.clearTimeout(timerId)
+  }, [tripStartNotice])
+
   const timeFareElapsedLabel =
     meterMode === 'time' && timeMeterFareIncreaseProgress
       ? formatTimeMeterFareIncreaseProgressLabel(timeMeterFareIncreaseProgress)
@@ -2469,7 +2496,7 @@ export function CasePage() {
       <div className="r9-meter-shell">
         <ObdMeterStatusBadge
           status={gps.obdMeterStatus}
-          visible={meterMode === 'obd' && isTripStarted}
+          visible={meterMode === 'obd'}
         />
         <span className="meter-screw meter-screw--top-left" />
         <span className="meter-screw meter-screw--top-right" />
@@ -2624,6 +2651,16 @@ export function CasePage() {
           </section>
 
           <section className="r9-right-panel" aria-label="状態操作">
+            {meterMode === 'obd' && gps.obdIndicator.visible ? (
+              <p className="r9-obd-start-status" role="status">
+                {gps.obdIndicator.label}
+              </p>
+            ) : null}
+            {tripStartNotice ? (
+              <p className="r9-trip-start-notice" role="alert">
+                {tripStartNotice}
+              </p>
+            ) : null}
             <div className="r9-status-stack">
               <button
                 className="r9-status-button r9-status-button--driving"
