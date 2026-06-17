@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
+import { readPostSettlementLock } from '../services/postSettlementLock'
 import { fetchVehicles } from '../services/vehicles'
 import type { Vehicle } from '../types/work'
 import { logDiagnostic } from '../utils/diagnostics'
@@ -13,6 +14,13 @@ export function CaseStartPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [message, setMessage] = useState('稼働中車両を読み込み中です。')
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
+  const [postSettlementLock] = useState(readPostSettlementLock)
+
+  useEffect(() => {
+    if (postSettlementLock) {
+      navigate('/case', { replace: true })
+    }
+  }, [navigate, postSettlementLock])
 
   useEffect(() => {
     logDiagnostic('CaseStartPage mount')

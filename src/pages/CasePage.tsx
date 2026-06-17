@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Dispatch, SetStateAction } from 'react'
 import { FareBreakdownPanel as MeterFareBreakdownPanel } from '../components/case/FareBreakdownPanel'
 import { GpsPanel } from '../components/case/GpsPanel'
@@ -10,6 +10,7 @@ import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionReq
 import { ObdMeterStatusBadge } from '../components/case/ObdMeterStatusBadge'
 import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
+import { TopReturnFab } from '../components/case/TopReturnFab'
 import { useMeterBlackout } from '../hooks/useMeterBlackout'
 import { useMeterTelemetry } from '../hooks/useMeterTelemetry'
 import { useWaitingMovementAlert } from '../hooks/useWaitingMovementAlert'
@@ -39,6 +40,11 @@ import {
   saveActiveTripSnapshot,
 } from '../services/activeTripSnapshot'
 import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
+import {
+  clearPostSettlementLock,
+  readPostSettlementLock,
+  writePostSettlementLock,
+} from '../services/postSettlementLock'
 import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -431,11 +437,22 @@ const getReverseGeocodeCauseLabel = ({
   return '未確定: 操作後の診断ログ待ち'
 }
 
+const getInitialStatusAfterReset = (mode: MeterMode): OperationStatus =>
+  mode === 'time' ? '待機中' : '空車'
+
 export function CasePage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
   const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
-  const [restoredTripState] = useState(() => resolveActiveTripRestoration(readActiveTripSnapshot()))
+  const [restoredTripState] = useState(() => {
+    if (readPostSettlementLock()) {
+      clearActiveTripSnapshot()
+      return { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
+    }
+
+    return resolveActiveTripRestoration(readActiveTripSnapshot())
+  })
   const restoredTripSnapshot = restoredTripState.snapshot
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
   const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
@@ -537,6 +554,7 @@ export function CasePage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
+  const [postSettlementLock, setPostSettlementLock] = useState(() => readPostSettlementLock())
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const latestMeterSettingsRef = useRef<MeterSettings>(defaultMeterSettings)
@@ -570,7 +588,15 @@ export function CasePage() {
       : (restoredTripSnapshot?.timers ?? emptyTimerSeconds),
     sessionResetKey,
   )
-  const isTripStarted = status !== '空車'
+  const isTimeMeterInitialWaiting =
+    meterMode === 'time' &&
+    status === '待機中' &&
+    !billableTimeStarted.waiting &&
+    !operationStartedAtRef.current
+  const isTripStarted =
+    status !== '空車' &&
+    status !== '案件終了' &&
+    !isTimeMeterInitialWaiting
   const isDistanceAccumulating = isGpsActive && status !== '待機中'
   const initialObdTelemetryState = useMemo(
     () =>
@@ -652,7 +678,30 @@ export function CasePage() {
 
   const isCaseClosed = status === '案件終了'
   const shouldPersistTripSnapshot = isProtectedOperationStatus(status) && caseSaveState !== 'saved'
-  const isOperationProtected = shouldPersistTripSnapshot || caseSaveState === 'saving'
+  const isSettlementInProgress =
+    status === '精算前' ||
+    status === '精算修正' ||
+    (status === '案件終了' && (caseSaveState !== 'saved' || settlementFlowStep !== 'saved'))
+  const isCaseInProgress =
+    shouldPersistTripSnapshot || caseSaveState === 'saving' || isSettlementInProgress
+  const isPostSettlementAwaitingNewCase =
+    (caseSaveState === 'saved' && settlementFlowStep === 'saved' && status === '案件終了') ||
+    Boolean(postSettlementLock)
+  const canShowNewCaseStartButton = isPostSettlementAwaitingNewCase
+  const isBillingWaiting = status === '待機中' && billableTimeStarted.waiting
+  const isActiveTripStatus =
+    status === '走行中' ||
+    isBillingWaiting ||
+    status === '院内付き添い中' ||
+    status === '精算前' ||
+    status === '精算修正' ||
+    (status === '案件終了' && !isPostSettlementAwaitingNewCase)
+  const canShowTopFab =
+    !isActiveTripStatus &&
+    (status === '空車' ||
+      isTimeMeterInitialWaiting ||
+      isPostSettlementAwaitingNewCase ||
+      (!isTripStarted && !isGpsActive))
 
   useEffect(() => {
     const workSessionId = workSession.currentSession?.id
@@ -677,9 +726,13 @@ export function CasePage() {
     })
   }, [caseNumber, shouldPersistTripSnapshot, status, workSession.currentSession?.id])
 
-  const canStartTrip = !isTripStarted && Boolean(workSession.currentSession) && Boolean(selectedVehicleId)
+  const canStartTrip =
+    !isTripStarted &&
+    Boolean(workSession.currentSession) &&
+    Boolean(selectedVehicleId) &&
+    (status === '空車' || isTimeMeterInitialWaiting)
   const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
-  const canEndWaiting = status === '待機中' && caseSaveState !== 'saving'
+  const canEndWaiting = status === '待機中' && caseSaveState !== 'saving' && billableTimeStarted.waiting
   const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中'
@@ -700,11 +753,29 @@ export function CasePage() {
   }, [])
 
   useEffect(() => {
-    if (!isOperationProtected) {
+    if (!postSettlementLock || restoredTripSnapshot) {
+      return
+    }
+
+    clearActiveTripSnapshot()
+    setStatus('案件終了')
+    setCaseSaveState('saved')
+    setSettlementFlowStep('saved')
+    setIsSettlementFlowOpen(true)
+    setCaseSaveMessage(
+      `案件 ${postSettlementLock.caseNumber} の精算が完了しています。「新しい案件を開始」から次の案件へ進んでください。`,
+    )
+  }, [postSettlementLock, restoredTripSnapshot])
+
+  useEffect(() => {
+    if (!isCaseInProgress) {
       return undefined
     }
 
-    const leaveOperationMessage = '運行中です。この操作を行うと運行画面を離れる可能性があります。'
+    const leaveOperationMessage =
+      '案件進行中です。\n\n戻ると案件データが失われる可能性があります。\n\n本当に戻りますか？'
+    const reloadOperationMessage =
+      '案件進行中です。\n\nページを再読み込みすると、\n案件データが失われる可能性があります。'
     let allowOperationLeave = false
     const guardedHistoryState = {
       ...(window.history.state && typeof window.history.state === 'object'
@@ -728,8 +799,8 @@ export function CasePage() {
       }
 
       event.preventDefault()
-      event.returnValue = leaveOperationMessage
-      return leaveOperationMessage
+      event.returnValue = reloadOperationMessage
+      return reloadOperationMessage
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       const isReloadShortcut =
@@ -742,7 +813,7 @@ export function CasePage() {
 
       event.preventDefault()
 
-      if (window.confirm(leaveOperationMessage)) {
+      if (window.confirm(reloadOperationMessage)) {
         allowOperationLeave = true
         window.location.reload()
       }
@@ -757,7 +828,57 @@ export function CasePage() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
-  }, [isOperationProtected])
+  }, [isCaseInProgress])
+
+  useEffect(() => {
+    if (!isPostSettlementAwaitingNewCase) {
+      return undefined
+    }
+
+    const postSettlementMessage =
+      '精算が完了しています。\n\n「新しい案件を開始」から次の案件を開始してください。'
+    const reloadPostSettlementMessage =
+      '精算が完了しています。\n\nページを再読み込みしても、\n「新しい案件を開始」から次の案件を開始してください。'
+    const guardedHistoryState = {
+      ...(window.history.state && typeof window.history.state === 'object'
+        ? window.history.state
+        : {}),
+      careTaxiMeterPostSettlementGuard: true,
+    }
+    window.history.pushState(guardedHistoryState, '', window.location.href)
+
+    const handlePopState = () => {
+      window.alert(postSettlementMessage)
+      window.history.pushState(guardedHistoryState, '', window.location.href)
+    }
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = reloadPostSettlementMessage
+      return reloadPostSettlementMessage
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isReloadShortcut =
+        event.key === 'F5' ||
+        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r')
+
+      if (!isReloadShortcut) {
+        return
+      }
+
+      event.preventDefault()
+      window.alert(reloadPostSettlementMessage)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+    }
+  }, [isPostSettlementAwaitingNewCase])
 
 
   useEffect(() => {
@@ -1834,7 +1955,7 @@ export function CasePage() {
       }
     }
 
-    if (nextStatus === '待機中') {
+    if (nextStatus === '待機中' && status === '走行中') {
       setBillableTimeStarted((current) => ({ ...current, waiting: true }))
     }
 
@@ -2147,6 +2268,16 @@ export function CasePage() {
     )
   }
 
+  const completeReceiptIssuance = () => {
+    const recordCaseNumber = savedCaseRecord?.caseNumber ?? caseNumber
+    setSettlementFlowStep('saved')
+    writePostSettlementLock(recordCaseNumber)
+    setPostSettlementLock({
+      caseNumber: recordCaseNumber,
+      lockedAt: new Date().toISOString(),
+    })
+  }
+
   const handleThermalReceiptPrint = async () => {
     if (!savedCaseRecord) {
       return
@@ -2159,7 +2290,7 @@ export function CasePage() {
       issuerName: latestMeterSettings.receipt.issuerName,
       receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
     })
-    setSettlementFlowStep('saved')
+    completeReceiptIssuance()
   }
 
   const handleA4ReceiptDownload = async () => {
@@ -2173,7 +2304,7 @@ export function CasePage() {
       issuerName: latestMeterSettings.receipt.issuerName,
       receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
     })
-    setSettlementFlowStep('saved')
+    completeReceiptIssuance()
   }
 
   const resetMeterSession = () => {
@@ -2186,6 +2317,8 @@ export function CasePage() {
       resumeHoldTimerRef.current = null
     }
 
+    const initialStatus = getInitialStatusAfterReset(meterMode)
+
     fareSnapshotRef.current = null
     caseNumberAssignmentRef.current = null
     operationStartedAtRef.current = ''
@@ -2196,10 +2329,12 @@ export function CasePage() {
     dropoffCapturePromiseRef.current = null
     obdRestoreConnectAttemptedRef.current = false
     clearActiveTripSnapshot()
+    clearPostSettlementLock()
+    setPostSettlementLock(null)
 
     setCaseNumber('未採番')
     setIsFareSnapshotLocked(false)
-    setStatus('空車')
+    setStatus(initialStatus)
     setActiveTimer(null)
     setActivityHistories(emptyActivityHistories)
     setActiveActivity(null)
@@ -2222,17 +2357,31 @@ export function CasePage() {
     setPaymentAmounts(createEmptyPaymentAmounts())
     setReceiptName('')
     setCaseSaveState('idle')
-    setCaseSaveMessage('メーターをリセットしました。新しい搬送を開始できます。')
+    setCaseSaveMessage('新しい案件を開始しました。送迎を開始できます。')
     setSavedCaseRecord(null)
     setSettlementFlowStep('receipt')
     setPickupLocation(emptyCapturedAddressLocation)
     setDropoffLocation(emptyCapturedAddressLocation)
     waitingMovementAlert.resetAlertState()
     setSessionResetKey((currentKey) => currentKey + 1)
+
+    if (meterMode === 'obd' && !gps.isObdConnected) {
+      void connectObd({ interactive: false, isReconnect: true })
+    }
   }
 
   const handleStartNewCase = () => {
     resetMeterSession()
+  }
+
+  const handleReturnToTop = () => {
+    if (isCaseInProgress) {
+      if (!window.confirm('TOPへ戻りますか？')) {
+        return
+      }
+    }
+
+    navigate('/')
   }
 
   const handleWaitingMovementResumeTrip = () => {
@@ -2417,9 +2566,9 @@ export function CasePage() {
                   <strong>{drivingClockLabel}</strong>
                 </div>
                 <button
-                  className={`r9-time-action ${status === '待機中' ? 'r9-time-action--active' : ''}`}
+                  className={`r9-time-action ${status === '待機中' && billableTimeStarted.waiting ? 'r9-time-action--active' : ''}`}
                   type="button"
-                  aria-pressed={status === '待機中'}
+                  aria-pressed={status === '待機中' && billableTimeStarted.waiting}
                   disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
                   onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
                 >
@@ -3245,7 +3394,7 @@ export function CasePage() {
                     領収書発行
                   </button>
                 </div>
-                {settlementFlowStep === 'saved' ? (
+                {canShowNewCaseStartButton ? (
                   <div className="r9-issue-complete">
                     <strong>発行完了</strong>
                     <button
@@ -3253,7 +3402,7 @@ export function CasePage() {
                       type="button"
                       onClick={handleStartNewCase}
                     >
-                      リセット
+                      新しい案件を開始
                     </button>
                   </div>
                 ) : null}
@@ -3297,6 +3446,8 @@ export function CasePage() {
         onContinueWaiting={handleWaitingMovementContinue}
         onResumeTrip={handleWaitingMovementResumeTrip}
       />
+
+      <TopReturnFab onClick={handleReturnToTop} visible={canShowTopFab} />
     </main>
   )
 }
