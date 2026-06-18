@@ -164,6 +164,7 @@ export function useObdMeterTelemetry({
   const isDistanceAccumulatingRef = useRef(isDistanceAccumulating)
   const connectRef = useRef<(options?: ObdConnectOptions) => Promise<boolean>>(async () => false)
   const connectInFlightRef = useRef<Promise<boolean> | null>(null)
+  const connectAttemptGenerationRef = useRef(0)
   const connectionPhaseRef = useRef<ObdConnectionPhase>('idle')
   const isBleConnectedRef = useRef(false)
   const isStableForTelemetryRef = useRef(false)
@@ -246,6 +247,22 @@ export function useObdMeterTelemetry({
     setInteractiveReconnectFailed(false)
   }, [])
 
+  const abandonConnectInFlight = useCallback((
+    reason: string,
+    options: { force?: boolean } = {},
+  ) => {
+    if (!options.force && !connectInFlightRef.current) {
+      return
+    }
+
+    connectAttemptGenerationRef.current += 1
+    connectInFlightRef.current = null
+    logObdReconnectStage('connectInFlight破棄', {
+      generation: connectAttemptGenerationRef.current,
+      reason,
+    })
+  }, [])
+
   const cleanupExistingConnection = useCallback(async (reason: string) => {
     const existingConnection = connectionRef.current
     if (!existingConnection) {
@@ -305,6 +322,8 @@ export function useObdMeterTelemetry({
       setInteractiveReconnectFailed(Boolean(options.explicitInteractiveFailure))
     }
 
+    abandonConnectInFlight('markDisconnected', { force: true })
+
     logConnectStateSnapshot(
       {
         activeConnectInteractiveRef,
@@ -318,12 +337,12 @@ export function useObdMeterTelemetry({
       'markDisconnected完了後',
       { reason },
     )
-  }, [isTripActive, stopPolling])
+  }, [abandonConnectInFlight, isTripActive, stopPolling])
 
   const resetTelemetry = useCallback(() => {
     stopPolling()
     clearRecoveredFlashTimer()
-    connectInFlightRef.current = null
+    abandonConnectInFlight('resetTelemetry')
     activeConnectInteractiveRef.current = false
     connectionRef.current?.setDisconnectedHandler(null)
     connectionRef.current = null
@@ -344,7 +363,7 @@ export function useObdMeterTelemetry({
     if (enableLogging) {
       setLogs([])
     }
-  }, [clearRecoveredFlashTimer, enableLogging, stopPolling])
+  }, [abandonConnectInFlight, clearRecoveredFlashTimer, enableLogging, stopPolling])
 
   const handleStableConnection = useCallback(() => {
     logObdReconnectStage('PID安定化完了', {
@@ -437,7 +456,7 @@ export function useObdMeterTelemetry({
   const disconnect = useCallback(async () => {
     stopPolling()
     clearRecoveredFlashTimer()
-    connectInFlightRef.current = null
+    abandonConnectInFlight('disconnect')
     activeConnectInteractiveRef.current = false
 
     const connection = connectionRef.current
@@ -471,7 +490,7 @@ export function useObdMeterTelemetry({
     setCurrentSpeedKmh(null)
     setMovementState('unknown')
     setErrorMessage(null)
-  }, [clearRecoveredFlashTimer, pushLog, stopPolling])
+  }, [abandonConnectInFlight, clearRecoveredFlashTimer, pushLog, stopPolling])
 
   const stateSnapshotRefs: ConnectStateSnapshotRefs = {
     activeConnectInteractiveRef,
@@ -484,6 +503,21 @@ export function useObdMeterTelemetry({
   }
 
   const executeObdConnect = useCallback(async (options: ObdConnectOptions): Promise<boolean> => {
+    const attemptGeneration = connectAttemptGenerationRef.current
+    const isAttemptCurrent = () => attemptGeneration === connectAttemptGenerationRef.current
+    const abortIfStale = (stage: string) => {
+      if (isAttemptCurrent()) {
+        return false
+      }
+
+      logObdReconnectStage('executeObdConnect中断: 接続試行が無効化された', {
+        attemptGeneration,
+        currentGeneration: connectAttemptGenerationRef.current,
+        stage,
+      })
+      return true
+    }
+
     const interactive = options.interactive ?? true
     const isInitialTripConnect = options.isInitialTripConnect ?? false
     const isReconnect = options.isReconnect ?? false
@@ -526,6 +560,10 @@ export function useObdMeterTelemetry({
 
     await cleanupExistingConnection(isReconnect ? '再接続前' : '接続前')
 
+    if (abortIfStale('cleanupExistingConnection後')) {
+      return false
+    }
+
     stablePollCountRef.current = 0
     firstSpeedLoggedRef.current = false
     setIsStableForTelemetry(false)
@@ -557,7 +595,7 @@ export function useObdMeterTelemetry({
     connectionRef.current = connection
 
     try {
-      const useRequestDevice = interactive && (isInitialTripConnect || isReconnect)
+      const useRequestDevice = interactive
       logObdReconnectStage('接続方式分岐', {
         useRequestDevice,
         interactive,
@@ -568,6 +606,9 @@ export function useObdMeterTelemetry({
       if (useRequestDevice) {
         logObdReconnectStage('requestDevice呼び出し直前')
         await connection.connect()
+        if (abortIfStale('requestDevice後')) {
+          return false
+        }
         logObdReconnectStage('requestDevice経由のconnect完了')
       } else {
         logObdReconnectStage('connectPermittedDevice呼び出し直前（requestDeviceは呼ばない）')
@@ -582,6 +623,10 @@ export function useObdMeterTelemetry({
         }
 
         if (!reconnected) {
+          if (abortIfStale('connectPermittedDevice失敗後')) {
+            return false
+          }
+
           logObdReconnectStage('executeObdConnect中断: 許可済みデバイス再接続不可', { interactive })
           if (interactive) {
             markDisconnected('許可済みデバイス再接続不可')
@@ -591,6 +636,10 @@ export function useObdMeterTelemetry({
           markDisconnected('許可済みデバイス再接続不可（silent）')
           return false
         }
+      }
+
+      if (abortIfStale('接続成功後')) {
+        return false
       }
 
       setIsBleConnected(true)
@@ -616,6 +665,10 @@ export function useObdMeterTelemetry({
       activeConnectInteractiveRef.current = false
       return true
     } catch (error) {
+      if (abortIfStale('接続失敗後')) {
+        return false
+      }
+
       console.error('[OBDM] 接続失敗', error)
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
       pushLog({
@@ -643,6 +696,8 @@ export function useObdMeterTelemetry({
 
   const awaitConnectAttempt = useCallback(
     async (attemptOptions: ObdConnectOptions): Promise<boolean> => {
+      const interactive = attemptOptions.interactive ?? true
+
       logConnectStateSnapshot(stateSnapshotRefs, 'awaitConnectAttempt開始', {
         connectIntent: resolveConnectIntent(attemptOptions),
         ...attemptOptions,
@@ -653,7 +708,9 @@ export function useObdMeterTelemetry({
         return true
       }
 
-      if (connectInFlightRef.current) {
+      if (interactive) {
+        abandonConnectInFlight('interactive再接続のため既存待機を破棄')
+      } else if (connectInFlightRef.current) {
         logObdReconnectStage('接続処理待機中（既存のconnectInFlightを待つ）', {
           connectIntent: resolveConnectIntent(attemptOptions),
         })
@@ -675,15 +732,13 @@ export function useObdMeterTelemetry({
             connectInFlightRef.current = null
           }
         })
-      } else {
-        logObdReconnectStage('executeObdConnectは起動せず既存のconnectInFlightを再利用')
       }
 
       const result = await connectInFlightRef.current
       logConnectStateSnapshot(stateSnapshotRefs, 'awaitConnectAttempt終了', { result })
       return result || isConnectedForStartFromRefs()
     },
-    [executeObdConnect],
+    [abandonConnectInFlight, executeObdConnect],
   )
 
   const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
