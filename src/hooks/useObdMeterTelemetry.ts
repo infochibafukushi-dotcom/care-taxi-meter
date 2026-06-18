@@ -42,6 +42,12 @@ export type InitialObdMeterState = Partial<{
   movementState: MeterMovementState
 }>
 
+export type ObdSeedMetrics = {
+  businessDistanceKm: number
+  chargeableDistanceKm: number
+  lowSpeedSeconds: number
+}
+
 export type ObdConnectOptions = {
   interactive?: boolean
   isInitialTripConnect?: boolean
@@ -175,6 +181,12 @@ export function useObdMeterTelemetry({
     setBusinessDistanceKm(0)
     setChargeableDistanceKm(0)
     setLowSpeedSeconds(0)
+  }, [])
+
+  const seedMetrics = useCallback((metrics: ObdSeedMetrics) => {
+    setBusinessDistanceKm(metrics.businessDistanceKm)
+    setChargeableDistanceKm(metrics.chargeableDistanceKm)
+    setLowSpeedSeconds(metrics.lowSpeedSeconds)
   }, [])
 
   const markDisconnected = useCallback((message?: string) => {
@@ -692,6 +704,7 @@ export function useObdMeterTelemetry({
     lowSpeedSeconds,
     movementState,
     obdMeterStatus,
+    seedMetrics,
     speedSource,
   }
 }

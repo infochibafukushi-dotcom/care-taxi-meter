@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useCurrentPosition } from './useCurrentPosition'
 import {
   useObdMeterTelemetry,
   type InitialObdMeterState,
   type ObdConnectOptions,
   type ObdIndicatorState,
+  type ObdSeedMetrics,
 } from './useObdMeterTelemetry'
 import type { MeterMode } from '../types/case'
 
@@ -17,6 +18,45 @@ type UseMeterTelemetryOptions = {
   meterResetKey?: number
   sessionResetKey?: number
 }
+
+type DistanceMetrics = ObdSeedMetrics
+
+type FallbackBridge = {
+  authoritative: DistanceMetrics
+  gpsSnapshot: DistanceMetrics
+}
+
+const emptyDistanceMetrics = (): DistanceMetrics => ({
+  businessDistanceKm: 0,
+  chargeableDistanceKm: 0,
+  lowSpeedSeconds: 0,
+})
+
+const toDistanceMetrics = (source: {
+  businessDistanceKm: number
+  chargeableDistanceKm: number
+  lowSpeedSeconds: number
+}): DistanceMetrics => ({
+  businessDistanceKm: source.businessDistanceKm,
+  chargeableDistanceKm: source.chargeableDistanceKm,
+  lowSpeedSeconds: source.lowSpeedSeconds,
+})
+
+const computeBridgedMetrics = (
+  authoritative: DistanceMetrics,
+  gpsSnapshot: DistanceMetrics,
+  gpsCurrent: DistanceMetrics,
+): DistanceMetrics => ({
+  businessDistanceKm:
+    authoritative.businessDistanceKm +
+    (gpsCurrent.businessDistanceKm - gpsSnapshot.businessDistanceKm),
+  chargeableDistanceKm:
+    authoritative.chargeableDistanceKm +
+    (gpsCurrent.chargeableDistanceKm - gpsSnapshot.chargeableDistanceKm),
+  lowSpeedSeconds:
+    authoritative.lowSpeedSeconds +
+    (gpsCurrent.lowSpeedSeconds - gpsSnapshot.lowSpeedSeconds),
+})
 
 export function useMeterTelemetry({
   initialObdState,
@@ -48,6 +88,19 @@ export function useMeterTelemetry({
     sessionResetKey,
   })
   const disconnectObdTelemetry = obd.disconnect
+  const seedObdMetrics = obd.seedMetrics
+
+  const fallbackBridgeRef = useRef<FallbackBridge | null>(null)
+  const displayMetricsRef = useRef<DistanceMetrics>(
+    initialObdState
+      ? {
+          businessDistanceKm: initialObdState.businessDistanceKm ?? 0,
+          chargeableDistanceKm: initialObdState.chargeableDistanceKm ?? 0,
+          lowSpeedSeconds: initialObdState.lowSpeedSeconds ?? 0,
+        }
+      : emptyDistanceMetrics(),
+  )
+  const prevIsObdStableRef = useRef(false)
 
   useEffect(() => {
     if (meterMode !== 'obd') {
@@ -55,21 +108,97 @@ export function useMeterTelemetry({
     }
   }, [disconnectObdTelemetry, meterMode])
 
+  useEffect(() => {
+    fallbackBridgeRef.current = null
+  }, [meterResetKey, sessionResetKey])
+
+  useEffect(() => {
+    if (!isObdMode) {
+      fallbackBridgeRef.current = null
+      prevIsObdStableRef.current = false
+    }
+  }, [isObdMode])
+
   const isObdStableForTelemetry = isObdMode && obd.isStableForTelemetry
   const isUsingObdTelemetry = isObdStableForTelemetry
 
-  const merged = isUsingObdTelemetry
-    ? {
-        ...gpsRaw,
-        businessDistanceKm: obd.businessDistanceKm,
-        chargeableDistanceKm: obd.chargeableDistanceKm,
-        currentSpeedKmh: obd.currentSpeedKmh,
-        lowSpeedSeconds: obd.lowSpeedSeconds,
-        movementState: obd.movementState,
-        speedSource: obd.speedSource,
-        totalDistanceKm: obd.businessDistanceKm,
-      }
-    : gpsRaw
+  const gpsMetrics = toDistanceMetrics(gpsRaw)
+
+  if (
+    isObdMode &&
+    prevIsObdStableRef.current &&
+    !isObdStableForTelemetry &&
+    !fallbackBridgeRef.current
+  ) {
+    fallbackBridgeRef.current = {
+      authoritative: { ...displayMetricsRef.current },
+      gpsSnapshot: gpsMetrics,
+    }
+  }
+
+  const bridgedMetrics =
+    isObdMode && fallbackBridgeRef.current
+      ? computeBridgedMetrics(
+          fallbackBridgeRef.current.authoritative,
+          fallbackBridgeRef.current.gpsSnapshot,
+          gpsMetrics,
+        )
+      : null
+
+  if (isObdStableForTelemetry) {
+    displayMetricsRef.current = toDistanceMetrics(obd)
+  } else if (bridgedMetrics) {
+    displayMetricsRef.current = bridgedMetrics
+  }
+
+  prevIsObdStableRef.current = isObdStableForTelemetry
+
+  useLayoutEffect(() => {
+    if (!isObdMode || !isObdStableForTelemetry || !fallbackBridgeRef.current) {
+      return
+    }
+
+    const bridge = fallbackBridgeRef.current
+    const seedMetrics = computeBridgedMetrics(
+      bridge.authoritative,
+      bridge.gpsSnapshot,
+      toDistanceMetrics(gpsRaw),
+    )
+
+    seedObdMetrics(seedMetrics)
+    displayMetricsRef.current = seedMetrics
+    fallbackBridgeRef.current = null
+  }, [
+    gpsRaw.businessDistanceKm,
+    gpsRaw.chargeableDistanceKm,
+    gpsRaw.lowSpeedSeconds,
+    isObdMode,
+    isObdStableForTelemetry,
+    seedObdMetrics,
+  ])
+
+  const merged = !isObdMode
+    ? gpsRaw
+    : bridgedMetrics
+      ? {
+          ...gpsRaw,
+          businessDistanceKm: bridgedMetrics.businessDistanceKm,
+          chargeableDistanceKm: bridgedMetrics.chargeableDistanceKm,
+          lowSpeedSeconds: bridgedMetrics.lowSpeedSeconds,
+          totalDistanceKm: bridgedMetrics.businessDistanceKm,
+        }
+      : isUsingObdTelemetry
+        ? {
+            ...gpsRaw,
+            businessDistanceKm: obd.businessDistanceKm,
+            chargeableDistanceKm: obd.chargeableDistanceKm,
+            currentSpeedKmh: obd.currentSpeedKmh,
+            lowSpeedSeconds: obd.lowSpeedSeconds,
+            movementState: obd.movementState,
+            speedSource: obd.speedSource,
+            totalDistanceKm: obd.businessDistanceKm,
+          }
+        : gpsRaw
 
   const connectObd = (options?: ObdConnectOptions) => obd.connect(options)
 
