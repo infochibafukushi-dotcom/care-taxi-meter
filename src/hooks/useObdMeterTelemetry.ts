@@ -482,28 +482,32 @@ export function useObdMeterTelemetry({
     connectionRef.current = connection
 
     try {
-      if (interactive && isInitialTripConnect) {
-        console.log('[OBDM] 初回接続: requestDevice を呼び出します')
+      if (interactive && (isInitialTripConnect || isReconnect)) {
+        if (isInitialTripConnect) {
+          console.log('[OBDM] 初回接続: requestDevice を呼び出します')
+        } else {
+          logObdReconnectStage('interactive再接続: requestDevice を呼び出します')
+        }
         await connection.connect()
       } else {
         let reconnected = false
         try {
           reconnected = await connection.connectPermittedDevice()
         } catch (permittedError) {
-          if (!(interactive || isInitialTripConnect)) {
+          if (interactive) {
             throw permittedError
           }
-          console.log('[OBDM] connectPermittedDevice 例外、requestDevice にフォールバック', permittedError)
+          console.log('[OBDM] connectPermittedDevice 例外', permittedError)
         }
 
         if (!reconnected) {
-          const shouldRequestDevice = interactive || isInitialTripConnect
-          if (!shouldRequestDevice) {
-            markDisconnected('許可済みデバイス再接続不可（silent）')
+          if (interactive) {
+            markDisconnected('許可済みデバイス再接続不可')
             return false
           }
 
-          await connection.connect()
+          markDisconnected('許可済みデバイス再接続不可（silent）')
+          return false
         }
       }
 
