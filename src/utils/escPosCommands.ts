@@ -1,4 +1,6 @@
 import Encoding from 'encoding-japanese'
+import { createTestReceiptCanvas } from './thermalReceiptCanvas'
+import { buildEscPosRasterFromCanvas } from './escPosRaster'
 
 const ESC = 0x1b
 const FS = 0x1c
@@ -23,15 +25,6 @@ const alignBytes: Record<EscPosAlign, number> = {
   left: 0x00,
   right: 0x02,
 }
-
-const DEFAULT_TEST_RECEIPT_LINES = [
-  '領収書',
-  '基本運賃',
-  '待機料金',
-  '付き添い料金',
-  '介助料金',
-  'ありがとうございました',
-] as const
 
 export function encodeEscPosShiftJis(text: string): number[] {
   const converted = Encoding.convert(text, {
@@ -88,30 +81,13 @@ export function buildEscPosDocument(buildContent: (chunks: number[]) => void): U
   return Uint8Array.from(chunks)
 }
 
-/** テスト印刷用 ESC/POS（本番と同じ CP932 + 日本語初期化コマンド） */
+/** テスト印刷用 ESC/POS（本番と同じ Canvas→GS v 0 ラスター経路） */
 export function buildTestReceiptEscPos(options: {
   title?: string
   lines?: string[]
 } = {}): Uint8Array {
-  const title = options.title ?? '領収書'
-  const lines = options.lines ?? [
-    ...DEFAULT_TEST_RECEIPT_LINES,
-    new Date().toLocaleString('ja-JP'),
-    'ESC/POS CP932 test OK',
-  ]
-
-  return buildEscPosDocument((chunks) => {
-    appendEscPosAlign(chunks, 'center')
-    appendEscPosBold(chunks, true)
-    appendEscPosLine(chunks, title)
-    appendEscPosBold(chunks, false)
-    appendEscPosDivider(chunks)
-    appendEscPosAlign(chunks, 'left')
-
-    for (const line of lines) {
-      appendEscPosLine(chunks, line)
-    }
-  })
+  const canvas = createTestReceiptCanvas(options)
+  return buildEscPosRasterFromCanvas(canvas)
 }
 
 /** BLE の MTU 制限を考慮してチャンク分割（512 バイトが一般的な上限） */
