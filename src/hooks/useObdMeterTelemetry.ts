@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = 1000
 const STABLE_POLLS_REQUIRED = 5
 const RECOVERED_FLASH_MS = 3000
 const RECONNECT_DELAYS_MS = [5000, 10000, 30000, 60000] as const
+const SILENT_RECONNECT_ESCALATE_AFTER = 3
 
 export type ObdConnectionPhase =
   | 'idle'
@@ -140,6 +141,8 @@ export function useObdMeterTelemetry({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [logs, setLogs] = useState<ObdLogEntry[]>([])
   const [isAutoReconnectPending, setIsAutoReconnectPending] = useState(false)
+  const [silentReconnectFailureCount, setSilentReconnectFailureCount] = useState(0)
+  const [needsInteractiveReconnect, setNeedsInteractiveReconnect] = useState(false)
 
   useEffect(() => {
     connectionPhaseRef.current = connectionPhase
@@ -201,9 +204,29 @@ export function useObdMeterTelemetry({
     setLowSpeedSeconds(metrics.lowSpeedSeconds)
   }, [])
 
+  const recordSilentReconnectFailure = useCallback(() => {
+    setSilentReconnectFailureCount((currentCount) => {
+      const nextCount = currentCount + 1
+      if (nextCount >= SILENT_RECONNECT_ESCALATE_AFTER) {
+        setNeedsInteractiveReconnect(true)
+      }
+      return nextCount
+    })
+  }, [])
+
+  const clearSilentReconnectFailures = useCallback(() => {
+    setSilentReconnectFailureCount(0)
+    setNeedsInteractiveReconnect(false)
+  }, [])
+
+  const dismissInteractiveReconnectPrompt = useCallback(() => {
+    setNeedsInteractiveReconnect(false)
+  }, [])
+
   const markDisconnected = useCallback((message?: string) => {
     stopPolling()
     connectionRef.current = null
+    connectInFlightRef.current = null
     stablePollCountRef.current = 0
     setIsBleConnected(false)
     setIsStableForTelemetry(false)
@@ -256,6 +279,8 @@ export function useObdMeterTelemetry({
     setMovementState('unknown')
     setErrorMessage(null)
     setIsAutoReconnectPending(false)
+    setSilentReconnectFailureCount(0)
+    setNeedsInteractiveReconnect(false)
     if (enableLogging) {
       setLogs([])
     }
@@ -419,6 +444,7 @@ export function useObdMeterTelemetry({
       if (!reconnected) {
         const shouldRequestDevice = interactive || isInitialTripConnect
         if (!shouldRequestDevice) {
+          recordSilentReconnectFailure()
           markDisconnected()
           connectionRef.current = null
           if (isReconnect || isTripActive) {
@@ -447,6 +473,7 @@ export function useObdMeterTelemetry({
 
       reconnectAttemptRef.current = 0
       clearReconnectTimer()
+      clearSilentReconnectFailures()
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
@@ -455,6 +482,9 @@ export function useObdMeterTelemetry({
         timestamp: Date.now(),
         type: 'error',
       })
+      if (!interactive) {
+        recordSilentReconnectFailure()
+      }
       markDisconnected(message)
       connectionRef.current = null
 
@@ -472,11 +502,13 @@ export function useObdMeterTelemetry({
     }
   }, [
     clearReconnectTimer,
+    clearSilentReconnectFailures,
     handleStableConnection,
     isTripActive,
     markDisconnected,
     pollTelemetry,
     pushLog,
+    recordSilentReconnectFailure,
     scheduleReconnect,
     startPolling,
   ])
@@ -679,16 +711,16 @@ export function useObdMeterTelemetry({
       return { label: 'OBD状態：OBD計測中', variant: 'connected', visible: true }
     }
 
-    if (isTripActive && isConnectedForStart && !isStableForTelemetry) {
-      return { label: 'OBD計測未安定（GPS補正中）', variant: 'reconnecting', visible: true }
-    }
-
     if (connectionPhase === 'connecting' || connectionPhase === 'reconnecting') {
       return { label: 'OBD状態：接続中', variant: 'connecting', visible: true }
     }
 
     if (connectionPhase === 'stabilizing') {
       return { label: 'OBD状態：安定化中', variant: 'reconnecting', visible: true }
+    }
+
+    if (isTripActive && isConnectedForStart && !isStableForTelemetry) {
+      return { label: 'OBD計測未安定（GPS補正中）', variant: 'reconnecting', visible: true }
     }
 
     if (isConnectedForStart) {
@@ -708,9 +740,11 @@ export function useObdMeterTelemetry({
     connect,
     connectionPhase,
     currentSpeedKmh,
+    dismissInteractiveReconnectPrompt,
     disconnect,
     errorMessage,
     indicator,
+    isAutoReconnectPending,
     isBleConnected,
     isConnected,
     isConnectedForStart,
@@ -718,8 +752,10 @@ export function useObdMeterTelemetry({
     logs,
     lowSpeedSeconds,
     movementState,
+    needsInteractiveReconnect,
     obdMeterStatus,
     seedMetrics,
+    silentReconnectFailureCount,
     speedSource,
   }
 }

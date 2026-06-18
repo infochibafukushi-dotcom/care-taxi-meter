@@ -8,6 +8,7 @@ import { MeterBlackoutOverlay } from '../components/case/MeterBlackoutOverlay'
 import { ObdConnectionIndicator } from '../components/case/ObdConnectionIndicator'
 import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionRequiredDialog'
 import { ObdMeterStatusBadge } from '../components/case/ObdMeterStatusBadge'
+import { PostSettlementBanner } from '../components/case/PostSettlementBanner'
 import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { TopReturnFab } from '../components/case/TopReturnFab'
@@ -494,6 +495,7 @@ export function CasePage() {
   const [meterModeToast, setMeterModeToast] = useState('')
   const [tripStartNotice, setTripStartNotice] = useState('')
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
+  const [obdConnectionDialogVariant, setObdConnectionDialogVariant] = useState<'mid-trip' | 'pre-trip'>('pre-trip')
   const [settingsMessage, setSettingsMessage] = useState(
     restoredTripSnapshot
       ? '未終了の運行データを復元しました。'
@@ -682,13 +684,14 @@ export function CasePage() {
   const isSettlementInProgress =
     status === '精算前' ||
     status === '精算修正' ||
-    (status === '案件終了' && (caseSaveState !== 'saved' || settlementFlowStep !== 'saved'))
+    (status === '案件終了' && caseSaveState !== 'saved')
   const isCaseInProgress =
     shouldPersistTripSnapshot || caseSaveState === 'saving' || isSettlementInProgress
   const isPostSettlementAwaitingNewCase =
-    (caseSaveState === 'saved' && settlementFlowStep === 'saved' && status === '案件終了') ||
+    (caseSaveState === 'saved' && status === '案件終了') ||
     Boolean(postSettlementLock)
-  const canShowNewCaseStartButton = isPostSettlementAwaitingNewCase
+  const postSettlementCaseNumber =
+    savedCaseRecord?.caseNumber ?? postSettlementLock?.caseNumber ?? caseNumber
   const isBillingWaiting = status === '待機中' && billableTimeStarted.waiting
   const isActiveTripStatus =
     status === '走行中' ||
@@ -767,6 +770,38 @@ export function CasePage() {
       `案件 ${postSettlementLock.caseNumber} の精算が完了しています。「新しい案件を開始」から次の案件へ進んでください。`,
     )
   }, [postSettlementLock, restoredTripSnapshot])
+
+  useEffect(() => {
+    if (meterMode !== 'obd' || status !== '走行中' || !gps.needsObdInteractiveReconnect) {
+      return
+    }
+
+    setObdConnectionDialogVariant('mid-trip')
+    setIsObdConnectionDialogOpen(true)
+  }, [gps.needsObdInteractiveReconnect, meterMode, status])
+
+  useEffect(() => {
+    if (meterMode !== 'obd' || status !== '走行中' || !isGpsActive) {
+      return undefined
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible' || gps.isObdStableForTelemetry) {
+        return
+      }
+
+      void connectObd({ interactive: false, isReconnect: true })
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [
+    connectObd,
+    gps.isObdStableForTelemetry,
+    isGpsActive,
+    meterMode,
+    status,
+  ])
 
   useEffect(() => {
     if (!isCaseInProgress) {
@@ -1579,12 +1614,14 @@ export function CasePage() {
   }
 
   const handleObdReconnect = async () => {
-    const connected = await connectObd({
-      interactive: true,
-      isInitialTripConnect: true,
-    })
+    const connected = await connectObd(
+      obdConnectionDialogVariant === 'mid-trip'
+        ? { interactive: true, isReconnect: true }
+        : { interactive: true, isInitialTripConnect: true },
+    )
     if (connected) {
       setIsObdConnectionDialogOpen(false)
+      gps.dismissObdInteractiveReconnect()
       setTripStartNotice('')
       return
     }
@@ -1636,6 +1673,7 @@ export function CasePage() {
 
         if (!connected) {
           setTripStartNotice('OBD接続が完了していません。再接続してください。')
+          setObdConnectionDialogVariant('pre-trip')
           setIsObdConnectionDialogOpen(true)
           return
         }
@@ -2252,7 +2290,14 @@ export function CasePage() {
       clearActiveTripSnapshot()
       setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
-      setCaseSaveMessage('Firestoreへ保存しました。レシートまたは領収書を発行できます。')
+      writePostSettlementLock(caseNumber)
+      setPostSettlementLock({
+        caseNumber,
+        lockedAt: new Date().toISOString(),
+      })
+      setCaseSaveMessage(
+        'Firestoreへ保存しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。',
+      )
       return savedRecord
     } catch (error) {
       console.error('Failed to save case record to Firestore', error)
@@ -2327,13 +2372,7 @@ export function CasePage() {
   }
 
   const completeReceiptIssuance = () => {
-    const recordCaseNumber = savedCaseRecord?.caseNumber ?? caseNumber
     setSettlementFlowStep('saved')
-    writePostSettlementLock(recordCaseNumber)
-    setPostSettlementLock({
-      caseNumber: recordCaseNumber,
-      lockedAt: new Date().toISOString(),
-    })
   }
 
   const handleThermalReceiptPrint = async () => {
@@ -2341,14 +2380,22 @@ export function CasePage() {
       return
     }
 
-    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
-    await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
-      customerName: savedCaseRecord.receiptName || receiptName,
-      expenseItems: expenses,
-      issuerName: latestMeterSettings.receipt.issuerName,
-      receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
-    })
-    completeReceiptIssuance()
+    try {
+      const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+      await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
+        customerName: savedCaseRecord.receiptName || receiptName,
+        expenseItems: expenses,
+        issuerName: latestMeterSettings.receipt.issuerName,
+        receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
+      })
+      completeReceiptIssuance()
+    } catch (error) {
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `レシート発行に失敗しました。${error.message}`
+          : 'レシート発行に失敗しました。',
+      )
+    }
   }
 
   const handleA4ReceiptDownload = async () => {
@@ -2356,13 +2403,21 @@ export function CasePage() {
       return
     }
 
-    const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
-    await downloadReceiptPdf(savedCaseRecord, latestMeterSettings, {
-      customerName: savedCaseRecord.receiptName || receiptName,
-      issuerName: latestMeterSettings.receipt.issuerName,
-      receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
-    })
-    completeReceiptIssuance()
+    try {
+      const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+      await downloadReceiptPdf(savedCaseRecord, latestMeterSettings, {
+        customerName: savedCaseRecord.receiptName || receiptName,
+        issuerName: latestMeterSettings.receipt.issuerName,
+        receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
+      })
+      completeReceiptIssuance()
+    } catch (error) {
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `領収書発行に失敗しました。${error.message}`
+          : '領収書発行に失敗しました。',
+      )
+    }
   }
 
   const resetMeterSession = () => {
@@ -2511,6 +2566,13 @@ export function CasePage() {
         <strong>スマホ表示に対応しました</strong>
         <span>縦画面でも横スクロールせず操作できます。</span>
       </div>
+
+      {isPostSettlementAwaitingNewCase ? (
+        <PostSettlementBanner
+          caseNumber={postSettlementCaseNumber}
+          onStartNewCase={handleStartNewCase}
+        />
+      ) : null}
 
       <div className="r9-meter-shell">
         <ObdMeterStatusBadge
@@ -3351,10 +3413,18 @@ export function CasePage() {
 
             <div className="r9-settlement-steps" aria-label="精算・終了手順">
               <span className="r9-settlement-steps__done">支払方法選択</span>
-              <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
-              <span className={savedCaseRecord ? 'r9-settlement-steps__done' : ''}>レシート・領収書発行</span>
+              <span className={caseSaveState === 'saved' || savedCaseRecord ? 'r9-settlement-steps__done' : ''}>保存</span>
+              <span className={settlementFlowStep === 'saved' ? 'r9-settlement-steps__done' : ''}>レシート・領収書発行（任意）</span>
               <span className={settlementFlowStep === 'saved' ? 'r9-settlement-steps__done' : ''}>発行完了</span>
             </div>
+
+            {isPostSettlementAwaitingNewCase ? (
+              <PostSettlementBanner
+                caseNumber={postSettlementCaseNumber}
+                compact
+                onStartNewCase={handleStartNewCase}
+              />
+            ) : null}
 
             {!savedCaseRecord ? (
               <>
@@ -3454,7 +3524,8 @@ export function CasePage() {
 
             {savedCaseRecord ? (
               <div className="r9-issuance-panel">
-                <p>案件を保存しました。レシートまたは領収書を発行してください。</p>
+                <p>レシートまたは領収書を発行できます（任意）。</p>
+                {caseSaveMessage ? <p className="save-note" role="status">{caseSaveMessage}</p> : null}
                 <div className="payment-complete-total">
                   <span>合計金額</span>
                   <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
@@ -3479,17 +3550,10 @@ export function CasePage() {
                     領収書発行
                   </button>
                 </div>
-                {canShowNewCaseStartButton ? (
-                  <div className="r9-issue-complete">
+                {settlementFlowStep === 'saved' ? (
+                  <p className="r9-issue-complete">
                     <strong>発行完了</strong>
-                    <button
-                      className="r9-flow-primary"
-                      type="button"
-                      onClick={handleStartNewCase}
-                    >
-                      新しい案件を開始
-                    </button>
-                  </div>
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -3511,12 +3575,22 @@ export function CasePage() {
 
       <ObdConnectionRequiredDialog
         isOpen={isObdConnectionDialogOpen}
-        onCancel={() => setIsObdConnectionDialogOpen(false)}
+        variant={obdConnectionDialogVariant}
+        onCancel={() => {
+          setIsObdConnectionDialogOpen(false)
+          if (obdConnectionDialogVariant === 'mid-trip') {
+            gps.dismissObdInteractiveReconnect()
+          }
+        }}
         onReconnect={() => {
           void handleObdReconnect()
         }}
-        onSwitchToGps={handleObdSwitchToGps}
-        onSwitchToTime={handleObdSwitchToTime}
+        onSwitchToGps={
+          obdConnectionDialogVariant === 'pre-trip' ? handleObdSwitchToGps : undefined
+        }
+        onSwitchToTime={
+          obdConnectionDialogVariant === 'pre-trip' ? handleObdSwitchToTime : undefined
+        }
       />
 
       <MeterBlackoutOverlay
