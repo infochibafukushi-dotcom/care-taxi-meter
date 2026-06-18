@@ -70,7 +70,7 @@ export function ObdConnectionRequiredDialog({
 
         <footer className="obd-connection-dialog__actions">
           <button type="button" className="primary-action" onClick={onReconnect}>
-            再接続
+            {isMidTrip ? 'OBD再接続' : '再接続'}
           </button>
           {!isMidTrip && onSwitchToGps && onSwitchToTime ? (
             <>

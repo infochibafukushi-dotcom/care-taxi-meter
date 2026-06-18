@@ -1,24 +1,44 @@
 import type { ObdMeterStatus } from '../../hooks/useObdMeterTelemetry'
 
 const statusLabels: Record<ObdMeterStatus, string> = {
-  connected: '🟢 OBD接続中',
-  disconnected: '🔴 OBD未接続',
-  reconnecting: '🟡 OBD再接続中',
+  connected: '🟢 OBD計測中',
+  disconnected: '🔴 OBD未接続（GPSで計測中）',
+  reconnecting: '🟡 OBD接続中',
 }
 
 type ObdMeterStatusBadgeProps = {
+  onReconnect?: () => void
+  showReconnectButton?: boolean
   status: ObdMeterStatus
+  statusLabel?: string
   visible: boolean
 }
 
-export function ObdMeterStatusBadge({ status, visible }: ObdMeterStatusBadgeProps) {
+export function ObdMeterStatusBadge({
+  onReconnect,
+  showReconnectButton = false,
+  status,
+  statusLabel,
+  visible,
+}: ObdMeterStatusBadgeProps) {
   if (!visible) {
     return null
   }
 
   return (
-    <div className="obd-meter-status-badge" role="status">
-      {statusLabels[status]}
+    <div className="obd-meter-status-stack">
+      <div className="obd-meter-status-badge" role="status">
+        {statusLabel ?? statusLabels[status]}
+      </div>
+      {showReconnectButton && onReconnect ? (
+        <button
+          className="obd-reconnect-button"
+          type="button"
+          onClick={onReconnect}
+        >
+          OBD再接続
+        </button>
+      ) : null}
     </div>
   )
 }

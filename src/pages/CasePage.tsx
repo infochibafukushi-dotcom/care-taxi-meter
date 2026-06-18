@@ -771,37 +771,10 @@ export function CasePage() {
     )
   }, [postSettlementLock, restoredTripSnapshot])
 
-  useEffect(() => {
-    if (meterMode !== 'obd' || status !== '走行中' || !gps.needsObdInteractiveReconnect) {
-      return
-    }
-
+  const handleOpenObdReconnectDialog = () => {
     setObdConnectionDialogVariant('mid-trip')
     setIsObdConnectionDialogOpen(true)
-  }, [gps.needsObdInteractiveReconnect, meterMode, status])
-
-  useEffect(() => {
-    if (meterMode !== 'obd' || status !== '走行中' || !isGpsActive) {
-      return undefined
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'visible' || gps.isObdStableForTelemetry) {
-        return
-      }
-
-      void connectObd({ interactive: false, isReconnect: true })
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [
-    connectObd,
-    gps.isObdStableForTelemetry,
-    isGpsActive,
-    meterMode,
-    status,
-  ])
+  }
 
   useEffect(() => {
     if (!isCaseInProgress) {
@@ -1621,12 +1594,15 @@ export function CasePage() {
     )
     if (connected) {
       setIsObdConnectionDialogOpen(false)
-      gps.dismissObdInteractiveReconnect()
       setTripStartNotice('')
       return
     }
 
-    setTripStartNotice('OBD接続が完了していません。再接続してください。')
+    setTripStartNotice(
+      obdConnectionDialogVariant === 'mid-trip'
+        ? 'OBDに接続できませんでした。GPSで計測を継続します。'
+        : 'OBD接続が完了していません。再接続してください。',
+    )
   }
 
   const handleObdSwitchToGps = () => {
@@ -2576,7 +2552,21 @@ export function CasePage() {
 
       <div className="r9-meter-shell">
         <ObdMeterStatusBadge
+          onReconnect={handleOpenObdReconnectDialog}
+          showReconnectButton={
+            meterMode === 'obd' &&
+            isGpsActive &&
+            gps.needsObdInteractiveReconnect &&
+            gps.obdConnectionPhase === 'disconnected'
+          }
           status={gps.obdMeterStatus}
+          statusLabel={
+            gps.obdMeterStatus === 'disconnected' && isGpsActive
+              ? gps.interactiveReconnectFailed
+                ? '🔴 OBD未接続（GPSで計測中）'
+                : '🔴 OBD切断中（GPS補正中）'
+              : undefined
+          }
           visible={meterMode === 'obd'}
         />
         <span className="meter-screw meter-screw--top-left" />
@@ -3578,9 +3568,6 @@ export function CasePage() {
         variant={obdConnectionDialogVariant}
         onCancel={() => {
           setIsObdConnectionDialogOpen(false)
-          if (obdConnectionDialogVariant === 'mid-trip') {
-            gps.dismissObdInteractiveReconnect()
-          }
         }}
         onReconnect={() => {
           void handleObdReconnect()
