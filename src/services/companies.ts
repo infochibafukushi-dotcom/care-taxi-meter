@@ -104,6 +104,8 @@ function toCompany(id: string, data: Record<string, unknown>): Company {
     meterPermissions: toMeterPermissions(data.meterPermissions),
     notificationSettings: toNotificationSettings(data.notificationSettings),
     obdAdapterLoanEnabled: typeof data.obdAdapterLoanEnabled === 'boolean' ? data.obdAdapterLoanEnabled : undefined,
+    defaultObdModel: toString(data.defaultObdModel),
+    defaultPrinterModel: toString(data.defaultPrinterModel),
     initialFee: toNumber(data.initialFee),
     contractStartDate: toString(data.contractStartDate),
     contractEndDate: toString(data.contractEndDate),

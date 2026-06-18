@@ -25,6 +25,12 @@ import {
   subscriptionPlanDefinitions,
 } from '../services/subscriptionPlans'
 import type { SubscriptionPlan } from '../types/work'
+import {
+  DEVICE_UNSET_LABEL,
+  formatDeviceModel,
+  getObdModelOptions,
+  getPrinterModelOptions,
+} from '../constants/deviceModels'
 
 const companyStatusLabels: Record<CompanyStatus, string> = {
   screening: '審査中',
@@ -531,6 +537,33 @@ export function HeadquartersPage() {
                 </select>
               </label>
               <label>加盟店ステータス<select value={draftCompany.status ?? 'screening'} onChange={(event) => updateDraftCompany('status', event.target.value)}>{editableCompanyStatuses.map((status) => <option key={status} value={status}>{companyStatusLabels[status]}</option>)}</select></label>
+              <fieldset className="hq-device-settings">
+                <legend>機器設定</legend>
+                <label>
+                  OBD機種
+                  <select
+                    value={draftCompany.defaultObdModel ?? ''}
+                    onChange={(event) => updateDraftCompany('defaultObdModel', event.target.value)}
+                  >
+                    <option value="">{DEVICE_UNSET_LABEL}</option>
+                    {getObdModelOptions().map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  プリンター機種
+                  <select
+                    value={draftCompany.defaultPrinterModel ?? ''}
+                    onChange={(event) => updateDraftCompany('defaultPrinterModel', event.target.value)}
+                  >
+                    <option value="">{DEVICE_UNSET_LABEL}</option>
+                    {getPrinterModelOptions().map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </label>
+              </fieldset>
             </div>
             <div className="hq-form-actions"><button className="primary-action" type="button" onClick={handleCompanySave}>加盟店情報を保存</button></div>
           </details>
@@ -538,7 +571,7 @@ export function HeadquartersPage() {
         </div>
         <div className="admin-table-wrapper hq-table-wrapper">
           <table className="admin-table hq-company-table hq-company-table--simple">
-            <thead><tr>{['加盟店名','契約プラン','月額料金','メール通知','LINE通知','OBDM','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
+            <thead><tr>{['加盟店名','OBD','プリンター','契約プラン','月額料金','メール通知','LINE通知','OBDM','ステータス','今月売上','案件数','最終ログイン','詳細'].map((head) => <th key={head}>{head}</th>)}</tr></thead>
             <tbody>{sortedCompanySummaries.map((summary) => {
               const plan = summary.company.subscriptionPlan ?? defaultSubscriptionPlan
               const notificationSettings = summary.company.notificationSettings
@@ -546,6 +579,8 @@ export function HeadquartersPage() {
               return (
                 <tr key={summary.company.id}>
                   <td>{summary.company.name}</td>
+                  <td>{formatDeviceModel(summary.company.defaultObdModel)}</td>
+                  <td>{formatDeviceModel(summary.company.defaultPrinterModel)}</td>
                   <td>{getSubscriptionPlanLabel(plan)}</td>
                   <td>{formatFareYen(summary.company.monthlyFee ?? getSubscriptionPlanMonthlyFee(plan))}円</td>
                   <td>{formatPermissionIndicator(notificationSettings?.email ?? true)}</td>
@@ -613,6 +648,10 @@ export function HeadquartersPage() {
               ['店舗数', `${selectedSummary.storeCount}店舗`],
               ['従業員数', `${selectedSummary.staffCount}人`],
               ['車両数', `${selectedSummary.vehicleCount}台`],
+            ]} />
+            <ProfileBlock title="機器設定" rows={[
+              ['OBD機種', formatDeviceModel(selectedCompany.defaultObdModel)],
+              ['プリンター機種', formatDeviceModel(selectedCompany.defaultPrinterModel)],
             ]} />
             <ProfileBlock title="売上情報" rows={[
               ['今月売上', `${formatFareYen(selectedSummary.monthSalesYen)}円`],

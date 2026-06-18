@@ -42,6 +42,8 @@ export type Company = {
   meterPermissions?: MeterPermissions
   notificationSettings?: NotificationSettings
   obdAdapterLoanEnabled?: boolean
+  defaultObdModel?: string
+  defaultPrinterModel?: string
   initialFee?: number
   contractStartDate?: string
   contractEndDate?: string

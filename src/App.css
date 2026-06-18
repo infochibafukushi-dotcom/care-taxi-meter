@@ -5654,6 +5654,22 @@ h1 {
   padding: 0 10px;
 }
 
+.hq-device-settings {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 0;
+  padding: 14px 16px 16px;
+}
+
+.hq-device-settings legend {
+  font-weight: 800;
+  padding: 0 6px;
+}
+
 .hq-status-badge {
   border-radius: 999px;
   color: #fff;
