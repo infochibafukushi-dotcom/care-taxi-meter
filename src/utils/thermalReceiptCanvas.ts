@@ -23,9 +23,20 @@ type ThermalLine = {
 export const thermalReceiptPaper = {
   widthMm: 80,
   heightMm: 220,
-  widthPx: 640,
+  /** PT-210 実印字可能幅（203dpi・80mm 紙の標準ドット幅。640px は右端欠けの原因） */
+  widthPx: 576,
   heightPx: 1760,
 } as const
+
+/** 左右余白（右端は PT-210 切れ防止のため最低 20px 以上を確保） */
+const THERMAL_RECEIPT_LAYOUT = {
+  marginLeft: 48,
+  marginRight: 48,
+  indentLeft: 74,
+} as const
+
+const thermalRightX = (canvas: HTMLCanvasElement) =>
+  canvas.width - THERMAL_RECEIPT_LAYOUT.marginRight
 
 /** Canvas 上で日本語を確実に描画するフォントスタック */
 export const THERMAL_RECEIPT_FONT_FAMILY =
@@ -47,14 +58,14 @@ const drawThermalText = (
     ...options,
   })
 
-function drawDivider(context: CanvasRenderingContext2D, y: number) {
+function drawDivider(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, y: number) {
   context.save()
   context.strokeStyle = '#111827'
   context.setLineDash([8, 8])
   context.lineWidth = 2
   context.beginPath()
-  context.moveTo(48, y)
-  context.lineTo(thermalReceiptPaper.widthPx - 48, y)
+  context.moveTo(THERMAL_RECEIPT_LAYOUT.marginLeft, y)
+  context.lineTo(canvas.width - THERMAL_RECEIPT_LAYOUT.marginRight, y)
   context.stroke()
   context.restore()
 }
@@ -162,18 +173,18 @@ export function createThermalReceiptCanvas(
     })
 
   y += 16
-  drawDivider(context, y)
+  drawDivider(context, canvas, y)
   y += 52
   drawThermalText(context, issueOptions.isReissue ? '領収書（再発行）' : '領収書', canvas.width / 2, y, {
     align: 'center',
     font: `bold 48px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
   y += 52
-  drawThermalText(context, customerName ? `${customerName} 様` : '________________ 様', 48, y, {
+  drawThermalText(context, customerName ? `${customerName} 様` : '________________ 様', THERMAL_RECEIPT_LAYOUT.marginLeft, y, {
     font: `bold 30px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
   y += 40
-  drawDivider(context, y)
+  drawDivider(context, canvas, y)
   y += 42
 
   ;[
@@ -181,8 +192,8 @@ export function createThermalReceiptCanvas(
     ['利用日', formatCaseDateTime(caseRecord.closedAt)],
     ['案件番号', caseRecord.caseNumber],
   ].forEach(([label, value]) => {
-    drawThermalText(context, label, 48, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
-    drawThermalText(context, value, canvas.width - 48, y, {
+    drawThermalText(context, label, THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, value, thermalRightX(canvas), y, {
       align: 'right',
       font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
     })
@@ -190,13 +201,13 @@ export function createThermalReceiptCanvas(
   })
 
   y += 10
-  drawDivider(context, y)
+  drawDivider(context, canvas, y)
   y += 42
   createThermalReceiptLines(caseRecord, issueOptions.expenseItems).forEach((line) => {
-    drawThermalText(context, line.label, line.indent ? 74 : 48, y, {
+    drawThermalText(context, line.label, line.indent ? THERMAL_RECEIPT_LAYOUT.indentLeft : THERMAL_RECEIPT_LAYOUT.marginLeft, y, {
       font: line.indent ? `22px ${THERMAL_RECEIPT_FONT_FAMILY}` : `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
     })
-    drawThermalText(context, line.value, canvas.width - 48, y, {
+    drawThermalText(context, line.value, thermalRightX(canvas), y, {
       align: 'right',
       font: line.indent ? `22px ${THERMAL_RECEIPT_FONT_FAMILY}` : `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
     })
@@ -204,16 +215,16 @@ export function createThermalReceiptCanvas(
   })
 
   y += 10
-  drawDivider(context, y)
+  drawDivider(context, canvas, y)
   y += 58
-  drawThermalText(context, '合計', 48, y, { font: `bold 34px ${THERMAL_RECEIPT_FONT_FAMILY}` })
-  drawThermalText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, canvas.width - 48, y, {
+  drawThermalText(context, '合計', THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `bold 34px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+  drawThermalText(context, `${formatFareYen(caseRecord.totalFareYen)}円`, thermalRightX(canvas), y, {
     align: 'right',
     font: `bold 46px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
   y += 58
-  drawThermalText(context, '支払方法', 48, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
-  drawThermalText(context, caseRecord.paymentMethod || '未設定', canvas.width - 48, y, {
+  drawThermalText(context, '支払方法', THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+  drawThermalText(context, caseRecord.paymentMethod || '未設定', thermalRightX(canvas), y, {
     align: 'right',
     font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
@@ -222,8 +233,8 @@ export function createThermalReceiptCanvas(
     ? caseRecord.payments
     : [{ amount: caseRecord.totalFareYen, id: 'legacy-payment', type: caseRecord.paymentMethod }]
   paymentLines.forEach((payment) => {
-    drawThermalText(context, `支払内訳 ${payment.type}`, 48, y, { font: `22px ${THERMAL_RECEIPT_FONT_FAMILY}` })
-    drawThermalText(context, `${formatFareYen(payment.amount)}円`, canvas.width - 48, y, {
+    drawThermalText(context, `支払内訳 ${payment.type}`, THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `22px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, `${formatFareYen(payment.amount)}円`, thermalRightX(canvas), y, {
       align: 'right',
       font: `22px ${THERMAL_RECEIPT_FONT_FAMILY}`,
     })
@@ -232,16 +243,16 @@ export function createThermalReceiptCanvas(
   y += 12
 
   if (receiptNote) {
-    drawDivider(context, y)
+    drawDivider(context, canvas, y)
     y += 38
-    drawThermalText(context, '但し書き', 48, y, { font: `bold 24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, '但し書き', THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `bold 24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
     y += 32
-    drawThermalText(context, receiptNote, 48, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, receiptNote, THERMAL_RECEIPT_LAYOUT.marginLeft, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
     y += 42
   }
 
   if (invoiceNumber) {
-    drawDivider(context, y)
+    drawDivider(context, canvas, y)
     y += 38
     drawThermalText(context, '登録番号', canvas.width / 2, y, {
       align: 'center',
@@ -256,7 +267,9 @@ export function createThermalReceiptCanvas(
   }
 
   if (issuerName) {
-    drawThermalText(context, `発行担当者 ${issuerName}`, 48, y, { font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, `発行担当者 ${issuerName}`, THERMAL_RECEIPT_LAYOUT.marginLeft, y, {
+      font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
+    })
     y += 42
   }
 
@@ -269,6 +282,10 @@ export function createThermalReceiptCanvas(
   return canvas
 }
 
+/** PoC 右端切れ確認用の固定値 */
+const TEST_RECEIPT_CASE_NUMBER = '260618-MAINS-0019'
+const TEST_RECEIPT_DATETIME = '2026/06/18 22:30'
+
 const DEFAULT_TEST_RECEIPT_LINES = [
   '基本運賃',
   '待機料金',
@@ -278,17 +295,13 @@ const DEFAULT_TEST_RECEIPT_LINES = [
   'ありがとうございました',
 ] as const
 
-/** PoC / 接続テスト用レシート Canvas（本番と同じ 80mm 幅・フォント） */
+/** PoC / 接続テスト用レシート Canvas（本番と同じ 576px 幅・フォント） */
 export function createTestReceiptCanvas(options: {
   title?: string
   lines?: string[]
 } = {}) {
   const title = options.title ?? '領収書'
-  const lines = options.lines ?? [
-    ...DEFAULT_TEST_RECEIPT_LINES,
-    new Date().toLocaleString('ja-JP'),
-    'ラスター印字テスト OK',
-  ]
+  const lines = options.lines ?? DEFAULT_TEST_RECEIPT_LINES
 
   const canvas = document.createElement('canvas')
   canvas.width = thermalReceiptPaper.widthPx
@@ -308,12 +321,39 @@ export function createTestReceiptCanvas(options: {
     font: `bold 48px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
   y += 56
-  drawDivider(context, y)
+  drawDivider(context, canvas, y)
   y += 48
 
   lines.forEach((line) => {
-    drawThermalText(context, line, 48, y, { font: `26px ${THERMAL_RECEIPT_FONT_FAMILY}` })
+    drawThermalText(context, line, THERMAL_RECEIPT_LAYOUT.marginLeft, y, {
+      font: `26px ${THERMAL_RECEIPT_FONT_FAMILY}`,
+    })
     y += 40
+  })
+
+  y += 8
+  drawDivider(context, canvas, y)
+  y += 42
+
+  ;[
+    ['発行日', TEST_RECEIPT_DATETIME],
+    ['利用日', TEST_RECEIPT_DATETIME],
+    ['案件番号', TEST_RECEIPT_CASE_NUMBER],
+  ].forEach(([label, value]) => {
+    drawThermalText(context, label, THERMAL_RECEIPT_LAYOUT.marginLeft, y, {
+      font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
+    })
+    drawThermalText(context, value, thermalRightX(canvas), y, {
+      align: 'right',
+      font: `24px ${THERMAL_RECEIPT_FONT_FAMILY}`,
+    })
+    y += 34
+  })
+
+  y += 8
+  drawThermalText(context, 'ラスター印字テスト OK', canvas.width / 2, y, {
+    align: 'center',
+    font: `22px ${THERMAL_RECEIPT_FONT_FAMILY}`,
   })
 
   canvas.dataset.contentBottom = String(y + 48)
