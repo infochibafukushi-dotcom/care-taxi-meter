@@ -773,6 +773,11 @@ export function CasePage() {
   }, [postSettlementLock, restoredTripSnapshot])
 
   const handleOpenObdReconnectDialog = () => {
+    console.log('[OBDM] OBD再接続ボタン押下（ダイアログ表示）', {
+      isGpsActive,
+      needsObdInteractiveReconnect: gps.needsObdInteractiveReconnect,
+      obdConnectionPhase: gps.obdConnectionPhase,
+    })
     setObdConnectionDialogVariant('mid-trip')
     setIsObdConnectionDialogOpen(true)
   }
@@ -1588,11 +1593,24 @@ export function CasePage() {
   }
 
   const handleObdReconnect = async () => {
+    console.log('[OBDM] handleObdReconnect 押下', {
+      dialogVariant: obdConnectionDialogVariant,
+      isGpsActive,
+      isObdBleConnected: gps.isObdBleConnected,
+      isObdConnectedForStart: gps.isObdConnectedForStart,
+      isObdStableForTelemetry: gps.isObdStableForTelemetry,
+      needsObdInteractiveReconnect: gps.needsObdInteractiveReconnect,
+      obdConnectionPhase: gps.obdConnectionPhase,
+      obdMeterStatus: gps.obdMeterStatus,
+    })
+
     const connected = await connectObd(
       obdConnectionDialogVariant === 'mid-trip'
         ? { interactive: true, isReconnect: true }
         : { interactive: true, isInitialTripConnect: true },
     )
+
+    console.log('[OBDM] handleObdReconnect 完了', { connected })
     if (connected) {
       setIsObdConnectionDialogOpen(false)
       setTripStartNotice('')
