@@ -1,10 +1,22 @@
+import Encoding from 'encoding-japanese'
+
 const ESC = 0x1b
+const FS = 0x1c
 const GS = 0x1d
 const LF = 0x0a
 
-const textEncoder = new TextEncoder()
-
 export type EscPosAlign = 'left' | 'center' | 'right'
+
+/** ESC @ 後に送る日本語向け初期化コマンド（Shift_JIS + 漢字モード） */
+export const ESC_POS_JAPANESE_INIT_BYTES = [
+  ESC,
+  0x40, // ESC @ 初期化
+  FS,
+  0x43,
+  0x01, // FS C 1  Shift_JIS コード体系
+  FS,
+  0x26, // FS &    漢字モード ON
+] as const
 
 const alignBytes: Record<EscPosAlign, number> = {
   center: 0x01,
@@ -12,8 +24,31 @@ const alignBytes: Record<EscPosAlign, number> = {
   right: 0x02,
 }
 
+const DEFAULT_TEST_RECEIPT_LINES = [
+  '領収書',
+  '基本運賃',
+  '待機料金',
+  '付き添い料金',
+  '介助料金',
+  'ありがとうございました',
+] as const
+
+export function encodeEscPosShiftJis(text: string): number[] {
+  const converted = Encoding.convert(text, {
+    to: 'SJIS',
+    from: 'UNICODE',
+    type: 'array',
+  })
+
+  if (!Array.isArray(converted)) {
+    throw new Error('Shift_JIS への変換に失敗しました。')
+  }
+
+  return converted
+}
+
 export function appendEscPosInit(chunks: number[]) {
-  chunks.push(ESC, 0x40)
+  chunks.push(...ESC_POS_JAPANESE_INIT_BYTES)
 }
 
 export function appendEscPosAlign(chunks: number[], align: EscPosAlign) {
@@ -25,7 +60,7 @@ export function appendEscPosBold(chunks: number[], enabled: boolean) {
 }
 
 export function appendEscPosText(chunks: number[], text: string) {
-  chunks.push(...textEncoder.encode(text))
+  chunks.push(...encodeEscPosShiftJis(text))
 }
 
 export function appendEscPosLine(chunks: number[], text: string) {
@@ -53,22 +88,24 @@ export function buildEscPosDocument(buildContent: (chunks: number[]) => void): U
   return Uint8Array.from(chunks)
 }
 
-/** テスト印刷用の最小 ESC/POS バイト列（58mm/80mm 共通の基本コマンド） */
+/** テスト印刷用 ESC/POS（本番と同じ CP932 + 日本語初期化コマンド） */
 export function buildTestReceiptEscPos(options: {
   title?: string
   lines?: string[]
 } = {}): Uint8Array {
-  const title = options.title ?? '介護タクシー メーター'
+  const title = options.title ?? '領収書'
   const lines = options.lines ?? [
-    'Bluetooth プリンター接続テスト',
+    ...DEFAULT_TEST_RECEIPT_LINES,
     new Date().toLocaleString('ja-JP'),
-    '----------------',
-    'ESC/POS 印字 OK',
+    'ESC/POS CP932 test OK',
   ]
 
   return buildEscPosDocument((chunks) => {
     appendEscPosAlign(chunks, 'center')
+    appendEscPosBold(chunks, true)
     appendEscPosLine(chunks, title)
+    appendEscPosBold(chunks, false)
+    appendEscPosDivider(chunks)
     appendEscPosAlign(chunks, 'left')
 
     for (const line of lines) {

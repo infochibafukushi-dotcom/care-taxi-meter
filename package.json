@@ -12,6 +12,7 @@
     "reset:dev-data": "node scripts/resetDevelopmentData.mjs"
   },
   "dependencies": {
+    "encoding-japanese": "^2.2.0",
     "firebase": "^12.6.0",
     "jspdf": "^4.2.1",
     "react": "^19.2.6",
