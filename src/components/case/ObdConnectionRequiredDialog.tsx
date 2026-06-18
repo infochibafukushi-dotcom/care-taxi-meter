@@ -22,14 +22,14 @@ export function ObdConnectionRequiredDialog({
   const isMidTrip = variant === 'mid-trip'
 
   return (
-    <div className="settings-modal-backdrop">
+    <div className="settings-backdrop" role="presentation">
       <section
         aria-labelledby="obd-connection-required-title"
         aria-modal="true"
         className="settings-modal r9-operation-modal obd-connection-dialog"
         role="dialog"
       >
-        <header className="settings-modal__header">
+        <header className="settings-header">
           <div>
             <p className="eyebrow">OBDM</p>
             <h2 id="obd-connection-required-title">
@@ -41,7 +41,7 @@ export function ObdConnectionRequiredDialog({
           </button>
         </header>
 
-        <div className="settings-modal__body">
+        <div className="settings-modal__body obd-connection-dialog__body">
           {isMidTrip ? (
             <>
               <p className="obd-connection-dialog__message">
