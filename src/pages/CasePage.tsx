@@ -83,7 +83,7 @@ import {
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { formatTimerClock } from '../utils/time'
 import { buildThermalReceiptEscPos } from '../utils/thermalReceiptEscPos'
-import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import { downloadThermalReceiptPdf, openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import { thermalPrinterService } from '../services/escPosPrinterConnection'
 import type { EscPosConnectionStageDiagnostic } from '../services/escPosPrinterConnection'
 import {
@@ -708,6 +708,10 @@ export function CasePage() {
   const isPostSettlementAwaitingNewCase =
     (caseSaveState === 'saved' && status === '案件終了') ||
     Boolean(postSettlementLock)
+  const canSaveReceiptPdf =
+    Boolean(savedCaseRecord) &&
+    status === '案件終了' &&
+    caseSaveState === 'saved'
   const postSettlementCaseNumber =
     savedCaseRecord?.caseNumber ?? postSettlementLock?.caseNumber ?? caseNumber
   const isBillingWaiting = status === '待機中' && billableTimeStarted.waiting
@@ -2453,6 +2457,32 @@ export function CasePage() {
     }
   }
 
+  const handleThermalReceiptPdfDownload = async () => {
+    if (!savedCaseRecord) {
+      return
+    }
+
+    try {
+      const latestMeterSettings = await fetchMeterSettings({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      })
+      await downloadThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
+        customerName: savedCaseRecord.receiptName || receiptName,
+        expenseItems: expenses,
+        issuerName: latestMeterSettings.receipt.issuerName,
+        receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
+      })
+      setCaseSaveMessage('レシートPDFを保存しました。')
+    } catch (error) {
+      setCaseSaveMessage(
+        error instanceof Error
+          ? `レシートPDF保存に失敗しました。${error.message}`
+          : 'レシートPDF保存に失敗しました。',
+      )
+    }
+  }
+
   const handleA4ReceiptDownload = async () => {
     if (!savedCaseRecord) {
       return
@@ -3662,6 +3692,17 @@ export function CasePage() {
                   >
                     領収書印刷
                   </button>
+                  {canSaveReceiptPdf ? (
+                    <button
+                      className="receipt-dialog-secondary"
+                      type="button"
+                      onClick={() => {
+                        void handleThermalReceiptPdfDownload()
+                      }}
+                    >
+                      レシートPDF保存
+                    </button>
+                  ) : null}
                   <button
                     className="receipt-dialog-secondary"
                     type="button"

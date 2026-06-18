@@ -12,7 +12,7 @@ export type { ThermalReceiptIssueOptions } from './thermalReceiptCanvas'
 const thermalReceiptFileName = (caseNumber: string) =>
   createPdfFileName('thermal-receipt', caseNumber)
 
-export async function openThermalReceiptPdf(
+async function createThermalReceiptPdf(
   caseRecord: StoredCaseRecord,
   settings: MeterSettings,
   issueOptions: ThermalReceiptIssueOptions,
@@ -36,6 +36,24 @@ export async function openThermalReceiptPdf(
     thermalReceiptPaper.heightMm,
   )
 
+  return pdf
+}
+
+export async function downloadThermalReceiptPdf(
+  caseRecord: StoredCaseRecord,
+  settings: MeterSettings,
+  issueOptions: ThermalReceiptIssueOptions,
+) {
+  const pdf = await createThermalReceiptPdf(caseRecord, settings, issueOptions)
+  pdf.save(thermalReceiptFileName(caseRecord.caseNumber))
+}
+
+export async function openThermalReceiptPdf(
+  caseRecord: StoredCaseRecord,
+  settings: MeterSettings,
+  issueOptions: ThermalReceiptIssueOptions,
+) {
+  const pdf = await createThermalReceiptPdf(caseRecord, settings, issueOptions)
   const pdfBlob = pdf.output('blob')
   const pdfUrl = URL.createObjectURL(pdfBlob)
   const receiptWindow = window.open(pdfUrl, '_blank', 'noopener,noreferrer')
