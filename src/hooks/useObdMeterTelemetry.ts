@@ -482,15 +482,26 @@ export function useObdMeterTelemetry({
     connectionRef.current = connection
 
     try {
-      const reconnected = await connection.connectPermittedDevice()
-      if (!reconnected) {
-        const shouldRequestDevice = interactive || isInitialTripConnect
-        if (!shouldRequestDevice) {
-          markDisconnected('許可済みデバイス再接続不可（silent）')
-          return false
-        }
+      const shouldRequestDeviceDirectly = interactive && isReconnect
 
+      if (shouldRequestDeviceDirectly) {
+        logObdReconnectStage('手動再接続: requestDevice を呼び出します')
         await connection.connect()
+      } else {
+        const reconnected = await connection.connectPermittedDevice()
+        if (!reconnected) {
+          const shouldRequestDevice = interactive || isInitialTripConnect
+          if (!shouldRequestDevice) {
+            markDisconnected('許可済みデバイス再接続不可（silent）')
+            return false
+          }
+
+          logObdReconnectStage('requestDevice にフォールバックします', {
+            interactive,
+            isInitialTripConnect,
+          })
+          await connection.connect()
+        }
       }
 
       setIsBleConnected(true)
@@ -516,6 +527,9 @@ export function useObdMeterTelemetry({
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
+      if (isReconnect) {
+        console.error('[OBDM] OBD再接続例外', error)
+      }
       pushLog({
         message,
         timestamp: Date.now(),

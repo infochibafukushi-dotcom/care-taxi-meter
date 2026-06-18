@@ -14,14 +14,14 @@ export function WaitingMovementAlert({
   }
 
   return (
-    <div className="settings-modal-backdrop">
+    <div className="settings-backdrop" role="presentation">
       <section
         aria-labelledby="waiting-movement-alert-title"
         aria-modal="true"
         className="settings-modal r9-operation-modal waiting-movement-alert"
         role="alertdialog"
       >
-        <header className="settings-modal__header">
+        <header className="settings-header">
           <div>
             <p className="eyebrow">待機中</p>
             <h2 id="waiting-movement-alert-title">⚠️ 待機中に車両移動を検知しました</h2>

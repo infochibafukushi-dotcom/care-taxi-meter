@@ -34,7 +34,10 @@ export function ObdMeterStatusBadge({
         <button
           className="obd-reconnect-button"
           type="button"
-          onClick={onReconnect}
+          onClick={() => {
+            console.log('OBD reconnect clicked')
+            onReconnect()
+          }}
         >
           OBD再接続
         </button>
