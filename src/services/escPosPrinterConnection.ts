@@ -18,6 +18,26 @@ export type EscPosPrinterLogHandler = (entry: EscPosPrinterLogEntry) => void
 
 export type EscPosPrinterConnectionMethod = 'ble' | 'serial' | null
 
+export type EscPosConnectionStageName =
+  | 'connectGrantedPort'
+  | 'connectGrantedDevice'
+  | 'requestPort'
+  | 'requestDevice'
+
+export type EscPosConnectionStageStatus = 'failure' | 'skipped' | 'success'
+
+export type EscPosConnectionStageDiagnostic = {
+  stage: EscPosConnectionStageName
+  connectionMethod: 'BLE' | 'Serial'
+  status: EscPosConnectionStageStatus
+  detail: string
+}
+
+type EscPosConnectionAttemptResult = {
+  ok: boolean
+  detail: string
+}
+
 const createLogEntry = (type: EscPosPrinterLogType, message: string): EscPosPrinterLogEntry => ({
   message,
   timestamp: Date.now(),
@@ -83,10 +103,11 @@ export class BleEscPosPrinterConnection {
     )
   }
 
-  async connectGrantedDevice(): Promise<boolean> {
+  async connectGrantedDevice(): Promise<EscPosConnectionAttemptResult> {
     if (!navigator.bluetooth?.getDevices) {
+      const detail = 'getDevices 非対応'
       logEscPosDiagnostic('connectGrantedDevice: getDevices 非対応', { result: false })
-      return false
+      return { ok: false, detail }
     }
 
     const permittedDevices = await navigator.bluetooth.getDevices()
@@ -97,33 +118,36 @@ export class BleEscPosPrinterConnection {
         : undefined) ?? permittedDevices[0]
 
     if (!device) {
+      const detail = `許可済みデバイスなし (permittedDeviceCount: ${permittedDevices.length})`
       logEscPosDiagnostic('connectGrantedDevice: 許可済みデバイスなし', {
         permittedDeviceCount: permittedDevices.length,
         result: false,
       })
-      return false
+      return { ok: false, detail }
     }
 
     try {
       this.onLog(createLogEntry('info', '許可済み BLE プリンターへ再接続します'))
       await this.attachToDevice(device)
+      const detail = `再接続成功 (${device.name ?? device.id})`
       logEscPosDiagnostic('connectGrantedDevice: 成功', {
         connectionMethod: 'BLE',
         deviceId: device.id,
         deviceName: device.name ?? '',
         result: true,
       })
-      return true
+      return { ok: true, detail }
     } catch (error) {
+      const detail = formatEscPosError(error)
       logEscPosDiagnostic('connectGrantedDevice: 失敗', {
         connectionMethod: 'BLE',
         deviceId: device.id,
         deviceName: device.name ?? '',
-        reason: formatEscPosError(error),
+        reason: detail,
         result: false,
         error,
       })
-      return false
+      return { ok: false, detail }
     }
   }
 
@@ -216,10 +240,11 @@ export class SerialEscPosPrinterConnection {
     )
   }
 
-  async connectGrantedPort(): Promise<boolean> {
+  async connectGrantedPort(): Promise<EscPosConnectionAttemptResult> {
     if (!navigator.serial) {
+      const detail = 'Web Serial 非対応'
       logEscPosDiagnostic('connectGrantedPort: Web Serial 非対応', { result: false })
-      return false
+      return { ok: false, detail }
     }
 
     const ports = await navigator.serial.getPorts()
@@ -228,33 +253,36 @@ export class SerialEscPosPrinterConnection {
       (ports.length === 1 ? ports[0] : undefined)
 
     if (!port) {
+      const detail = `利用可能なポートなし (grantedPortCount: ${ports.length})`
       logEscPosDiagnostic('connectGrantedPort: 利用可能なポートなし', {
         connectionMethod: 'Serial',
         grantedPortCount: ports.length,
         result: false,
       })
-      return false
+      return { ok: false, detail }
     }
 
     try {
       this.onLog(createLogEntry('info', '許可済みシリアルポートへ再接続します'))
       await this.openPort(port)
+      const detail = '許可済みポートへ再接続成功'
       logEscPosDiagnostic('connectGrantedPort: 成功', {
         connectionMethod: 'Serial',
         bluetoothServiceClassId: port.getInfo().bluetoothServiceClassId ?? null,
         result: true,
       })
-      return true
+      return { ok: true, detail }
     } catch (error) {
       this.port = null
+      const detail = formatEscPosError(error)
       logEscPosDiagnostic('connectGrantedPort: 失敗', {
         connectionMethod: 'Serial',
         bluetoothServiceClassId: port.getInfo().bluetoothServiceClassId ?? null,
-        reason: formatEscPosError(error),
+        reason: detail,
         result: false,
         error,
       })
-      return false
+      return { ok: false, detail }
     }
   }
 
@@ -330,10 +358,25 @@ export class EscPosPrinterService {
   private readonly serialConnection = new SerialEscPosPrinterConnection()
   private readonly bleConnection = new BleEscPosPrinterConnection()
   private activeMethod: EscPosPrinterConnectionMethod = null
+  private lastConnectionDiagnostics: EscPosConnectionStageDiagnostic[] = []
 
   setLogHandler(handler: EscPosPrinterLogHandler) {
     this.serialConnection.setLogHandler(handler)
     this.bleConnection.setLogHandler(handler)
+  }
+
+  getLastConnectionDiagnostics() {
+    return this.lastConnectionDiagnostics
+  }
+
+  private recordConnectionStage(
+    stage: EscPosConnectionStageDiagnostic,
+  ) {
+    this.lastConnectionDiagnostics.push(stage)
+  }
+
+  private resetConnectionDiagnostics() {
+    this.lastConnectionDiagnostics = []
   }
 
   getActiveMethod() {
@@ -361,6 +404,8 @@ export class EscPosPrinterService {
   }
 
   async connectIfNeeded(): Promise<void> {
+    this.resetConnectionDiagnostics()
+
     if (this.isConnected()) {
       logEscPosDiagnostic('connectIfNeeded: 既に接続済み', {
         connectionMethod: this.activeMethod ?? 'unknown',
@@ -371,8 +416,14 @@ export class EscPosPrinterService {
     const failures: string[] = []
 
     if (navigator.serial) {
-      const reconnected = await this.serialConnection.connectGrantedPort()
-      if (reconnected) {
+      const grantedPortResult = await this.serialConnection.connectGrantedPort()
+      this.recordConnectionStage({
+        stage: 'connectGrantedPort',
+        connectionMethod: 'Serial',
+        status: grantedPortResult.ok ? 'success' : 'failure',
+        detail: grantedPortResult.detail,
+      })
+      if (grantedPortResult.ok) {
         this.activeMethod = 'serial'
         logEscPosDiagnostic('connectIfNeeded: Serial 再接続で成功', {
           connectionMethod: 'Serial',
@@ -380,12 +431,24 @@ export class EscPosPrinterService {
         return
       }
     } else {
+      this.recordConnectionStage({
+        stage: 'connectGrantedPort',
+        connectionMethod: 'Serial',
+        status: 'skipped',
+        detail: 'Web Serial 非対応',
+      })
       logEscPosDiagnostic('connectIfNeeded: Web Serial 非対応', { connectionMethod: 'Serial' })
     }
 
     if (navigator.bluetooth?.getDevices) {
-      const reconnected = await this.bleConnection.connectGrantedDevice()
-      if (reconnected) {
+      const grantedDeviceResult = await this.bleConnection.connectGrantedDevice()
+      this.recordConnectionStage({
+        stage: 'connectGrantedDevice',
+        connectionMethod: 'BLE',
+        status: grantedDeviceResult.ok ? 'success' : 'failure',
+        detail: grantedDeviceResult.detail,
+      })
+      if (grantedDeviceResult.ok) {
         this.activeMethod = 'ble'
         logEscPosDiagnostic('connectIfNeeded: BLE 再接続で成功', {
           connectionMethod: 'BLE',
@@ -393,6 +456,12 @@ export class EscPosPrinterService {
         return
       }
     } else {
+      this.recordConnectionStage({
+        stage: 'connectGrantedDevice',
+        connectionMethod: 'BLE',
+        status: 'skipped',
+        detail: 'getDevices 非対応',
+      })
       logEscPosDiagnostic('connectIfNeeded: getDevices 非対応', { connectionMethod: 'BLE' })
     }
 
@@ -400,6 +469,12 @@ export class EscPosPrinterService {
       try {
         await this.serialConnection.connect()
         this.activeMethod = 'serial'
+        this.recordConnectionStage({
+          stage: 'requestPort',
+          connectionMethod: 'Serial',
+          status: 'success',
+          detail: 'requestPort 成功',
+        })
         logEscPosDiagnostic('connectIfNeeded: Serial requestPort で成功', {
           connectionMethod: 'Serial',
         })
@@ -407,18 +482,37 @@ export class EscPosPrinterService {
       } catch (error) {
         const reason = formatEscPosError(error)
         failures.push(`Serial requestPort: ${reason}`)
+        this.recordConnectionStage({
+          stage: 'requestPort',
+          connectionMethod: 'Serial',
+          status: 'failure',
+          detail: reason,
+        })
         logEscPosDiagnostic('requestPort failed', {
           connectionMethod: 'Serial',
           reason,
           error,
         })
       }
+    } else {
+      this.recordConnectionStage({
+        stage: 'requestPort',
+        connectionMethod: 'Serial',
+        status: 'skipped',
+        detail: 'Web Serial 非対応',
+      })
     }
 
     if (navigator.bluetooth) {
       try {
         await this.bleConnection.connect()
         this.activeMethod = 'ble'
+        this.recordConnectionStage({
+          stage: 'requestDevice',
+          connectionMethod: 'BLE',
+          status: 'success',
+          detail: 'requestDevice 成功',
+        })
         logEscPosDiagnostic('connectIfNeeded: BLE requestDevice で成功', {
           connectionMethod: 'BLE',
         })
@@ -426,12 +520,25 @@ export class EscPosPrinterService {
       } catch (error) {
         const reason = formatEscPosError(error)
         failures.push(`BLE requestDevice: ${reason}`)
+        this.recordConnectionStage({
+          stage: 'requestDevice',
+          connectionMethod: 'BLE',
+          status: 'failure',
+          detail: reason,
+        })
         logEscPosDiagnostic('requestDevice failed', {
           connectionMethod: 'BLE',
           reason,
           error,
         })
       }
+    } else {
+      this.recordConnectionStage({
+        stage: 'requestDevice',
+        connectionMethod: 'BLE',
+        status: 'skipped',
+        detail: 'Web Bluetooth 非対応',
+      })
     }
 
     if (!navigator.serial && !navigator.bluetooth) {

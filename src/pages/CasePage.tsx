@@ -85,6 +85,7 @@ import { formatTimerClock } from '../utils/time'
 import { buildThermalReceiptEscPos } from '../utils/thermalReceiptEscPos'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
 import { thermalPrinterService } from '../services/escPosPrinterConnection'
+import type { EscPosConnectionStageDiagnostic } from '../services/escPosPrinterConnection'
 import {
   captureAddressLocationFromCoordinates,
   captureCurrentAddressLocation,
@@ -125,6 +126,16 @@ type InputHistory = {
   name: string
 }
 
+
+const formatPrinterConnectionStageLabel = (stage: EscPosConnectionStageDiagnostic) => {
+  const statusLabel =
+    stage.status === 'success' ? '成功' : stage.status === 'skipped' ? 'スキップ' : '失敗'
+
+  return `${stage.stage} (${stage.connectionMethod}): ${statusLabel} - ${stage.detail}`
+}
+
+const isPrinterConnectionFailureMessage = (message: string) =>
+  message.includes('プリンター接続')
 
 type CaseSaveState = 'error' | 'idle' | 'saved' | 'saving'
 type SettlementFlowStep = 'receipt' | 'saved'
@@ -534,6 +545,9 @@ export function CasePage() {
         ? '精算・終了で支払方法を選択して保存します。'
         : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
   )
+  const [printerConnectionDiagnostics, setPrinterConnectionDiagnostics] = useState<
+    EscPosConnectionStageDiagnostic[]
+  >([])
   const [currentBasicFareSettings, setCurrentBasicFareSettings] =
     useState<BasicFareSettings>(restoredTripSnapshot?.fareSnapshot?.basicFare ?? basicFareSettings)
   const [currentWaitingFareSettings, setCurrentWaitingFareSettings] =
@@ -2364,8 +2378,11 @@ export function CasePage() {
       receiptNote: '',
     }
 
+    setPrinterConnectionDiagnostics([])
+
     try {
       await thermalPrinterService.connectIfNeeded()
+      setPrinterConnectionDiagnostics(thermalPrinterService.getLastConnectionDiagnostics())
       console.error('[CasePage] 領収書印刷: プリンター接続成功', {
         connectionMethod: thermalPrinterService.getActiveMethod(),
       })
@@ -2390,11 +2407,18 @@ export function CasePage() {
       completeReceiptIssuance()
       setCaseSaveMessage('領収書を印刷しました。')
     } catch (error) {
+      setPrinterConnectionDiagnostics(thermalPrinterService.getLastConnectionDiagnostics())
+      const reason = error instanceof Error ? error.message : String(error)
       console.error('[CasePage] 領収書印刷失敗', {
         connectionMethod: thermalPrinterService.getActiveMethod(),
-        reason: error instanceof Error ? error.message : String(error),
+        reason,
         error,
       })
+      setCaseSaveMessage(
+        isPrinterConnectionFailureMessage(reason)
+          ? `プリンター接続失敗:\n${reason}`
+          : `領収書印刷失敗:\n${reason}`,
+      )
 
       try {
         const latestMeterSettings = await fetchMeterSettings({
@@ -2411,7 +2435,9 @@ export function CasePage() {
         console.error('[CasePage] 領収書印刷: PDFフォールバックへ切り替え', {
           connectionMethod: thermalPrinterService.getActiveMethod(),
         })
-        setCaseSaveMessage('プリンターに接続できないためPDF表示へ切り替えました。')
+        setCaseSaveMessage((currentMessage) =>
+          `${currentMessage}\nプリンターに接続できないためPDF表示へ切り替えました。`,
+        )
       } catch (fallbackError) {
         console.error('[CasePage] 領収書印刷: PDFフォールバックも失敗', {
           connectionMethod: thermalPrinterService.getActiveMethod(),
@@ -3605,7 +3631,23 @@ export function CasePage() {
             {savedCaseRecord ? (
               <div className="r9-issuance-panel">
                 <p>レシートまたは領収書を発行できます（任意）。</p>
-                {caseSaveMessage ? <p className="save-note" role="status">{caseSaveMessage}</p> : null}
+                {caseSaveMessage ? (
+                  <p className="save-note save-note--error" role="status" style={{ whiteSpace: 'pre-wrap' }}>
+                    {caseSaveMessage}
+                  </p>
+                ) : null}
+                {printerConnectionDiagnostics.length > 0 ? (
+                  <div className="printer-connection-diagnostics" aria-label="プリンター接続診断">
+                    <p className="printer-connection-diagnostics__title">接続診断</p>
+                    <ul className="printer-connection-diagnostics__list">
+                      {printerConnectionDiagnostics.map((stage, index) => (
+                        <li key={`${stage.stage}-${index}`}>
+                          {formatPrinterConnectionStageLabel(stage)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <div className="payment-complete-total">
                   <span>合計金額</span>
                   <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
