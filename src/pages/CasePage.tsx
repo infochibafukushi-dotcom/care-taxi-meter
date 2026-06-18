@@ -623,6 +623,7 @@ export function CasePage() {
   })
   const connectObd = gps.connectObd
   const obdRestoreConnectAttemptedRef = useRef(false)
+  const obdIdleConnectAttemptedRef = useRef(false)
   const applyMeterMode = (nextMode: MeterMode) => {
     setMeterMode(nextMode)
     setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
@@ -1061,6 +1062,24 @@ export function CasePage() {
     obdRestoreConnectAttemptedRef.current = true
     void connectObd({ interactive: false, isReconnect: true })
   }, [connectObd, isGpsActive, meterMode, status])
+
+  useEffect(() => {
+    if (obdIdleConnectAttemptedRef.current) {
+      return
+    }
+
+    if (
+      meterMode !== 'obd' ||
+      status !== '空車' ||
+      isGpsActive ||
+      gps.isObdConnectedForStart
+    ) {
+      return
+    }
+
+    obdIdleConnectAttemptedRef.current = true
+    void connectObd({ interactive: false, isReconnect: true })
+  }, [connectObd, gps.isObdConnectedForStart, isGpsActive, meterMode, status])
 
   const reverseGeocodeCauseLabel = getReverseGeocodeCauseLabel({
     diagnostic: reverseGeocodeDiagnostic,
@@ -1611,7 +1630,7 @@ export function CasePage() {
         }
 
         const connected = await connectObd({
-          interactive: false,
+          interactive: true,
           isInitialTripConnect: true,
         })
 
@@ -2367,6 +2386,7 @@ export function CasePage() {
     pickupCapturePromiseRef.current = null
     dropoffCapturePromiseRef.current = null
     obdRestoreConnectAttemptedRef.current = false
+    obdIdleConnectAttemptedRef.current = false
     clearActiveTripSnapshot()
     clearPostSettlementLock()
     setPostSettlementLock(null)

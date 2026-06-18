@@ -88,6 +88,18 @@ const deriveMovementState = (
   return speedKmh <= lowSpeedThresholdKmh ? 'low-speed' : 'normal'
 }
 
+const resolveConnectIntent = (options: ObdConnectOptions) => {
+  if (options.isInitialTripConnect) {
+    return 'initial-trip'
+  }
+
+  if (options.interactive) {
+    return 'interactive'
+  }
+
+  return 'silent-reconnect'
+}
+
 export function useObdMeterTelemetry({
   enableLogging = false,
   initialState = {},
@@ -108,7 +120,7 @@ export function useObdMeterTelemetry({
   const recoveredFlashTimerRef = useRef<number | null>(null)
   const isDistanceAccumulatingRef = useRef(isDistanceAccumulating)
   const connectRef = useRef<(options?: ObdConnectOptions) => Promise<boolean>>(async () => false)
-  const connectInFlightRef = useRef<Promise<boolean> | null>(null)
+  const connectInFlightRef = useRef<{ intent: string; promise: Promise<boolean> } | null>(null)
   const connectionPhaseRef = useRef<ObdConnectionPhase>('idle')
   const isBleConnectedRef = useRef(false)
   const isStableForTelemetryRef = useRef(false)
@@ -405,7 +417,8 @@ export function useObdMeterTelemetry({
     try {
       const reconnected = await connection.connectPermittedDevice()
       if (!reconnected) {
-        if (!interactive) {
+        const shouldRequestDevice = interactive || isInitialTripConnect
+        if (!shouldRequestDevice) {
           markDisconnected()
           connectionRef.current = null
           if (isReconnect || isTripActive) {
@@ -474,18 +487,20 @@ export function useObdMeterTelemetry({
         return true
       }
 
-      let connectPromise = connectInFlightRef.current
-      if (!connectPromise) {
-        connectPromise = executeObdConnect(attemptOptions)
-        connectInFlightRef.current = connectPromise
+      const intent = resolveConnectIntent(attemptOptions)
+      const inFlight = connectInFlightRef.current
+
+      if (!inFlight || inFlight.intent !== intent) {
+        const connectPromise = executeObdConnect(attemptOptions)
+        connectInFlightRef.current = { intent, promise: connectPromise }
         connectPromise.finally(() => {
-          if (connectInFlightRef.current === connectPromise) {
+          if (connectInFlightRef.current?.promise === connectPromise) {
             connectInFlightRef.current = null
           }
         })
       }
 
-      const result = await connectPromise
+      const result = await connectInFlightRef.current!.promise
       return result || isConnectedForStartFromRefs()
     },
     [executeObdConnect],
