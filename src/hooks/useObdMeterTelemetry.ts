@@ -102,6 +102,10 @@ export function useObdMeterTelemetry({
   const recoveredFlashTimerRef = useRef<number | null>(null)
   const isDistanceAccumulatingRef = useRef(isDistanceAccumulating)
   const connectRef = useRef<(options?: ObdConnectOptions) => Promise<boolean>>(async () => false)
+  const connectInFlightRef = useRef<Promise<boolean> | null>(null)
+  const connectionPhaseRef = useRef<ObdConnectionPhase>('idle')
+  const isBleConnectedRef = useRef(false)
+  const isStableForTelemetryRef = useRef(false)
 
   const [connectionPhase, setConnectionPhase] = useState<ObdConnectionPhase>('idle')
   const [isBleConnected, setIsBleConnected] = useState(false)
@@ -118,6 +122,25 @@ export function useObdMeterTelemetry({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [logs, setLogs] = useState<ObdLogEntry[]>([])
   const [isAutoReconnectPending, setIsAutoReconnectPending] = useState(false)
+
+  useEffect(() => {
+    connectionPhaseRef.current = connectionPhase
+  }, [connectionPhase])
+
+  useEffect(() => {
+    isBleConnectedRef.current = isBleConnected
+  }, [isBleConnected])
+
+  useEffect(() => {
+    isStableForTelemetryRef.current = isStableForTelemetry
+  }, [isStableForTelemetry])
+
+  const isConnectedForStartFromRefs = () =>
+    isObdConnectedForStartState(
+      connectionPhaseRef.current,
+      isBleConnectedRef.current,
+      connectionRef.current,
+    )
 
   const pushLog = useCallback((entry: ObdLogEntry) => {
     if (!enableLogging) {
@@ -193,6 +216,7 @@ export function useObdMeterTelemetry({
     clearReconnectTimer()
     reconnectAttemptRef.current = 0
     clearRecoveredFlashTimer()
+    connectInFlightRef.current = null
     connectionRef.current?.setDisconnectedHandler(null)
     connectionRef.current = null
     setRequiresStabilization(false)
@@ -294,6 +318,7 @@ export function useObdMeterTelemetry({
     clearReconnectTimer()
     reconnectAttemptRef.current = 0
     clearRecoveredFlashTimer()
+    connectInFlightRef.current = null
 
     const connection = connectionRef.current
     connectionRef.current = null
@@ -325,66 +350,14 @@ export function useObdMeterTelemetry({
     setIsAutoReconnectPending(false)
   }, [clearRecoveredFlashTimer, clearReconnectTimer, pushLog, stopPolling])
 
-  const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
-    const interactive = options?.interactive ?? true
-    const isInitialTripConnect = options?.isInitialTripConnect ?? false
-    const isReconnect = options?.isReconnect ?? false
-
-    const logConnectResult = (
-      connected: boolean,
-      snapshot?: {
-        connectionPhase?: ObdConnectionPhase
-        isBleConnected?: boolean
-        isStableForTelemetry?: boolean
-      },
-    ) => {
-      if (!isInitialTripConnect) {
-        return
-      }
-
-      const phase = snapshot?.connectionPhase ?? connectionPhase
-      const bleConnected = snapshot?.isBleConnected ?? isBleConnected
-      const stableForTelemetry = snapshot?.isStableForTelemetry ?? isStableForTelemetry
-
-      console.log('[OBDM] connect() 送迎開始接続', {
-        connected,
-        connectionPhase: phase,
-        isBleConnected: bleConnected,
-        isObdConnectedForStart: isObdConnectedForStartState(
-          phase,
-          bleConnected,
-          connectionRef.current,
-        ),
-        isObdStableForTelemetry: stableForTelemetry,
-      })
-    }
-
-    if (!isEnabled) {
-      logConnectResult(false)
-      return false
-    }
-
-    if (connectionPhase === 'connecting') {
-      logConnectResult(false)
-      return false
-    }
-
-    if (
-      isObdConnectedForStartState(connectionPhase, isBleConnected, connectionRef.current)
-    ) {
-      logConnectResult(true)
-      return true
-    }
-
-    if (connectionPhase === 'reconnecting' || connectionPhase === 'stabilizing') {
-      logConnectResult(false)
-      return false
-    }
+  const executeObdConnect = useCallback(async (options: ObdConnectOptions): Promise<boolean> => {
+    const interactive = options.interactive ?? true
+    const isInitialTripConnect = options.isInitialTripConnect ?? false
+    const isReconnect = options.isReconnect ?? false
 
     if (!navigator.bluetooth) {
       setErrorMessage('このブラウザは Web Bluetooth に対応していません')
       setConnectionPhase('disconnected')
-      logConnectResult(false)
       return false
     }
 
@@ -426,7 +399,6 @@ export function useObdMeterTelemetry({
           if (isReconnect || isTripActive) {
             scheduleReconnect()
           }
-          logConnectResult(false)
           return false
         }
 
@@ -450,11 +422,6 @@ export function useObdMeterTelemetry({
 
       reconnectAttemptRef.current = 0
       clearReconnectTimer()
-      logConnectResult(true, {
-        connectionPhase: shouldStabilize ? 'stabilizing' : 'connected',
-        isBleConnected: true,
-        isStableForTelemetry: !shouldStabilize,
-      })
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
@@ -476,16 +443,11 @@ export function useObdMeterTelemetry({
         scheduleReconnect()
       }
 
-      logConnectResult(false)
       return false
     }
   }, [
     clearReconnectTimer,
-    connectionPhase,
     handleStableConnection,
-    isBleConnected,
-    isEnabled,
-    isStableForTelemetry,
     isTripActive,
     markDisconnected,
     pollTelemetry,
@@ -493,6 +455,90 @@ export function useObdMeterTelemetry({
     scheduleReconnect,
     startPolling,
   ])
+
+  const awaitConnectAttempt = useCallback(
+    async (attemptOptions: ObdConnectOptions): Promise<boolean> => {
+      if (isConnectedForStartFromRefs()) {
+        return true
+      }
+
+      let connectPromise = connectInFlightRef.current
+      if (!connectPromise) {
+        connectPromise = executeObdConnect(attemptOptions)
+        connectInFlightRef.current = connectPromise
+        connectPromise.finally(() => {
+          if (connectInFlightRef.current === connectPromise) {
+            connectInFlightRef.current = null
+          }
+        })
+      }
+
+      const result = await connectPromise
+      return result || isConnectedForStartFromRefs()
+    },
+    [executeObdConnect],
+  )
+
+  const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
+    const connectOptions: ObdConnectOptions = options ?? {}
+    const isInitialTripConnect = connectOptions.isInitialTripConnect ?? false
+
+    const logConnectResult = (
+      connected: boolean,
+      snapshot?: {
+        connectionPhase?: ObdConnectionPhase
+        isBleConnected?: boolean
+        isStableForTelemetry?: boolean
+      },
+    ) => {
+      if (!isInitialTripConnect) {
+        return
+      }
+
+      const phase = snapshot?.connectionPhase ?? connectionPhaseRef.current
+      const bleConnected = snapshot?.isBleConnected ?? isBleConnectedRef.current
+      const stableForTelemetry = snapshot?.isStableForTelemetry ?? isStableForTelemetryRef.current
+
+      console.log('[OBDM] connect() 送迎開始接続', {
+        connected,
+        connectionPhase: phase,
+        isBleConnected: bleConnected,
+        isObdConnectedForStart: isObdConnectedForStartState(
+          phase,
+          bleConnected,
+          connectionRef.current,
+        ),
+        isObdStableForTelemetry: stableForTelemetry,
+      })
+    }
+
+    if (!isEnabled) {
+      logConnectResult(false)
+      return false
+    }
+
+    if (isConnectedForStartFromRefs()) {
+      logConnectResult(true)
+      return true
+    }
+
+    const connected = await awaitConnectAttempt(connectOptions)
+    if (connected) {
+      logConnectResult(true)
+      return true
+    }
+
+    if (!connectInFlightRef.current) {
+      const retryConnected = await awaitConnectAttempt(connectOptions)
+      if (retryConnected) {
+        logConnectResult(true)
+        return true
+      }
+    }
+
+    logConnectResult(false)
+    return false
+  }, [awaitConnectAttempt, isEnabled])
 
   useEffect(() => {
     connectRef.current = connect

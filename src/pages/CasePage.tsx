@@ -1607,17 +1607,17 @@ export function CasePage() {
           obdConnectionPhase: gps.obdConnectionPhase,
         })
 
+        if (!gps.isObdConnectedForStart) {
+          setTripStartNotice('OBD接続中です。完了後に送迎開始します。')
+        }
+
         const connected = await connectObd({
           interactive: false,
           isInitialTripConnect: true,
         })
 
         if (!connected) {
-          const message =
-            gps.obdConnectionPhase === 'connecting' || gps.obdConnectionPhase === 'reconnecting'
-              ? 'OBDは接続中です。数秒後にもう一度お試しください。'
-              : 'OBD接続が完了していません。再接続してください。'
-          setTripStartNotice(message)
+          setTripStartNotice('OBD接続が完了していません。再接続してください。')
           setIsObdConnectionDialogOpen(true)
           return
         }
