@@ -3,15 +3,28 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { readPostSettlementLock } from '../services/postSettlementLock'
+import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
+import {
+  defaultMeterPermissions,
+  getAllowedMeterModes,
+} from '../services/subscriptionPlans'
 import { fetchVehicles } from '../services/vehicles'
-import type { Vehicle } from '../types/work'
+import type { MeterMode } from '../types/case'
+import type { MeterPermissions, Vehicle } from '../types/work'
 import { logDiagnostic } from '../utils/diagnostics'
+import {
+  clampMeterModeToPermissions,
+  meterModeLabels,
+  readStoredMeterMode,
+} from '../utils/meterConstants'
 
 export function CaseStartPage() {
   const navigate = useNavigate()
   const workSession = useWorkSession()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(readStoredMeterMode)
+  const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [message, setMessage] = useState('稼働中車両を読み込み中です。')
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
   const [postSettlementLock] = useState(readPostSettlementLock)
@@ -28,6 +41,22 @@ export function CaseStartPage() {
   }, [])
 
   useEffect(() => {
+    const franchiseeId =
+      workSession.currentSession?.franchiseeId || workSession.currentSession?.companyId
+
+    if (!franchiseeId) {
+      setMeterPermissions(defaultMeterPermissions)
+      return
+    }
+
+    void fetchCompanyById(franchiseeId).then((company) => {
+      const permissions = getCompanyMeterPermissions(company)
+      setMeterPermissions(permissions)
+      setSelectedMeterMode((currentMode) => clampMeterModeToPermissions(currentMode, permissions))
+    })
+  }, [workSession.currentSession])
+
+  useEffect(() => {
     let isMounted = true
 
     fetchVehicles()
@@ -37,7 +66,7 @@ export function CaseStartPage() {
         }
 
         setVehicles(loadedVehicles)
-        setMessage('案件で使用する車両を選択してください。')
+        setMessage('案件で使用する車両とメーター方式を選択してください。')
       })
       .catch((error) => {
         if (!isMounted) {
@@ -63,7 +92,15 @@ export function CaseStartPage() {
     [vehicles, workSession.currentSession],
   )
 
+  const allowedMeterModes = useMemo(
+    () => getAllowedMeterModes(meterPermissions),
+    [meterPermissions],
+  )
+
   const selectedVehicleValue = selectedVehicleId || availableVehicles[0]?.id || ''
+  const selectedMeterModeValue = allowedMeterModes.includes(selectedMeterMode)
+    ? selectedMeterMode
+    : allowedMeterModes[0] ?? 'gps'
 
   const handleStartCase = () => {
     if (activeTripSnapshot) {
@@ -76,7 +113,14 @@ export function CaseStartPage() {
       return
     }
 
-    navigate(`/case?vehicleId=${encodeURIComponent(selectedVehicleValue)}`)
+    if (!allowedMeterModes.includes(selectedMeterModeValue)) {
+      setMessage('選択したメーター方式は利用できません。')
+      return
+    }
+
+    navigate(
+      `/case?vehicleId=${encodeURIComponent(selectedVehicleValue)}&meterMode=${encodeURIComponent(selectedMeterModeValue)}`,
+    )
   }
 
   if (activeTripSnapshot) {
@@ -127,6 +171,19 @@ export function CaseStartPage() {
               {availableVehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            メーター方式
+            <select
+              value={selectedMeterModeValue}
+              onChange={(event) => setSelectedMeterMode(event.target.value as MeterMode)}
+            >
+              {allowedMeterModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {meterModeLabels[mode]}
                 </option>
               ))}
             </select>

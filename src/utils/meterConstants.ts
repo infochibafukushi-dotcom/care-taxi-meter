@@ -1,9 +1,57 @@
 import type { MeterMode, OperationStatus, PaymentMethod } from '../types/case'
+import type { MeterPermissions } from '../types/work'
+import { getAllowedMeterModes, isMeterModeAllowed } from '../services/subscriptionPlans'
 
 export const meterModeLabels: Record<MeterMode, string> = {
   gps: 'GPSM',
   obd: 'OBDM',
   time: '時間M',
+}
+
+export const meterModeStorageKey = 'careTaxiMeterMode'
+
+export const parseMeterModeParam = (value: string | null | undefined): MeterMode | null =>
+  value === 'gps' || value === 'time' || value === 'obd' ? value : null
+
+export const readStoredMeterMode = (): MeterMode => {
+  const storedMode = window.localStorage.getItem(meterModeStorageKey)
+  return parseMeterModeParam(storedMode) ?? 'gps'
+}
+
+export const writeStoredMeterMode = (mode: MeterMode) => {
+  window.localStorage.setItem(meterModeStorageKey, mode)
+}
+
+export const clampMeterModeToPermissions = (
+  mode: MeterMode,
+  permissions: MeterPermissions,
+): MeterMode => {
+  if (isMeterModeAllowed(mode, permissions)) {
+    return mode
+  }
+
+  return getAllowedMeterModes(permissions)[0] ?? 'gps'
+}
+
+/** 権限クランプ前の生の meterMode を決定する（復元 > クエリ > localStorage） */
+export const resolveRawMeterMode = ({
+  queryMode,
+  snapshotMeterMode,
+}: {
+  queryMode: string | null
+  snapshotMeterMode?: MeterMode | null
+}): MeterMode => {
+  const fromSnapshot = parseMeterModeParam(snapshotMeterMode)
+  if (fromSnapshot) {
+    return fromSnapshot
+  }
+
+  const fromQuery = parseMeterModeParam(queryMode)
+  if (fromQuery) {
+    return fromQuery
+  }
+
+  return readStoredMeterMode()
 }
 
 export const protectedOperationStatuses = new Set<OperationStatus>([

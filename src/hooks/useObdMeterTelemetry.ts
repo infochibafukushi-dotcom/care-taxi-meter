@@ -914,7 +914,7 @@ export function useObdMeterTelemetry({
     }
 
     if (showRecoveredFlash) {
-      return { label: 'OBD復帰', variant: 'recovered', visible: true }
+      return { label: 'OBD状態：OBD復帰', variant: 'recovered', visible: true }
     }
 
     if (isStableForTelemetry && isTripActive) {
@@ -926,11 +926,11 @@ export function useObdMeterTelemetry({
     }
 
     if (connectionPhase === 'stabilizing') {
-      return { label: 'OBD状態：安定化中', variant: 'reconnecting', visible: true }
+      return { label: 'OBD状態：接続中（安定化中）', variant: 'reconnecting', visible: true }
     }
 
     if (isTripActive && isConnectedForStart && !isStableForTelemetry) {
-      return { label: 'OBD計測未安定（GPS補正中）', variant: 'reconnecting', visible: true }
+      return { label: 'OBD状態：接続中（GPS補正中）', variant: 'reconnecting', visible: true }
     }
 
     if (isConnectedForStart) {
@@ -939,10 +939,10 @@ export function useObdMeterTelemetry({
 
     if (connectionPhase === 'disconnected' && isTripActive) {
       if (interactiveReconnectFailed) {
-        return { label: 'OBD未接続（GPSで計測中）', variant: 'disconnected', visible: true }
+        return { label: 'OBD状態：未接続（GPS計測中）', variant: 'disconnected', visible: true }
       }
 
-      return { label: 'OBD切断中（GPS補正中）', variant: 'disconnected', visible: true }
+      return { label: 'OBD状態：接続中（GPS補正中）', variant: 'disconnected', visible: true }
     }
 
     return { label: 'OBD状態：未接続', variant: 'disconnected', visible: true }

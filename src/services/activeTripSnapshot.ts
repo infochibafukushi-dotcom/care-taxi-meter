@@ -4,6 +4,7 @@ import type {
   ExpenseItem,
   ActivityHistoryEntry,
   GpsPosition,
+  MeterMode,
   MeterMovementState,
   OperationStatus,
   PaymentMethod,
@@ -11,6 +12,7 @@ import type {
   TaxiTicket,
   TimerKey,
 } from '../types/case'
+import { parseMeterModeParam } from '../utils/meterConstants'
 import {
   emptyCapturedAddressLocation,
   type CapturedAddressLocation,
@@ -59,6 +61,7 @@ export type ActiveTripSnapshot = {
   selectedSpecialVehicleCharges: SelectedCareOption[]
   selectedVehicleId: string
   status: OperationStatus
+  meterMode: MeterMode
   taxiTickets: TaxiTicket[]
   timers: TimerSeconds
 }
@@ -152,6 +155,7 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
       selectedSpecialVehicleCharges: Array.isArray(snapshot.selectedSpecialVehicleCharges) ? snapshot.selectedSpecialVehicleCharges : [],
       selectedVehicleId: typeof snapshot.selectedVehicleId === 'string' ? snapshot.selectedVehicleId : '',
       status: snapshot.status,
+      meterMode: parseMeterModeParam(snapshot.meterMode) ?? 'gps',
       taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
       timers: normalizeSnapshotTimerSeconds(snapshot.timers),
     }
