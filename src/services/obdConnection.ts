@@ -6,7 +6,21 @@ export const OBD_NOTIFY = '0000fff1-0000-1000-8000-00805f9b34fb'
 export const OBD_WRITE = '0000fff2-0000-1000-8000-00805f9b34fb'
 
 const INIT_COMMANDS = ['ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0', '0100'] as const
+const RECONNECT_INIT_COMMANDS = ['ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0', '0100'] as const
 const COMMAND_TIMEOUT_MS = 8000
+
+export type ObdInitializeOptions = {
+  skipReset?: boolean
+}
+
+const logObdStage = (message: string, details?: Record<string, unknown>) => {
+  if (details) {
+    console.log(`[OBDM] ${message}`, details)
+    return
+  }
+
+  console.log(`[OBDM] ${message}`)
+}
 
 export type ObdLogType = 'info' | 'command' | 'response' | 'error'
 
@@ -101,6 +115,7 @@ export class ObdConnection {
 
   async connectPermittedDevice(): Promise<boolean> {
     if (!navigator.bluetooth?.getDevices) {
+      logObdStage('許可済みデバイス再接続失敗', { reason: 'getDevices 非対応' })
       return false
     }
 
@@ -113,9 +128,11 @@ export class ObdConnection {
       permittedDevices.find((candidate) => isObdDeviceName(candidate.name))
 
     if (!device) {
+      logObdStage('許可済みデバイス再接続失敗', { reason: '許可済み OBD デバイスなし' })
       return false
     }
 
+    logObdStage('許可済みデバイス再接続開始', { deviceName: device.name ?? device.id })
     this.onLog(createLogEntry('info', '許可済み OBD デバイスへ再接続します'))
     await this.attachToDevice(device)
     return true
@@ -127,6 +144,7 @@ export class ObdConnection {
     }
 
     this.onLog(createLogEntry('info', '接続開始'))
+    logObdStage('requestDevice開始')
 
     const device = await navigator.bluetooth.requestDevice({
       filters: [
@@ -137,6 +155,7 @@ export class ObdConnection {
       optionalServices: [OBD_SERVICE],
     })
 
+    logObdStage('デバイス選択完了', { deviceName: device.name ?? device.id })
     await this.attachToDevice(device)
   }
 
@@ -150,6 +169,7 @@ export class ObdConnection {
       throw new Error('GATT サーバーが利用できません')
     }
 
+    logObdStage('GATT接続開始', { deviceName: device.name ?? device.id })
     await server.connect()
 
     const service = await server.getPrimaryService(OBD_SERVICE)
@@ -164,14 +184,19 @@ export class ObdConnection {
     this.writeCharacteristic = writeCharacteristic
 
     saveLastObdDevice(device)
+    logObdStage('GATT接続成功', { deviceName: device.name ?? device.id })
     this.onLog(createLogEntry('info', '接続成功'))
   }
 
-  async initialize(): Promise<void> {
-    for (const command of INIT_COMMANDS) {
+  async initialize(options: ObdInitializeOptions = {}): Promise<void> {
+    const commands = options.skipReset ? RECONNECT_INIT_COMMANDS : INIT_COMMANDS
+    logObdStage('initialize開始', { skipReset: Boolean(options.skipReset), commands: [...commands] })
+
+    for (const command of commands) {
       await this.sendCommand(command)
     }
 
+    logObdStage('initialize成功', { skipReset: Boolean(options.skipReset) })
     this.onLog(createLogEntry('info', 'ELM327 初期化完了'))
   }
 
@@ -226,8 +251,11 @@ export class ObdConnection {
   }
 
   async readVehicleSpeed(): Promise<number | null> {
+    logObdStage('PID取得開始', { pid: '010D' })
     const response = await this.sendCommand('010D')
-    return parseVehicleSpeed(response)?.speedKmh ?? null
+    const speedKmh = parseVehicleSpeed(response)?.speedKmh ?? null
+    logObdStage('PID取得成功', { pid: '010D', speedKmh })
+    return speedKmh
   }
 
   async readEngineRpm(): Promise<number | null> {
