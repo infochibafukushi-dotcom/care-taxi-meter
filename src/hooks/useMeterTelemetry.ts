@@ -213,9 +213,8 @@ export function useMeterTelemetry({
     ...merged,
     connectObd,
     disconnectObd: obd.disconnect,
-    dismissObdInteractiveReconnect: obd.dismissInteractiveReconnectPrompt,
     gpsRaw,
-    isObdAutoReconnectPending: obd.isAutoReconnectPending,
+    interactiveReconnectFailed: obd.interactiveReconnectFailed,
     isObdBleConnected,
     isObdConnected: isObdStableForTelemetry,
     isObdConnectedForStart,
@@ -226,6 +225,5 @@ export function useMeterTelemetry({
     obdErrorMessage: obd.errorMessage,
     obdIndicator,
     obdMeterStatus: obd.obdMeterStatus,
-    obdSilentReconnectFailureCount: obd.silentReconnectFailureCount,
   }
 }
