@@ -82,7 +82,9 @@ import {
 } from '../utils/meterConstants'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { formatTimerClock } from '../utils/time'
+import { buildThermalReceiptEscPos } from '../utils/thermalReceiptEscPos'
 import { openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import { thermalPrinterService } from '../services/escPosPrinterConnection'
 import {
   captureAddressLocationFromCoordinates,
   captureCurrentAddressLocation,
@@ -2355,21 +2357,55 @@ export function CasePage() {
       return
     }
 
+    let issueOptions = {
+      customerName: savedCaseRecord.receiptName || receiptName,
+      expenseItems: expenses,
+      issuerName: '',
+      receiptNote: '',
+    }
+
     try {
-      const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
-      await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
-        customerName: savedCaseRecord.receiptName || receiptName,
-        expenseItems: expenses,
+      const latestMeterSettings = await fetchMeterSettings({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      })
+      issueOptions = {
+        customerName: issueOptions.customerName,
+        expenseItems: issueOptions.expenseItems,
         issuerName: latestMeterSettings.receipt.issuerName,
         receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
-      })
-      completeReceiptIssuance()
-    } catch (error) {
-      setCaseSaveMessage(
-        error instanceof Error
-          ? `レシート発行に失敗しました。${error.message}`
-          : 'レシート発行に失敗しました。',
+      }
+
+      await thermalPrinterService.connectIfNeeded()
+      const receiptData = buildThermalReceiptEscPos(
+        savedCaseRecord,
+        latestMeterSettings,
+        issueOptions,
       )
+      await thermalPrinterService.printReceipt(receiptData)
+      completeReceiptIssuance()
+      setCaseSaveMessage('領収書を印刷しました。')
+    } catch {
+      try {
+        const latestMeterSettings = await fetchMeterSettings({
+          franchiseeId: currentFranchiseeId,
+          storeId: currentStoreId,
+        })
+        const fallbackOptions = {
+          customerName: issueOptions.customerName,
+          expenseItems: issueOptions.expenseItems,
+          issuerName: issueOptions.issuerName || latestMeterSettings.receipt.issuerName,
+          receiptNote: issueOptions.receiptNote || latestMeterSettings.receipt.defaultReceiptNote,
+        }
+        await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, fallbackOptions)
+        setCaseSaveMessage('プリンターに接続できないためPDF表示へ切り替えました。')
+      } catch (fallbackError) {
+        setCaseSaveMessage(
+          fallbackError instanceof Error
+            ? `領収書印刷に失敗しました。${fallbackError.message}`
+            : '領収書印刷に失敗しました。',
+        )
+      }
     }
   }
 
@@ -3564,7 +3600,7 @@ export function CasePage() {
                       void handleThermalReceiptPrint()
                     }}
                   >
-                    レシート発行
+                    領収書印刷
                   </button>
                   <button
                     className="receipt-dialog-secondary"
@@ -3573,7 +3609,7 @@ export function CasePage() {
                       void handleA4ReceiptDownload()
                     }}
                   >
-                    領収書発行
+                    A4領収書(PDF)
                   </button>
                 </div>
                 {settlementFlowStep === 'saved' ? (
