@@ -12,7 +12,6 @@ type UseMeterTelemetryOptions = {
   initialObdState?: InitialObdMeterState
   isActive: boolean
   isDistanceAccumulating?: boolean
-  isTripStarted: boolean
   lowSpeedThresholdKmh: number
   meterMode: MeterMode
   meterResetKey?: number
@@ -23,7 +22,6 @@ export function useMeterTelemetry({
   initialObdState,
   isActive,
   isDistanceAccumulating = true,
-  isTripStarted,
   lowSpeedThresholdKmh,
   meterMode,
   meterResetKey = 0,

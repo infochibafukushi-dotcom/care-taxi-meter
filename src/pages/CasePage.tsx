@@ -616,7 +616,6 @@ export function CasePage() {
     initialObdState: initialObdTelemetryState,
     isActive: isGpsActive,
     isDistanceAccumulating,
-    isTripStarted,
     lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     meterMode,
     meterResetKey,
