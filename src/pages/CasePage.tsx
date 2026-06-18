@@ -551,7 +551,7 @@ export function CasePage() {
   const [savedCaseRecord, setSavedCaseRecord] = useState<StoredCaseRecord | null>(
     null,
   )
-  const [meterResetKey] = useState(0)
+  const [meterResetKey, setMeterResetKey] = useState(0)
   const [sessionResetKey, setSessionResetKey] = useState(0)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
@@ -624,6 +624,7 @@ export function CasePage() {
     sessionResetKey,
   })
   const connectObd = gps.connectObd
+  const disconnectObd = gps.disconnectObd
   const obdRestoreConnectAttemptedRef = useRef(false)
   const obdIdleConnectAttemptedRef = useRef(false)
   const applyMeterMode = (nextMode: MeterMode) => {
@@ -2039,6 +2040,10 @@ export function CasePage() {
       setIsGpsActive(false)
     }
 
+    if (nextStatus === '案件終了' && meterMode === 'obd') {
+      void disconnectObd()
+    }
+
     return true
   }
 
@@ -2396,7 +2401,7 @@ export function CasePage() {
     }
   }
 
-  const resetMeterSession = () => {
+  const resetMeterSession = async () => {
     if (settlementHoldTimerRef.current !== null) {
       window.clearTimeout(settlementHoldTimerRef.current)
       settlementHoldTimerRef.current = null
@@ -2404,6 +2409,10 @@ export function CasePage() {
     if (resumeHoldTimerRef.current !== null) {
       window.clearTimeout(resumeHoldTimerRef.current)
       resumeHoldTimerRef.current = null
+    }
+
+    if (meterMode === 'obd') {
+      await disconnectObd()
     }
 
     const initialStatus = getInitialStatusAfterReset(meterMode)
@@ -2455,14 +2464,15 @@ export function CasePage() {
     setDropoffLocation(emptyCapturedAddressLocation)
     waitingMovementAlert.resetAlertState()
     setSessionResetKey((currentKey) => currentKey + 1)
+    setMeterResetKey((currentKey) => currentKey + 1)
 
-    if (meterMode === 'obd' && !gps.isObdConnectedForStart) {
+    if (meterMode === 'obd') {
       void connectObd({ interactive: false, isReconnect: true })
     }
   }
 
   const handleStartNewCase = () => {
-    resetMeterSession()
+    void resetMeterSession()
   }
 
   const handleReturnToTop = () => {
