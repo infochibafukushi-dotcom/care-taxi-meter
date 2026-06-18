@@ -2365,6 +2365,11 @@ export function CasePage() {
     }
 
     try {
+      await thermalPrinterService.connectIfNeeded()
+      console.error('[CasePage] 領収書印刷: プリンター接続成功', {
+        connectionMethod: thermalPrinterService.getActiveMethod(),
+      })
+
       const latestMeterSettings = await fetchMeterSettings({
         franchiseeId: currentFranchiseeId,
         storeId: currentStoreId,
@@ -2376,7 +2381,6 @@ export function CasePage() {
         receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
       }
 
-      await thermalPrinterService.connectIfNeeded()
       const receiptData = buildThermalReceiptEscPos(
         savedCaseRecord,
         latestMeterSettings,
@@ -2385,7 +2389,13 @@ export function CasePage() {
       await thermalPrinterService.printReceipt(receiptData)
       completeReceiptIssuance()
       setCaseSaveMessage('領収書を印刷しました。')
-    } catch {
+    } catch (error) {
+      console.error('[CasePage] 領収書印刷失敗', {
+        connectionMethod: thermalPrinterService.getActiveMethod(),
+        reason: error instanceof Error ? error.message : String(error),
+        error,
+      })
+
       try {
         const latestMeterSettings = await fetchMeterSettings({
           franchiseeId: currentFranchiseeId,
@@ -2398,8 +2408,16 @@ export function CasePage() {
           receiptNote: issueOptions.receiptNote || latestMeterSettings.receipt.defaultReceiptNote,
         }
         await openThermalReceiptPdf(savedCaseRecord, latestMeterSettings, fallbackOptions)
+        console.error('[CasePage] 領収書印刷: PDFフォールバックへ切り替え', {
+          connectionMethod: thermalPrinterService.getActiveMethod(),
+        })
         setCaseSaveMessage('プリンターに接続できないためPDF表示へ切り替えました。')
       } catch (fallbackError) {
+        console.error('[CasePage] 領収書印刷: PDFフォールバックも失敗', {
+          connectionMethod: thermalPrinterService.getActiveMethod(),
+          reason: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          error: fallbackError,
+        })
         setCaseSaveMessage(
           fallbackError instanceof Error
             ? `領収書印刷に失敗しました。${fallbackError.message}`

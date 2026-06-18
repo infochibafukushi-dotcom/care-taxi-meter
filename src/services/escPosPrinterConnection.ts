@@ -24,6 +24,18 @@ const createLogEntry = (type: EscPosPrinterLogType, message: string): EscPosPrin
   type,
 })
 
+const formatEscPosError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error)
+
+const logEscPosDiagnostic = (label: string, details?: Record<string, unknown>) => {
+  if (details) {
+    console.error(`[EscPosPrinter] ${label}`, details)
+    return
+  }
+
+  console.error(`[EscPosPrinter] ${label}`)
+}
+
 const isBluetoothSppPort = (port: SerialPort) => {
   const classId = String(port.getInfo().bluetoothServiceClassId ?? '').toLowerCase()
   return classId === BLUETOOTH_SPP_SERVICE_CLASS_ID.toLowerCase()
@@ -73,6 +85,7 @@ export class BleEscPosPrinterConnection {
 
   async connectGrantedDevice(): Promise<boolean> {
     if (!navigator.bluetooth?.getDevices) {
+      logEscPosDiagnostic('connectGrantedDevice: getDevices 非対応', { result: false })
       return false
     }
 
@@ -84,14 +97,32 @@ export class BleEscPosPrinterConnection {
         : undefined) ?? permittedDevices[0]
 
     if (!device) {
+      logEscPosDiagnostic('connectGrantedDevice: 許可済みデバイスなし', {
+        permittedDeviceCount: permittedDevices.length,
+        result: false,
+      })
       return false
     }
 
     try {
       this.onLog(createLogEntry('info', '許可済み BLE プリンターへ再接続します'))
       await this.attachToDevice(device)
+      logEscPosDiagnostic('connectGrantedDevice: 成功', {
+        connectionMethod: 'BLE',
+        deviceId: device.id,
+        deviceName: device.name ?? '',
+        result: true,
+      })
       return true
-    } catch {
+    } catch (error) {
+      logEscPosDiagnostic('connectGrantedDevice: 失敗', {
+        connectionMethod: 'BLE',
+        deviceId: device.id,
+        deviceName: device.name ?? '',
+        reason: formatEscPosError(error),
+        result: false,
+        error,
+      })
       return false
     }
   }
@@ -113,16 +144,30 @@ export class BleEscPosPrinterConnection {
 
   async printReceipt(data: Uint8Array): Promise<void> {
     if (!this.writeCharacteristic) {
-      throw new Error('プリンターが接続されていません')
+      const error = new Error('プリンターが接続されていません')
+      logEscPosDiagnostic('printReceipt failed (BLE)', {
+        connectionMethod: 'BLE',
+        reason: error.message,
+      })
+      throw error
     }
 
     this.onLog(createLogEntry('data', `${data.byteLength} バイトを送信します`))
 
-    await writeEscPosInChunks(async (chunk) => {
-      await this.writeCharacteristic!.writeValue(new Uint8Array(chunk))
-    }, data)
-
-    this.onLog(createLogEntry('info', '印字データ送信完了'))
+    try {
+      await writeEscPosInChunks(async (chunk) => {
+        await this.writeCharacteristic!.writeValue(new Uint8Array(chunk))
+      }, data)
+      this.onLog(createLogEntry('info', '印字データ送信完了'))
+    } catch (error) {
+      logEscPosDiagnostic('printReceipt failed (BLE)', {
+        connectionMethod: 'BLE',
+        byteLength: data.byteLength,
+        reason: formatEscPosError(error),
+        error,
+      })
+      throw error
+    }
   }
 
   async printTestReceipt(): Promise<void> {
@@ -173,6 +218,7 @@ export class SerialEscPosPrinterConnection {
 
   async connectGrantedPort(): Promise<boolean> {
     if (!navigator.serial) {
+      logEscPosDiagnostic('connectGrantedPort: Web Serial 非対応', { result: false })
       return false
     }
 
@@ -182,15 +228,32 @@ export class SerialEscPosPrinterConnection {
       (ports.length === 1 ? ports[0] : undefined)
 
     if (!port) {
+      logEscPosDiagnostic('connectGrantedPort: 利用可能なポートなし', {
+        connectionMethod: 'Serial',
+        grantedPortCount: ports.length,
+        result: false,
+      })
       return false
     }
 
     try {
       this.onLog(createLogEntry('info', '許可済みシリアルポートへ再接続します'))
       await this.openPort(port)
+      logEscPosDiagnostic('connectGrantedPort: 成功', {
+        connectionMethod: 'Serial',
+        bluetoothServiceClassId: port.getInfo().bluetoothServiceClassId ?? null,
+        result: true,
+      })
       return true
-    } catch {
+    } catch (error) {
       this.port = null
+      logEscPosDiagnostic('connectGrantedPort: 失敗', {
+        connectionMethod: 'Serial',
+        bluetoothServiceClassId: port.getInfo().bluetoothServiceClassId ?? null,
+        reason: formatEscPosError(error),
+        result: false,
+        error,
+      })
       return false
     }
   }
@@ -217,7 +280,12 @@ export class SerialEscPosPrinterConnection {
 
   async printReceipt(data: Uint8Array): Promise<void> {
     if (!this.port?.writable) {
-      throw new Error('プリンターが接続されていません')
+      const error = new Error('プリンターが接続されていません')
+      logEscPosDiagnostic('printReceipt failed (Serial)', {
+        connectionMethod: 'Serial',
+        reason: error.message,
+      })
+      throw error
     }
 
     this.onLog(createLogEntry('data', `${data.byteLength} バイトを送信します`))
@@ -228,11 +296,18 @@ export class SerialEscPosPrinterConnection {
       await writeEscPosInChunks(async (chunk) => {
         await writer.write(chunk)
       }, data)
+      this.onLog(createLogEntry('info', '印字データ送信完了'))
+    } catch (error) {
+      logEscPosDiagnostic('printReceipt failed (Serial)', {
+        connectionMethod: 'Serial',
+        byteLength: data.byteLength,
+        reason: formatEscPosError(error),
+        error,
+      })
+      throw error
     } finally {
       writer.releaseLock()
     }
-
-    this.onLog(createLogEntry('info', '印字データ送信完了'))
   }
 
   async printTestReceipt(): Promise<void> {
@@ -287,46 +362,124 @@ export class EscPosPrinterService {
 
   async connectIfNeeded(): Promise<void> {
     if (this.isConnected()) {
+      logEscPosDiagnostic('connectIfNeeded: 既に接続済み', {
+        connectionMethod: this.activeMethod ?? 'unknown',
+      })
       return
     }
+
+    const failures: string[] = []
 
     if (navigator.serial) {
       const reconnected = await this.serialConnection.connectGrantedPort()
       if (reconnected) {
         this.activeMethod = 'serial'
+        logEscPosDiagnostic('connectIfNeeded: Serial 再接続で成功', {
+          connectionMethod: 'Serial',
+        })
         return
       }
+    } else {
+      logEscPosDiagnostic('connectIfNeeded: Web Serial 非対応', { connectionMethod: 'Serial' })
     }
 
     if (navigator.bluetooth?.getDevices) {
       const reconnected = await this.bleConnection.connectGrantedDevice()
       if (reconnected) {
         this.activeMethod = 'ble'
+        logEscPosDiagnostic('connectIfNeeded: BLE 再接続で成功', {
+          connectionMethod: 'BLE',
+        })
         return
       }
+    } else {
+      logEscPosDiagnostic('connectIfNeeded: getDevices 非対応', { connectionMethod: 'BLE' })
     }
 
     if (navigator.serial) {
-      await this.serialConnection.connect()
-      this.activeMethod = 'serial'
-      return
+      try {
+        await this.serialConnection.connect()
+        this.activeMethod = 'serial'
+        logEscPosDiagnostic('connectIfNeeded: Serial requestPort で成功', {
+          connectionMethod: 'Serial',
+        })
+        return
+      } catch (error) {
+        const reason = formatEscPosError(error)
+        failures.push(`Serial requestPort: ${reason}`)
+        logEscPosDiagnostic('requestPort failed', {
+          connectionMethod: 'Serial',
+          reason,
+          error,
+        })
+      }
     }
 
     if (navigator.bluetooth) {
-      await this.bleConnection.connect()
-      this.activeMethod = 'ble'
-      return
+      try {
+        await this.bleConnection.connect()
+        this.activeMethod = 'ble'
+        logEscPosDiagnostic('connectIfNeeded: BLE requestDevice で成功', {
+          connectionMethod: 'BLE',
+        })
+        return
+      } catch (error) {
+        const reason = formatEscPosError(error)
+        failures.push(`BLE requestDevice: ${reason}`)
+        logEscPosDiagnostic('requestDevice failed', {
+          connectionMethod: 'BLE',
+          reason,
+          error,
+        })
+      }
     }
 
-    throw new Error('このブラウザはプリンター接続に対応していません')
+    if (!navigator.serial && !navigator.bluetooth) {
+      const error = new Error('このブラウザはプリンター接続に対応していません')
+      logEscPosDiagnostic('connectIfNeeded failed', {
+        reason: error.message,
+        failures,
+      })
+      throw error
+    }
+
+    const error = new Error(
+      failures.length > 0
+        ? `プリンター接続に失敗しました。${failures.join(' / ')}`
+        : 'プリンター接続に失敗しました。',
+    )
+    logEscPosDiagnostic('connectIfNeeded failed', {
+      reason: error.message,
+      failures,
+    })
+    throw error
   }
 
   async printReceipt(data: Uint8Array): Promise<void> {
     if (!this.isConnected()) {
-      throw new Error('プリンターが接続されていません')
+      const error = new Error('プリンターが接続されていません')
+      logEscPosDiagnostic('printReceipt failed', {
+        connectionMethod: this.activeMethod ?? 'unknown',
+        reason: error.message,
+      })
+      throw error
     }
 
-    await this.getActiveConnection().printReceipt(data)
+    try {
+      await this.getActiveConnection().printReceipt(data)
+      logEscPosDiagnostic('printReceipt succeeded', {
+        connectionMethod: this.activeMethod ?? 'unknown',
+        byteLength: data.byteLength,
+      })
+    } catch (error) {
+      logEscPosDiagnostic('printReceipt failed', {
+        connectionMethod: this.activeMethod ?? 'unknown',
+        byteLength: data.byteLength,
+        reason: formatEscPosError(error),
+        error,
+      })
+      throw error
+    }
   }
 }
 
