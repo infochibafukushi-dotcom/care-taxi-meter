@@ -136,6 +136,7 @@ export function useObdMeterTelemetry({
   const isStableForTelemetryRef = useRef(false)
   const suppressDisconnectHandlerRef = useRef(false)
   const activeConnectInteractiveRef = useRef(false)
+  const firstSpeedLoggedRef = useRef(false)
 
   const [connectionPhase, setConnectionPhase] = useState<ObdConnectionPhase>('idle')
   const [isBleConnected, setIsBleConnected] = useState(false)
@@ -339,6 +340,10 @@ export function useObdMeterTelemetry({
 
     try {
       const nextSpeedKmh = await connection.readVehicleSpeed()
+      if (!firstSpeedLoggedRef.current) {
+        firstSpeedLoggedRef.current = true
+        console.log('[OBDM] 初回速度取得成功', nextSpeedKmh)
+      }
       setCurrentSpeedKmh(nextSpeedKmh)
       setMovementState(deriveMovementState(nextSpeedKmh, lowSpeedThresholdKmh))
       registerStablePoll()
@@ -360,6 +365,7 @@ export function useObdMeterTelemetry({
         setLowSpeedSeconds((currentLowSpeedSeconds) => currentLowSpeedSeconds + 1)
       }
     } catch (error) {
+      console.error('[OBDM] polling失敗', error)
       const message = error instanceof Error ? error.message : 'OBD データ取得に失敗しました'
       pushLog({
         message,
@@ -375,6 +381,7 @@ export function useObdMeterTelemetry({
 
   const startPolling = useCallback(() => {
     stopPolling()
+    console.log('[OBDM] polling開始')
     pollTimerRef.current = window.setInterval(() => {
       void pollTelemetry()
     }, POLL_INTERVAL_MS)
@@ -455,6 +462,7 @@ export function useObdMeterTelemetry({
     await cleanupExistingConnection(isReconnect ? '再接続前' : '接続前')
 
     stablePollCountRef.current = 0
+    firstSpeedLoggedRef.current = false
     setIsStableForTelemetry(false)
     isStableForTelemetryRef.current = false
     setShowRecoveredFlash(false)
@@ -534,6 +542,7 @@ export function useObdMeterTelemetry({
       activeConnectInteractiveRef.current = false
       return true
     } catch (error) {
+      console.error('[OBDM] 接続失敗', error)
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
       pushLog({
         message,

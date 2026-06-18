@@ -155,6 +155,7 @@ export class ObdConnection {
       optionalServices: [OBD_SERVICE],
     })
 
+    console.log('[OBDM] requestDevice成功')
     logObdStage('デバイス選択完了', { deviceName: device.name ?? device.id })
     await this.attachToDevice(device)
   }
@@ -171,10 +172,14 @@ export class ObdConnection {
 
     logObdStage('GATT接続開始', { deviceName: device.name ?? device.id })
     await server.connect()
+    console.log('[OBDM] GATT接続成功')
 
     const service = await server.getPrimaryService(OBD_SERVICE)
+    console.log('[OBDM] Service取得成功')
+
     const notifyCharacteristic = await service.getCharacteristic(OBD_NOTIFY)
     const writeCharacteristic = await service.getCharacteristic(OBD_WRITE)
+    console.log('[OBDM] Characteristic取得成功')
 
     notifyCharacteristic.addEventListener('characteristicvaluechanged', this.handleNotify)
     await notifyCharacteristic.startNotifications()
@@ -184,12 +189,12 @@ export class ObdConnection {
     this.writeCharacteristic = writeCharacteristic
 
     saveLastObdDevice(device)
-    logObdStage('GATT接続成功', { deviceName: device.name ?? device.id })
     this.onLog(createLogEntry('info', '接続成功'))
   }
 
   async initialize(options: ObdInitializeOptions = {}): Promise<void> {
     const commands = options.skipReset ? RECONNECT_INIT_COMMANDS : INIT_COMMANDS
+    console.log('[OBDM] initialize開始')
     logObdStage('initialize開始', { skipReset: Boolean(options.skipReset), commands: [...commands] })
 
     try {
@@ -235,7 +240,14 @@ export class ObdConnection {
       throw new Error('OBD アダプターが接続されていません')
     }
 
-    return new Promise<string>((resolve, reject) => {
+    if (command === 'ATZ') {
+      console.log('[OBDM] ATZ送信')
+    }
+    if (command === 'ATE0') {
+      console.log('[OBDM] ATE0送信')
+    }
+
+    const response = await new Promise<string>((resolve, reject) => {
       const pendingCommand: PendingCommand = {
         command,
         reject,
@@ -254,9 +266,19 @@ export class ObdConnection {
       this.pendingCommands.push(pendingCommand)
       void this.processCommandQueue()
     })
+
+    if (command === 'ATZ') {
+      console.log('[OBDM] ATZ応答', response)
+    }
+    if (command === 'ATE0') {
+      console.log('[OBDM] ATE0応答', response)
+    }
+
+    return response
   }
 
   async readVehicleSpeed(): Promise<number | null> {
+    console.log('[OBDM] PID取得開始')
     logObdStage('PID取得開始', { pid: '010D' })
     const response = await this.sendCommand('010D')
     const speedKmh = parseVehicleSpeed(response)?.speedKmh ?? null
