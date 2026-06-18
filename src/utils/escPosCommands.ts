@@ -82,11 +82,8 @@ export function buildEscPosDocument(buildContent: (chunks: number[]) => void): U
 }
 
 /** テスト印刷用 ESC/POS（本番と同じ Canvas→GS v 0 ラスター経路） */
-export function buildTestReceiptEscPos(options: {
-  title?: string
-  lines?: string[]
-} = {}): Uint8Array {
-  const canvas = createTestReceiptCanvas(options)
+export function buildTestReceiptEscPos(): Uint8Array {
+  const canvas = createTestReceiptCanvas()
   return buildEscPosRasterFromCanvas(canvas)
 }
 
