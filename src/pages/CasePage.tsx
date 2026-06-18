@@ -771,6 +771,10 @@ export function CasePage() {
     )
   }, [postSettlementLock, restoredTripSnapshot])
 
+  const handleOpenObdReconnectDialog = () => {
+    setObdConnectionDialogVariant('mid-trip')
+    setIsObdConnectionDialogOpen(true)
+  }
 
   useEffect(() => {
     if (!isCaseInProgress) {
@@ -1582,45 +1586,23 @@ export function CasePage() {
     return allowedTransitions[currentStatus].includes(nextStatus)
   }
 
-  const handleObdReconnect = async (variantOverride?: 'mid-trip' | 'pre-trip') => {
-    const variant = variantOverride ?? obdConnectionDialogVariant
-    const isMidTrip = variant === 'mid-trip'
-
-    console.log('[OBDM] handleObdReconnect', {
-      isMidTrip,
-      variant,
-      obdConnectionPhase: gps.obdConnectionPhase,
-      needsObdInteractiveReconnect: gps.needsObdInteractiveReconnect,
-    })
-
-    try {
-      const connected = await connectObd(
-        isMidTrip
-          ? { interactive: true, isReconnect: true }
-          : { interactive: true, isInitialTripConnect: true },
-      )
-
-      console.log('[OBDM] handleObdReconnect result', { connected })
-
-      if (connected) {
-        setIsObdConnectionDialogOpen(false)
-        setTripStartNotice('')
-        return
-      }
-
-      setTripStartNotice(
-        isMidTrip
-          ? 'OBDに接続できませんでした。GPSで計測を継続します。'
-          : 'OBD接続が完了していません。再接続してください。',
-      )
-    } catch (error) {
-      console.error('[OBDM] handleObdReconnect exception', error)
-      setTripStartNotice(
-        isMidTrip
-          ? 'OBDに接続できませんでした。GPSで計測を継続します。'
-          : 'OBD接続が完了していません。再接続してください。',
-      )
+  const handleObdReconnect = async () => {
+    const connected = await connectObd(
+      obdConnectionDialogVariant === 'mid-trip'
+        ? { interactive: true, isReconnect: true }
+        : { interactive: true, isInitialTripConnect: true },
+    )
+    if (connected) {
+      setIsObdConnectionDialogOpen(false)
+      setTripStartNotice('')
+      return
     }
+
+    setTripStartNotice(
+      obdConnectionDialogVariant === 'mid-trip'
+        ? 'OBDに接続できませんでした。GPSで計測を継続します。'
+        : 'OBD接続が完了していません。再接続してください。',
+    )
   }
 
   const handleObdSwitchToGps = () => {
@@ -2570,9 +2552,7 @@ export function CasePage() {
 
       <div className="r9-meter-shell">
         <ObdMeterStatusBadge
-          onReconnect={() => {
-            void handleObdReconnect('mid-trip')
-          }}
+          onReconnect={handleOpenObdReconnectDialog}
           showReconnectButton={
             meterMode === 'obd' &&
             isGpsActive &&
@@ -3590,7 +3570,6 @@ export function CasePage() {
           setIsObdConnectionDialogOpen(false)
         }}
         onReconnect={() => {
-          console.log('OBD reconnect clicked')
           void handleObdReconnect()
         }}
         onSwitchToGps={

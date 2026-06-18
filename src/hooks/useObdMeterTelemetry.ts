@@ -482,13 +482,20 @@ export function useObdMeterTelemetry({
     connectionRef.current = connection
 
     try {
-      const shouldRequestDeviceDirectly = interactive && isReconnect
-
-      if (shouldRequestDeviceDirectly) {
-        logObdReconnectStage('手動再接続: requestDevice を呼び出します')
+      if (interactive && isInitialTripConnect) {
+        console.log('[OBDM] 初回接続: requestDevice を呼び出します')
         await connection.connect()
       } else {
-        const reconnected = await connection.connectPermittedDevice()
+        let reconnected = false
+        try {
+          reconnected = await connection.connectPermittedDevice()
+        } catch (permittedError) {
+          if (!(interactive || isInitialTripConnect)) {
+            throw permittedError
+          }
+          console.log('[OBDM] connectPermittedDevice 例外、requestDevice にフォールバック', permittedError)
+        }
+
         if (!reconnected) {
           const shouldRequestDevice = interactive || isInitialTripConnect
           if (!shouldRequestDevice) {
@@ -496,10 +503,6 @@ export function useObdMeterTelemetry({
             return false
           }
 
-          logObdReconnectStage('requestDevice にフォールバックします', {
-            interactive,
-            isInitialTripConnect,
-          })
           await connection.connect()
         }
       }
@@ -527,9 +530,6 @@ export function useObdMeterTelemetry({
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'OBD 接続に失敗しました'
-      if (isReconnect) {
-        console.error('[OBDM] OBD再接続例外', error)
-      }
       pushLog({
         message,
         timestamp: Date.now(),
@@ -621,11 +621,20 @@ export function useObdMeterTelemetry({
     }
 
     if (!isEnabled) {
+      if (isInitialTripConnect) {
+        console.log('[OBDM] connect() 中断: isEnabled=false', connectOptions)
+      }
       logConnectResult(false)
       return false
     }
 
     if (isConnectedForStartFromRefs()) {
+      if (isInitialTripConnect) {
+        console.log('[OBDM] connect() 中断: 既に接続済み', {
+          connectionPhase: connectionPhaseRef.current,
+          isBleConnected: isBleConnectedRef.current,
+        })
+      }
       logConnectResult(true)
       return true
     }
