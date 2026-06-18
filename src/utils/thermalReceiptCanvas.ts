@@ -22,6 +22,14 @@ export const thermalReceiptPaper = {
   heightPx: 1200,
 } as const
 
+/** PT-210 先頭行欠け防止（印字開始位置より上に描画しない） */
+const TOP_MARGIN_MM = 4
+
+const mmToPx = (mm: number) =>
+  Math.round(mm * (thermalReceiptPaper.widthPx / thermalReceiptPaper.widthMm))
+
+const thermalReceiptStartY = () => mmToPx(TOP_MARGIN_MM)
+
 /**
  * 58mm レシート専用レイアウト
  * - textX = marginLeft
@@ -357,7 +365,7 @@ export function createThermalReceiptCanvas(
   const invoiceNumber = settings.receipt.invoiceNumber.trim()
   const receiptNote = issueOptions.receiptNote.trim()
   const issuerName = issueOptions.issuerName.trim()
-  let y = 12
+  let y = thermalReceiptStartY()
 
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
@@ -467,7 +475,7 @@ export function createTestReceiptCanvas() {
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
-  let y = 12
+  let y = thermalReceiptStartY()
 
   y = drawWrappedLines(context, canvas, y, TEST_RECEIPT_DATA.tradeName, THERMAL_FONTS.shop, LINE.shop)
   y = drawWrappedLines(context, canvas, y, TEST_RECEIPT_DATA.corporateName, THERMAL_FONTS.corp, LINE.corp)
