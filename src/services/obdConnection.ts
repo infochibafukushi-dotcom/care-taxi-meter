@@ -192,12 +192,18 @@ export class ObdConnection {
     const commands = options.skipReset ? RECONNECT_INIT_COMMANDS : INIT_COMMANDS
     logObdStage('initialize開始', { skipReset: Boolean(options.skipReset), commands: [...commands] })
 
-    for (const command of commands) {
-      await this.sendCommand(command)
-    }
+    try {
+      for (const command of commands) {
+        await this.sendCommand(command)
+      }
 
-    logObdStage('initialize成功', { skipReset: Boolean(options.skipReset) })
-    this.onLog(createLogEntry('info', 'ELM327 初期化完了'))
+      logObdStage('initialize成功', { skipReset: Boolean(options.skipReset) })
+      this.onLog(createLogEntry('info', 'ELM327 初期化完了'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logObdStage('initialize失敗', { skipReset: Boolean(options.skipReset), message })
+      throw error
+    }
   }
 
   async disconnect(): Promise<void> {

@@ -425,7 +425,9 @@ export function useObdMeterTelemetry({
     const isReconnect = options.isReconnect ?? false
     const connectIntent = resolveConnectIntent(options)
 
-    if (isReconnect) {
+    if (interactive && isReconnect) {
+      console.log('[OBDM] interactive reconnect start')
+    } else if (isReconnect) {
       logObdReconnectStage('OBD再接続開始', {
         interactive,
         connectIntent,
@@ -485,8 +487,6 @@ export function useObdMeterTelemetry({
       if (interactive && (isInitialTripConnect || isReconnect)) {
         if (isInitialTripConnect) {
           console.log('[OBDM] 初回接続: requestDevice を呼び出します')
-        } else {
-          logObdReconnectStage('interactive再接続: requestDevice を呼び出します')
         }
         await connection.connect()
       } else {
@@ -518,7 +518,8 @@ export function useObdMeterTelemetry({
         connectionPhaseRef.current = 'stabilizing'
       }
 
-      await connection.initialize({ skipReset: isReconnect })
+      const skipReset = isReconnect && !interactive
+      await connection.initialize({ skipReset })
 
       if (!shouldStabilize) {
         handleStableConnection()
