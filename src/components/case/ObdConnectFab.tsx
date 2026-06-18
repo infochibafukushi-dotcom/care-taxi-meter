@@ -12,7 +12,7 @@ export function ObdConnectFab({ isConnecting, onConnect, visible }: ObdConnectFa
   return (
     <button
       aria-label="OBD接続"
-      className="r9-fab-stack__button r9-obd-connect-fab"
+      className="r9-obd-connect-button"
       disabled={isConnecting}
       type="button"
       onClick={onConnect}

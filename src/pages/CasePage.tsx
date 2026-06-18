@@ -2751,6 +2751,13 @@ export function CasePage() {
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
               breakdown={fareBreakdown}
+              headerEnd={(
+                <ObdConnectFab
+                  isConnecting={isObdConnectInProgress}
+                  visible={showObdConnectFab}
+                  onConnect={handleObdConnectFabClick}
+                />
+              )}
               hideTotal
             />
           </section>
@@ -3622,14 +3629,7 @@ export function CasePage() {
         onResumeTrip={handleWaitingMovementResumeTrip}
       />
 
-      <div className="r9-fab-stack">
-        <ObdConnectFab
-          isConnecting={isObdConnectInProgress}
-          visible={showObdConnectFab}
-          onConnect={handleObdConnectFabClick}
-        />
-        <TopReturnFab onClick={handleReturnToTop} visible={canShowTopFab} />
-      </div>
+      <TopReturnFab onClick={handleReturnToTop} visible={canShowTopFab} />
     </main>
   )
 }

@@ -1,17 +1,22 @@
+import type { ReactNode } from 'react'
 import type { FareBreakdown } from '../../services/fare'
 import { formatFareYen } from '../../services/fare'
 import type { PaymentMethod } from '../../types/case'
 
 type FareBreakdownPanelProps = {
   breakdown: FareBreakdown
+  headerEnd?: ReactNode
   hideTotal?: boolean
   paymentMethod?: PaymentMethod
 }
 
-export function FareBreakdownPanel({ breakdown, hideTotal, paymentMethod }: FareBreakdownPanelProps) {
+export function FareBreakdownPanel({ breakdown, headerEnd, hideTotal, paymentMethod }: FareBreakdownPanelProps) {
   return (
     <section className="fare-breakdown" aria-labelledby="fare-breakdown-title">
-      <h2 id="fare-breakdown-title">料金内訳</h2>
+      <div className="fare-breakdown__header">
+        <h2 id="fare-breakdown-title">料金内訳</h2>
+        {headerEnd}
+      </div>
       <dl>
         {breakdown.lineItems.map((item) => (
           <div key={item.label}>

@@ -2996,9 +2996,20 @@ h1 {
   }
 
   .r9-center-panel .fare-breakdown h2,
+  .r9-center-panel .fare-breakdown__header h2,
   .route-address-panel__header h2 {
     margin-bottom: 0;
     font-size: 0.78rem;
+  }
+
+  .r9-center-panel .fare-breakdown__header {
+    margin-bottom: 0;
+    padding-bottom: 6px;
+  }
+
+  .r9-obd-connect-button {
+    padding: 5px 9px;
+    font-size: 0.64rem;
   }
 
   .r9-center-panel .fare-breakdown dl {
@@ -3158,8 +3169,19 @@ h1 {
   }
 
   .route-address-panel__header h2,
-  .r9-center-panel .fare-breakdown h2 {
+  .r9-center-panel .fare-breakdown h2,
+  .r9-center-panel .fare-breakdown__header h2 {
     font-size: 0.68rem;
+  }
+
+  .r9-center-panel .fare-breakdown__header {
+    gap: 4px;
+    padding-bottom: 4px;
+  }
+
+  .r9-obd-connect-button {
+    padding: 4px 7px;
+    font-size: 0.58rem;
   }
 
   .route-address-grid strong {
@@ -6279,6 +6301,56 @@ h1 {
   min-height: 0;
 }
 
+.r9-center-panel .fare-breakdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(6px, 1vw, 12px);
+  margin-bottom: clamp(6px, 1.2vh, 14px);
+  padding-bottom: clamp(6px, 1.2vh, 14px);
+  border-bottom: 1px solid rgb(148 163 184 / 42%);
+}
+
+.r9-center-panel .fare-breakdown__header h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(1rem, min(3.3vh, 2vw), 2rem);
+}
+
+.r9-obd-connect-button {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: clamp(6px, 0.9vh, 8px) clamp(10px, 1.2vw, 14px);
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgb(29 78 216 / 96%) 0%, rgb(37 99 235 / 96%) 100%);
+  box-shadow: 0 4px 14px rgb(29 78 216 / 32%);
+  color: #fff;
+  font-size: clamp(0.62rem, min(1.8vh, 1.1vw), 0.78rem);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.r9-obd-connect-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.r9-obd-connect-button:active {
+  transform: scale(0.97);
+}
+
+.r9-obd-connect-button:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
 .r9-fare-card {
   min-height: 0;
   display: grid;
@@ -6476,6 +6548,11 @@ h1 {
   margin-bottom: clamp(6px, 1.2vh, 14px);
   padding-bottom: clamp(6px, 1.2vh, 14px);
   font-size: clamp(1rem, min(3.3vh, 2vw), 2rem);
+}
+
+.r9-center-panel .fare-breakdown__header h2 {
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .r9-center-panel .fare-breakdown dl {
@@ -7181,30 +7258,15 @@ h1 {
   padding: 0 16px 16px;
 }
 
-.r9-fab-stack {
+.r9-top-return-fab {
   position: fixed;
   right: clamp(12px, 2.4vw, 20px);
   bottom: clamp(12px, 2.4vh, 20px);
   z-index: 120;
-  display: flex;
-  flex-direction: column-reverse;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.r9-fab-stack__button {
   min-width: 112px;
   padding: 12px 18px;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.r9-top-return-fab {
   border: 1px solid rgb(59 130 246 / 72%);
+  border-radius: 999px;
   background:
     radial-gradient(circle at top left, rgb(30 64 175 / 36%), transparent 52%),
     linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
@@ -7212,25 +7274,17 @@ h1 {
     0 8px 24px rgb(2 6 23 / 48%),
     inset 0 0 0 1px rgb(255 255 255 / 8%);
   color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
 }
 
-.r9-obd-connect-fab {
-  border: 0;
-  background: linear-gradient(135deg, rgb(29 78 216 / 96%) 0%, rgb(37 99 235 / 96%) 100%);
-  box-shadow: 0 8px 24px rgb(29 78 216 / 38%);
-  color: #fff;
-}
-
-.r9-obd-connect-fab:disabled {
-  opacity: 0.72;
-  cursor: wait;
-}
-
-.r9-fab-stack__button:active {
+.r9-top-return-fab:active {
   transform: scale(0.97);
 }
 
-.r9-fab-stack__button:focus-visible {
+.r9-top-return-fab:focus-visible {
   outline: 2px solid #60a5fa;
   outline-offset: 2px;
 }
