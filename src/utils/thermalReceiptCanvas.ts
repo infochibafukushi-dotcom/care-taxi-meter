@@ -28,11 +28,16 @@ export const thermalReceiptPaper = {
   heightPx: 1760,
 } as const
 
-/** 左右余白（右端は PT-210 切れ防止のため最低 20px 以上を確保） */
+/**
+ * PT-210 実機向けレイアウト（Canvas 576px 維持）
+ * - labelX = marginLeft
+ * - indentLabelX = indentLeft
+ * - valueRightX = widthPx - marginRight
+ */
 const THERMAL_RECEIPT_LAYOUT = {
-  marginLeft: 48,
-  marginRight: 48,
-  indentLeft: 74,
+  marginLeft: 24,
+  marginRight: 72,
+  indentLeft: 50,
 } as const
 
 const thermalRightX = (canvas: HTMLCanvasElement) =>
