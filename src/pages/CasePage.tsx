@@ -2109,6 +2109,11 @@ export function CasePage() {
 
     try {
       const gpsLogsToSave = gps.gpsRaw.getGpsLogs()
+      console.log('[GPS_ROUTE_DEBUG_1]', {
+        gpsLogCount: gpsLogsToSave.length,
+        chargeableDistanceKm: gps.chargeableDistanceKm,
+        businessDistanceKm: gps.businessDistanceKm,
+      })
 
       if (pickupCapturePromiseRef.current) {
         await pickupCapturePromiseRef.current
@@ -2287,6 +2292,12 @@ export function CasePage() {
 
       let gpsRouteSaveFailed = false
 
+      console.log('[GPS_ROUTE_DEBUG_2]', {
+        willCallSaveGpsRoute: gpsLogsToSave.length > 0,
+        gpsLogCount: gpsLogsToSave.length,
+        caseRecordId: savedRecordRef.id,
+      })
+
       if (gpsLogsToSave.length > 0) {
         try {
           const gpsRouteSaved = await saveGpsRoute({
@@ -2310,6 +2321,7 @@ export function CasePage() {
           }
         } catch (gpsRouteError) {
           gpsRouteSaveFailed = true
+          console.error('[GPS_ROUTE_DEBUG_ERROR]', gpsRouteError)
           console.warn('Failed to save GPS route to Firestore.', gpsRouteError)
         }
       }

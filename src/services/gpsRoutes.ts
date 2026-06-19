@@ -100,6 +100,11 @@ export async function saveGpsRoute({
   closedAt,
   logs,
 }: SaveGpsRouteInput): Promise<boolean> {
+  console.log('[GPS_ROUTE_DEBUG_3]', {
+    caseRecordId,
+    rawLogCount: logs.length,
+  })
+
   const points = logs
     .map(toGpsRoutePoint)
     .filter((point): point is GpsRoutePoint => point !== null)
@@ -149,6 +154,17 @@ export async function saveGpsRoute({
     batch.set(getGpsRouteChunkRef(caseRecordId, chunkIndex), chunk)
   }
 
-  await batch.commit()
-  return true
+  try {
+    await batch.commit()
+    console.log('[GPS_ROUTE_DEBUG_4]', {
+      caseRecordId,
+      pointCount: points.length,
+      chunkCount,
+      path: `caseRecords/${caseRecordId}/gpsRoute/summary`,
+    })
+    return true
+  } catch (error) {
+    console.error('[GPS_ROUTE_DEBUG_ERROR]', error)
+    throw error
+  }
 }
