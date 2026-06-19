@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { gpsVehicleSpeedProvider } from '../services/gpsSpeed'
 import type { SpeedSource } from '../services/gpsSpeed'
 import type { GpsLogEntry, GpsPosition, MeterMovementState } from '../types/case'
@@ -29,6 +29,7 @@ type InitialGpsState = Partial<{
 }>
 
 const GPS_INTERVAL_MS = 5000
+export const GPS_CAPTURE_INTERVAL_SECONDS = GPS_INTERVAL_MS / 1000
 export const MAX_DISTANCE_ACCURACY_METERS = 30
 const MIN_SEGMENT_DISTANCE_METERS = 5
 const MAX_DISTANCE_PER_INTERVAL_METERS = 500
@@ -112,6 +113,11 @@ export function useCurrentPosition(
     undefined,
     createInitialGpsLogState,
   )
+  const gpsLogsRef = useRef<GpsLogEntry[]>(gpsLogState.logs)
+  useEffect(() => {
+    gpsLogsRef.current = gpsLogState.logs
+  }, [gpsLogState.logs])
+  const getGpsLogs = useCallback(() => gpsLogsRef.current, [])
   const isInitialResetRenderRef = useRef(true)
   const isUnsupported = !('geolocation' in navigator)
 
@@ -286,6 +292,7 @@ export function useCurrentPosition(
     errorMessage: isActive && isUnsupported
       ? UNSUPPORTED_GPS_MESSAGE
       : errorMessage,
+    getGpsLogs,
     gpsLogCount: gpsLogState.logs.length,
     isActive,
     lowSpeedSeconds: gpsLogState.lowSpeedSeconds,

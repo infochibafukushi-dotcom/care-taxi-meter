@@ -46,6 +46,49 @@ export type GpsLogEntry = {
   accuracy: number
 }
 
+export type GpsRoutePoint = {
+  t: number
+  lat: number
+  lng: number
+  s: number | null
+  a: number
+}
+
+export type GpsRouteBounds = {
+  minLat: number
+  maxLat: number
+  minLng: number
+  maxLng: number
+}
+
+export type GpsRouteRetentionPhase = 'active' | 'attention' | 'warning' | 'expired'
+
+export type GpsRouteSummary = {
+  schemaVersion: 1
+  caseRecordId: string
+  caseNumber: string
+  franchiseeId: string
+  storeId: string
+  closedAt: string
+  intervalSeconds: number
+  pointCount: number
+  chunkCount: number
+  chunkSize: number
+  bounds: GpsRouteBounds
+  capturedFrom: string | null
+  capturedTo: string | null
+  retentionPhase: GpsRouteRetentionPhase
+  expiresAt: string
+  savedAt: string
+}
+
+export type GpsRouteChunk = {
+  index: number
+  from: number
+  to: number
+  points: GpsRoutePoint[]
+}
+
 export type SelectedCareOption = {
   id: string
   masterId: string

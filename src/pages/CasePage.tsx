@@ -30,6 +30,7 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
+import { saveGpsRoute } from '../services/gpsRoutes'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
 import { createAuditLog } from '../services/auditLogs'
@@ -2107,6 +2108,8 @@ export function CasePage() {
     setCaseSaveMessage('Firestoreへ保存中です。')
 
     try {
+      const gpsLogsToSave = gps.gpsRaw.getGpsLogs()
+
       if (pickupCapturePromiseRef.current) {
         await pickupCapturePromiseRef.current
       }
@@ -2282,6 +2285,35 @@ export function CasePage() {
         obdComparisonFareYen: comparisonFares.obdComparisonFareYen,
       }
 
+      let gpsRouteSaveFailed = false
+
+      if (gpsLogsToSave.length > 0) {
+        try {
+          const gpsRouteSaved = await saveGpsRoute({
+            caseRecordId: savedRecordRef.id,
+            caseNumber,
+            franchiseeId:
+              workSession.currentSession?.franchiseeId ||
+              workSession.currentSession?.companyId ||
+              '',
+            storeId: workSession.currentSession?.storeId ?? '',
+            closedAt,
+            logs: gpsLogsToSave,
+          })
+
+          if (!gpsRouteSaved) {
+            gpsRouteSaveFailed = true
+            console.warn('GPS route was not saved because no valid GPS points were available.', {
+              caseRecordId: savedRecordRef.id,
+              gpsLogCount: gpsLogsToSave.length,
+            })
+          }
+        } catch (gpsRouteError) {
+          gpsRouteSaveFailed = true
+          console.warn('Failed to save GPS route to Firestore.', gpsRouteError)
+        }
+      }
+
       clearActiveTripSnapshot()
       setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
@@ -2291,7 +2323,9 @@ export function CasePage() {
         lockedAt: new Date().toISOString(),
       })
       setCaseSaveMessage(
-        'Firestoreへ保存しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。',
+        gpsRouteSaveFailed
+          ? '案件は保存されましたが、GPSルートの保存に失敗しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。'
+          : 'Firestoreへ保存しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。',
       )
       return savedRecord
     } catch (error) {

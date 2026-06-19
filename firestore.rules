@@ -165,6 +165,42 @@ service cloud.firestore {
       allow update: if isDriverCancel(resource.data);
       allow update: if isDriverSettlementAdjustment(resource.data);
       allow delete: if false;
+
+      function parentCaseRecord() {
+        return get(/databases/$(database)/documents/caseRecords/$(caseRecordId)).data;
+      }
+
+      match /gpsRoute/{docId} {
+        allow read, write, delete: if isHqAdmin();
+        allow read: if isFranchiseeOwner() && sameFranchisee(parentCaseRecord());
+        allow create: if isFranchiseeOwner()
+          && sameFranchisee(parentCaseRecord())
+          && sameFranchisee(request.resource.data)
+          && hasTenant(request.resource.data);
+        allow read: if isStoreManager() && sameStore(parentCaseRecord());
+        allow create: if isStoreManager()
+          && sameStore(parentCaseRecord())
+          && sameStore(request.resource.data)
+          && hasTenant(request.resource.data);
+        allow read: if isDriver() && ownStaffData(parentCaseRecord());
+        allow create: if isDriver()
+          && ownStaffData(parentCaseRecord())
+          && sameFranchisee(request.resource.data)
+          && sameStore(request.resource.data)
+          && request.resource.data.caseRecordId == caseRecordId;
+        allow update, delete: if false;
+
+        match /chunks/{chunkId} {
+          allow read, write, delete: if isHqAdmin();
+          allow read: if isFranchiseeOwner() && sameFranchisee(parentCaseRecord());
+          allow create: if isFranchiseeOwner() && sameFranchisee(parentCaseRecord());
+          allow read: if isStoreManager() && sameStore(parentCaseRecord());
+          allow create: if isStoreManager() && sameStore(parentCaseRecord());
+          allow read: if isDriver() && ownStaffData(parentCaseRecord());
+          allow create: if isDriver() && ownStaffData(parentCaseRecord());
+          allow update, delete: if false;
+        }
+      }
     }
 
     match /meterSettings/{settingsId} {
