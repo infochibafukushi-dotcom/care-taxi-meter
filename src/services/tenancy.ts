@@ -42,14 +42,40 @@ export const tenantFields = ({ franchiseeId, storeId }: TenantScope) => ({
   storeId,
 })
 
-export const tenantScopeFromSession = (session?: {
+export type TenantSessionSource = {
   companyId?: string
   franchiseeId?: string
   storeId?: string
-} | null): TenantScope => ({
+  staffId?: string
+  staffRole?: StaffRole | ''
+  id?: string
+  role?: StaffRole
+}
+
+export const tenantScopeFromSession = (session?: TenantSessionSource | null): TenantScope => ({
   franchiseeId: session?.franchiseeId || session?.companyId || defaultFranchiseeId,
   storeId: session?.storeId || defaultStoreId,
 })
+
+export const tenantAccessScopeFromSessionSource = (
+  sessionSource?: TenantSessionSource | null,
+): TenantAccessScope => {
+  if (!sessionSource) {
+    return {}
+  }
+
+  const franchiseeId = sessionSource.franchiseeId || sessionSource.companyId || ''
+  const storeId = sessionSource.storeId || ''
+  const role = sessionSource.staffRole ?? sessionSource.role ?? ''
+  const staffId = sessionSource.staffId ?? sessionSource.id ?? ''
+
+  return {
+    franchiseeId: franchiseeId || undefined,
+    storeId: storeId || undefined,
+    role,
+    staffId: staffId || undefined,
+  }
+}
 
 export const matchesTenantScope = <T extends { companyId?: string; franchiseeId?: string; storeId?: string; staffId?: string }>(
   item: T,

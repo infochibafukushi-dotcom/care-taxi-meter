@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { useWorkSession } from '../hooks/useWorkSession'
-import { tenantScopeFromSession } from '../services/tenancy'
+import { loadAuthStaffSession } from '../services/authSession'
+import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import { canManageCaseRecord } from '../types/permissions'
 import {
   calculateTodayCaseSummary,
@@ -36,10 +37,13 @@ type CaseRecordsState = {
 
 export function CaseListPage() {
   const workSession = useWorkSession()
-  const currentScope = tenantScopeFromSession(workSession.currentSession)
-  const currentFranchiseeId = currentScope.franchiseeId
-  const currentStoreId = currentScope.storeId
-  const currentRole = workSession.currentSession?.staffRole ?? ''
+  const authSession = useMemo(() => loadAuthStaffSession(), [])
+  const sessionSource = workSession.currentSession ?? authSession
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(sessionSource),
+    [sessionSource],
+  )
+  const currentRole = accessScope.role ?? ''
   const canViewDeleted = canManageCaseRecord(currentRole)
   const [statusFilter, setStatusFilter] = useState<CaseRecordStatusFilter>('normal')
   const [state, setState] = useState<CaseRecordsState>({
@@ -56,7 +60,7 @@ export function CaseListPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId })
+    fetchCaseRecords(accessScope)
       .then((caseRecords) => {
         if (!isMounted) {
           return
@@ -82,7 +86,7 @@ export function CaseListPage() {
     return () => {
       isMounted = false
     }
-  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [accessScope])
 
   const visibleCaseRecords = state.caseRecords.filter((caseRecord) => {
     if (statusFilter === 'deleted') {

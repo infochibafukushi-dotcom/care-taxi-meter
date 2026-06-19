@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   cancelCaseRecord,
@@ -11,7 +11,8 @@ import {
 } from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
 import { useWorkSession } from '../hooks/useWorkSession'
-import { tenantScopeFromSession } from '../services/tenancy'
+import { loadAuthStaffSession } from '../services/authSession'
+import { tenantAccessScopeFromSessionSource, tenantScopeFromSession } from '../services/tenancy'
 import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/caseRecords'
 import type { MeterSettings } from '../services/meterSettings'
 import type { PaymentMethod, TaxiTicket } from '../types/case'
@@ -79,12 +80,18 @@ type AdjustmentState = {
 export function CaseDetailPage() {
   const navigate = useNavigate()
   const workSession = useWorkSession()
-  const currentScope = tenantScopeFromSession(workSession.currentSession)
+  const authSession = useMemo(() => loadAuthStaffSession(), [])
+  const sessionSource = workSession.currentSession ?? authSession
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(sessionSource),
+    [sessionSource],
+  )
+  const currentScope = tenantScopeFromSession(sessionSource)
   const currentFranchiseeId = currentScope.franchiseeId
   const currentStoreId = currentScope.storeId
   const { caseRecordId } = useParams()
   const currentSession = workSession.currentSession
-  const currentRole = currentSession?.staffRole ?? ''
+  const currentRole = accessScope.role ?? ''
   const isAdmin = canManageCaseRecord(currentRole)
   const canCancel = canCancelCaseRecord(currentRole)
   const canDelete = canDeleteCaseRecord(currentRole)

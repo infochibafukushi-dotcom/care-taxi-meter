@@ -1,0 +1,32 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "caseRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "caseRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "caseRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

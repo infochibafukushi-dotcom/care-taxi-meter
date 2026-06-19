@@ -5,7 +5,8 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { fetchStaffMembers } from '../services/staffMembers'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
-import { tenantScopeFromSession } from '../services/tenancy'
+import { loadAuthStaffSession } from '../services/authSession'
+import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import type { StaffMember, Vehicle } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatComparisonDifferenceYen } from '../utils/caseRecords'
@@ -521,9 +522,12 @@ function TopCasesTable({ rows }: { rows: TopCaseAnalyticsItem[] }) {
 
 export function SalesAnalyticsPage() {
   const workSession = useWorkSession()
-  const currentScope = tenantScopeFromSession(workSession.currentSession)
-  const currentFranchiseeId = currentScope.franchiseeId
-  const currentStoreId = currentScope.storeId
+  const authSession = useMemo(() => loadAuthStaffSession(), [])
+  const sessionSource = workSession.currentSession ?? authSession
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(sessionSource),
+    [sessionSource],
+  )
   const defaultPeriod = useMemo(() => getDefaultAnalyticsPeriod(), [])
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
@@ -542,7 +546,7 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole, staffId: workSession.currentSession?.staffId }), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole })])
+    Promise.all([fetchCaseRecords(accessScope), fetchStaffMembers(accessScope), fetchVehicles(accessScope)])
       .then(([records, loadedStaffMembers, loadedVehicles]) => {
         if (!isMounted) {
           return
@@ -573,7 +577,7 @@ export function SalesAnalyticsPage() {
     return () => {
       isMounted = false
     }
-  }, [currentFranchiseeId, currentStoreId, workSession.currentSession?.staffId, workSession.currentSession?.staffRole])
+  }, [accessScope])
 
   const analyticsSummary = useMemo(
     () =>

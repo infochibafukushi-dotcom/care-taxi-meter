@@ -13,6 +13,7 @@ import type { StaffMember, Store, WorkSession } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
 import type { AuthStaffSession } from '../services/authSession'
+import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import { formatBreakMinutes, formatBoundTimeDetail, formatDurationHoursMinutesJapanese } from '../utils/time'
 import { getMonthRangeInJapan, getTodayRangeInJapan, formatCaseDateTime, getActualFareYen } from '../utils/caseRecords'
 import {
@@ -261,6 +262,10 @@ export function HomePage() {
   const dashboardStoreName = currentSession?.storeName || loggedInUser?.store.name || '未設定'
   const dashboardStaffName = currentSession?.staffName || loggedInUser?.staffMember.name || '未ログイン'
   const dashboardRole = currentSession?.staffRole ?? loggedInUser?.staffMember.role ?? ''
+  const dashboardAccessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(currentSession ?? loggedInUser?.staffMember ?? null),
+    [currentSession, loggedInUser?.staffMember],
+  )
   const isHqAdmin = dashboardRole === 'hq_admin'
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
@@ -454,7 +459,7 @@ export function HomePage() {
 
     let isMounted = true
 
-    fetchCaseRecords()
+    fetchCaseRecords(dashboardAccessScope)
       .then((records) => {
         if (!isMounted) {
           return
@@ -476,7 +481,7 @@ export function HomePage() {
     return () => {
       isMounted = false
     }
-  }, [currentStaffId, currentSessionId])
+  }, [currentStaffId, currentSessionId, dashboardAccessScope])
 
   const dashboardSummary = useMemo(
     () =>
@@ -670,7 +675,7 @@ export function HomePage() {
 
     setIsTodaySalesLoading(true)
     try {
-      const records = await fetchCaseRecords()
+      const records = await fetchCaseRecords(dashboardAccessScope)
       setDashboardRecordsState({ errorMessage: '', records })
     } catch (error) {
       setDashboardRecordsState({
