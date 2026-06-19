@@ -22,8 +22,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "franchiseeId", "order": "ASCENDING" },
-        { "fieldPath": "storeId", "order": "ASCENDING" },
         { "fieldPath": "staffId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
         { "fieldPath": "closedAt", "order": "DESCENDING" }
       ]
     }
