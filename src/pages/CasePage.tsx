@@ -2371,6 +2371,8 @@ export function CasePage() {
   }
 
   const handleThermalReceiptPrint = async () => {
+    console.log('[PRINT] button clicked')
+
     if (!savedCaseRecord) {
       return
     }
@@ -2440,7 +2442,7 @@ export function CasePage() {
           connectionMethod: thermalPrinterService.getActiveMethod(),
         })
         setCaseSaveMessage((currentMessage) =>
-          `${currentMessage}\nプリンターに接続できないためPDF表示へ切り替えました。`,
+          `${currentMessage}\nプリンター再接続に失敗したためPDF表示へ切り替えました。`,
         )
       } catch (fallbackError) {
         console.error('[CasePage] 領収書印刷: PDFフォールバックも失敗', {

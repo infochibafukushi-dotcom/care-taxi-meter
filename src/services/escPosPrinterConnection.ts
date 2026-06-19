@@ -23,6 +23,7 @@ export type EscPosConnectionStageName =
   | 'connectGrantedDevice'
   | 'requestPort'
   | 'requestDevice'
+  | 'resetConnection'
 
 export type EscPosConnectionStageStatus = 'failure' | 'skipped' | 'success'
 
@@ -36,6 +37,13 @@ export type EscPosConnectionStageDiagnostic = {
 type EscPosConnectionAttemptResult = {
   ok: boolean
   detail: string
+}
+
+export type PrintConnectionHealthSnapshot = {
+  method: EscPosPrinterConnectionMethod
+  bleConnected: boolean
+  hasWriteCharacteristic: boolean
+  serialWritable: boolean
 }
 
 const createLogEntry = (type: EscPosPrinterLogType, message: string): EscPosPrinterLogEntry => ({
@@ -66,21 +74,43 @@ export class BleEscPosPrinterConnection {
   private device: BluetoothDevice | null = null
   private writeCharacteristic: BluetoothRemoteGATTCharacteristic | null = null
   private onLog: EscPosPrinterLogHandler = () => undefined
+  private onDisconnected: (() => void) | null = null
 
   setLogHandler(handler: EscPosPrinterLogHandler) {
     this.onLog = handler
+  }
+
+  setDisconnectedHandler(handler: (() => void) | null) {
+    this.onDisconnected = handler
+  }
+
+  getDevice() {
+    return this.device
+  }
+
+  hasWriteCharacteristic() {
+    return Boolean(this.writeCharacteristic)
+  }
+
+  isBleGattConnected() {
+    return Boolean(this.device?.gatt?.connected)
   }
 
   isConnected() {
     return Boolean(this.writeCharacteristic && this.device?.gatt?.connected)
   }
 
+  private handleDisconnect = () => {
+    this.onLog(createLogEntry('info', 'BLE プリンターが切断されました'))
+    console.log('[PRINT] BLE disconnected: connection state cleared')
+    this.writeCharacteristic = null
+    this.device = null
+    this.onDisconnected?.()
+  }
+
   private async attachToDevice(device: BluetoothDevice): Promise<void> {
-    device.addEventListener('gattserverdisconnected', () => {
-      this.onLog(createLogEntry('info', 'BLE プリンターが切断されました'))
-      this.writeCharacteristic = null
-      this.device = null
-    })
+    device.removeEventListener('gattserverdisconnected', this.handleDisconnect)
+    device.addEventListener('gattserverdisconnected', this.handleDisconnect)
 
     const server = device.gatt
     if (!server) {
@@ -101,6 +131,30 @@ export class BleEscPosPrinterConnection {
     this.onLog(
       createLogEntry('info', `接続成功: ${device.name ?? 'BLEプリンター'} (${BLE_PRINTER_SERVICE_UUID})`),
     )
+  }
+
+  async verifyConnectionHealth(): Promise<boolean> {
+    const device = this.device
+    const characteristic = this.writeCharacteristic
+
+    if (!device?.gatt || !characteristic) {
+      return false
+    }
+
+    if (!device.gatt.connected) {
+      try {
+        await device.gatt.connect()
+        const service = await device.gatt.getPrimaryService(BLE_PRINTER_SERVICE_UUID)
+        this.writeCharacteristic = await service.getCharacteristic(BLE_PRINTER_WRITE_CHARACTERISTIC_UUID)
+        return true
+      } catch {
+        this.writeCharacteristic = null
+        this.device = null
+        return false
+      }
+    }
+
+    return true
   }
 
   async connectGrantedDevice(): Promise<EscPosConnectionAttemptResult> {
@@ -138,6 +192,8 @@ export class BleEscPosPrinterConnection {
       })
       return { ok: true, detail }
     } catch (error) {
+      this.writeCharacteristic = null
+      this.device = null
       const detail = formatEscPosError(error)
       logEscPosDiagnostic('connectGrantedDevice: 失敗', {
         connectionMethod: 'BLE',
@@ -167,7 +223,7 @@ export class BleEscPosPrinterConnection {
   }
 
   async printReceipt(data: Uint8Array): Promise<void> {
-    if (!this.writeCharacteristic) {
+    if (!this.writeCharacteristic || !this.device?.gatt?.connected) {
       const error = new Error('プリンターが接続されていません')
       logEscPosDiagnostic('printReceipt failed (BLE)', {
         connectionMethod: 'BLE',
@@ -201,6 +257,10 @@ export class BleEscPosPrinterConnection {
 
   async disconnect(): Promise<void> {
     const device = this.device
+    if (device) {
+      device.removeEventListener('gattserverdisconnected', this.handleDisconnect)
+    }
+
     if (device?.gatt?.connected) {
       device.gatt.disconnect()
     }
@@ -218,6 +278,10 @@ export class SerialEscPosPrinterConnection {
 
   setLogHandler(handler: EscPosPrinterLogHandler) {
     this.onLog = handler
+  }
+
+  hasWritablePort() {
+    return Boolean(this.port?.writable)
   }
 
   isConnected() {
@@ -238,6 +302,22 @@ export class SerialEscPosPrinterConnection {
         `接続成功: SPP (Service Class ID: ${info.bluetoothServiceClassId ?? BLUETOOTH_SPP_SERVICE_CLASS_ID})`,
       ),
     )
+  }
+
+  async verifyConnectionHealth(): Promise<boolean> {
+    const port = this.port
+    if (!port?.writable) {
+      return false
+    }
+
+    try {
+      const writer = port.writable.getWriter()
+      writer.releaseLock()
+      return true
+    } catch {
+      this.port = null
+      return false
+    }
   }
 
   async connectGrantedPort(): Promise<EscPosConnectionAttemptResult> {
@@ -344,8 +424,16 @@ export class SerialEscPosPrinterConnection {
   }
 
   async disconnect(): Promise<void> {
-    if (this.port) {
-      await this.port.close()
+    const port = this.port
+    if (port) {
+      try {
+        await port.close()
+      } catch (error) {
+        logEscPosDiagnostic('Serial disconnect failed', {
+          reason: formatEscPosError(error),
+          error,
+        })
+      }
     }
 
     this.port = null
@@ -360,6 +448,12 @@ export class EscPosPrinterService {
   private activeMethod: EscPosPrinterConnectionMethod = null
   private lastConnectionDiagnostics: EscPosConnectionStageDiagnostic[] = []
 
+  constructor() {
+    this.bleConnection.setDisconnectedHandler(() => {
+      this.activeMethod = null
+    })
+  }
+
   setLogHandler(handler: EscPosPrinterLogHandler) {
     this.serialConnection.setLogHandler(handler)
     this.bleConnection.setLogHandler(handler)
@@ -369,9 +463,7 @@ export class EscPosPrinterService {
     return this.lastConnectionDiagnostics
   }
 
-  private recordConnectionStage(
-    stage: EscPosConnectionStageDiagnostic,
-  ) {
+  private recordConnectionStage(stage: EscPosConnectionStageDiagnostic) {
     this.lastConnectionDiagnostics.push(stage)
   }
 
@@ -381,6 +473,15 @@ export class EscPosPrinterService {
 
   getActiveMethod() {
     return this.activeMethod
+  }
+
+  getHealthSnapshot(): PrintConnectionHealthSnapshot {
+    return {
+      method: this.activeMethod,
+      bleConnected: this.bleConnection.isBleGattConnected(),
+      hasWriteCharacteristic: this.bleConnection.hasWriteCharacteristic(),
+      serialWritable: this.serialConnection.hasWritablePort(),
+    }
   }
 
   isConnected() {
@@ -403,14 +504,78 @@ export class EscPosPrinterService {
     return this.serialConnection
   }
 
+  private async verifyConnectionHealth(): Promise<boolean> {
+    if (this.activeMethod === 'serial') {
+      return this.serialConnection.verifyConnectionHealth()
+    }
+
+    if (this.activeMethod === 'ble') {
+      return this.bleConnection.verifyConnectionHealth()
+    }
+
+    if (this.bleConnection.isConnected()) {
+      return this.bleConnection.verifyConnectionHealth()
+    }
+
+    if (this.serialConnection.isConnected()) {
+      return this.serialConnection.verifyConnectionHealth()
+    }
+
+    return false
+  }
+
+  async resetConnection(): Promise<void> {
+    try {
+      await this.serialConnection.disconnect()
+    } catch (error) {
+      logEscPosDiagnostic('resetConnection: Serial disconnect failed', {
+        reason: formatEscPosError(error),
+        error,
+      })
+    }
+
+    try {
+      await this.bleConnection.disconnect()
+    } catch (error) {
+      logEscPosDiagnostic('resetConnection: BLE disconnect failed', {
+        reason: formatEscPosError(error),
+        error,
+      })
+    }
+
+    this.activeMethod = null
+  }
+
   async connectIfNeeded(): Promise<void> {
-    this.resetConnectionDiagnostics()
+    console.log('[PRINT] connectIfNeeded start', {
+      activeMethod: this.activeMethod,
+      isConnected: this.isConnected(),
+    })
+
+    let staleConnectionReset = false
+    const previousMethod = this.activeMethod
 
     if (this.isConnected()) {
-      logEscPosDiagnostic('connectIfNeeded: 既に接続済み', {
-        connectionMethod: this.activeMethod ?? 'unknown',
+      console.log('[PRINT] health check', this.getHealthSnapshot())
+      const healthy = await this.verifyConnectionHealth()
+      if (healthy) {
+        return
+      }
+
+      console.log('[PRINT] stale connection detected: reset')
+      await this.resetConnection()
+      staleConnectionReset = true
+    }
+
+    this.resetConnectionDiagnostics()
+
+    if (staleConnectionReset) {
+      this.recordConnectionStage({
+        stage: 'resetConnection',
+        connectionMethod: previousMethod === 'ble' ? 'BLE' : 'Serial',
+        status: 'success',
+        detail: '古い接続を検出したため接続状態をリセットしました',
       })
-      return
     }
 
     const failures: string[] = []
@@ -430,6 +595,7 @@ export class EscPosPrinterService {
         })
         return
       }
+      this.activeMethod = null
     } else {
       this.recordConnectionStage({
         stage: 'connectGrantedPort',
@@ -455,6 +621,7 @@ export class EscPosPrinterService {
         })
         return
       }
+      this.activeMethod = null
     } else {
       this.recordConnectionStage({
         stage: 'connectGrantedDevice',
@@ -480,6 +647,7 @@ export class EscPosPrinterService {
         })
         return
       } catch (error) {
+        this.activeMethod = null
         const reason = formatEscPosError(error)
         failures.push(`Serial requestPort: ${reason}`)
         this.recordConnectionStage({
@@ -518,6 +686,7 @@ export class EscPosPrinterService {
         })
         return
       } catch (error) {
+        this.activeMethod = null
         const reason = formatEscPosError(error)
         failures.push(`BLE requestDevice: ${reason}`)
         this.recordConnectionStage({
@@ -541,6 +710,8 @@ export class EscPosPrinterService {
       })
     }
 
+    this.activeMethod = null
+
     if (!navigator.serial && !navigator.bluetooth) {
       const error = new Error('このブラウザはプリンター接続に対応していません')
       logEscPosDiagnostic('connectIfNeeded failed', {
@@ -562,7 +733,7 @@ export class EscPosPrinterService {
     throw error
   }
 
-  async printReceipt(data: Uint8Array): Promise<void> {
+  private async printReceiptOnce(data: Uint8Array): Promise<void> {
     if (!this.isConnected()) {
       const error = new Error('プリンターが接続されていません')
       logEscPosDiagnostic('printReceipt failed', {
@@ -572,20 +743,38 @@ export class EscPosPrinterService {
       throw error
     }
 
+    await this.getActiveConnection().printReceipt(data)
+    logEscPosDiagnostic('printReceipt succeeded', {
+      connectionMethod: this.activeMethod ?? 'unknown',
+      byteLength: data.byteLength,
+    })
+  }
+
+  async printReceipt(data: Uint8Array): Promise<void> {
     try {
-      await this.getActiveConnection().printReceipt(data)
-      logEscPosDiagnostic('printReceipt succeeded', {
-        connectionMethod: this.activeMethod ?? 'unknown',
-        byteLength: data.byteLength,
-      })
-    } catch (error) {
-      logEscPosDiagnostic('printReceipt failed', {
-        connectionMethod: this.activeMethod ?? 'unknown',
-        byteLength: data.byteLength,
-        reason: formatEscPosError(error),
-        error,
-      })
-      throw error
+      await this.printReceiptOnce(data)
+      console.log('[PRINT] success')
+    } catch (firstError) {
+      console.log('[PRINT] retry after reconnect')
+      await this.resetConnection()
+      this.resetConnectionDiagnostics()
+
+      try {
+        await this.connectIfNeeded()
+        await this.printReceiptOnce(data)
+        console.log('[PRINT] success')
+      } catch (retryError) {
+        this.activeMethod = null
+        console.error('[PRINT] failed', retryError)
+        logEscPosDiagnostic('printReceipt failed after retry', {
+          connectionMethod: this.activeMethod ?? 'unknown',
+          byteLength: data.byteLength,
+          reason: formatEscPosError(retryError),
+          firstReason: formatEscPosError(firstError),
+          error: retryError,
+        })
+        throw retryError
+      }
     }
   }
 }
