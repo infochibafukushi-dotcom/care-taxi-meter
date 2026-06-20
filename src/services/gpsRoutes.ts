@@ -19,6 +19,10 @@ export type SaveGpsRouteInput = {
   caseNumber: string
   franchiseeId: string
   storeId: string
+  staffId: string
+  staffName: string
+  vehicleId: string
+  vehicleName: string
   closedAt: string
   logs: GpsLogEntry[]
 }
@@ -28,6 +32,12 @@ export type GpsRouteSummaryInfo = {
   chunkCount: number
   savedAt: string
   expiresAt: string
+  staffId: string
+  staffName: string
+  vehicleId: string
+  vehicleName: string
+  closedAt: string
+  caseNumber: string
 }
 
 export type GpsRouteSaveStatus = 'saved' | 'unsaved' | 'expired'
@@ -155,6 +165,12 @@ export async function fetchGpsRouteSummary(
     chunkCount: typeof data.chunkCount === 'number' ? data.chunkCount : 0,
     savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
+    staffId: typeof data.staffId === 'string' ? data.staffId : '',
+    staffName: typeof data.staffName === 'string' ? data.staffName : '',
+    vehicleId: typeof data.vehicleId === 'string' ? data.vehicleId : '',
+    vehicleName: typeof data.vehicleName === 'string' ? data.vehicleName : '',
+    closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
+    caseNumber: typeof data.caseNumber === 'string' ? data.caseNumber : '',
   }
 }
 
@@ -219,6 +235,10 @@ export async function saveGpsRoute({
   caseNumber,
   franchiseeId,
   storeId,
+  staffId,
+  staffName,
+  vehicleId,
+  vehicleName,
   closedAt,
   logs,
 }: SaveGpsRouteInput): Promise<boolean> {
@@ -255,6 +275,10 @@ export async function saveGpsRoute({
     caseNumber,
     franchiseeId,
     storeId,
+    staffId,
+    staffName,
+    vehicleId,
+    vehicleName,
     closedAt,
     intervalSeconds: GPS_CAPTURE_INTERVAL_SECONDS,
     pointCount: points.length,

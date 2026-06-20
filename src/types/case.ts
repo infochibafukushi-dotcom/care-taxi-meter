@@ -69,6 +69,10 @@ export type GpsRouteSummary = {
   caseNumber: string
   franchiseeId: string
   storeId: string
+  staffId: string
+  staffName: string
+  vehicleId: string
+  vehicleName: string
   closedAt: string
   intervalSeconds: number
   pointCount: number

@@ -2308,6 +2308,10 @@ export function CasePage() {
               workSession.currentSession?.companyId ||
               '',
             storeId: workSession.currentSession?.storeId ?? '',
+            staffId: workSession.currentSession?.staffId ?? '',
+            staffName: workSession.currentSession?.staffName ?? '',
+            vehicleId: selectedVehicle.id,
+            vehicleName: selectedVehicle.name,
             closedAt,
             logs: gpsLogsToSave,
           })
