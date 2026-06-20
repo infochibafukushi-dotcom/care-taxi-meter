@@ -37,10 +37,14 @@ const toGpsRoutePoint = (log: GpsLogEntry): GpsRoutePoint | null => {
   }
 
   return {
-    t: log.capturedAt,
+    t: Number.isFinite(log.capturedAt)
+      ? log.capturedAt
+      : Date.now(),
     lat: log.latitude,
     lng: log.longitude,
-    s: log.speed,
+    s: Number.isFinite(log.speed)
+      ? log.speed
+      : 0,
     a: Number.isFinite(log.accuracy) ? log.accuracy : 0,
   }
 }
@@ -108,6 +112,14 @@ export async function saveGpsRoute({
   const points = logs
     .map(toGpsRoutePoint)
     .filter((point): point is GpsRoutePoint => point !== null)
+
+  console.log('[GPS_ROUTE_DEBUG_3_POINTS]', {
+    rawLogCount: logs.length,
+    validPointCount: points.length,
+    nanSpeedCount: logs.filter(
+      (log) => !Number.isFinite(log.speed),
+    ).length,
+  })
 
   if (points.length === 0) {
     return false
