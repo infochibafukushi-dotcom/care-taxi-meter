@@ -34,11 +34,12 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
       'vehicles',
       'analytics',
       'personalOperations',
+      'gpsRoutes',
     ].includes(sectionId)
   }
 
   if (role === 'manager') {
-    return ['staff', 'vehicles', 'analytics', 'personalOperations'].includes(sectionId)
+    return ['staff', 'vehicles', 'analytics', 'personalOperations', 'gpsRoutes'].includes(sectionId)
   }
 
   return false

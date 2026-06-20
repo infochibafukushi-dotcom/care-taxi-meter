@@ -1,7 +1,8 @@
-import { doc, getDoc, getFirestore, writeBatch } from 'firebase/firestore'
+import { collectionGroup, doc, getDoc, getDocs, getFirestore, orderBy, query, where, writeBatch } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import { GPS_CAPTURE_INTERVAL_SECONDS } from '../hooks/useCurrentPosition'
 import { calculateDistanceMeters } from '../utils/distance'
+import type { TenantAccessScope } from './tenancy'
 import type {
   GpsLogEntry,
   GpsRouteBounds,
@@ -41,6 +42,27 @@ export type GpsRouteSummaryInfo = {
 }
 
 export type GpsRouteSaveStatus = 'saved' | 'unsaved' | 'expired'
+
+export type GpsRouteListItem = {
+  caseRecordId: string
+  caseNumber: string
+  pointCount: number
+  chargeableDistanceKm: number
+  savedAt: string
+  expiresAt: string
+  staffId: string
+  staffName: string
+  vehicleId: string
+  vehicleName: string
+  closedAt: string
+}
+
+export type FetchGpsRouteListOptions = {
+  fromClosedAt: string
+  toClosedAt: string
+  staffId: string
+  vehicleId: string
+}
 
 const isValidCoordinate = (latitude: number, longitude: number) =>
   Number.isFinite(latitude) &&
@@ -160,18 +182,7 @@ export async function fetchGpsRouteSummary(
   }
 
   const data = snapshot.data()
-  return {
-    pointCount: typeof data.pointCount === 'number' ? data.pointCount : 0,
-    chunkCount: typeof data.chunkCount === 'number' ? data.chunkCount : 0,
-    savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
-    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
-    staffId: typeof data.staffId === 'string' ? data.staffId : '',
-    staffName: typeof data.staffName === 'string' ? data.staffName : '',
-    vehicleId: typeof data.vehicleId === 'string' ? data.vehicleId : '',
-    vehicleName: typeof data.vehicleName === 'string' ? data.vehicleName : '',
-    closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
-    caseNumber: typeof data.caseNumber === 'string' ? data.caseNumber : '',
-  }
+  return parseGpsRouteSummaryInfo(data)
 }
 
 export async function fetchGpsRouteChunks(
@@ -217,6 +228,85 @@ export function calculateGpsRouteDistanceKm(points: GpsRoutePoint[]): number {
   }
 
   return totalMeters / 1000
+}
+
+const parseGpsRouteSummaryInfo = (
+  data: Record<string, unknown>,
+): GpsRouteSummaryInfo => ({
+  pointCount: typeof data.pointCount === 'number' ? data.pointCount : 0,
+  chunkCount: typeof data.chunkCount === 'number' ? data.chunkCount : 0,
+  savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
+  expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
+  staffId: typeof data.staffId === 'string' ? data.staffId : '',
+  staffName: typeof data.staffName === 'string' ? data.staffName : '',
+  vehicleId: typeof data.vehicleId === 'string' ? data.vehicleId : '',
+  vehicleName: typeof data.vehicleName === 'string' ? data.vehicleName : '',
+  closedAt: typeof data.closedAt === 'string' ? data.closedAt : '',
+  caseNumber: typeof data.caseNumber === 'string' ? data.caseNumber : '',
+})
+
+export async function fetchGpsRouteList(
+  scope: TenantAccessScope,
+  caseRecordDistanceById: Map<string, number>,
+  options: FetchGpsRouteListOptions,
+): Promise<GpsRouteListItem[]> {
+  const db = getFirestore(getFirebaseApp())
+  const constraints = [
+    where('closedAt', '>=', options.fromClosedAt),
+    where('closedAt', '<=', options.toClosedAt),
+    orderBy('closedAt', 'desc'),
+  ]
+
+  if (scope.role === 'manager') {
+    constraints.unshift(where('storeId', '==', scope.storeId))
+    constraints.unshift(where('franchiseeId', '==', scope.franchiseeId))
+  } else if (scope.role === 'owner') {
+    constraints.unshift(where('franchiseeId', '==', scope.franchiseeId))
+  }
+
+  const snapshot = await getDocs(
+    query(collectionGroup(db, 'gpsRoute'), ...constraints),
+  )
+
+  const items: GpsRouteListItem[] = []
+  snapshot.forEach((documentSnapshot) => {
+    if (documentSnapshot.id !== 'summary') {
+      return
+    }
+
+    const summary = parseGpsRouteSummaryInfo(documentSnapshot.data())
+    const caseRecordId = typeof documentSnapshot.data().caseRecordId === 'string'
+      ? documentSnapshot.data().caseRecordId
+      : documentSnapshot.ref.parent.parent?.id ?? ''
+
+    if (!caseRecordId) {
+      return
+    }
+
+    if (options.staffId !== 'all' && summary.staffId !== options.staffId) {
+      return
+    }
+
+    if (options.vehicleId !== 'all' && summary.vehicleId !== options.vehicleId) {
+      return
+    }
+
+    items.push({
+      caseRecordId,
+      caseNumber: summary.caseNumber,
+      pointCount: summary.pointCount,
+      chargeableDistanceKm: caseRecordDistanceById.get(caseRecordId) ?? 0,
+      savedAt: summary.savedAt,
+      expiresAt: summary.expiresAt,
+      staffId: summary.staffId,
+      staffName: summary.staffName,
+      vehicleId: summary.vehicleId,
+      vehicleName: summary.vehicleName,
+      closedAt: summary.closedAt,
+    })
+  })
+
+  return items
 }
 
 /**

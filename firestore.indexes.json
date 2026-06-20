@@ -26,6 +26,30 @@
         { "fieldPath": "storeId", "order": "ASCENDING" },
         { "fieldPath": "closedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "gpsRoute",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gpsRoute",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gpsRoute",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "expiresAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

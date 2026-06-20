@@ -4,6 +4,7 @@ import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
 import { TimeMeterDiscountSettingsPanel } from "../components/admin/TimeMeterDiscountSettingsPanel";
 import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
+import { GpsRouteManagementPanel } from "../components/admin/GpsRouteManagementPanel";
 import { fetchCaseRecords } from "../services/caseRecords";
 import { fetchStaffMembers, saveStaffMember } from "../services/staffMembers";
 import {
@@ -39,7 +40,7 @@ import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getActualFareYen, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
-import { tenantScopeFromSession } from "../services/tenancy";
+import { tenantScopeFromSession, tenantAccessScopeFromSessionSource } from "../services/tenancy";
 import { loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
 
 type AdminSummaryState = {
@@ -57,6 +58,7 @@ type AdminCenterSection =
   | "vehicles"
   | "analytics"
   | "personalOperations"
+  | "gpsRoutes"
   | "system";
 
 type SettingsSaveState = "error" | "idle" | "saved" | "saving";
@@ -100,6 +102,11 @@ const adminCenterCards: Array<{
     id: "personalOperations",
     label: "個人運行管理（月別）",
     description: "勤務時間・点呼・売上KPIの月別確認",
+  },
+  {
+    id: "gpsRoutes",
+    label: "GPSルート一覧",
+    description: "保存済みGPS軌跡の件数・距離・期限を確認",
   },
   {
     id: "system",
@@ -390,6 +397,10 @@ export function AdminPage() {
   const authSession = useMemo(() => loadAuthStaffSession(), []);
   const hqViewingSession = useMemo(() => loadHqViewingSession(), []);
   const sessionSource = workSession.currentSession ?? authSession;
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(sessionSource),
+    [sessionSource],
+  );
   const currentScope = tenantScopeFromSession(sessionSource);
   const currentFranchiseeId = currentScope.franchiseeId;
   const currentStoreId = currentScope.storeId;
@@ -2249,6 +2260,15 @@ export function AdminPage() {
                 詳細な売上分析を開く
               </Link>
             </div>
+          ) : null}
+
+          {activeAdminSection === "gpsRoutes" ? (
+            <GpsRouteManagementPanel
+              accessScope={accessScope}
+              caseRecords={summaryState.caseRecords}
+              staffMembers={staffMembers}
+              vehicles={vehicles}
+            />
           ) : null}
 
           {activeAdminSection === "personalOperations" ? (
