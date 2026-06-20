@@ -29,6 +29,7 @@ import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { downloadStatementPdf } from '../utils/statementPdf'
 import { canCancelCaseRecord, canDeleteCaseRecord, canManageCaseRecord, canRestoreCaseRecord } from '../types/permissions'
+import { GpsRouteMapDialog } from '../components/case/GpsRouteMapDialog'
 
 const paymentMethodOptions: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
 
@@ -147,6 +148,7 @@ export function CaseDetailPage() {
     isLoading: true,
     summary: null,
   })
+  const [isGpsRouteMapOpen, setIsGpsRouteMapOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -326,6 +328,17 @@ export function CaseDetailPage() {
   const gpsRouteExpiresAtLabel = gpsRouteState.summary
     ? formatGpsRouteExpiresAt(gpsRouteState.summary.expiresAt)
     : '―'
+  const canOpenGpsRouteMap = Boolean(gpsRouteState.summary && caseRecordId)
+  const gpsRoutePickup = caseRecord &&
+    Number.isFinite(caseRecord.pickupLatitude) &&
+    Number.isFinite(caseRecord.pickupLongitude)
+    ? { lat: caseRecord.pickupLatitude as number, lng: caseRecord.pickupLongitude as number }
+    : null
+  const gpsRouteDropoff = caseRecord &&
+    Number.isFinite(caseRecord.dropoffLatitude) &&
+    Number.isFinite(caseRecord.dropoffLongitude)
+    ? { lat: caseRecord.dropoffLatitude as number, lng: caseRecord.dropoffLongitude as number }
+    : null
 
   const openReceiptDialog = async () => {
     const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
@@ -792,7 +805,17 @@ export function CaseDetailPage() {
               </div>
               <div>
                 <span>GPS軌跡</span>
-                <strong>{gpsRouteStatusLabel}</strong>
+                {canOpenGpsRouteMap ? (
+                  <button
+                    className="case-detail-gps-link"
+                    type="button"
+                    onClick={() => setIsGpsRouteMapOpen(true)}
+                  >
+                    {gpsRouteStatusLabel}
+                  </button>
+                ) : (
+                  <strong>{gpsRouteStatusLabel}</strong>
+                )}
               </div>
               <div>
                 <span>GPSログ件数</span>
@@ -985,6 +1008,19 @@ export function CaseDetailPage() {
           </>
         ) : null}
       </section>
+
+      {caseRecord && gpsRouteState.summary && caseRecordId ? (
+        <GpsRouteMapDialog
+          caseRecordId={caseRecordId}
+          chunkCount={gpsRouteState.summary.chunkCount}
+          dropoff={gpsRouteDropoff}
+          isOpen={isGpsRouteMapOpen}
+          pickup={gpsRoutePickup}
+          pointCount={gpsRouteState.summary.pointCount}
+          saveStatus={gpsRouteSaveStatus}
+          onClose={() => setIsGpsRouteMapOpen(false)}
+        />
+      ) : null}
 
       {receiptDialog.isOpen ? (
         <div className="receipt-dialog-backdrop" role="presentation">

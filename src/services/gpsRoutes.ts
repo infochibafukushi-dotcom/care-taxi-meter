@@ -1,6 +1,7 @@
 import { doc, getDoc, getFirestore, writeBatch } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import { GPS_CAPTURE_INTERVAL_SECONDS } from '../hooks/useCurrentPosition'
+import { calculateDistanceMeters } from '../utils/distance'
 import type {
   GpsLogEntry,
   GpsRouteBounds,
@@ -116,7 +117,7 @@ export function formatGpsRouteStatusLabel(
   }
 
   if (status === 'expired') {
-    return '期限切れ'
+    return '保存期限超過'
   }
 
   return `保存済み（${summary?.pointCount ?? 0}件）`
@@ -155,6 +156,51 @@ export async function fetchGpsRouteSummary(
     savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
   }
+}
+
+export async function fetchGpsRouteChunks(
+  caseRecordId: string,
+  chunkCount: number,
+): Promise<GpsRoutePoint[]> {
+  if (chunkCount <= 0) {
+    return []
+  }
+
+  const snapshots = await Promise.all(
+    Array.from({ length: chunkCount }, (_, chunkIndex) =>
+      getDoc(getGpsRouteChunkRef(caseRecordId, chunkIndex)),
+    ),
+  )
+
+  const points: GpsRoutePoint[] = []
+  snapshots.forEach((snapshot) => {
+    if (!snapshot.exists()) {
+      return
+    }
+
+    const data = snapshot.data() as GpsRouteChunk
+    if (Array.isArray(data.points)) {
+      points.push(...data.points)
+    }
+  })
+
+  return points
+}
+
+export function calculateGpsRouteDistanceKm(points: GpsRoutePoint[]): number {
+  if (points.length < 2) {
+    return 0
+  }
+
+  let totalMeters = 0
+  for (let index = 1; index < points.length; index += 1) {
+    totalMeters += calculateDistanceMeters(
+      { latitude: points[index - 1].lat, longitude: points[index - 1].lng },
+      { latitude: points[index].lat, longitude: points[index].lng },
+    )
+  }
+
+  return totalMeters / 1000
 }
 
 /**

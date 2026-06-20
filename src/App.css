@@ -3786,6 +3786,63 @@ h1 {
   -webkit-overflow-scrolling: touch;
 }
 
+.case-detail-gps-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.gps-route-map-dialog {
+  width: min(100%, 720px);
+}
+
+.gps-route-map-container {
+  width: 100%;
+  min-height: 320px;
+  height: min(52dvh, 420px);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #e2e8f0;
+}
+
+.gps-route-map-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gps-route-map-stats div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.gps-route-map-stats span {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.gps-route-map-stats strong {
+  font-size: 1rem;
+}
+
+.gps-route-map-expired-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 700;
+}
+
 .receipt-dialog {
   width: min(100%, 520px);
   max-height: calc(100dvh - 36px);
