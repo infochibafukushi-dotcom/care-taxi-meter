@@ -525,7 +525,6 @@ export function HomePage() {
     currentSessionId,
     currentStaffId,
     dashboardRecordsState.records,
-    elapsedSeconds,
     todayWorkSeconds,
   ])
 

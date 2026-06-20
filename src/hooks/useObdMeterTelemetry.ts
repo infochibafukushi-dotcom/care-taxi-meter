@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MeterMovementState } from '../types/case'
 import type { SpeedSource } from '../services/gpsSpeed'
 import {
@@ -201,12 +201,15 @@ export function useObdMeterTelemetry({
     isStableForTelemetryRef.current = isStableForTelemetry
   }, [isStableForTelemetry])
 
-  const isConnectedForStartFromRefs = () =>
-    isObdConnectedForStartState(
-      connectionPhaseRef.current,
-      isBleConnectedRef.current,
-      connectionRef.current,
-    )
+  const isConnectedForStartFromRefs = useCallback(
+    () =>
+      isObdConnectedForStartState(
+        connectionPhaseRef.current,
+        isBleConnectedRef.current,
+        connectionRef.current,
+      ),
+    [],
+  )
 
   const pushLog = useCallback((entry: ObdLogEntry) => {
     if (!enableLogging) {
@@ -337,7 +340,7 @@ export function useObdMeterTelemetry({
       'markDisconnected完了後',
       { reason },
     )
-  }, [abandonConnectInFlight, isTripActive, stopPolling])
+  }, [abandonConnectInFlight, isConnectedForStartFromRefs, isTripActive, stopPolling])
 
   const resetTelemetry = useCallback(() => {
     stopPolling()
@@ -492,7 +495,7 @@ export function useObdMeterTelemetry({
     setErrorMessage(null)
   }, [abandonConnectInFlight, clearRecoveredFlashTimer, pushLog, stopPolling])
 
-  const stateSnapshotRefs: ConnectStateSnapshotRefs = {
+  const stateSnapshotRefs = useMemo<ConnectStateSnapshotRefs>(() => ({
     activeConnectInteractiveRef,
     connectInFlightRef,
     connectionPhaseRef,
@@ -500,7 +503,7 @@ export function useObdMeterTelemetry({
     isBleConnectedRef,
     isConnectedForStartFromRefs,
     isStableForTelemetryRef,
-  }
+  }), [isConnectedForStartFromRefs])
 
   const executeObdConnect = useCallback(async (options: ObdConnectOptions): Promise<boolean> => {
     const attemptGeneration = connectAttemptGenerationRef.current
@@ -692,6 +695,7 @@ export function useObdMeterTelemetry({
     pollTelemetry,
     pushLog,
     startPolling,
+    stateSnapshotRefs,
   ])
 
   const awaitConnectAttempt = useCallback(
@@ -738,7 +742,7 @@ export function useObdMeterTelemetry({
       logConnectStateSnapshot(stateSnapshotRefs, 'awaitConnectAttempt終了', { result })
       return result || isConnectedForStartFromRefs()
     },
-    [abandonConnectInFlight, executeObdConnect],
+    [abandonConnectInFlight, executeObdConnect, isConnectedForStartFromRefs, stateSnapshotRefs],
   )
 
   const connect = useCallback(async (options?: ObdConnectOptions): Promise<boolean> => {
@@ -815,7 +819,7 @@ export function useObdMeterTelemetry({
 
     logConnectResult(false)
     return false
-  }, [awaitConnectAttempt, isEnabled])
+  }, [awaitConnectAttempt, isConnectedForStartFromRefs, isEnabled, stateSnapshotRefs])
 
   useEffect(() => {
     connectRef.current = connect

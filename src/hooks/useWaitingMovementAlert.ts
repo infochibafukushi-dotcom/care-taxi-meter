@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { calculateDistanceMeters } from '../utils/distance'
 import { MAX_DISTANCE_ACCURACY_METERS } from './useCurrentPosition'
 
@@ -78,13 +78,13 @@ export function useWaitingMovementAlert({
     }))
   }
 
-  const openAlert = () => {
+  const openAlert = useCallback(() => {
     resetDetection()
     setAlertState((current) => ({
       ...current,
       isOpen: true,
     }))
-  }
+  }, [])
 
   useEffect(() => {
     if (!isEnabled) {
@@ -110,11 +110,10 @@ export function useWaitingMovementAlert({
 
       const speedKmh = currentSpeedKmhRef.current
       const gpsPositionSnapshot = gpsPositionRef.current
-      let isMoving = false
 
       if (isUsingObdTelemetry) {
-        isMoving = speedKmh != null && speedKmh >= OBD_SPEED_THRESHOLD_KMH
-        if (isMoving) {
+        const isObdMoving = speedKmh != null && speedKmh >= OBD_SPEED_THRESHOLD_KMH
+        if (isObdMoving) {
           movementSecondsRef.current += 1
           if (movementSecondsRef.current >= OBD_DURATION_SECONDS) {
             openAlert()
@@ -145,8 +144,8 @@ export function useWaitingMovementAlert({
         gpsDistanceMoving = movedMeters >= GPS_DISTANCE_THRESHOLD_METERS
       }
 
-      isMoving = gpsSpeedMoving || gpsDistanceMoving
-      if (isMoving) {
+      const isGpsMoving = gpsSpeedMoving || gpsDistanceMoving
+      if (isGpsMoving) {
         movementSecondsRef.current += 1
         if (movementSecondsRef.current >= GPS_DURATION_SECONDS) {
           openAlert()
@@ -163,7 +162,7 @@ export function useWaitingMovementAlert({
     }, 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [isEnabled, isUsingObdTelemetry])
+  }, [isEnabled, isUsingObdTelemetry, openAlert])
 
   return {
     alertState,

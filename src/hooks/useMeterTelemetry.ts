@@ -169,6 +169,7 @@ export function useMeterTelemetry({
     displayMetricsRef.current = seedMetrics
     fallbackBridgeRef.current = null
   }, [
+    gpsRaw,
     gpsRaw.businessDistanceKm,
     gpsRaw.chargeableDistanceKm,
     gpsRaw.lowSpeedSeconds,
