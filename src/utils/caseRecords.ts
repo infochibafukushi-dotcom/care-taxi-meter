@@ -121,6 +121,37 @@ export function formatCaseDateTime(closedAt: string) {
   return japaneseDateTimeFormatter.format(closedDate)
 }
 
+export function formatCaseOperationDateTime(isoString: string): string {
+  if (!isoString.trim()) {
+    return '―'
+  }
+
+  const date = new Date(isoString)
+  if (Number.isNaN(date.getTime())) {
+    return '―'
+  }
+
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Tokyo',
+  }).formatToParts(date)
+
+  const year = parts.find((part) => part.type === 'year')?.value ?? ''
+  const month = parts.find((part) => part.type === 'month')?.value ?? ''
+  const day = parts.find((part) => part.type === 'day')?.value ?? ''
+  const hour = parts.find((part) => part.type === 'hour')?.value ?? ''
+  const minute = parts.find((part) => part.type === 'minute')?.value ?? ''
+  const second = parts.find((part) => part.type === 'second')?.value ?? ''
+
+  return `${year}/${month}/${day} ${hour}:${minute}:${second}`
+}
+
 export function isTodayInJapan(closedAt: string) {
   const closedDate = new Date(closedAt)
 

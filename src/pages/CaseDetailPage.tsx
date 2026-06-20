@@ -24,7 +24,7 @@ import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/cas
 import type { MeterSettings } from '../services/meterSettings'
 import type { PaymentMethod, TaxiTicket } from '../types/case'
 import { formatFareYen } from '../services/fare'
-import { formatCaseDateTime } from '../utils/caseRecords'
+import { formatCaseDateTime, formatCaseOperationDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { downloadStatementPdf } from '../utils/statementPdf'
@@ -798,6 +798,18 @@ export function CaseDetailPage() {
               <div>
                 <span>営業距離</span>
                 <strong>{caseRecord.businessDistanceKm.toFixed(3)} km</strong>
+              </div>
+              <div>
+                <span>運行開始</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.startedAt)}</strong>
+              </div>
+              <div>
+                <span>運行終了</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.endedAt)}</strong>
+              </div>
+              <div>
+                <span>精算完了</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.closedAt)}</strong>
               </div>
               <div>
                 <span>運行時間</span>
