@@ -28,6 +28,10 @@ import { formatCaseDateTime, formatCaseOperationDateTime } from '../utils/caseRe
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { downloadStatementPdf } from '../utils/statementPdf'
+import { buildThermalReceiptEscPos } from '../utils/thermalReceiptEscPos'
+import { downloadThermalReceiptPdf, openThermalReceiptPdf } from '../utils/thermalReceiptPdf'
+import { thermalPrinterService } from '../services/escPosPrinterConnection'
+import type { ExpenseItem } from '../types/case'
 import { canCancelCaseRecord, canDeleteCaseRecord, canManageCaseRecord, canRestoreCaseRecord } from '../types/permissions'
 import { GpsRouteMapDialog } from '../components/case/GpsRouteMapDialog'
 
@@ -53,6 +57,16 @@ const toEditableValues = (caseRecord: StoredCaseRecord): CaseRecordEditableValue
 })
 
 const toNumberInputValue = (value: number) => String(Math.max(Math.round(value), 0))
+
+const isPrinterConnectionFailureMessage = (message: string) =>
+  message.includes('プリンター接続')
+
+const toThermalReceiptExpenseItems = (caseRecord: StoredCaseRecord): ExpenseItem[] =>
+  (caseRecord.expenseCharges ?? []).map((charge) => ({
+    id: charge.id,
+    name: charge.name,
+    amountYen: charge.amount,
+  }))
 
 const formatChangeDateTime = (changedAt: string) => {
   const date = new Date(changedAt)
@@ -149,6 +163,7 @@ export function CaseDetailPage() {
     summary: null,
   })
   const [isGpsRouteMapOpen, setIsGpsRouteMapOpen] = useState(false)
+  const [isThermalReceiptPrinting, setIsThermalReceiptPrinting] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -395,6 +410,103 @@ export function CaseDetailPage() {
     closeReceiptDialog()
   }
 
+  const handleThermalReceiptPrint = async () => {
+    if (!caseRecord || isThermalReceiptPrinting) {
+      return
+    }
+
+    setIsThermalReceiptPrinting(true)
+    setState((currentState) => ({ ...currentState, statusMessage: 'レシートを印刷中です。' }))
+
+    let issueOptions = {
+      customerName: caseRecord.receiptName,
+      expenseItems: toThermalReceiptExpenseItems(caseRecord),
+      issuerName: '',
+      receiptNote: '',
+    }
+
+    try {
+      await thermalPrinterService.connectIfNeeded()
+
+      const latestMeterSettings = await fetchMeterSettings({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      })
+      issueOptions = {
+        customerName: issueOptions.customerName,
+        expenseItems: issueOptions.expenseItems,
+        issuerName: latestMeterSettings.receipt.issuerName,
+        receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
+      }
+
+      const receiptData = buildThermalReceiptEscPos(caseRecord, latestMeterSettings, issueOptions)
+      await thermalPrinterService.printReceipt(receiptData)
+      setState((currentState) => ({ ...currentState, statusMessage: 'レシートを印刷しました。' }))
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setState((currentState) => ({
+        ...currentState,
+        statusMessage: isPrinterConnectionFailureMessage(reason)
+          ? `プリンター接続失敗:\n${reason}`
+          : `レシート印刷失敗:\n${reason}`,
+      }))
+
+      try {
+        const latestMeterSettings = await fetchMeterSettings({
+          franchiseeId: currentFranchiseeId,
+          storeId: currentStoreId,
+        })
+        const fallbackOptions = {
+          customerName: issueOptions.customerName,
+          expenseItems: issueOptions.expenseItems,
+          issuerName: issueOptions.issuerName || latestMeterSettings.receipt.issuerName,
+          receiptNote: issueOptions.receiptNote || latestMeterSettings.receipt.defaultReceiptNote,
+        }
+        await openThermalReceiptPdf(caseRecord, latestMeterSettings, fallbackOptions)
+        setState((currentState) => ({
+          ...currentState,
+          statusMessage: `${currentState.statusMessage}\nプリンター再接続に失敗したためPDF表示へ切り替えました。`,
+        }))
+      } catch {
+        setState((currentState) => ({
+          ...currentState,
+          statusMessage: 'レシート印刷に失敗しました',
+        }))
+      }
+    } finally {
+      setIsThermalReceiptPrinting(false)
+    }
+  }
+
+  const handleThermalReceiptPdfDownload = async () => {
+    if (!caseRecord) {
+      return
+    }
+
+    setState((currentState) => ({ ...currentState, statusMessage: 'レシートPDFを作成中です。' }))
+
+    try {
+      const latestMeterSettings = await fetchMeterSettings({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      })
+      await downloadThermalReceiptPdf(caseRecord, latestMeterSettings, {
+        customerName: caseRecord.receiptName,
+        expenseItems: toThermalReceiptExpenseItems(caseRecord),
+        issuerName: latestMeterSettings.receipt.issuerName,
+        receiptNote: latestMeterSettings.receipt.defaultReceiptNote,
+      })
+      setState((currentState) => ({ ...currentState, statusMessage: 'レシートPDFを保存しました。' }))
+    } catch (error) {
+      setState((currentState) => ({
+        ...currentState,
+        statusMessage: error instanceof Error
+          ? `レシートPDF保存に失敗しました。${error.message}`
+          : 'レシートPDF保存に失敗しました。',
+      }))
+    }
+  }
+
   const updateNumberEditValue = (
     key: 'careOptionFareYen' | 'dispatchFareYen' | 'specialVehicleFareYen' | 'expenseFareYen',
     value: string,
@@ -638,6 +750,21 @@ export function CaseDetailPage() {
               </button>
               <button className="receipt-download-button" type="button" onClick={openReceiptDialog}>
                 領収書再発行 / 利用明細再発行
+              </button>
+              <button
+                className="case-detail-secondary-button"
+                type="button"
+                disabled={isThermalReceiptPrinting}
+                onClick={() => { void handleThermalReceiptPrint() }}
+              >
+                レシート領収書印刷
+              </button>
+              <button
+                className="case-detail-secondary-button"
+                type="button"
+                onClick={() => { void handleThermalReceiptPdfDownload() }}
+              >
+                レシートPDF保存
               </button>
               <button
                 className="case-detail-secondary-button"
