@@ -10,6 +10,12 @@ import {
   updateCaseRecordEditableValues,
 } from '../services/caseRecords'
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
+import {
+  fetchGpsRouteSummary,
+  formatGpsRouteStatusLabel,
+  getGpsRouteSaveStatus,
+  type GpsRouteSummaryInfo,
+} from '../services/gpsRoutes'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { loadAuthStaffSession } from '../services/authSession'
 import { tenantAccessScopeFromSessionSource, tenantScopeFromSession } from '../services/tenancy'
@@ -77,6 +83,11 @@ type AdjustmentState = {
   ticketNumber: string
 }
 
+type GpsRouteState = {
+  isLoading: boolean
+  summary: GpsRouteSummaryInfo | null
+}
+
 export function CaseDetailPage() {
   const navigate = useNavigate()
   const workSession = useWorkSession()
@@ -131,6 +142,10 @@ export function CaseDetailPage() {
     paymentMethod: '未設定',
     remarks: '',
   })
+  const [gpsRouteState, setGpsRouteState] = useState<GpsRouteState>({
+    isLoading: true,
+    summary: null,
+  })
 
   useEffect(() => {
     let isMounted = true
@@ -169,6 +184,37 @@ export function CaseDetailPage() {
               : '案件詳細の取得に失敗しました。',
           isLoading: false,
         }))
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [caseRecordId])
+
+  useEffect(() => {
+    let isMounted = true
+
+    if (!caseRecordId) {
+      setGpsRouteState({ isLoading: false, summary: null })
+      return undefined
+    }
+
+    setGpsRouteState({ isLoading: true, summary: null })
+
+    fetchGpsRouteSummary(caseRecordId)
+      .then((summary) => {
+        if (!isMounted) {
+          return
+        }
+
+        setGpsRouteState({ isLoading: false, summary })
+      })
+      .catch(() => {
+        if (!isMounted) {
+          return
+        }
+
+        setGpsRouteState({ isLoading: false, summary: null })
       })
 
     return () => {
@@ -266,6 +312,16 @@ export function CaseDetailPage() {
     ? state.errorMessage
     : '案件IDが指定されていません。'
   const isLoading = caseRecordId ? state.isLoading : false
+  const gpsRouteSaveStatus = getGpsRouteSaveStatus(gpsRouteState.summary)
+  const gpsRouteStatusLabel = gpsRouteState.isLoading
+    ? '確認中...'
+    : formatGpsRouteStatusLabel(gpsRouteSaveStatus, gpsRouteState.summary)
+  const gpsRoutePointCountLabel = gpsRouteState.summary
+    ? `${gpsRouteState.summary.pointCount}件`
+    : '―'
+  const gpsRouteChunkCountLabel = gpsRouteState.summary
+    ? String(gpsRouteState.summary.chunkCount)
+    : '―'
 
   const openReceiptDialog = async () => {
     const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
@@ -729,6 +785,18 @@ export function CaseDetailPage() {
               <div>
                 <span>運行時間</span>
                 <strong>{formatDrivingDuration(caseRecord.drivingSeconds, Boolean(caseRecord.startedAt || caseRecord.endedAt))}</strong>
+              </div>
+              <div>
+                <span>GPS軌跡</span>
+                <strong>{gpsRouteStatusLabel}</strong>
+              </div>
+              <div>
+                <span>GPSログ件数</span>
+                <strong>{gpsRoutePointCountLabel}</strong>
+              </div>
+              <div>
+                <span>GPSチャンク数</span>
+                <strong>{gpsRouteChunkCountLabel}</strong>
               </div>
               <div>
                 <span>基本運賃</span>

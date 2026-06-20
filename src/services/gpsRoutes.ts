@@ -1,4 +1,4 @@
-import { doc, getFirestore, writeBatch } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, writeBatch } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import { GPS_CAPTURE_INTERVAL_SECONDS } from '../hooks/useCurrentPosition'
 import type {
@@ -21,6 +21,15 @@ export type SaveGpsRouteInput = {
   closedAt: string
   logs: GpsLogEntry[]
 }
+
+export type GpsRouteSummaryInfo = {
+  pointCount: number
+  chunkCount: number
+  savedAt: string
+  expiresAt: string
+}
+
+export type GpsRouteSaveStatus = 'saved' | 'unsaved' | 'expired'
 
 const isValidCoordinate = (latitude: number, longitude: number) =>
   Number.isFinite(latitude) &&
@@ -83,6 +92,51 @@ const getGpsRouteSummaryRef = (caseRecordId: string) => {
 const getGpsRouteChunkRef = (caseRecordId: string, chunkIndex: number) => {
   const db = getFirestore(getFirebaseApp())
   return doc(db, 'caseRecords', caseRecordId, 'gpsRoute', 'summary', 'chunks', String(chunkIndex))
+}
+
+export function getGpsRouteSaveStatus(summary: GpsRouteSummaryInfo | null): GpsRouteSaveStatus {
+  if (!summary) {
+    return 'unsaved'
+  }
+
+  const expiresAt = new Date(summary.expiresAt)
+  if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
+    return 'expired'
+  }
+
+  return 'saved'
+}
+
+export function formatGpsRouteStatusLabel(
+  status: GpsRouteSaveStatus,
+  summary: GpsRouteSummaryInfo | null,
+): string {
+  if (status === 'unsaved') {
+    return '未保存'
+  }
+
+  if (status === 'expired') {
+    return '期限切れ'
+  }
+
+  return `保存済み（${summary?.pointCount ?? 0}件）`
+}
+
+export async function fetchGpsRouteSummary(
+  caseRecordId: string,
+): Promise<GpsRouteSummaryInfo | null> {
+  const snapshot = await getDoc(getGpsRouteSummaryRef(caseRecordId))
+  if (!snapshot.exists()) {
+    return null
+  }
+
+  const data = snapshot.data()
+  return {
+    pointCount: typeof data.pointCount === 'number' ? data.pointCount : 0,
+    chunkCount: typeof data.chunkCount === 'number' ? data.chunkCount : 0,
+    savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
+    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
+  }
 }
 
 /**
