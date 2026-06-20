@@ -122,6 +122,24 @@ export function formatGpsRouteStatusLabel(
   return `保存済み（${summary?.pointCount ?? 0}件）`
 }
 
+export function formatGpsRouteExpiresAt(expiresAt: string): string {
+  if (!expiresAt.trim()) {
+    return '―'
+  }
+
+  const date = new Date(expiresAt)
+  if (Number.isNaN(date.getTime())) {
+    return '―'
+  }
+
+  return date.toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  })
+}
+
 export async function fetchGpsRouteSummary(
   caseRecordId: string,
 ): Promise<GpsRouteSummaryInfo | null> {

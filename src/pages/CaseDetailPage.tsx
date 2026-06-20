@@ -12,6 +12,7 @@ import {
 import { defaultMeterSettings, fetchMeterSettings } from '../services/meterSettings'
 import {
   fetchGpsRouteSummary,
+  formatGpsRouteExpiresAt,
   formatGpsRouteStatusLabel,
   getGpsRouteSaveStatus,
   type GpsRouteSummaryInfo,
@@ -321,6 +322,9 @@ export function CaseDetailPage() {
     : '―'
   const gpsRouteChunkCountLabel = gpsRouteState.summary
     ? String(gpsRouteState.summary.chunkCount)
+    : '―'
+  const gpsRouteExpiresAtLabel = gpsRouteState.summary
+    ? formatGpsRouteExpiresAt(gpsRouteState.summary.expiresAt)
     : '―'
 
   const openReceiptDialog = async () => {
@@ -797,6 +801,10 @@ export function CaseDetailPage() {
               <div>
                 <span>GPSチャンク数</span>
                 <strong>{gpsRouteChunkCountLabel}</strong>
+              </div>
+              <div>
+                <span>保存期限</span>
+                <strong>{gpsRouteExpiresAtLabel}</strong>
               </div>
               <div>
                 <span>基本運賃</span>
