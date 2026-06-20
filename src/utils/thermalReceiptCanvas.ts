@@ -3,6 +3,7 @@ import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { createPrimaryFareReceiptLines } from './caseRecords'
 import { drawPdfText } from './pdfDrawing'
+import { calculateCaseOperatingSeconds } from './workSessionMetrics'
 import type { ExpenseItem } from '../types/case'
 
 export type ThermalReceiptIssueOptions = {
@@ -173,6 +174,64 @@ type FareRow = {
   label: string
   amount: string
   indent?: boolean
+  yenAmount?: number
+  isNotApplied?: boolean
+}
+
+function shouldShowThermalReceiptFareRow(row: FareRow): boolean {
+  if (row.isNotApplied) {
+    return false
+  }
+
+  if (typeof row.yenAmount === 'number') {
+    return row.yenAmount !== 0
+  }
+
+  return true
+}
+
+function formatThermalOperationMinutes(totalSeconds: number): string {
+  const minutes = Math.floor(Math.max(totalSeconds, 0) / 60)
+  return `${minutes}分`
+}
+
+function formatThermalOperationDistanceKm(distanceKm: number): string {
+  return `${distanceKm.toFixed(1)}km`
+}
+
+function drawThermalReceiptOperationInfo(
+  context: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  y: number,
+  caseRecord: StoredCaseRecord,
+): number {
+  const operatingSeconds = calculateCaseOperatingSeconds({
+    startedAt: caseRecord.startedAt,
+    closedAt: caseRecord.closedAt,
+  })
+
+  y += LINE.section
+  y = drawInlineLine(context, y, '---', THERMAL_FONTS.fare, LINE.fare)
+  y = drawLabelAmountLine(
+    context,
+    canvas,
+    y,
+    'ご利用時間',
+    formatThermalOperationMinutes(operatingSeconds),
+    THERMAL_FONTS.fare,
+    LINE.fare,
+  )
+  y = drawLabelAmountLine(
+    context,
+    canvas,
+    y,
+    '走行距離',
+    formatThermalOperationDistanceKm(caseRecord.distanceKm),
+    THERMAL_FONTS.fare,
+    LINE.fare,
+  )
+  y = drawInlineLine(context, y, '---', THERMAL_FONTS.fare, LINE.fare)
+  return y
 }
 
 /** ラベル左・金額右で 58mm 幅を横いっぱいに使う */
@@ -251,14 +310,34 @@ function createThermalReceiptRows(
   caseRecord: StoredCaseRecord,
   expenseItems: ExpenseItem[],
 ): FareRow[] {
+  const primaryFareYen =
+    caseRecord.meterMode === 'time'
+      ? caseRecord.actualTimeFare > 0
+        ? caseRecord.actualTimeFare
+        : caseRecord.basicFareYen
+      : caseRecord.basicFareYen
+
   const rows: FareRow[] = [
     ...createPrimaryFareReceiptLines(caseRecord).map((line) => ({
       label: line.label,
       amount: line.value,
+      yenAmount: primaryFareYen,
     })),
-    { label: '待機料金', amount: formatThermalYen(caseRecord.waitingFareYen) },
-    { label: '付き添い料金', amount: formatThermalYen(caseRecord.escortFareYen) },
-    { label: '介助料金', amount: formatThermalYen(caseRecord.careOptionFareYen) },
+    {
+      label: '待機料金',
+      amount: formatThermalYen(caseRecord.waitingFareYen),
+      yenAmount: caseRecord.waitingFareYen,
+    },
+    {
+      label: '付き添い料金',
+      amount: formatThermalYen(caseRecord.escortFareYen),
+      yenAmount: caseRecord.escortFareYen,
+    },
+    {
+      label: '介助料金',
+      amount: formatThermalYen(caseRecord.careOptionFareYen),
+      yenAmount: caseRecord.careOptionFareYen,
+    },
   ]
 
   caseRecord.assistCharges.forEach((assistCharge) => {
@@ -266,6 +345,7 @@ function createThermalReceiptRows(
       indent: true,
       label: assistCharge.name,
       amount: formatThermalYen(assistCharge.amount),
+      yenAmount: assistCharge.amount,
     })
   })
 
@@ -274,16 +354,27 @@ function createThermalReceiptRows(
     amount: caseRecord.isDisabilityDiscount
       ? `-${formatThermalYen(caseRecord.disabilityDiscountAmount)}`
       : '未適用',
+    yenAmount: caseRecord.disabilityDiscountAmount,
+    isNotApplied: !caseRecord.isDisabilityDiscount,
   })
-  rows.push({ label: 'タクシー券', amount: `-${formatThermalYen(caseRecord.taxiTicketAmountYen)}` })
+  rows.push({
+    label: 'タクシー券',
+    amount: `-${formatThermalYen(caseRecord.taxiTicketAmountYen)}`,
+    yenAmount: caseRecord.taxiTicketAmountYen,
+  })
   caseRecord.taxiTickets.forEach((ticket) => {
     rows.push({
       indent: true,
       label: `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'}`,
       amount: formatThermalYen(ticket.amount),
+      yenAmount: ticket.amount,
     })
   })
-  rows.push({ label: '実費', amount: formatThermalYen(caseRecord.expenseFareYen) })
+  rows.push({
+    label: '実費',
+    amount: formatThermalYen(caseRecord.expenseFareYen),
+    yenAmount: caseRecord.expenseFareYen,
+  })
   expenseItems
     .filter((expenseItem) => expenseItem.name.trim())
     .forEach((expenseItem) => {
@@ -291,10 +382,11 @@ function createThermalReceiptRows(
         indent: true,
         label: expenseItem.name,
         amount: formatThermalYen(expenseItem.amountYen),
+        yenAmount: expenseItem.amountYen,
       })
     })
 
-  return rows
+  return rows.filter(shouldShowThermalReceiptFareRow)
 }
 
 function drawThermalReceiptHeader(
@@ -449,8 +541,13 @@ export function createThermalReceiptCanvas(
     align: 'center',
     font: THERMAL_FONTS.footer,
   })
+  y += LINE.footer
 
-  canvas.dataset.contentBottom = String(y + LINE.footer)
+  if (settings.receipt.printReceiptOperationInfo !== false) {
+    y = drawThermalReceiptOperationInfo(context, canvas, y, caseRecord)
+  }
+
+  canvas.dataset.contentBottom = String(y)
   return canvas
 }
 

@@ -47,6 +47,8 @@ export type ReceiptSettings = {
   statementDefault: string
   invoiceNumber: string
   defaultReceiptNote: string
+  /** レシート運行情報印字（未登録時は true） */
+  printReceiptOperationInfo: boolean
 }
 
 export type TimeMeterLegalSettings = {
@@ -198,6 +200,7 @@ export const defaultMeterSettings: MeterSettings = {
     statementDefault: '利用明細書',
     invoiceNumber: '',
     defaultReceiptNote: '介護タクシー利用料として',
+    printReceiptOperationInfo: true,
   },
   discount: DEFAULT_DISCOUNT_SETTINGS,
 }
@@ -540,6 +543,10 @@ function sanitizeReceipt(value: unknown): ReceiptSettings {
       source.defaultReceiptNote,
       defaultMeterSettings.receipt.defaultReceiptNote,
     ),
+    printReceiptOperationInfo:
+      typeof source.printReceiptOperationInfo === 'boolean'
+        ? source.printReceiptOperationInfo
+        : defaultMeterSettings.receipt.printReceiptOperationInfo,
   }
 }
 

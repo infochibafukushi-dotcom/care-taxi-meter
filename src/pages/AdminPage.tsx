@@ -1033,7 +1033,10 @@ export function AdminPage() {
     }));
   };
 
-  const updateReceipt = (key: keyof ReceiptSettings, value: string) => {
+  const updateReceipt = <K extends keyof ReceiptSettings>(
+    key: K,
+    value: ReceiptSettings[K],
+  ) => {
     setSettings((currentSettings) => ({
       ...currentSettings,
       receipt: { ...currentSettings.receipt, [key]: value },
@@ -2182,6 +2185,16 @@ export function AdminPage() {
                     value={settings.receipt.defaultReceiptNote}
                     onChange={(event) =>
                       updateReceipt("defaultReceiptNote", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="assist-item-toggle">
+                  レシート運行情報印字
+                  <input
+                    type="checkbox"
+                    checked={settings.receipt.printReceiptOperationInfo !== false}
+                    onChange={(event) =>
+                      updateReceipt("printReceiptOperationInfo", event.target.checked)
                     }
                   />
                 </label>
