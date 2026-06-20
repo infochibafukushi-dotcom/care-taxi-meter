@@ -782,6 +782,18 @@ export function CaseDetailPage() {
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
               </div>
               <div>
+                <span>運行開始</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.startedAt)}</strong>
+              </div>
+              <div>
+                <span>運行終了</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.endedAt)}</strong>
+              </div>
+              <div>
+                <span>精算完了</span>
+                <strong>{formatCaseOperationDateTime(caseRecord.closedAt)}</strong>
+              </div>
+              <div>
                 <span>個人情報</span>
                 <strong>顧客氏名・電話番号・介護情報は保存しません</strong>
               </div>
@@ -798,18 +810,6 @@ export function CaseDetailPage() {
               <div>
                 <span>営業距離</span>
                 <strong>{caseRecord.businessDistanceKm.toFixed(3)} km</strong>
-              </div>
-              <div>
-                <span>運行開始</span>
-                <strong>{formatCaseOperationDateTime(caseRecord.startedAt)}</strong>
-              </div>
-              <div>
-                <span>運行終了</span>
-                <strong>{formatCaseOperationDateTime(caseRecord.endedAt)}</strong>
-              </div>
-              <div>
-                <span>精算完了</span>
-                <strong>{formatCaseOperationDateTime(caseRecord.closedAt)}</strong>
               </div>
               <div>
                 <span>運行時間</span>
