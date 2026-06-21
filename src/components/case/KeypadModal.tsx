@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { formatFareYen } from '../../services/fare'
 
-type KeypadMode = 'care' | 'expense'
+type KeypadMode = 'care' | 'customFee' | 'expense'
 
 type KeypadModalProps = {
   amountYen: number
@@ -53,15 +53,21 @@ export function KeypadModal({
       >
         <header className="keypad-header">
           <div>
-            <span>{mode === 'care' ? '介助料金入力' : '実費入力'}</span>
+            <span>
+              {mode === 'care'
+                ? '介助料金入力'
+                : mode === 'customFee'
+                  ? 'その他料金入力'
+                  : '実費入力'}
+            </span>
             <h2 id="keypad-title">{title}</h2>
           </div>
           <button type="button" onClick={onClose}>
-            閉じる
+            キャンセル
           </button>
         </header>
         <label className="keypad-name-field">
-          名称
+          項目名
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <div className="keypad-display">
@@ -81,7 +87,7 @@ export function KeypadModal({
             クリア
           </button>
           <button className="keypad-confirm" type="button" onClick={handleConfirm}>
-            決定
+            {mode === 'customFee' ? '登録' : '決定'}
           </button>
         </div>
       </section>

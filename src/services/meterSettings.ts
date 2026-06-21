@@ -354,7 +354,9 @@ function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
     (defaultItem) => !sanitizedIds.has(defaultItem.id),
   )
 
-  return [...sanitizedItems, ...missingDefaults].sort(
+  return [...sanitizedItems, ...missingDefaults]
+    .filter((item) => item.id !== 'otherAssist')
+    .sort(
     (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
   )
 }

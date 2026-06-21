@@ -1056,6 +1056,10 @@ export function calculateSalesAnalyticsSummary(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.careOptionFareYen),
     0,
   )
+  const customFeeFareYen = filteredRecords.reduce(
+    (total, caseRecord) => total + toFiniteNumber(caseRecord.customFeeFareYen),
+    0,
+  )
   const expenseFareYen = filteredRecords.reduce(
     (total, caseRecord) => total + toFiniteNumber(caseRecord.expenseFareYen),
     0,
@@ -1066,6 +1070,7 @@ export function calculateSalesAnalyticsSummary(
     toBreakdownItem('待機料金', waitingFareYen, totalSalesYen),
     toBreakdownItem('付き添い料金', escortFareYen, totalSalesYen),
     toBreakdownItem('介助料金', careOptionFareYen, totalSalesYen),
+    toBreakdownItem('その他', customFeeFareYen, totalSalesYen),
     toBreakdownItem('実費', expenseFareYen, totalSalesYen),
   ]
 

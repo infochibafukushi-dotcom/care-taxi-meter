@@ -5,6 +5,7 @@ import { selectMeterModeSettings } from './meterSettings'
 
 export type MeterComparisonFareInput = {
   careOptions: SelectedCareOption[]
+  customFees?: Array<{ amount: number }>
   dispatchCharges: SelectedCareOption[]
   distanceKm: number
   drivingSeconds: number
@@ -32,6 +33,7 @@ export function calculateMeterComparisonFares(
 
   const common = {
     careOptions: input.careOptions,
+    customFees: input.customFees ?? [],
     dispatchCharges: input.dispatchCharges,
     distanceKm: input.distanceKm,
     drivingSeconds: input.drivingSeconds,

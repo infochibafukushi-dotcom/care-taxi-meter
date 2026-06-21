@@ -72,24 +72,46 @@ export function createPrimaryFareReceiptLines(
 ): ReceiptFareLine[] {
   if (caseRecord.meterMode === 'time') {
     const timeFareYen =
-      caseRecord.actualTimeFare > 0
-        ? caseRecord.actualTimeFare
-        : caseRecord.basicFareYen
+      caseRecord.normalFareYen > 0
+        ? caseRecord.normalFareYen
+        : caseRecord.actualTimeFare > 0
+          ? caseRecord.actualTimeFare
+          : caseRecord.basicFareYen
 
-    return [
+    const lines: ReceiptFareLine[] = [
       {
         label: '時間制運賃',
         value: `${formatFareYen(timeFareYen)}円`,
       },
     ]
+
+    if (caseRecord.nightSurchargeYen > 0) {
+      lines.push({
+        label: '深夜早朝割増',
+        value: `${formatFareYen(caseRecord.nightSurchargeYen)}円`,
+      })
+    }
+
+    return lines
   }
 
-  return [
+  const basicFareYen =
+    caseRecord.normalFareYen > 0 ? caseRecord.normalFareYen : caseRecord.basicFareYen
+  const lines: ReceiptFareLine[] = [
     {
-      label: '基本運賃',
-      value: `${formatFareYen(caseRecord.basicFareYen)}円`,
+      label: '運賃',
+      value: `${formatFareYen(basicFareYen)}円`,
     },
   ]
+
+  if (caseRecord.nightSurchargeYen > 0) {
+    lines.push({
+      label: '深夜早朝割増',
+      value: `${formatFareYen(caseRecord.nightSurchargeYen)}円`,
+    })
+  }
+
+  return lines
 }
 
 export const isCanceledCaseRecord = (caseRecord: StoredCaseRecord) =>

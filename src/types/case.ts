@@ -106,6 +106,12 @@ export type ExpenseItem = {
   amountYen: number
 }
 
+export type CustomFeeItem = {
+  id: string
+  name: string
+  amount: number
+}
+
 export type PaymentMethod = '現金' | 'クレジット' | 'QR決済' | '請求書' | 'その他'
 
 export type TaxiTicket = {

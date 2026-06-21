@@ -970,8 +970,14 @@ export function CaseDetailPage() {
               </div>
               <div>
                 <span>基本運賃</span>
-                <strong>{formatFareYen(caseRecord.basicFareYen)}円</strong>
+                <strong>{formatFareYen(caseRecord.normalFareYen > 0 ? caseRecord.normalFareYen : caseRecord.basicFareYen)}円</strong>
               </div>
+              {caseRecord.nightSurchargeYen > 0 ? (
+                <div>
+                  <span>深夜早朝割増</span>
+                  <strong>{formatFareYen(caseRecord.nightSurchargeYen)}円</strong>
+                </div>
+              ) : null}
               <div>
                 <span>時間距離併用運賃</span>
                 <strong>{formatFareYen(caseRecord.meterTimeFareYen)}円</strong>
@@ -999,6 +1005,23 @@ export function CaseDetailPage() {
                   <strong>{formatFareYen(caseRecord.careOptionFareYen)}円</strong>
                 )}
               </div>
+              {caseRecord.customFees.length > 0 ? (
+                <div className="case-detail-assist-charges">
+                  <span>その他</span>
+                  <div>
+                    {caseRecord.customFees.map((customFee) => (
+                      <p key={`${customFee.name}-${customFee.amount}`}>
+                        <span>{customFee.name}</span>
+                        <strong>{formatFareYen(customFee.amount)}円</strong>
+                      </p>
+                    ))}
+                    <p>
+                      <span>合計</span>
+                      <strong>{formatFareYen(caseRecord.customFeeFareYen)}円</strong>
+                    </p>
+                  </div>
+                </div>
+              ) : null}
               <div className="case-detail-assist-charges">
                 <span>予約迎車料金</span>
                 {dispatchCharges.length > 0 ? (

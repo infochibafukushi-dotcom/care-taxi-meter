@@ -9,6 +9,7 @@ import type {
   OperationStatus,
   PaymentMethod,
   SelectedCareOption,
+  CustomFeeItem,
   TaxiTicket,
   TimerKey,
 } from '../types/case'
@@ -56,6 +57,7 @@ export type ActiveTripSnapshot = {
   paymentMethod: PaymentMethod
   pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
+  customFees: CustomFeeItem[]
   selectedDispatchCharges: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
   selectedSpecialVehicleCharges: SelectedCareOption[]
@@ -150,6 +152,7 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
       paymentMethod: snapshot.paymentMethod ?? '現金',
       pickupLocation: snapshot.pickupLocation ?? emptyCapturedAddressLocation,
       selectedCareOptions: Array.isArray(snapshot.selectedCareOptions) ? snapshot.selectedCareOptions : [],
+      customFees: Array.isArray(snapshot.customFees) ? snapshot.customFees : [],
       selectedDispatchCharges: Array.isArray(snapshot.selectedDispatchCharges) ? snapshot.selectedDispatchCharges : [],
       selectedExpenses: Array.isArray(snapshot.selectedExpenses) ? snapshot.selectedExpenses : [],
       selectedSpecialVehicleCharges: Array.isArray(snapshot.selectedSpecialVehicleCharges) ? snapshot.selectedSpecialVehicleCharges : [],

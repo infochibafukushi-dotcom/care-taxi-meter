@@ -66,6 +66,18 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },
     { label: '付き添い料金', value: `${formatFareYen(caseRecord.escortFareYen)}円` },
     ...careOptionLines,
+    ...(caseRecord.customFeeFareYen > 0
+      ? [
+          ...caseRecord.customFees.map((customFee) => ({
+            label: customFee.name,
+            value: `${formatFareYen(customFee.amount)}円`,
+          })),
+          {
+            label: 'その他合計',
+            value: `${formatFareYen(caseRecord.customFeeFareYen)}円`,
+          },
+        ]
+      : []),
     { label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
     { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
     { label: 'タクシー券適用額', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` },

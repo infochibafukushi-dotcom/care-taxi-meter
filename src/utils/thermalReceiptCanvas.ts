@@ -312,16 +312,23 @@ function createThermalReceiptRows(
 ): FareRow[] {
   const primaryFareYen =
     caseRecord.meterMode === 'time'
-      ? caseRecord.actualTimeFare > 0
-        ? caseRecord.actualTimeFare
+      ? caseRecord.normalFareYen > 0
+        ? caseRecord.normalFareYen
+        : caseRecord.actualTimeFare > 0
+          ? caseRecord.actualTimeFare
+          : caseRecord.basicFareYen
+      : caseRecord.normalFareYen > 0
+        ? caseRecord.normalFareYen
         : caseRecord.basicFareYen
-      : caseRecord.basicFareYen
 
   const rows: FareRow[] = [
     ...createPrimaryFareReceiptLines(caseRecord).map((line) => ({
       label: line.label,
       amount: line.value,
-      yenAmount: primaryFareYen,
+      yenAmount:
+        line.label === '深夜早朝割増'
+          ? caseRecord.nightSurchargeYen
+          : primaryFareYen,
     })),
     {
       label: '待機料金',
@@ -346,6 +353,23 @@ function createThermalReceiptRows(
       label: assistCharge.name,
       amount: formatThermalYen(assistCharge.amount),
       yenAmount: assistCharge.amount,
+    })
+  })
+
+  if (caseRecord.customFeeFareYen > 0) {
+    rows.push({
+      label: 'その他',
+      amount: formatThermalYen(caseRecord.customFeeFareYen),
+      yenAmount: caseRecord.customFeeFareYen,
+    })
+  }
+
+  caseRecord.customFees.forEach((customFee) => {
+    rows.push({
+      indent: true,
+      label: customFee.name,
+      amount: formatThermalYen(customFee.amount),
+      yenAmount: customFee.amount,
     })
   })
 

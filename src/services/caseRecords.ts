@@ -15,7 +15,7 @@ import {
 import type { DocumentData, FieldValue, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
-import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket } from '../types/case'
+import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket, CustomFeeItem } from '../types/case'
 import type { CurrentWorkSession, StaffRole, Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
 import { extractAreaFromAddress } from '../utils/address'
@@ -49,6 +49,7 @@ export type CaseRecordInput = {
   taxiTickets?: TaxiTicket[]
   pickupLocation: CapturedAddressLocation
   selectedCareOptions: SelectedCareOption[]
+  selectedCustomFees?: CustomFeeItem[]
   selectedDispatchCharges?: SelectedCareOption[]
   selectedSpecialVehicleCharges?: SelectedCareOption[]
   selectedExpenses: ExpenseItem[]
@@ -162,7 +163,10 @@ export type CaseRecordDocument = {
   waitingFareYen: number
   escortFareYen: number
   careOptionFareYen: number
+  customFeeFareYen: number
   expenseFareYen: number
+  normalFareYen: number
+  nightSurchargeYen: number
   totalFareYen: number
   grossFareYen: number
   discountableFareYen: number
@@ -203,6 +207,7 @@ export type CaseRecordDocument = {
   dropoffArea: string
   dropoffCapturedAt: string | null
   assistCharges: AssistCharge[]
+  customFees: CustomFeeCharge[]
   dispatchCharges: AssistCharge[]
   specialVehicleCharges: AssistCharge[]
   expenseCharges: ExpenseCharge[]
@@ -219,6 +224,11 @@ export type CaseRecordDocument = {
   timeComparisonFareYen: number | null
   obdComparisonFareYen: number | null
   savedAt: FieldValue
+}
+
+export type CustomFeeCharge = {
+  name: string
+  amount: number
 }
 
 export type AssistCharge = {
@@ -280,6 +290,19 @@ const toObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+
+const toCustomFees = (value: unknown): CustomFeeCharge[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => {
+          const source = toObject(item)
+          const name = typeof source.name === 'string' ? source.name.trim() : ''
+          const amount = Math.max(Math.round(toNumber(source.amount)), 0)
+
+          return name && amount > 0 ? { name, amount } : null
+        })
+        .filter((item): item is CustomFeeCharge => Boolean(item))
+    : []
 
 const toAssistCharges = (value: unknown): AssistCharge[] =>
   Array.isArray(value)
@@ -588,7 +611,10 @@ const toStoredCaseRecord = (
     waitingFareYen: toNumber(data.waitingFareYen),
     escortFareYen: toNumber(data.escortFareYen),
     careOptionFareYen: toNumber(data.careOptionFareYen),
+    customFeeFareYen: toNumber(data.customFeeFareYen),
     expenseFareYen: toNumber(data.expenseFareYen),
+    normalFareYen: toNumber(data.normalFareYen ?? data.basicFareYen),
+    nightSurchargeYen: toNumber(data.nightSurchargeYen),
     totalFareYen: toNumber(data.totalFareYen),
     grossFareYen: toNumber(data.grossFareYen),
     discountableFareYen: toNumber(data.discountableFareYen),
@@ -629,6 +655,7 @@ const toStoredCaseRecord = (
     dropoffArea: toString(data.dropoffArea) || extractAreaFromAddress(toString(data.dropoffAddress)),
     dropoffCapturedAt: toString(data.dropoffCapturedAt) || null,
     assistCharges: toAssistCharges(data.assistCharges),
+    customFees: toCustomFees(data.customFees),
     dispatchCharges: toAssistCharges(data.dispatchCharges),
     specialVehicleCharges: toAssistCharges(data.specialVehicleCharges),
     expenseCharges: toExpenseCharges(data.expenseCharges),
@@ -740,6 +767,7 @@ export async function saveCaseRecord({
   taxiTickets = [],
   pickupLocation,
   selectedCareOptions,
+  selectedCustomFees = [],
   selectedDispatchCharges = [],
   selectedSpecialVehicleCharges = [],
   selectedExpenses,
@@ -792,7 +820,10 @@ export async function saveCaseRecord({
     waitingFareYen: fareBreakdown.waitingFareYen,
     escortFareYen: fareBreakdown.escortFareYen,
     careOptionFareYen: fareBreakdown.careOptionFareYen,
+    customFeeFareYen: fareBreakdown.customFeeFareYen,
     expenseFareYen: fareBreakdown.expenseFareYen,
+    normalFareYen: fareBreakdown.normalFareYen,
+    nightSurchargeYen: fareBreakdown.nightSurchargeYen,
     totalFareYen: fareBreakdown.totalFareYen,
     grossFareYen: fareBreakdown.grossFareYen,
     discountableFareYen: fareBreakdown.discountableFareYen,
@@ -836,6 +867,10 @@ export async function saveCaseRecord({
       id: careOption.masterId,
       name: careOption.name,
       amount: careOption.amountYen,
+    })),
+    customFees: selectedCustomFees.map((customFee) => ({
+      name: customFee.name,
+      amount: customFee.amount,
     })),
     dispatchCharges: selectedDispatchCharges.map((dispatchCharge) => ({
       id: dispatchCharge.masterId,

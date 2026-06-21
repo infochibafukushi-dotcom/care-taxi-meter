@@ -13,6 +13,7 @@ import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { TopReturnFab } from '../components/case/TopReturnFab'
 import { useMeterBlackout } from '../hooks/useMeterBlackout'
+import { useNightPeriodAccumulator } from '../hooks/useNightPeriodAccumulator'
 import { useMeterTelemetry } from '../hooks/useMeterTelemetry'
 import { useWaitingMovementAlert } from '../hooks/useWaitingMovementAlert'
 import { isFirebaseConfigured } from '../lib/firebase'
@@ -74,6 +75,7 @@ import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { MeterPermissions, Vehicle } from '../types/work'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { extractAreaFromAddress } from '../utils/address'
+import { defaultMidnightEarlyMorningSettings } from '../utils/nightSurcharge'
 import {
   createEmptyPaymentAmounts,
   isProtectedOperationStatus,
@@ -107,6 +109,7 @@ import type {
   PaymentAllocation,
   PaymentMethod,
   GpsPosition,
+  CustomFeeItem,
   SelectedCareOption,
   TaxiTicket,
   StatusTone,
@@ -115,7 +118,7 @@ import type {
 
 type KeypadTarget = {
   amountYen: number
-  mode: 'care' | 'expense'
+  mode: 'care' | 'customFee' | 'expense'
   name: string
   sourceId?: string
 }
@@ -123,7 +126,7 @@ type KeypadTarget = {
 type InputHistory = {
   amountYen: number
   id: string
-  mode: 'care' | 'expense'
+  mode: 'care' | 'customFee' | 'expense'
   name: string
 }
 
@@ -349,11 +352,11 @@ const createFareSnapshot = ({
   })),
   meterTimeFare: { ...meterSettings.meterTimeFare },
   midnightEarlyMorning: {
-    appliesTo: ['basicFare', 'meterTimeFare'],
-    enabled: false,
-    endTime: '',
-    startTime: '',
-    surchargeRate: 0,
+    appliesTo: ['basicFare'],
+    enabled: defaultMidnightEarlyMorningSettings.enabled,
+    endTime: defaultMidnightEarlyMorningSettings.endTime,
+    startTime: defaultMidnightEarlyMorningSettings.startTime,
+    surchargeRate: defaultMidnightEarlyMorningSettings.surchargeRate,
   },
   specialVehicleMenuItems: specialVehicleMenuItems.map((item) => ({ ...item })),
   taxiVoucher: {
@@ -523,6 +526,9 @@ export function CasePage() {
   const [selectedCareOptions, setSelectedCareOptions] = useState<
     SelectedCareOption[]
   >(restoredTripSnapshot?.selectedCareOptions ?? [])
+  const [customFees, setCustomFees] = useState<CustomFeeItem[]>(
+    restoredTripSnapshot?.customFees ?? [],
+  )
   const [selectedDispatchCharges, setSelectedDispatchCharges] = useState<
     SelectedCareOption[]
   >(restoredTripSnapshot?.selectedDispatchCharges ?? [])
@@ -620,6 +626,20 @@ export function CasePage() {
     status !== '案件終了' &&
     !isTimeMeterInitialWaiting
   const isDistanceAccumulating = isGpsActive && status !== '待機中'
+
+  const midnightSettings = useMemo(() => {
+    const snapshot = fareSnapshotRef.current?.midnightEarlyMorning
+    if (snapshot?.enabled && snapshot.startTime && snapshot.endTime) {
+      return {
+        enabled: true,
+        startTime: snapshot.startTime,
+        endTime: snapshot.endTime,
+        surchargeRate: snapshot.surchargeRate,
+      }
+    }
+
+    return defaultMidnightEarlyMorningSettings
+  }, [caseNumber])
   const initialObdTelemetryState = useMemo(
     () =>
       restoredTripSnapshot?.meterMode === 'obd'
@@ -644,6 +664,14 @@ export function CasePage() {
   })
   const connectObd = gps.connectObd
   const disconnectObd = gps.disconnectObd
+  const nightPeriodMetrics = useNightPeriodAccumulator({
+    chargeableDistanceKm: gps.chargeableDistanceKm,
+    drivingSeconds: elapsedTimers.seconds.driving,
+    isActive: isGpsActive && status !== '空車' && status !== '案件終了',
+    isDrivingActive: status === '走行中',
+    midnightSettings,
+    resetKey: meterResetKey,
+  })
   const obdRestoreConnectAttemptedRef = useRef(false)
   const obdIdleConnectAttemptedRef = useRef(false)
   const applyMeterMode = (nextMode: MeterMode) => {
@@ -1122,6 +1150,7 @@ export function CasePage() {
     dispatchCharges: selectedDispatchCharges,
     specialVehicleCharges: selectedSpecialVehicleCharges,
     careOptions: selectedCareOptions,
+    customFees,
     expenses,
     isDisabilityDiscount,
     taxiTickets,
@@ -1135,6 +1164,9 @@ export function CasePage() {
     meterMode,
     drivingSeconds: elapsedTimers.seconds.driving,
     timeMeterSettings: currentMeterSettings.time,
+    midnightSettings,
+    nightChargeableDistanceKm: nightPeriodMetrics.nightChargeableDistanceKm,
+    nightDrivingSeconds: nightPeriodMetrics.nightDrivingSeconds,
   })
 
   const paymentTotalYen = paymentMethods.reduce(
@@ -1185,6 +1217,7 @@ export function CasePage() {
       selectedCareOptions,
       selectedDispatchCharges,
       selectedExpenses: expenses,
+      customFees,
       selectedSpecialVehicleCharges,
       selectedVehicleId,
       status,
@@ -1218,6 +1251,7 @@ export function CasePage() {
     pickupLocation,
     selectedCareOptions,
     selectedDispatchCharges,
+    customFees,
     selectedSpecialVehicleCharges,
     selectedVehicleId,
     status,
@@ -1270,7 +1304,7 @@ export function CasePage() {
   const enabledCareOptions = useMemo(
     () =>
       currentCareOptionMaster
-        .filter((item) => item.enabled)
+        .filter((item) => item.enabled && item.id !== 'otherAssist')
         .sort(
           (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,
         ),
@@ -1466,11 +1500,37 @@ export function CasePage() {
         masterId: keypadTarget.sourceId ?? 'manual-care',
         name: entry.name,
       })
+    } else if (keypadTarget.mode === 'customFee') {
+      addCustomFee(entry)
     } else {
       addExpense(entry)
     }
 
     setKeypadTarget(null)
+  }
+
+  const addCustomFee = ({ amountYen, name }: { amountYen: number; name: string }) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+
+    setCustomFees((currentFees) => [
+      ...currentFees,
+      {
+        amount: amountYen,
+        id: createId('custom-fee'),
+        name,
+      },
+    ])
+    rememberHistory({ amountYen, mode: 'customFee', name })
+  }
+
+  const removeCustomFee = (feeId: string) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+
+    setCustomFees((currentFees) => currentFees.filter((fee) => fee.id !== feeId))
   }
 
   const addTaxiTicket = (ticket: Omit<TaxiTicket, 'id'>) => {
@@ -2136,6 +2196,7 @@ export function CasePage() {
       const currentFareSnapshot = fareSnapshotRef.current
       const comparisonFares = calculateMeterComparisonFares({
         careOptions: selectedCareOptions,
+        customFees,
         dispatchCharges: selectedDispatchCharges,
         distanceKm: gps.chargeableDistanceKm,
         drivingSeconds: finalDrivingSeconds,
@@ -2172,6 +2233,7 @@ export function CasePage() {
         taxiTickets,
         pickupLocation: pickupLocationRef.current,
         selectedCareOptions,
+        selectedCustomFees: customFees,
         selectedDispatchCharges,
         selectedSpecialVehicleCharges,
         selectedExpenses: expenses,
@@ -2216,7 +2278,10 @@ export function CasePage() {
         waitingFareYen: fareBreakdown.waitingFareYen,
         escortFareYen: fareBreakdown.escortFareYen,
         careOptionFareYen: fareBreakdown.careOptionFareYen,
+        customFeeFareYen: fareBreakdown.customFeeFareYen,
         expenseFareYen: fareBreakdown.expenseFareYen,
+        normalFareYen: fareBreakdown.normalFareYen,
+        nightSurchargeYen: fareBreakdown.nightSurchargeYen,
         totalFareYen: fareBreakdown.totalFareYen,
         grossFareYen: fareBreakdown.grossFareYen,
         discountableFareYen: fareBreakdown.discountableFareYen,
@@ -2260,6 +2325,10 @@ export function CasePage() {
           id: careOption.masterId,
           name: careOption.name,
           amount: careOption.amountYen,
+        })),
+        customFees: customFees.map((customFee) => ({
+          name: customFee.name,
+          amount: customFee.amount,
         })),
         dispatchCharges: selectedDispatchCharges.map((dispatchCharge) => ({
           id: dispatchCharge.masterId,
@@ -2602,6 +2671,7 @@ export function CasePage() {
     setIsSettlementConfirmOpen(false)
     setSettlementEditBaseline(null)
     setSelectedCareOptions([])
+    setCustomFees([])
     setSelectedDispatchCharges([])
     setSelectedSpecialVehicleCharges([])
     setExpenses([])
@@ -3333,9 +3403,24 @@ export function CasePage() {
                       </button>
                     )
                   })}
+                  <button
+                    className="r9-modal-choice"
+                    type="button"
+                    disabled={!canAddAssistCharge}
+                    onClick={() =>
+                      setKeypadTarget({
+                        amountYen: 0,
+                        mode: 'customFee',
+                        name: '',
+                      })
+                    }
+                  >
+                    <span>その他</span>
+                    <strong>自由入力</strong>
+                  </button>
                 </div>
                 <div className="r9-summary-card r9-summary-card--modal">
-                  {selectedCareOptions.length === 0 ? (
+                  {selectedCareOptions.length === 0 && customFees.length === 0 ? (
                     <p className="empty-note">介助料金は未追加です。</p>
                   ) : (
                     <div className="r9-summary-list">
@@ -3344,6 +3429,15 @@ export function CasePage() {
                           <span>{option.name}</span>
                           <strong>{formatFareYen(option.amountYen)}円</strong>
                           <button type="button" disabled={!canAddAssistCharge} onClick={() => removeCareOption(option.id)}>
+                            削除
+                          </button>
+                        </p>
+                      ))}
+                      {customFees.map((fee) => (
+                        <p key={fee.id}>
+                          <span>{fee.name}</span>
+                          <strong>{formatFareYen(fee.amount)}円</strong>
+                          <button type="button" disabled={!canAddAssistCharge} onClick={() => removeCustomFee(fee.id)}>
                             削除
                           </button>
                         </p>
@@ -3782,7 +3876,7 @@ export function CasePage() {
           amountYen={keypadTarget.amountYen}
           defaultName={keypadTarget.name}
           mode={keypadTarget.mode}
-          title={keypadTarget.name}
+          title={keypadTarget.mode === 'customFee' ? 'その他' : keypadTarget.name}
           onClose={() => setKeypadTarget(null)}
           onConfirm={handleKeypadConfirm}
         />

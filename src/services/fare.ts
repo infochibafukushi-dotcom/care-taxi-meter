@@ -1,6 +1,10 @@
 import type { MeterMode } from '../types/case'
 import type { TimeMeterSettings } from './meterSettings'
 import { calculateTimeMeterFare } from './timeMeterFare'
+import {
+  resolveMidnightSurchargeYen,
+  type MidnightEarlyMorningSettings,
+} from '../utils/nightSurcharge'
 
 export type BasicFareSettings = {
   initialDistanceKm: number;
@@ -61,7 +65,10 @@ export type FareBreakdown = {
   meterTimeFareYen: number;
   escortFareYen: number;
   careOptionFareYen: number;
+  customFeeFareYen: number;
   expenseFareYen: number;
+  normalFareYen: number;
+  nightSurchargeYen: number;
   grossFareYen: number;
   discountableFareYen: number;
   isDisabilityDiscount: boolean;
@@ -115,7 +122,6 @@ export const careOptionMaster: CareOptionMasterItem[] = [
   { id: "wheelchairAssist", name: "車椅子介助", amount: 500, enabled: true, sortOrder: 4 },
   { id: "stretcherAssist", name: "ストレッチャー", amount: 1500, enabled: true, sortOrder: 5 },
   { id: "recliningAssist", name: "リクライニング", amount: 1000, enabled: true, sortOrder: 6 },
-  { id: "otherAssist", name: "その他", amount: 500, enabled: true, sortOrder: 7 },
 ];
 
 export const expenseSettings: ExpenseSettings = {
@@ -198,6 +204,12 @@ export function calculateExpenseTotalYen(
   return expenses.reduce((total, expense) => total + expense.amountYen, 0);
 }
 
+export function calculateCustomFeeTotalYen(
+  customFees: Array<{ amount: number }>,
+) {
+  return customFees.reduce((total, fee) => total + fee.amount, 0);
+}
+
 export function calculateTimeFareIncreaseProgress(
   elapsedSeconds: number,
   settings: TimeFareSettings,
@@ -235,6 +247,7 @@ export function calculateFareBreakdown({
   dispatchCharges = [],
   specialVehicleCharges = [],
   careOptions,
+  customFees = [],
   expenses,
   isDisabilityDiscount = false,
   taxiTickets = [],
@@ -242,6 +255,9 @@ export function calculateFareBreakdown({
   meterMode = 'gps',
   drivingSeconds = 0,
   timeMeterSettings,
+  midnightSettings,
+  nightChargeableDistanceKm = 0,
+  nightDrivingSeconds = 0,
 }: {
   distanceKm: number;
   waitingSeconds: number;
@@ -250,6 +266,7 @@ export function calculateFareBreakdown({
   dispatchCharges?: Array<{ amountYen: number }>;
   specialVehicleCharges?: Array<{ amountYen: number }>;
   careOptions: Array<{ amountYen: number }>;
+  customFees?: Array<{ amount: number }>;
   expenses: Array<{ amountYen: number }>;
   isDisabilityDiscount?: boolean;
   taxiTickets?: Array<{ amount: number }>;
@@ -263,6 +280,9 @@ export function calculateFareBreakdown({
   meterMode?: MeterMode;
   drivingSeconds?: number;
   timeMeterSettings?: TimeMeterSettings;
+  midnightSettings?: MidnightEarlyMorningSettings | null;
+  nightChargeableDistanceKm?: number;
+  nightDrivingSeconds?: number;
 }): FareBreakdown {
   const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
   const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
@@ -279,6 +299,7 @@ export function calculateFareBreakdown({
     settings.escortFare ?? escortFareSettings,
   );
   const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
+  const customFeeFareYen = calculateCustomFeeTotalYen(customFees);
   const expenseFareYen = calculateExpenseTotalYen(expenses);
   const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
   const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
@@ -292,6 +313,17 @@ export function calculateFareBreakdown({
       legalSettings: timeMeterSettings.legal,
     });
     const basicFareYen = timeMeterResult.actualTimeFare;
+    const normalFareYen = basicFareYen;
+    const nightSurchargeYen = resolveMidnightSurchargeYen({
+      basicFareSettings: settings.basicFare ?? basicFareSettings,
+      distanceKm,
+      drivingSeconds,
+      midnightSettings,
+      meterMode: 'time',
+      nightChargeableDistanceKm,
+      nightDrivingSeconds,
+      timeMeterSettings,
+    });
     const discountableFareYen = basicFareYen;
     const disabilityDiscountAmount = isDisabilityDiscount
       ? Math.min(
@@ -316,10 +348,11 @@ export function calculateFareBreakdown({
       waitingFareYen +
       escortFareYen +
       careOptionFareYen +
+      customFeeFareYen +
       expenseFareYen;
-    const grossFareYen = discountableFareYen + otherChargesYen;
+    const grossFareYen = discountableFareYen + nightSurchargeYen + otherChargesYen;
     const totalFareYen = Math.max(
-      discountedMeterFareYen - taxiTicketAmountYen + otherChargesYen,
+      discountedMeterFareYen + nightSurchargeYen - taxiTicketAmountYen + otherChargesYen,
       0,
     );
 
@@ -331,7 +364,10 @@ export function calculateFareBreakdown({
       meterTimeFareYen: 0,
       escortFareYen,
       careOptionFareYen,
+      customFeeFareYen,
       expenseFareYen,
+      normalFareYen,
+      nightSurchargeYen,
       grossFareYen,
       discountableFareYen,
       isDisabilityDiscount,
@@ -344,7 +380,13 @@ export function calculateFareBreakdown({
       totalFareYen,
       lineItems: [
         { label: '時間制運賃', amountYen: basicFareYen },
+        ...(nightSurchargeYen > 0
+          ? [{ label: '深夜早朝割増', amountYen: nightSurchargeYen }]
+          : []),
         { label: '介助料金', amountYen: careOptionFareYen },
+        ...(customFeeFareYen > 0
+          ? [{ label: 'その他', amountYen: customFeeFareYen }]
+          : []),
         { label: '待機/付き添い料金', amountYen: waitingFareYen + escortFareYen },
         { label: '予約・迎車料金', amountYen: dispatchFareYen },
         { label: '特殊車両料金', amountYen: specialVehicleFareYen },
@@ -368,6 +410,17 @@ export function calculateFareBreakdown({
     distanceKm,
     settings.basicFare ?? basicFareSettings,
   );
+  const normalFareYen = basicFareYen;
+  const nightSurchargeYen = resolveMidnightSurchargeYen({
+    basicFareSettings: settings.basicFare ?? basicFareSettings,
+    distanceKm,
+    drivingSeconds,
+    midnightSettings,
+    meterMode,
+    nightChargeableDistanceKm,
+    nightDrivingSeconds,
+    timeMeterSettings,
+  });
   const discountableFareYen = basicFareYen + meterTimeFareYen;
   const disabilityDiscountAmount = isDisabilityDiscount
     ? Math.min(
@@ -392,10 +445,11 @@ export function calculateFareBreakdown({
     waitingFareYen +
     escortFareYen +
     careOptionFareYen +
+    customFeeFareYen +
     expenseFareYen;
-  const grossFareYen = discountableFareYen + otherChargesYen;
+  const grossFareYen = discountableFareYen + nightSurchargeYen + otherChargesYen;
   const totalFareYen = Math.max(
-    discountedMeterFareYen - taxiTicketAmountYen + otherChargesYen,
+    discountedMeterFareYen + nightSurchargeYen - taxiTicketAmountYen + otherChargesYen,
     0,
   );
 
@@ -407,7 +461,10 @@ export function calculateFareBreakdown({
     meterTimeFareYen,
     escortFareYen,
     careOptionFareYen,
+    customFeeFareYen,
     expenseFareYen,
+    normalFareYen,
+    nightSurchargeYen,
     grossFareYen,
     discountableFareYen,
     isDisabilityDiscount,
@@ -420,11 +477,17 @@ export function calculateFareBreakdown({
     totalFareYen,
     lineItems: [
       { label: "基本運賃", amountYen: basicFareYen + meterTimeFareYen },
+      ...(nightSurchargeYen > 0
+        ? [{ label: "深夜早朝割増", amountYen: nightSurchargeYen }]
+        : []),
       { label: discountName, amountYen: -disabilityDiscountAmount },
       { label: "タクシー券", amountYen: -taxiTicketAmountYen },
       { label: "予約・迎車料金", amountYen: dispatchFareYen },
       { label: "特殊車両料金", amountYen: specialVehicleFareYen },
       { label: "介助料金", amountYen: careOptionFareYen },
+      ...(customFeeFareYen > 0
+        ? [{ label: "その他", amountYen: customFeeFareYen }]
+        : []),
       { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
