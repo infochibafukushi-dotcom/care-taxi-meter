@@ -4,7 +4,7 @@ import {
   fetchGpsRouteChunks,
   type GpsRouteSaveStatus,
 } from '../../services/gpsRoutes'
-import type { GpsRoutePoint } from '../../types/case'
+import type { GpsRoutePoint, MeterMode } from '../../types/case'
 import { ensureGoogleMapsApiLoaded } from '../../utils/googleMapsLoader'
 
 type LatLng = {
@@ -13,10 +13,13 @@ type LatLng = {
 }
 
 type GpsRouteMapDialogProps = {
+  businessDistanceKm?: number
   caseRecordId: string
+  chargeableDistanceKm?: number
   chunkCount: number
   dropoff: LatLng | null
   isOpen: boolean
+  meterMode?: MeterMode
   onClose: () => void
   pickup: LatLng | null
   pointCount: number
@@ -88,15 +91,19 @@ const isValidLatLng = (value: LatLng | null): value is LatLng =>
   Number.isFinite(value.lng)
 
 export function GpsRouteMapDialog({
+  businessDistanceKm,
   caseRecordId,
+  chargeableDistanceKm,
   chunkCount,
   dropoff,
   isOpen,
+  meterMode = 'gps',
   onClose,
   pickup,
   pointCount,
   saveStatus,
 }: GpsRouteMapDialogProps) {
+  const isObdCase = meterMode === 'obd'
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<GoogleMapsMap | null>(null)
   const markersRef = useRef<GoogleMapsMarker[]>([])
@@ -232,7 +239,9 @@ export function GpsRouteMapDialog({
         <header>
           <div>
             <p className="eyebrow">GPS Route</p>
-            <h2 id="gps-route-map-title">GPS軌跡</h2>
+            <h2 id="gps-route-map-title">
+              {isObdCase ? 'GPS軌跡（地図確認）' : 'GPS軌跡'}
+            </h2>
           </div>
         </header>
 
@@ -252,17 +261,46 @@ export function GpsRouteMapDialog({
           </p>
         ) : null}
 
-        <div className="gps-route-map-stats" aria-label="GPSルート統計">
+        {isObdCase ? (
+          <p className="gps-route-map-note" role="note">
+            OBDM案件の営業距離・運賃距離は OBD 計測が公式値です。下記の GPS 参考距離は保存ログから再計算した目安であり、運賃計算には使用しません。
+          </p>
+        ) : null}
+
+        <div
+          className={`gps-route-map-stats${isObdCase ? ' gps-route-map-stats--obd' : ''}`}
+          aria-label="GPSルート統計"
+        >
           <div>
             <span>GPS点数</span>
             <strong>{loadedPointCount || pointCount}点</strong>
           </div>
           <div>
-            <span>総距離</span>
+            <span>GPS参考距離</span>
             <strong>
               {routeDistanceKm === null ? '―' : `${routeDistanceKm.toFixed(3)} km`}
             </strong>
           </div>
+          {isObdCase ? (
+            <>
+              <div>
+                <span>営業距離（OBD・公式）</span>
+                <strong>
+                  {typeof businessDistanceKm === 'number'
+                    ? `${businessDistanceKm.toFixed(3)} km`
+                    : '―'}
+                </strong>
+              </div>
+              <div>
+                <span>運賃距離（OBD・公式）</span>
+                <strong>
+                  {typeof chargeableDistanceKm === 'number'
+                    ? `${chargeableDistanceKm.toFixed(3)} km`
+                    : '―'}
+                </strong>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div

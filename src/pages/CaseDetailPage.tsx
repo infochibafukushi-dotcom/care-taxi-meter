@@ -24,7 +24,7 @@ import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/cas
 import type { MeterSettings } from '../services/meterSettings'
 import type { PaymentMethod, TaxiTicket } from '../types/case'
 import { formatFareYen } from '../services/fare'
-import { formatCaseDateTime, formatCaseOperationDateTime } from '../utils/caseRecords'
+import { formatCaseDateTime, formatCaseOperationDateTime, getActualMeterMode, meterModeLabels } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { downloadStatementPdf } from '../utils/statementPdf'
@@ -344,6 +344,11 @@ export function CaseDetailPage() {
     ? formatGpsRouteExpiresAt(gpsRouteState.summary.expiresAt)
     : '―'
   const canOpenGpsRouteMap = Boolean(gpsRouteState.summary && caseRecordId)
+  const actualMeterMode = caseRecord ? getActualMeterMode(caseRecord) : 'gps'
+  const isObdCase = actualMeterMode === 'obd'
+  const gpsRouteMapButtonLabel = gpsRouteState.summary
+    ? `地図を見る（${gpsRouteState.summary.pointCount}点）`
+    : gpsRouteStatusLabel
   const gpsRoutePickup = caseRecord &&
     Number.isFinite(caseRecord.pickupLatitude) &&
     Number.isFinite(caseRecord.pickupLongitude)
@@ -905,6 +910,14 @@ export function CaseDetailPage() {
                 <strong>{caseRecord.caseNumber}</strong>
               </div>
               <div>
+                <span>使用メーター</span>
+                <strong>
+                  <span className={`meter-mode-badge meter-mode-badge--${actualMeterMode}`}>
+                    {meterModeLabels[actualMeterMode]}
+                  </span>
+                </strong>
+              </div>
+              <div>
                 <span>日時</span>
                 <strong>{formatCaseDateTime(caseRecord.closedAt)}</strong>
               </div>
@@ -933,28 +946,39 @@ export function CaseDetailPage() {
               <div>
                 <span>運賃距離</span>
                 <strong>{caseRecord.chargeableDistanceKm.toFixed(3)} km</strong>
+                {isObdCase ? (
+                  <small className="case-detail-distance-source">OBD計測（公式）</small>
+                ) : null}
               </div>
               <div>
                 <span>営業距離</span>
                 <strong>{caseRecord.businessDistanceKm.toFixed(3)} km</strong>
+                {isObdCase ? (
+                  <small className="case-detail-distance-source">OBD計測（公式）</small>
+                ) : null}
               </div>
               <div>
                 <span>運行時間</span>
                 <strong>{formatDrivingDuration(caseRecord.drivingSeconds, Boolean(caseRecord.startedAt || caseRecord.endedAt))}</strong>
               </div>
               <div>
-                <span>GPS軌跡</span>
+                <span>GPS軌跡（地図）</span>
                 {canOpenGpsRouteMap ? (
                   <button
                     className="case-detail-gps-link"
                     type="button"
                     onClick={() => setIsGpsRouteMapOpen(true)}
                   >
-                    {gpsRouteStatusLabel}
+                    {gpsRouteMapButtonLabel}
                   </button>
                 ) : (
                   <strong>{gpsRouteStatusLabel}</strong>
                 )}
+                {isObdCase && canOpenGpsRouteMap ? (
+                  <small className="case-detail-distance-source">
+                    GPS参考距離は地図確認用です。営業・運賃距離とは一致しません。
+                  </small>
+                ) : null}
               </div>
               <div>
                 <span>GPSログ件数</span>
@@ -1173,10 +1197,13 @@ export function CaseDetailPage() {
 
       {caseRecord && gpsRouteState.summary && caseRecordId ? (
         <GpsRouteMapDialog
+          businessDistanceKm={caseRecord.businessDistanceKm}
           caseRecordId={caseRecordId}
+          chargeableDistanceKm={caseRecord.chargeableDistanceKm}
           chunkCount={gpsRouteState.summary.chunkCount}
           dropoff={gpsRouteDropoff}
           isOpen={isGpsRouteMapOpen}
+          meterMode={actualMeterMode}
           pickup={gpsRoutePickup}
           pointCount={gpsRouteState.summary.pointCount}
           saveStatus={gpsRouteSaveStatus}

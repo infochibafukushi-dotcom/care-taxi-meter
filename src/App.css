@@ -3817,6 +3817,29 @@ h1 {
   gap: 12px;
 }
 
+.gps-route-map-stats--obd {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gps-route-map-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.case-detail-distance-source {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .gps-route-map-stats div {
   display: grid;
   gap: 4px;
