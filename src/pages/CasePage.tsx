@@ -48,8 +48,9 @@ import {
   readPostSettlementLock,
   writePostSettlementLock,
 } from '../services/postSettlementLock'
-import { readReservationTripContext } from '../services/reservationTripContext'
+import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
+import { completeFixedFareRun } from '../services/reservationApi'
 import { fetchVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -552,6 +553,7 @@ export function CasePage() {
   const [areMeterPermissionsLoaded, setAreMeterPermissionsLoaded] = useState(false)
   const [meterModeToast, setMeterModeToast] = useState('')
   const [tripStartNotice, setTripStartNotice] = useState('')
+  const [isFixedCompleteLoading, setIsFixedCompleteLoading] = useState(false)
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [obdConnectionDialogVariant, setObdConnectionDialogVariant] = useState<'mid-trip' | 'pre-trip'>('pre-trip')
   const [settingsMessage, setSettingsMessage] = useState(
@@ -847,6 +849,11 @@ export function CasePage() {
     meterMode === 'fixed' &&
     status === '走行中' &&
     Boolean(fixedFareRun)
+  const canConfirmFixedTripComplete =
+    meterMode === 'fixed' &&
+    status === '精算前' &&
+    Boolean(fixedFareRun) &&
+    !isFixedCompleteLoading
   const canEditCharges =
     meterMode !== 'fixed' &&
     (status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'))
@@ -1993,6 +2000,33 @@ export function CasePage() {
 
     setCaseSaveState('idle')
     setCaseSaveMessage('運行を終了しました。事前確定運賃で精算前です。')
+  }
+
+  const handleConfirmFixedTripComplete = async () => {
+    if (!canConfirmFixedTripComplete || !fixedFareRun) {
+      return
+    }
+
+    setIsFixedCompleteLoading(true)
+    setTripStartNotice('')
+
+    try {
+      await completeFixedFareRun(fixedFareRun.reservationId)
+      const reservationId = fixedFareRun.reservationId
+      clearActiveTripSnapshot()
+      clearReservationTripContext()
+      navigate(`/reservations/${encodeURIComponent(reservationId)}`)
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : '事前確定Mの完了に失敗しました。'
+      setCaseSaveState('error')
+      setCaseSaveMessage(message)
+      setTripStartNotice(message)
+    } finally {
+      setIsFixedCompleteLoading(false)
+    }
   }
 
   const handleSettlementFlowStart = () => {
@@ -3248,6 +3282,17 @@ export function CasePage() {
                 <strong>実費</strong>
               </button>
               {meterMode === 'fixed' ? (
+                canConfirmFixedTripComplete || isFixedCompleteLoading ? (
+                  <button
+                    className="r9-status-button r9-status-button--settlement"
+                    type="button"
+                    disabled={!canConfirmFixedTripComplete}
+                    onClick={() => { void handleConfirmFixedTripComplete() }}
+                  >
+                    <span aria-hidden="true">▣</span>
+                    <strong>{isFixedCompleteLoading ? '確定処理中…' : '運行完了を確定'}</strong>
+                  </button>
+                ) : (
                 <button
                   className="r9-status-button r9-status-button--settlement"
                   type="button"
@@ -3257,6 +3302,7 @@ export function CasePage() {
                   <span aria-hidden="true">▣</span>
                   <strong>運行終了</strong>
                 </button>
+                )
               ) : (
               <button
                 className="r9-status-button r9-status-button--settlement r9-status-button--hold"
