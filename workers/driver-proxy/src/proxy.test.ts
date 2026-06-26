@@ -125,6 +125,45 @@ describe('handleDriverProxyRequest', () => {
     assert.equal(upstreamMethod, 'POST')
   })
 
+  it('forwards complete-fixed-fare passenger-change completion body', async () => {
+    let upstreamBody = ''
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamBody = init?.body ? await new Response(init.body as BodyInit).text() : ''
+      return new Response(JSON.stringify({ success: true }), { status: 200 })
+    }
+
+    const completionBody = {
+      completionStatus: 'completed_with_passenger_change',
+      completionReason: 'passenger_requested_route_change',
+      preFixedFareException: {
+        type: 'passenger_requested_change',
+        reasonLabel: '旅客都合によるルート変更・立ち寄り追加',
+        endedAt: '2026-06-27T10:00:00.000Z',
+        endedLocation: { lat: 35.0, lng: 135.0, accuracy: 10 },
+        originalFixedFareYen: 12345,
+        fareModeBeforeEnd: 'pre_fixed_fare',
+        nextOperationRequired: 'start_new_meter_trip',
+      },
+    }
+
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/reservations/res-001/complete-fixed-fare', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+        body: JSON.stringify(completionBody),
+      }),
+      env,
+      fetchImpl,
+    )
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(upstreamBody), completionBody)
+  })
+
   it('returns 404 for disallowed paths', async () => {
     const response = await handleDriverProxyRequest(
       new Request('https://proxy.example.com/api/driver/admin', {

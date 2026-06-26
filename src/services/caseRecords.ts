@@ -24,6 +24,11 @@ import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
 import { defaultStoreId, getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+import type {
+  CompletionReason,
+  FareMode,
+  PreFixedFareException,
+} from '../types/preFixedFare'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -60,9 +65,13 @@ export type CaseRecordInput = {
   reservationId?: string
   confirmedFareYen?: number
   snapshotHash?: string
+  fareMode?: FareMode
+  completionReason?: CompletionReason
+  preFixedFareException?: PreFixedFareException
+  recordStatus?: CaseRecordStatus
 }
 
-export type CaseRecordStatus = 'completed' | 'canceled'
+export type CaseRecordStatus = 'completed' | 'completed_with_passenger_change' | 'canceled'
 
 export type CaseRecordChangeEntry = {
   changedAt: string
@@ -229,6 +238,9 @@ export type CaseRecordDocument = {
   reservationId?: string
   confirmedFareYen?: number
   snapshotHash?: string
+  fareMode?: FareMode
+  completionReason?: CompletionReason
+  preFixedFareException?: PreFixedFareException
   savedAt: FieldValue
 }
 
@@ -427,8 +439,48 @@ const toSettlementAdjustments = (value: unknown): SettlementAdjustmentEntry[] =>
         .filter((item): item is SettlementAdjustmentEntry => Boolean(item))
     : []
 
-const toCaseRecordStatus = (value: unknown): CaseRecordStatus =>
-  value === 'canceled' ? 'canceled' : 'completed'
+const toNullableFiniteNumber = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+const toPreFixedFareException = (value: unknown): PreFixedFareException | undefined => {
+  const source = toObject(value)
+  const type = toString(source.type)
+  const reasonLabel = toString(source.reasonLabel)
+  const endedAt = toString(source.endedAt)
+
+  if (type !== 'passenger_requested_change' || !reasonLabel || !endedAt) {
+    return undefined
+  }
+
+  const endedLocationSource = toObject(source.endedLocation)
+
+  return {
+    type: 'passenger_requested_change',
+    reasonLabel,
+    endedAt,
+    endedLocation: {
+      lat: toNullableFiniteNumber(endedLocationSource.lat),
+      lng: toNullableFiniteNumber(endedLocationSource.lng),
+      accuracy: toNullableFiniteNumber(endedLocationSource.accuracy),
+    },
+    originalFixedFareYen: Math.max(Math.round(toNumber(source.originalFixedFareYen)), 0),
+    fareModeBeforeEnd: 'pre_fixed_fare',
+    nextOperationRequired: 'start_new_meter_trip',
+    note: toString(source.note),
+  }
+}
+
+const toCaseRecordStatus = (value: unknown): CaseRecordStatus => {
+  if (value === 'canceled') {
+    return 'canceled'
+  }
+
+  if (value === 'completed_with_passenger_change') {
+    return 'completed_with_passenger_change'
+  }
+
+  return 'completed'
+}
 
 const toPaymentMethod = (value: unknown) =>
   typeof value === 'string' && value.trim() ? value.trim() : '未設定'
@@ -680,6 +732,12 @@ const toStoredCaseRecord = (
     reservationId: toString(data.reservationId) || undefined,
     confirmedFareYen: toNullableNumber(data.confirmedFareYen) ?? undefined,
     snapshotHash: toString(data.snapshotHash) || undefined,
+    fareMode: toString(data.fareMode) === 'pre_fixed_fare' ? 'pre_fixed_fare' : undefined,
+    completionReason:
+      toString(data.completionReason) === 'passenger_requested_route_change'
+        ? 'passenger_requested_route_change'
+        : undefined,
+    preFixedFareException: toPreFixedFareException(data.preFixedFareException),
   }
 }
 
@@ -787,6 +845,10 @@ export async function saveCaseRecord({
   reservationId,
   confirmedFareYen,
   snapshotHash,
+  fareMode,
+  completionReason,
+  preFixedFareException,
+  recordStatus = 'completed',
 }: CaseRecordInput) {
   const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
   const staffId = workSession?.staffId ?? ''
@@ -851,8 +913,8 @@ export async function saveCaseRecord({
     payments,
     receiptName: '',
     customerName: '',
-    remarks: '',
-    status: 'completed',
+    remarks: preFixedFareException?.note ?? '',
+    status: recordStatus,
     deleted: false,
     deletedAt: '',
     deletedBy: '',
@@ -916,6 +978,9 @@ export async function saveCaseRecord({
       ? { confirmedFareYen: Math.max(Math.round(confirmedFareYen), 0) }
       : {}),
     ...(snapshotHash ? { snapshotHash } : {}),
+    ...(fareMode ? { fareMode } : {}),
+    ...(completionReason ? { completionReason } : {}),
+    ...(preFixedFareException ? { preFixedFareException } : {}),
     savedAt: serverTimestamp(),
   }
 

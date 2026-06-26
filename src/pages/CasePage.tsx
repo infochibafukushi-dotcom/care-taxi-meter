@@ -9,6 +9,8 @@ import { ObdConnectionIndicator } from '../components/case/ObdConnectionIndicato
 import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionRequiredDialog'
 import { ObdConnectFab } from '../components/case/ObdConnectFab'
 import { PostSettlementBanner } from '../components/case/PostSettlementBanner'
+import { PassengerChangePostSettlementBanner } from '../components/case/PassengerChangePostSettlementBanner'
+import { PreFixedFarePassengerChangeDialog } from '../components/case/PreFixedFarePassengerChangeDialog'
 import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { TopReturnFab } from '../components/case/TopReturnFab'
@@ -77,6 +79,13 @@ import type {
 } from '../services/fare'
 import type { ExpensePreset, MeterSettings } from '../services/meterSettings'
 import type { MeterPermissions, Vehicle } from '../types/work'
+import {
+  FARE_MODE_PRE_FIXED,
+  PRE_FIXED_FARE_PASSENGER_CHANGE_NOTE,
+  PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+  buildCompleteFixedFareRunPayload,
+  type PreFixedFareException,
+} from '../types/preFixedFare'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { extractAreaFromAddress } from '../utils/address'
 import { formatCaseDateTime } from '../utils/caseRecords'
@@ -460,6 +469,24 @@ const getReverseGeocodeCauseLabel = ({
 const getInitialStatusAfterReset = (mode: MeterMode): OperationStatus =>
   mode === 'time' ? '待機中' : '空車'
 
+const buildPreFixedFarePassengerChangeException = (
+  confirmedFareYen: number,
+  position: { latitude: number; longitude: number; accuracy: number } | null,
+): PreFixedFareException => ({
+  type: 'passenger_requested_change',
+  reasonLabel: PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+  endedAt: new Date().toISOString(),
+  endedLocation: {
+    lat: position?.latitude ?? null,
+    lng: position?.longitude ?? null,
+    accuracy: position?.accuracy ?? null,
+  },
+  originalFixedFareYen: confirmedFareYen,
+  fareModeBeforeEnd: FARE_MODE_PRE_FIXED,
+  nextOperationRequired: 'start_new_meter_trip',
+  note: PRE_FIXED_FARE_PASSENGER_CHANGE_NOTE,
+})
+
 export function CasePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -556,6 +583,9 @@ export function CasePage() {
   const [tripStartNotice, setTripStartNotice] = useState('')
   const [isFixedCompleteLoading, setIsFixedCompleteLoading] = useState(false)
   const [fixedCompleteState, setFixedCompleteState] = useState<'idle' | 'done' | 'error'>('idle')
+  const [isPassengerChangeDialogOpen, setIsPassengerChangeDialogOpen] = useState(false)
+  const [pendingPassengerChangeException, setPendingPassengerChangeException] =
+    useState<PreFixedFareException | null>(null)
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [obdConnectionDialogVariant, setObdConnectionDialogVariant] = useState<'mid-trip' | 'pre-trip'>('pre-trip')
   const [settingsMessage, setSettingsMessage] = useState(
@@ -851,6 +881,13 @@ export function CasePage() {
     meterMode === 'fixed' &&
     status === '走行中' &&
     Boolean(fixedFareRun)
+  const fareMode =
+    meterMode === 'fixed' && fixedFareRun ? FARE_MODE_PRE_FIXED : null
+  const canEndWithPassengerChange =
+    fareMode === FARE_MODE_PRE_FIXED &&
+    status === '走行中' &&
+    Boolean(fixedFareRun)
+  const hasPassengerChangeTermination = Boolean(pendingPassengerChangeException)
   const canEditCharges =
     meterMode === 'fixed'
       ? status === '精算前' || status === '精算修正'
@@ -2035,15 +2072,22 @@ export function CasePage() {
     setSettlementFlowStep('receipt')
   }
 
-  const handleFixedTripEnd = () => {
+  const handleFixedTripEnd = (passengerChangeExceptionOverride?: PreFixedFareException | null) => {
     if (!canEndFixedTrip) {
       setCaseSaveState('error')
       setCaseSaveMessage('現在の状態では運行終了できません。')
       return
     }
 
+    const passengerChangeException =
+      passengerChangeExceptionOverride ?? pendingPassengerChangeException
+
+    if (passengerChangeExceptionOverride) {
+      setPendingPassengerChangeException(passengerChangeExceptionOverride)
+    }
+
     if (!operationEndedAtRef.current) {
-      operationEndedAtRef.current = new Date().toISOString()
+      operationEndedAtRef.current = passengerChangeException?.endedAt ?? new Date().toISOString()
     }
 
     if (!handleStatusChange('精算前')) {
@@ -2051,20 +2095,82 @@ export function CasePage() {
     }
 
     setCaseSaveState('idle')
-    setCaseSaveMessage('運行を終了しました。精算画面で支払いを確定してください。')
+    setCaseSaveMessage(
+      passengerChangeException
+        ? '旅客都合変更による途中終了として運行を終了しました。精算画面で支払いを確定してください。'
+        : '運行を終了しました。精算画面で支払いを確定してください。',
+    )
     openFixedSettlementFlow()
   }
 
-  const completeFixedFareAfterSave = async (reservationId: string): Promise<boolean> => {
+  const handleConfirmPassengerChangeTermination = async () => {
+    if (!canEndWithPassengerChange || !fixedFareRun) {
+      return
+    }
+
+    const exception = buildPreFixedFarePassengerChangeException(
+      fixedFareRun.confirmedFareYen,
+      gps.position,
+    )
+    setIsPassengerChangeDialogOpen(false)
+
+    if (workSession.currentSession) {
+      await createAuditLog({
+        action: 'pre_fixed_fare_passenger_change',
+        actor: {
+          userId: workSession.currentSession.staffId,
+          userName: workSession.currentSession.staffName,
+          role: workSession.currentSession.staffRole,
+          franchiseeId:
+            workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+        },
+        targetId: caseNumber,
+        targetType: 'activeTrip',
+        before: { fareMode: FARE_MODE_PRE_FIXED, status },
+        after: {
+          completionReason: 'passenger_requested_route_change',
+          endedAt: exception.endedAt,
+          originalFixedFareYen: exception.originalFixedFareYen,
+          recordStatus: 'completed_with_passenger_change',
+        },
+        reason: PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+      })
+    }
+
+    handleFixedTripEnd(exception)
+  }
+
+  const handleStartRegularMeterTrip = () => {
+    clearPostSettlementLock()
+    clearActiveTripSnapshot()
+    clearReservationTripContext()
+    navigate('/case/start')
+  }
+
+  const completeFixedFareAfterSave = async (
+    reservationId: string,
+    options?: {
+      isPassengerChange?: boolean
+      preFixedFareException?: PreFixedFareException | null
+    },
+  ): Promise<boolean> => {
     setIsFixedCompleteLoading(true)
     setTripStartNotice('')
 
     try {
-      await completeFixedFareRun(reservationId)
+      const completionPayload = buildCompleteFixedFareRunPayload(
+        options?.preFixedFareException ?? null,
+      )
+      await completeFixedFareRun(reservationId, completionPayload)
       clearActiveTripSnapshot()
       clearReservationTripContext()
       setFixedCompleteState('done')
-      setCaseSaveMessage('案件を保存し、事前確定Mを完了しました。レシート・領収書は任意で発行できます。')
+      setCaseSaveMessage(
+        options?.isPassengerChange
+          ? '案件を保存し、旅客都合変更による事前確定M途中終了を完了しました。当初の事前確定運賃額は変更していません。レシート・領収書は任意で発行できます。'
+          : '案件を保存し、事前確定Mを完了しました。レシート・領収書は任意で発行できます。',
+      )
       return true
     } catch (error) {
       const message =
@@ -2089,7 +2195,10 @@ export function CasePage() {
       return
     }
 
-    const succeeded = await completeFixedFareAfterSave(reservationId)
+    const succeeded = await completeFixedFareAfterSave(reservationId, {
+      isPassengerChange: Boolean(savedCaseRecord?.preFixedFareException),
+      preFixedFareException: savedCaseRecord?.preFixedFareException ?? pendingPassengerChangeException,
+    })
     if (succeeded) {
       navigate(`/reservations/${encodeURIComponent(reservationId)}`)
     }
@@ -2314,6 +2423,12 @@ export function CasePage() {
     if (status !== '精算前') {
       return
     }
+
+    if (hasPassengerChangeTermination) {
+      setCaseSaveMessage('旅客都合変更による途中終了後は、同一案件の運行再開はできません。')
+      return
+    }
+
     if (!window.confirm('追加送迎・行先変更として運行を再開しますか？タクシー券・実費・領収書情報・支払方法はリセットします。')) {
       return
     }
@@ -2489,6 +2604,17 @@ export function CasePage() {
       const closedAt = new Date().toISOString()
       const currentCaseNumberAssignment = caseNumberAssignmentRef.current
       const currentFareSnapshot = fareSnapshotRef.current
+      const preFixedFareSaveExtras =
+        meterMode === 'fixed' && fixedFareRun
+          ? pendingPassengerChangeException
+            ? {
+                fareMode: FARE_MODE_PRE_FIXED,
+                completionReason: 'passenger_requested_route_change' as const,
+                preFixedFareException: pendingPassengerChangeException,
+                recordStatus: 'completed_with_passenger_change' as const,
+              }
+            : { fareMode: FARE_MODE_PRE_FIXED }
+          : {}
       const comparisonFares =
         meterMode === 'fixed'
           ? {
@@ -2550,6 +2676,7 @@ export function CasePage() {
               snapshotHash: fixedFareRun.snapshotHash,
             }
           : {}),
+        ...preFixedFareSaveExtras,
       })
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
@@ -2606,8 +2733,8 @@ export function CasePage() {
         payments,
         receiptName,
         customerName: receiptName,
-        remarks: '',
-        status: 'completed',
+        remarks: pendingPassengerChangeException?.note ?? '',
+        status: preFixedFareSaveExtras.recordStatus ?? 'completed',
         deleted: false,
         deletedAt: '',
         deletedBy: '',
@@ -2673,6 +2800,7 @@ export function CasePage() {
               snapshotHash: fixedFareRun.snapshotHash,
             }
           : {}),
+        ...preFixedFareSaveExtras,
       }
 
       let gpsRouteSaveFailed = false
@@ -2726,9 +2854,11 @@ export function CasePage() {
         lockedAt: new Date().toISOString(),
       })
       setCaseSaveMessage(
-        gpsRouteSaveFailed
-          ? '案件は保存されましたが、GPSルートの保存に失敗しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。'
-          : 'Firestoreへ保存しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。',
+        pendingPassengerChangeException
+          ? '旅客都合変更による途中終了として保存しました。当初の事前確定運賃額は変更していません。レシート・領収書は任意で発行できます。'
+          : gpsRouteSaveFailed
+            ? '案件は保存されましたが、GPSルートの保存に失敗しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。'
+            : 'Firestoreへ保存しました。レシート・領収書は任意で発行できます。「新しい案件を開始」から次の案件へ進めます。',
       )
       return savedRecord
     } catch (error) {
@@ -2753,7 +2883,11 @@ export function CasePage() {
       if (meterMode === 'fixed') {
         const reservationId = fixedFareRun?.reservationId ?? savedRecord.reservationId ?? ''
         if (reservationId) {
-          await completeFixedFareAfterSave(reservationId)
+          await completeFixedFareAfterSave(reservationId, {
+            isPassengerChange: Boolean(savedRecord.preFixedFareException),
+            preFixedFareException:
+              savedRecord.preFixedFareException ?? pendingPassengerChangeException,
+          })
         }
       }
     }
@@ -3010,6 +3144,7 @@ export function CasePage() {
     setCaseSaveMessage('新しい案件を開始しました。送迎を開始できます。')
     setTripStartNotice('')
     setSavedCaseRecord(null)
+    setPendingPassengerChangeException(null)
     setSettlementFlowStep('receipt')
     setPickupLocation(emptyCapturedAddressLocation)
     setDropoffLocation(emptyCapturedAddressLocation)
@@ -3154,6 +3289,10 @@ export function CasePage() {
     })
   }
 
+  const isPassengerChangeSavedCase = Boolean(
+    savedCaseRecord?.preFixedFareException ?? pendingPassengerChangeException,
+  )
+
   return (
     <main
       className={`r9-meter-page r9-meter-page--${statusToneMap[status]}`}
@@ -3165,10 +3304,14 @@ export function CasePage() {
       </div>
 
       {isPostSettlementAwaitingNewCase ? (
-        <PostSettlementBanner
-          caseNumber={postSettlementCaseNumber}
-          onStartNewCase={handleStartNewCase}
-        />
+        isPassengerChangeSavedCase ? (
+          <PassengerChangePostSettlementBanner onStartRegularMeterTrip={handleStartRegularMeterTrip} />
+        ) : (
+          <PostSettlementBanner
+            caseNumber={postSettlementCaseNumber}
+            onStartNewCase={handleStartNewCase}
+          />
+        )
       ) : null}
 
       <div className="r9-meter-shell">
@@ -3398,7 +3541,7 @@ export function CasePage() {
                   className="r9-status-button r9-status-button--settlement"
                   type="button"
                   disabled={caseSaveState === 'saving' || !canEndFixedTrip}
-                  onClick={handleFixedTripEnd}
+                  onClick={() => { handleFixedTripEnd() }}
                 >
                   <span aria-hidden="true">▣</span>
                   <strong>運行終了</strong>
@@ -3422,6 +3565,19 @@ export function CasePage() {
               </button>
               )}
             </div>
+
+            {canEndWithPassengerChange ? (
+              <div className="r9-passenger-change-action">
+                <button
+                  className="secondary-action r9-passenger-change-button"
+                  type="button"
+                  disabled={caseSaveState === 'saving'}
+                  onClick={() => setIsPassengerChangeDialogOpen(true)}
+                >
+                  旅客都合変更で途中終了
+                </button>
+              </div>
+            ) : null}
 
             {isDevelopmentMode ? (
               <div className="r9-side-tools">
@@ -4058,6 +4214,7 @@ export function CasePage() {
                     <button className="secondary-action" type="button" onClick={openSettlementEdit}>
                       精算修正
                     </button>
+                    {!hasPassengerChangeTermination ? (
                     <button
                       className="case-detail-danger-button"
                       type="button"
@@ -4068,6 +4225,7 @@ export function CasePage() {
                     >
                       運行再開（1秒長押し）
                     </button>
+                    ) : null}
                   </>
                 ) : null}
                 {status === '精算修正' ? (
@@ -4094,11 +4252,18 @@ export function CasePage() {
             </div>
 
             {isPostSettlementAwaitingNewCase ? (
-              <PostSettlementBanner
-                caseNumber={postSettlementCaseNumber}
-                compact
-                onStartNewCase={handleStartNewCase}
-              />
+              isPassengerChangeSavedCase ? (
+                <PassengerChangePostSettlementBanner
+                  compact
+                  onStartRegularMeterTrip={handleStartRegularMeterTrip}
+                />
+              ) : (
+                <PostSettlementBanner
+                  caseNumber={postSettlementCaseNumber}
+                  compact
+                  onStartNewCase={handleStartNewCase}
+                />
+              )
             ) : null}
 
             {!savedCaseRecord ? (
@@ -4263,7 +4428,7 @@ export function CasePage() {
                     {isFixedCompleteLoading ? '完了API処理中…' : '完了APIを再試行'}
                   </button>
                 ) : null}
-                {meterMode === 'fixed' && fixedCompleteState === 'done' && savedCaseRecord.reservationId ? (
+                {meterMode === 'fixed' && fixedCompleteState === 'done' && savedCaseRecord.reservationId && !isPassengerChangeSavedCase ? (
                   <button
                     className="secondary-action"
                     type="button"
@@ -4273,6 +4438,12 @@ export function CasePage() {
                   >
                     予約詳細へ戻る
                   </button>
+                ) : null}
+                {isPassengerChangeSavedCase && fixedCompleteState === 'done' ? (
+                  <PassengerChangePostSettlementBanner
+                    compact
+                    onStartRegularMeterTrip={handleStartRegularMeterTrip}
+                  />
                 ) : null}
                 {settlementFlowStep === 'saved' ? (
                   <p className="r9-issue-complete">
@@ -4325,6 +4496,12 @@ export function CasePage() {
         isOpen={waitingMovementAlert.alertState.isOpen}
         onContinueWaiting={handleWaitingMovementContinue}
         onResumeTrip={handleWaitingMovementResumeTrip}
+      />
+
+      <PreFixedFarePassengerChangeDialog
+        isOpen={isPassengerChangeDialogOpen}
+        onCancel={() => setIsPassengerChangeDialogOpen(false)}
+        onConfirm={() => { void handleConfirmPassengerChangeTermination() }}
       />
 
       <TopReturnFab onClick={handleReturnToTop} visible={canShowTopFab} />

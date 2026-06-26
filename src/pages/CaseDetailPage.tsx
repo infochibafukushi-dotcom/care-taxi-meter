@@ -24,7 +24,7 @@ import type { CaseRecordEditableValues, StoredCaseRecord } from '../services/cas
 import type { MeterSettings } from '../services/meterSettings'
 import type { PaymentMethod, TaxiTicket } from '../types/case'
 import { formatFareYen } from '../services/fare'
-import { formatCaseDateTime, formatCaseOperationDateTime, getActualMeterMode, meterModeLabels } from '../utils/caseRecords'
+import { formatCaseDateTime, formatCaseOperationDateTime, getActualMeterMode, getPreFixedFarePassengerChangeDisplayLabel, isPreFixedFarePassengerChangeCase, meterModeLabels } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { downloadReceiptPdf } from '../utils/receiptPdf'
 import { downloadStatementPdf } from '../utils/statementPdf'
@@ -817,6 +817,45 @@ export function CaseDetailPage() {
 
             {caseRecord.status === 'canceled' ? (
               <p className="case-status-badge">キャンセル済（売上集計対象外） 理由: {caseRecord.cancelReason || '未記録'}</p>
+            ) : null}
+
+            {isPreFixedFarePassengerChangeCase(caseRecord) ? (
+              <section className="case-passenger-change-panel" aria-label="事前確定運賃途中終了">
+                <p className="case-status-badge case-status-badge--passenger-change">
+                  {getPreFixedFarePassengerChangeDisplayLabel()}
+                </p>
+                {caseRecord.preFixedFareException ? (
+                  <dl className="reservation-detail-dl">
+                    <div>
+                      <dt>終了日時</dt>
+                      <dd>{formatCaseDateTime(caseRecord.preFixedFareException.endedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>当初事前確定運賃額</dt>
+                      <dd>{formatFareYen(caseRecord.preFixedFareException.originalFixedFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>fareMode</dt>
+                      <dd>{caseRecord.fareMode ?? caseRecord.preFixedFareException.fareModeBeforeEnd}</dd>
+                    </div>
+                    <div>
+                      <dt>以後の運送</dt>
+                      <dd>通常メーター等の別運行として開始</dd>
+                    </div>
+                    {caseRecord.preFixedFareException.endedLocation.lat != null &&
+                    caseRecord.preFixedFareException.endedLocation.lng != null ? (
+                      <div>
+                        <dt>終了地点</dt>
+                        <dd>
+                          {caseRecord.preFixedFareException.endedLocation.lat.toFixed(6)},
+                          {' '}
+                          {caseRecord.preFixedFareException.endedLocation.lng.toFixed(6)}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
+              </section>
             ) : null}
 
             {isEditing ? (

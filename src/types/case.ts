@@ -1,4 +1,5 @@
 export type MeterMode = 'gps' | 'time' | 'obd' | 'fixed'
+/** @see FARE_MODE_PRE_FIXED in `src/types/preFixedFare.ts` — 監査上の正式識別子は fareMode: "pre_fixed_fare" */
 
 export type OperationStatus =
   | '空車'

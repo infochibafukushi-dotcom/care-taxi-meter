@@ -1,6 +1,9 @@
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { MeterMode } from '../types/case'
+import {
+  PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+} from '../types/preFixedFare'
 import { getDatePartsInJapan, getMonthRangeInJapan, getTodayRangeInJapan } from './japanDate'
 import { meterModeLabels } from './meterConstants'
 
@@ -70,6 +73,14 @@ export type ReceiptFareLine = {
   value: string
 }
 
+export const isPreFixedFarePassengerChangeCase = (caseRecord: StoredCaseRecord) =>
+  caseRecord.status === 'completed_with_passenger_change' ||
+  caseRecord.completionReason === 'passenger_requested_route_change' ||
+  Boolean(caseRecord.preFixedFareException)
+
+export const getPreFixedFarePassengerChangeDisplayLabel = () =>
+  `${PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL}のため、事前確定運賃運送を途中終了`
+
 export function createPrimaryFareReceiptLines(
   caseRecord: StoredCaseRecord,
 ): ReceiptFareLine[] {
@@ -77,13 +88,17 @@ export function createPrimaryFareReceiptLines(
     const fareYen =
       typeof caseRecord.confirmedFareYen === 'number' && Number.isFinite(caseRecord.confirmedFareYen)
         ? caseRecord.confirmedFareYen
-        : caseRecord.normalFareYen > 0
-          ? caseRecord.normalFareYen
-          : caseRecord.basicFareYen
+        : caseRecord.preFixedFareException?.originalFixedFareYen ??
+          (caseRecord.normalFareYen > 0
+            ? caseRecord.normalFareYen
+            : caseRecord.basicFareYen)
+    const isPassengerChange = isPreFixedFarePassengerChangeCase(caseRecord)
 
     return [
       {
-        label: '事前確定運賃',
+        label: isPassengerChange
+          ? '事前確定運賃：旅客都合変更により終了'
+          : '事前確定運賃',
         value: `${formatFareYen(fareYen)}円`,
       },
     ]

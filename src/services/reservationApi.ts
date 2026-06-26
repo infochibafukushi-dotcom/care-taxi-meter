@@ -6,6 +6,7 @@ import type {
   DriverReservationSummary,
   DriverReservationsListResponseApi,
 } from '../types/reservation'
+import type { CompleteFixedFareRunPayload } from '../types/preFixedFare'
 
 type ReservationApiErrorBody = {
   error?: string
@@ -229,10 +230,28 @@ export async function startFixedFareRun(reservationId: string): Promise<void> {
   }
 }
 
-export async function completeFixedFareRun(reservationId: string): Promise<void> {
+export async function completeFixedFareRun(
+  reservationId: string,
+  completion?: CompleteFixedFareRunPayload,
+): Promise<void> {
   const encodedReservationId = encodeURIComponent(reservationId)
+  const body: Record<string, unknown> = {}
+
+  if (completion?.completionStatus) {
+    body.completionStatus = completion.completionStatus
+  }
+
+  if (completion?.completionReason) {
+    body.completionReason = completion.completionReason
+  }
+
+  if (completion?.preFixedFareException) {
+    body.preFixedFareException = completion.preFixedFareException
+  }
+
   const response = await postReservationApi<FixedFareRunActionResponseApi>(
     `/reservations/${encodedReservationId}/complete-fixed-fare`,
+    body,
   )
 
   if (!response.success) {
