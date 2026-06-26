@@ -6,12 +6,13 @@ export const meterModeLabels: Record<MeterMode, string> = {
   gps: 'GPSM',
   obd: 'OBDM',
   time: '時間M',
+  fixed: '事前確定M',
 }
 
 export const meterModeStorageKey = 'careTaxiMeterMode'
 
 export const parseMeterModeParam = (value: string | null | undefined): MeterMode | null =>
-  value === 'gps' || value === 'time' || value === 'obd' ? value : null
+  value === 'gps' || value === 'time' || value === 'obd' || value === 'fixed' ? value : null
 
 export const readStoredMeterMode = (): MeterMode => {
   const storedMode = window.localStorage.getItem(meterModeStorageKey)
@@ -26,12 +27,19 @@ export const clampMeterModeToPermissions = (
   mode: MeterMode,
   permissions: MeterPermissions,
 ): MeterMode => {
+  if (mode === 'fixed') {
+    return 'fixed'
+  }
+
   if (isMeterModeAllowed(mode, permissions)) {
     return mode
   }
 
   return getAllowedMeterModes(permissions)[0] ?? 'gps'
 }
+
+export const resolveMeterSettingsMode = (mode: MeterMode): 'gps' | 'time' | 'obd' =>
+  mode === 'fixed' ? 'gps' : mode
 
 /** 権限クランプ前の生の meterMode を決定する（復元 > クエリ > localStorage） */
 export const resolveRawMeterMode = ({

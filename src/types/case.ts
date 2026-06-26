@@ -1,4 +1,4 @@
-export type MeterMode = 'gps' | 'time' | 'obd'
+export type MeterMode = 'gps' | 'time' | 'obd' | 'fixed'
 
 export type OperationStatus =
   | '空車'

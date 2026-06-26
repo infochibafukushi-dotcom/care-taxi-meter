@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import {
   completeFixedFareRun,
   fetchDriverReservation,
   startFixedFareRun,
 } from '../services/reservationApi'
+import {
+  buildReservationTripContext,
+  saveReservationTripContext,
+} from '../services/reservationTripContext'
 import type { DriverReservationDetail } from '../types/reservation'
 import {
   formatMeterRunStatus,
@@ -37,6 +42,7 @@ type ReservationListLocationState = {
 }
 
 export function ReservationDetailPage() {
+  const navigate = useNavigate()
   const { reservationId = '' } = useParams()
   const location = useLocation()
   const listDate = (location.state as ReservationListLocationState | null)?.listDate
@@ -114,6 +120,15 @@ export function ReservationDetailPage() {
       return
     }
 
+    if (readActiveTripSnapshot()) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          '未終了の運行があります。予約連携を開始する前に、メーター画面で運行を終了または復元してください。',
+      }))
+      return
+    }
+
     setState((current) => ({
       ...current,
       actionErrorMessage: '',
@@ -122,7 +137,9 @@ export function ReservationDetailPage() {
 
     try {
       await startFixedFareRun(reservationId)
-      await loadReservation(reservationId)
+      const reservation = await loadReservation(reservationId)
+      saveReservationTripContext(buildReservationTripContext(reservation))
+      navigate(`/case/start?reservationId=${encodeURIComponent(reservationId)}`)
     } catch (error) {
       setState((current) => ({
         ...current,

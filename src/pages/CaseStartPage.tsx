@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { readPostSettlementLock } from '../services/postSettlementLock'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
+import { readReservationTripContext } from '../services/reservationTripContext'
 import {
   defaultMeterPermissions,
   getAllowedMeterModes,
@@ -20,10 +21,19 @@ import {
 
 export function CaseStartPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const reservationId = searchParams.get('reservationId')?.trim() ?? ''
+  const isReservationStart = reservationId.length > 0
+  const reservationTripContext = useMemo(
+    () => (isReservationStart ? readReservationTripContext(reservationId) : null),
+    [isReservationStart, reservationId],
+  )
   const workSession = useWorkSession()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
-  const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(readStoredMeterMode)
+  const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(
+    () => (isReservationStart ? 'fixed' : readStoredMeterMode()),
+  )
   const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [message, setMessage] = useState('稼働中車両を読み込み中です。')
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
@@ -52,9 +62,11 @@ export function CaseStartPage() {
     void fetchCompanyById(franchiseeId).then((company) => {
       const permissions = getCompanyMeterPermissions(company)
       setMeterPermissions(permissions)
-      setSelectedMeterMode((currentMode) => clampMeterModeToPermissions(currentMode, permissions))
+      if (!isReservationStart) {
+        setSelectedMeterMode((currentMode) => clampMeterModeToPermissions(currentMode, permissions))
+      }
     })
-  }, [workSession.currentSession])
+  }, [isReservationStart, workSession.currentSession])
 
   useEffect(() => {
     let isMounted = true
@@ -66,7 +78,11 @@ export function CaseStartPage() {
         }
 
         setVehicles(loadedVehicles)
-        setMessage('案件で使用する車両とメーター方式を選択してください。')
+        setMessage(
+          isReservationStart
+            ? '予約連携の事前確定Mで使用する車両を選択してください。'
+            : '案件で使用する車両とメーター方式を選択してください。',
+        )
       })
       .catch((error) => {
         if (!isMounted) {
@@ -79,7 +95,7 @@ export function CaseStartPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [isReservationStart])
 
   const availableVehicles = useMemo(
     () => vehicles.filter(
@@ -98,13 +114,20 @@ export function CaseStartPage() {
   )
 
   const selectedVehicleValue = selectedVehicleId || availableVehicles[0]?.id || ''
-  const selectedMeterModeValue = allowedMeterModes.includes(selectedMeterMode)
-    ? selectedMeterMode
-    : allowedMeterModes[0] ?? 'gps'
+  const selectedMeterModeValue: MeterMode = isReservationStart
+    ? 'fixed'
+    : allowedMeterModes.includes(selectedMeterMode as 'gps' | 'time' | 'obd')
+      ? selectedMeterMode
+      : allowedMeterModes[0] ?? 'gps'
 
   const handleStartCase = () => {
     if (activeTripSnapshot) {
       setMessage('未終了の運行があります。新規案件開始の前に運行を復元してください。')
+      return
+    }
+
+    if (isReservationStart && !reservationTripContext) {
+      setMessage('予約連携情報が見つかりません。予約詳細から再度「事前確定Mで開始」してください。')
       return
     }
 
@@ -113,14 +136,24 @@ export function CaseStartPage() {
       return
     }
 
-    if (!allowedMeterModes.includes(selectedMeterModeValue)) {
+    if (
+      !isReservationStart &&
+      selectedMeterModeValue !== 'fixed' &&
+      !allowedMeterModes.includes(selectedMeterModeValue)
+    ) {
       setMessage('選択したメーター方式は利用できません。')
       return
     }
 
-    navigate(
-      `/case?vehicleId=${encodeURIComponent(selectedVehicleValue)}&meterMode=${encodeURIComponent(selectedMeterModeValue)}`,
-    )
+    const query = new URLSearchParams({
+      vehicleId: selectedVehicleValue,
+      meterMode: selectedMeterModeValue,
+    })
+    if (isReservationStart) {
+      query.set('reservationId', reservationId)
+    }
+
+    navigate(`/case?${query.toString()}`)
   }
 
   if (activeTripSnapshot) {
@@ -153,8 +186,24 @@ export function CaseStartPage() {
     <main className="page" aria-labelledby="case-start-title">
       <section className="hero-card work-session-card">
         <p className="eyebrow">Case Start</p>
-        <h1 id="case-start-title">案件開始前の車両選択</h1>
-        <p className="lead">出勤中の会社・店舗に所属する稼働中車両のみ表示します。</p>
+        <h1 id="case-start-title">
+          {isReservationStart ? '予約連携の案件開始' : '案件開始前の車両選択'}
+        </h1>
+        <p className="lead">
+          {isReservationStart
+            ? '事前確定Mの予約連携です。使用する車両を選択してください。'
+            : '出勤中の会社・店舗に所属する稼働中車両のみ表示します。'}
+        </p>
+        {isReservationStart && reservationTripContext ? (
+          <p className="save-note" role="status">
+            予約ID {reservationTripContext.reservationId} / 利用者 {reservationTripContext.customerName || '未設定'}
+          </p>
+        ) : null}
+        {isReservationStart && !reservationTripContext ? (
+          <p className="case-error" role="alert">
+            予約連携情報が見つかりません。予約詳細から再度開始してください。
+          </p>
+        ) : null}
         <div className="work-session-grid">
           <label>
             店舗
@@ -175,22 +224,36 @@ export function CaseStartPage() {
               ))}
             </select>
           </label>
-          <label>
-            メーター方式
-            <select
-              value={selectedMeterModeValue}
-              onChange={(event) => setSelectedMeterMode(event.target.value as MeterMode)}
-            >
-              {allowedMeterModes.map((mode) => (
-                <option key={mode} value={mode}>
-                  {meterModeLabels[mode]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isReservationStart ? (
+            <label>
+              メーター方式
+              <input readOnly value={meterModeLabels.fixed} />
+            </label>
+          ) : (
+            <label>
+              メーター方式
+              <select
+                value={selectedMeterModeValue}
+                onChange={(event) => setSelectedMeterMode(event.target.value as MeterMode)}
+              >
+                {allowedMeterModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {meterModeLabels[mode]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <p className="save-note">{message}</p>
-        <button className="primary-action" type="button" onClick={handleStartCase}>メーター画面へ進む</button>
+        <button
+          className="primary-action"
+          type="button"
+          disabled={isReservationStart && !reservationTripContext}
+          onClick={handleStartCase}
+        >
+          メーター画面へ進む
+        </button>
       </section>
     </main>
   )

@@ -1,4 +1,5 @@
 import type { MeterMode } from '../types/case'
+import { resolveMeterSettingsMode } from '../utils/meterConstants'
 import type { TimeMeterSettings } from './meterSettings'
 import { calculateTimeMeterFare } from './timeMeterFare'
 import {
@@ -416,7 +417,7 @@ export function calculateFareBreakdown({
     distanceKm,
     drivingSeconds,
     midnightSettings,
-    meterMode,
+    meterMode: resolveMeterSettingsMode(meterMode),
     nightChargeableDistanceKm,
     nightDrivingSeconds,
     timeMeterSettings,
