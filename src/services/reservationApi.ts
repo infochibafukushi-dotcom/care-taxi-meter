@@ -79,6 +79,18 @@ const reservationErrorMessage = async (response: Response) => {
   return bodyMessage || `予約 API の取得に失敗しました。（HTTP ${response.status}）`
 }
 
+const parseReservationJsonResponse = async <T>(response: Response): Promise<T> => {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    throw new ReservationApiError(
+      response.status,
+      '予約 API から不正な応答を受信しました。開発時は Vite プロキシ設定を確認してください。',
+    )
+  }
+
+  return (await response.json()) as T
+}
+
 async function requestReservationApi<T>(relativePath: string): Promise<T> {
   const response = await fetch(buildReservationApiUrl(relativePath), {
     headers: {
@@ -90,15 +102,59 @@ async function requestReservationApi<T>(relativePath: string): Promise<T> {
     throw new ReservationApiError(response.status, await reservationErrorMessage(response))
   }
 
+  return parseReservationJsonResponse<T>(response)
+}
+
+type FixedFareRunActionResponseApi = {
+  success: boolean
+  message?: string
+}
+
+const postReservationErrorMessage = async (response: Response) => {
   const contentType = response.headers.get('content-type') ?? ''
   if (!contentType.includes('application/json')) {
-    throw new ReservationApiError(
-      response.status,
-      '予約 API から不正な応答を受信しました。開発時は Vite プロキシ設定を確認してください。',
-    )
+    return '予約 API から不正な応答を受信しました。開発時は Vite プロキシ設定を確認してください。'
   }
 
-  return (await response.json()) as T
+  const bodyMessage = await parseErrorMessage(response)
+
+  if (response.status === 401) {
+    return bodyMessage || '予約 API の認証に失敗しました。'
+  }
+
+  if (response.status === 404) {
+    return bodyMessage || '予約が見つかりません。'
+  }
+
+  if (response.status === 409) {
+    return bodyMessage || '運行状態が競合しています。画面を再読み込みしてください。'
+  }
+
+  if (response.status === 422) {
+    return bodyMessage || '予約の整合性検証に失敗しました。'
+  }
+
+  return bodyMessage || `予約 API の処理に失敗しました。（HTTP ${response.status}）`
+}
+
+async function postReservationApi<T>(
+  relativePath: string,
+  body: Record<string, unknown> = {},
+): Promise<T> {
+  const response = await fetch(buildReservationApiUrl(relativePath), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new ReservationApiError(response.status, await postReservationErrorMessage(response))
+  }
+
+  return parseReservationJsonResponse<T>(response)
 }
 
 export const mapDriverReservationListItem = (
@@ -160,4 +216,26 @@ export async function fetchDriverReservation(
   }
 
   return mapDriverReservationDetail(response.reservation)
+}
+
+export async function startFixedFareRun(reservationId: string): Promise<void> {
+  const encodedReservationId = encodeURIComponent(reservationId)
+  const response = await postReservationApi<FixedFareRunActionResponseApi>(
+    `/reservations/${encodedReservationId}/start-fixed-fare`,
+  )
+
+  if (!response.success) {
+    throw new ReservationApiError(500, response.message?.trim() || '事前確定Mの開始に失敗しました。')
+  }
+}
+
+export async function completeFixedFareRun(reservationId: string): Promise<void> {
+  const encodedReservationId = encodeURIComponent(reservationId)
+  const response = await postReservationApi<FixedFareRunActionResponseApi>(
+    `/reservations/${encodedReservationId}/complete-fixed-fare`,
+  )
+
+  if (!response.success) {
+    throw new ReservationApiError(500, response.message?.trim() || '事前確定Mの完了に失敗しました。')
+  }
 }

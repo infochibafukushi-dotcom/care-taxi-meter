@@ -150,6 +150,8 @@ export const reservationStatusLabels: Record<string, string> = {
 
 export const meterRunStatusLabels: Record<string, string> = {
   not_started: '未開始',
+  in_progress: '運行中',
+  completed: '完了',
 }
 
 export const formatReservationStatus = (status: string) =>

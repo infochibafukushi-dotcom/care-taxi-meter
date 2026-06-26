@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { fetchDriverReservation } from '../services/reservationApi'
+import {
+  completeFixedFareRun,
+  fetchDriverReservation,
+  startFixedFareRun,
+} from '../services/reservationApi'
 import type { DriverReservationDetail } from '../types/reservation'
 import {
   formatMeterRunStatus,
@@ -21,7 +25,9 @@ const formatVerificationBadge = (verified: boolean) =>
   verified ? 'OK' : '要確認'
 
 type ReservationDetailState = {
+  actionErrorMessage: string
   errorMessage: string
+  isActionLoading: boolean
   isLoading: boolean
   reservation: DriverReservationDetail | null
 }
@@ -36,10 +42,24 @@ export function ReservationDetailPage() {
   const listDate = (location.state as ReservationListLocationState | null)?.listDate
   const backToListPath = listDate ? `/reservations?date=${encodeURIComponent(listDate)}` : '/reservations'
   const [state, setState] = useState<ReservationDetailState>({
+    actionErrorMessage: '',
     errorMessage: '',
+    isActionLoading: false,
     isLoading: true,
     reservation: null,
   })
+
+  const loadReservation = useCallback(async (targetReservationId: string) => {
+    const reservation = await fetchDriverReservation(targetReservationId)
+    setState((current) => ({
+      ...current,
+      actionErrorMessage: '',
+      errorMessage: '',
+      isLoading: false,
+      reservation,
+    }))
+    return reservation
+  }, [])
 
   useEffect(() => {
     logDiagnostic('ReservationDetailPage mount', { reservationId })
@@ -49,7 +69,9 @@ export function ReservationDetailPage() {
   useEffect(() => {
     if (!reservationId) {
       setState({
+        actionErrorMessage: '',
         errorMessage: '予約IDが指定されていません。',
+        isActionLoading: false,
         isLoading: false,
         reservation: null,
       })
@@ -58,45 +80,97 @@ export function ReservationDetailPage() {
 
     let isMounted = true
 
-    setState({
+    setState((current) => ({
+      ...current,
+      actionErrorMessage: '',
       errorMessage: '',
       isLoading: true,
       reservation: null,
+    }))
+
+    loadReservation(reservationId).catch((error) => {
+      if (!isMounted) {
+        return
+      }
+
+      setState((current) => ({
+        ...current,
+        errorMessage:
+          error instanceof Error
+            ? error.message
+            : '予約詳細の取得に失敗しました。',
+        isLoading: false,
+        reservation: null,
+      }))
     })
-
-    fetchDriverReservation(reservationId)
-      .then((reservation) => {
-        if (!isMounted) {
-          return
-        }
-
-        setState({
-          errorMessage: '',
-          isLoading: false,
-          reservation,
-        })
-      })
-      .catch((error) => {
-        if (!isMounted) {
-          return
-        }
-
-        setState({
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : '予約詳細の取得に失敗しました。',
-          isLoading: false,
-          reservation: null,
-        })
-      })
 
     return () => {
       isMounted = false
     }
-  }, [reservationId])
+  }, [loadReservation, reservationId])
+
+  const handleStartFixedFareRun = async () => {
+    if (!reservationId || state.isActionLoading) {
+      return
+    }
+
+    setState((current) => ({
+      ...current,
+      actionErrorMessage: '',
+      isActionLoading: true,
+    }))
+
+    try {
+      await startFixedFareRun(reservationId)
+      await loadReservation(reservationId)
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          error instanceof Error
+            ? error.message
+            : '事前確定Mの開始に失敗しました。',
+      }))
+    } finally {
+      setState((current) => ({
+        ...current,
+        isActionLoading: false,
+      }))
+    }
+  }
+
+  const handleCompleteFixedFareRun = async () => {
+    if (!reservationId || state.isActionLoading) {
+      return
+    }
+
+    setState((current) => ({
+      ...current,
+      actionErrorMessage: '',
+      isActionLoading: true,
+    }))
+
+    try {
+      await completeFixedFareRun(reservationId)
+      await loadReservation(reservationId)
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          error instanceof Error
+            ? error.message
+            : '事前確定Mの完了に失敗しました。',
+      }))
+    } finally {
+      setState((current) => ({
+        ...current,
+        isActionLoading: false,
+      }))
+    }
+  }
 
   const reservation = state.reservation
+  const meterRunStatus = reservation?.meterRunStatus ?? ''
 
   return (
     <main className="page reservation-detail-page" aria-labelledby="reservation-detail-title">
@@ -121,8 +195,48 @@ export function ReservationDetailPage() {
           </p>
         ) : null}
 
+        {state.actionErrorMessage ? (
+          <p className="case-error" role="alert">
+            {state.actionErrorMessage}
+          </p>
+        ) : null}
+
         {reservation ? (
           <div className="reservation-detail-grid">
+            {meterRunStatus === 'not_started' ||
+            meterRunStatus === 'in_progress' ||
+            meterRunStatus === 'completed' ? (
+              <section className="reservation-detail-section" aria-label="事前確定M 運行">
+                <h2>事前確定M 運行</h2>
+                {meterRunStatus === 'not_started' ? (
+                  <button
+                    className="primary-action"
+                    type="button"
+                    disabled={state.isActionLoading}
+                    onClick={handleStartFixedFareRun}
+                  >
+                    {state.isActionLoading ? '開始処理中…' : '事前確定Mで開始'}
+                  </button>
+                ) : null}
+                {meterRunStatus === 'in_progress' ? (
+                  <>
+                    <p className="reservation-run-status">事前確定M 運行中</p>
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      disabled={state.isActionLoading}
+                      onClick={handleCompleteFixedFareRun}
+                    >
+                      {state.isActionLoading ? '完了処理中…' : '完了'}
+                    </button>
+                  </>
+                ) : null}
+                {meterRunStatus === 'completed' ? (
+                  <p className="reservation-run-status">事前確定M 完了</p>
+                ) : null}
+              </section>
+            ) : null}
+
             <section className="reservation-detail-section" aria-label="検証結果">
               <h2>検証結果</h2>
               <div className="reservation-verification-badges">
