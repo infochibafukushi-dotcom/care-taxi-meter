@@ -843,6 +843,10 @@ export function CasePage() {
   const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中' && meterMode !== 'fixed'
+  const canEndFixedTrip =
+    meterMode === 'fixed' &&
+    status === '走行中' &&
+    Boolean(fixedFareRun)
   const canEditCharges =
     meterMode !== 'fixed' &&
     (status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'))
@@ -1972,6 +1976,25 @@ export function CasePage() {
     return true
   }
 
+  const handleFixedTripEnd = () => {
+    if (!canEndFixedTrip) {
+      setCaseSaveState('error')
+      setCaseSaveMessage('現在の状態では運行終了できません。')
+      return
+    }
+
+    if (!operationEndedAtRef.current) {
+      operationEndedAtRef.current = new Date().toISOString()
+    }
+
+    if (!handleStatusChange('精算前')) {
+      return
+    }
+
+    setCaseSaveState('idle')
+    setCaseSaveMessage('運行を終了しました。事前確定運賃で精算前です。')
+  }
+
   const handleSettlementFlowStart = () => {
     if (!handleSettlementStart()) {
       return
@@ -2205,7 +2228,11 @@ export function CasePage() {
     setPaymentAmounts(createEmptyPaymentAmounts())
     setIsSettlementFlowOpen(false)
     setCaseSaveState('idle')
-    setCaseSaveMessage('運行を再開しました。距離・時間は継続して計測します。')
+    setCaseSaveMessage(
+      meterMode === 'fixed'
+        ? '運行を再開しました。'
+        : '運行を再開しました。距離・時間は継続して計測します。',
+    )
     handleStatusChange('走行中')
     if (workSession.currentSession) {
       await createAuditLog({
@@ -3220,6 +3247,17 @@ export function CasePage() {
                 <span aria-hidden="true">￥</span>
                 <strong>実費</strong>
               </button>
+              {meterMode === 'fixed' ? (
+                <button
+                  className="r9-status-button r9-status-button--settlement"
+                  type="button"
+                  disabled={caseSaveState === 'saving' || !canEndFixedTrip}
+                  onClick={handleFixedTripEnd}
+                >
+                  <span aria-hidden="true">▣</span>
+                  <strong>運行終了</strong>
+                </button>
+              ) : (
               <button
                 className="r9-status-button r9-status-button--settlement r9-status-button--hold"
                 type="button"
@@ -3235,6 +3273,7 @@ export function CasePage() {
                 <strong>精算・終了</strong>
                 <small id="settlement-hold-help">長押し</small>
               </button>
+              )}
             </div>
 
             {isDevelopmentMode ? (
@@ -3797,7 +3836,7 @@ export function CasePage() {
         </div>
       ) : null}
 
-      {isSettlementConfirmOpen ? (
+      {isSettlementConfirmOpen && meterMode !== 'fixed' ? (
         <div className="settings-backdrop" role="presentation">
           <section
             aria-labelledby="settlement-confirm-title"
@@ -3829,7 +3868,7 @@ export function CasePage() {
         </div>
       ) : null}
 
-      {isSettlementFlowOpen ? (
+      {isSettlementFlowOpen && meterMode !== 'fixed' ? (
         <div className="settings-backdrop" role="presentation">
           <section
             aria-labelledby="settlement-flow-title"
