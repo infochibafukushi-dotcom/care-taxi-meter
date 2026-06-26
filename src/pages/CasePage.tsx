@@ -477,6 +477,34 @@ export function CasePage() {
     return resolveActiveTripRestoration(readActiveTripSnapshot())
   })
   const restoredTripSnapshot = restoredTripState.snapshot
+  const [fixedFareRun, setFixedFareRun] = useState<{
+    confirmedFareYen: number
+    reservationId: string
+    snapshotHash: string
+  } | null>(() => {
+    if (
+      restoredTripSnapshot?.meterMode === 'fixed' &&
+      typeof restoredTripSnapshot.reservationId === 'string' &&
+      restoredTripSnapshot.reservationId
+    ) {
+      return {
+        reservationId: restoredTripSnapshot.reservationId,
+        confirmedFareYen:
+          restoredTripSnapshot.confirmedFareYen ?? restoredTripSnapshot.fareTotalYen,
+        snapshotHash: restoredTripSnapshot.snapshotHash ?? '',
+      }
+    }
+
+    if (reservationTripContext) {
+      return {
+        reservationId: reservationTripContext.reservationId,
+        confirmedFareYen: reservationTripContext.confirmedFareYen,
+        snapshotHash: reservationTripContext.snapshotHash,
+      }
+    }
+
+    return null
+  })
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
   const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
   const fareSnapshotRef = useRef<FareSnapshot | null>(restoredTripSnapshot?.fareSnapshot ?? null)
@@ -502,7 +530,9 @@ export function CasePage() {
     accompanying: restoredTripSnapshot?.billableTimeStarted.accompanying ?? false,
     waiting: restoredTripSnapshot?.billableTimeStarted.waiting ?? false,
   })
-  const [isGpsActive, setIsGpsActive] = useState(Boolean(restoredTripSnapshot))
+  const [isGpsActive, setIsGpsActive] = useState(
+    Boolean(restoredTripSnapshot) && restoredTripSnapshot?.meterMode !== 'fixed',
+  )
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
@@ -633,7 +663,8 @@ export function CasePage() {
     status !== '空車' &&
     status !== '案件終了' &&
     !isTimeMeterInitialWaiting
-  const isDistanceAccumulating = isGpsActive && status !== '待機中'
+  const isDistanceAccumulating =
+    meterMode !== 'fixed' && isGpsActive && status !== '待機中'
 
   const midnightSettings = useMemo(() => {
     const snapshot = fareSnapshotRef.current?.midnightEarlyMorning
@@ -663,7 +694,7 @@ export function CasePage() {
   )
   const gps = useMeterTelemetry({
     initialObdState: initialObdTelemetryState,
-    isActive: isGpsActive,
+    isActive: meterMode !== 'fixed' && isGpsActive,
     isDistanceAccumulating,
     lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     meterMode,
@@ -675,7 +706,7 @@ export function CasePage() {
   const nightPeriodMetrics = useNightPeriodAccumulator({
     chargeableDistanceKm: gps.chargeableDistanceKm,
     drivingSeconds: elapsedTimers.seconds.driving,
-    isActive: isGpsActive && status !== '空車' && status !== '案件終了',
+    isActive: meterMode !== 'fixed' && isGpsActive && status !== '空車' && status !== '案件終了',
     isDrivingActive: status === '走行中',
     midnightSettings,
     resetKey: meterResetKey,
@@ -793,12 +824,20 @@ export function CasePage() {
     })
   }, [caseNumber, shouldPersistTripSnapshot, status, workSession.currentSession?.id])
 
-  const canStartTrip =
-    meterMode !== 'fixed' &&
+  const canStartFixedTrip =
+    meterMode === 'fixed' &&
+    Boolean(reservationTripContext) &&
     !isTripStarted &&
     Boolean(workSession.currentSession) &&
     Boolean(selectedVehicleId) &&
-    (status === '空車' || isTimeMeterInitialWaiting)
+    status === '空車'
+  const canStartTrip =
+    meterMode === 'fixed'
+      ? canStartFixedTrip
+      : !isTripStarted &&
+        Boolean(workSession.currentSession) &&
+        Boolean(selectedVehicleId) &&
+        (status === '空車' || isTimeMeterInitialWaiting)
   const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
   const canEndWaiting = status === '待機中' && caseSaveState !== 'saving' && billableTimeStarted.waiting
   const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
@@ -1245,7 +1284,10 @@ export function CasePage() {
       },
       dropoffLocation,
       fareSnapshot: fareSnapshotRef.current,
-      fareTotalYen: fareBreakdown.totalFareYen,
+      fareTotalYen:
+        meterMode === 'fixed' && fixedFareRun
+          ? fixedFareRun.confirmedFareYen
+          : fareBreakdown.totalFareYen,
       gps: {
         currentSpeedKmh: gps.currentSpeedKmh,
         gpsLogCount: gps.gpsLogCount,
@@ -1268,6 +1310,13 @@ export function CasePage() {
       selectedVehicleId,
       status,
       meterMode,
+      ...(meterMode === 'fixed' && fixedFareRun
+        ? {
+            reservationId: fixedFareRun.reservationId,
+            confirmedFareYen: fixedFareRun.confirmedFareYen,
+            snapshotHash: fixedFareRun.snapshotHash,
+          }
+        : {}),
       taxiTickets,
       timers: elapsedTimers.seconds,
     })
@@ -1280,6 +1329,7 @@ export function CasePage() {
     elapsedTimers.seconds,
     expenses,
     fareBreakdown.totalFareYen,
+    fixedFareRun,
     gps.businessDistanceKm,
     gps.chargeableDistanceKm,
     gps.currentSpeedKmh,
@@ -1739,10 +1789,62 @@ export function CasePage() {
 
   const handleDrivingStart = async () => {
     if (meterMode === 'fixed') {
-      const message = '事前確定Mは現在、送迎開始・精算連携の準備中です。'
-      setCaseSaveState('error')
-      setCaseSaveMessage(message)
-      setTripStartNotice(message)
+      if (!canStartFixedTrip || !workSession.currentSession || !reservationTripContext) {
+        const message =
+          !workSession.currentSession
+            ? '出勤してから運行開始してください。'
+            : !selectedVehicleId
+              ? '案件車両を選択してください。'
+              : !reservationTripContext
+                ? '予約連携情報が見つかりません。予約詳細から再度開始してください。'
+                : '現在の状態では固定運賃で運行開始できません。'
+        setCaseSaveState('error')
+        setCaseSaveMessage(message)
+        setTripStartNotice(message)
+        return
+      }
+
+      if (operationStartedAtRef.current) {
+        const message = '現在の状態では固定運賃で運行開始できません。'
+        setCaseSaveState('error')
+        setCaseSaveMessage(message)
+        setTripStartNotice(message)
+        return
+      }
+
+      try {
+        const assignment = await generateCaseNumber({
+          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+          storeId: workSession.currentSession.storeId,
+          storeName: workSession.currentSession.storeName,
+        })
+
+        caseNumberAssignmentRef.current = assignment
+        setCaseNumber(assignment.caseNumber)
+        setFixedFareRun({
+          reservationId: reservationTripContext.reservationId,
+          confirmedFareYen: reservationTripContext.confirmedFareYen,
+          snapshotHash: reservationTripContext.snapshotHash,
+        })
+        markOperationStarted()
+
+        if (!handleStatusChange('走行中')) {
+          return
+        }
+
+        setSettingsMessage('事前確定Mで運行を開始しました。')
+        setCaseSaveState('idle')
+        setCaseSaveMessage('固定運賃で運行を開始しました。')
+        setTripStartNotice('')
+      } catch (error) {
+        const message = error instanceof Error
+          ? `案件番号の採番に失敗しました。${error.message}`
+          : '案件番号の採番に失敗しました。通信状況とFirebase設定を確認してください。'
+        setCaseSaveState('error')
+        setCaseSaveMessage(message)
+        setTripStartNotice(message)
+      }
+
       return
     }
 
@@ -2153,7 +2255,7 @@ export function CasePage() {
     setStatus(nextStatus)
     setActiveTimer(activeTimerMap[nextStatus] ?? null)
 
-    if (nextStatus === '走行中') {
+    if (nextStatus === '走行中' && meterMode !== 'fixed') {
       setIsGpsActive(true)
       if (
         meterMode === 'obd' &&
@@ -2933,13 +3035,18 @@ export function CasePage() {
                 <div className="r9-fare-amount">
                   <strong>
                     {formatFareYen(
-                      meterMode === 'fixed' && reservationTripContext
-                        ? reservationTripContext.confirmedFareYen
+                      meterMode === 'fixed' && fixedFareRun
+                        ? fixedFareRun.confirmedFareYen
                         : fareBreakdown.totalFareYen,
                     )}
                   </strong>
                   <span className="r9-fare-unit">円</span>
                 </div>
+                {meterMode === 'fixed' && fixedFareRun && isTripStarted ? (
+                  <p className="fixed-fare-running-label">
+                    事前確定運賃 {formatFareYen(fixedFareRun.confirmedFareYen)}円
+                  </p>
+                ) : null}
               </div>
 
               {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
@@ -3084,7 +3191,7 @@ export function CasePage() {
                 onClick={() => { void handleDrivingStart() }}
               >
                 <span aria-hidden="true">🚘</span>
-                <strong>送迎開始</strong>
+                <strong>{meterMode === 'fixed' ? '固定運賃で運行開始' : '送迎開始'}</strong>
               </button>
               <button
                 className="r9-status-button r9-status-button--assist"
@@ -3233,16 +3340,16 @@ export function CasePage() {
             ) : null}
           </section>
 
-          {reservationTripContext ? (
+          {fixedFareRun && meterMode === 'fixed' ? (
             <section className="reservation-detail-section reservation-trip-context-panel" aria-label="予約連携情報">
               <h2>予約連携</h2>
               <dl className="reservation-detail-dl">
-                <div><dt>予約ID</dt><dd>{reservationTripContext.reservationId}</dd></div>
-                <div><dt>確定運賃</dt><dd>{formatFareYen(reservationTripContext.confirmedFareYen)}円</dd></div>
-                <div><dt>同意日時</dt><dd>{formatCaseDateTime(reservationTripContext.consentAt)}</dd></div>
-                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{reservationTripContext.snapshotHash}</dd></div>
-                <div><dt>迎車</dt><dd>{reservationTripContext.pickupAddress || '住所未取得'}</dd></div>
-                <div><dt>降車</dt><dd>{reservationTripContext.dropoffAddress || '住所未取得'}</dd></div>
+                <div><dt>予約ID</dt><dd>{fixedFareRun.reservationId}</dd></div>
+                <div><dt>確定運賃</dt><dd>{formatFareYen(fixedFareRun.confirmedFareYen)}円</dd></div>
+                <div><dt>同意日時</dt><dd>{reservationTripContext ? formatCaseDateTime(reservationTripContext.consentAt) : '—'}</dd></div>
+                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{fixedFareRun.snapshotHash}</dd></div>
+                <div><dt>迎車</dt><dd>{pickupLocation.address || reservationTripContext?.pickupAddress || '住所未取得'}</dd></div>
+                <div><dt>降車</dt><dd>{dropoffLocation.address || reservationTripContext?.dropoffAddress || '住所未取得'}</dd></div>
               </dl>
             </section>
           ) : null}

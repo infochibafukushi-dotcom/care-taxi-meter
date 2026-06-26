@@ -64,6 +64,9 @@ export type ActiveTripSnapshot = {
   selectedVehicleId: string
   status: OperationStatus
   meterMode: MeterMode
+  reservationId?: string
+  confirmedFareYen?: number
+  snapshotHash?: string
   taxiTickets: TaxiTicket[]
   timers: TimerSeconds
 }
@@ -159,6 +162,18 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
       selectedVehicleId: typeof snapshot.selectedVehicleId === 'string' ? snapshot.selectedVehicleId : '',
       status: snapshot.status,
       meterMode: parseMeterModeParam(snapshot.meterMode) ?? 'gps',
+      reservationId:
+        typeof snapshot.reservationId === 'string' && snapshot.reservationId.trim()
+          ? snapshot.reservationId.trim()
+          : undefined,
+      confirmedFareYen:
+        typeof snapshot.confirmedFareYen === 'number' && Number.isFinite(snapshot.confirmedFareYen)
+          ? Math.max(Math.round(snapshot.confirmedFareYen), 0)
+          : undefined,
+      snapshotHash:
+        typeof snapshot.snapshotHash === 'string' && snapshot.snapshotHash.trim()
+          ? snapshot.snapshotHash.trim()
+          : undefined,
       taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
       timers: normalizeSnapshotTimerSeconds(snapshot.timers),
     }
