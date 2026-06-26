@@ -57,6 +57,9 @@ export type CaseRecordInput = {
   gpsComparisonFareYen?: number | null
   timeComparisonFareYen?: number | null
   obdComparisonFareYen?: number | null
+  reservationId?: string
+  confirmedFareYen?: number
+  snapshotHash?: string
 }
 
 export type CaseRecordStatus = 'completed' | 'canceled'
@@ -223,6 +226,9 @@ export type CaseRecordDocument = {
   gpsComparisonFareYen: number | null
   timeComparisonFareYen: number | null
   obdComparisonFareYen: number | null
+  reservationId?: string
+  confirmedFareYen?: number
+  snapshotHash?: string
   savedAt: FieldValue
 }
 
@@ -671,6 +677,9 @@ const toStoredCaseRecord = (
     gpsComparisonFareYen: toNullableNumber(data.gpsComparisonFareYen),
     timeComparisonFareYen: toNullableNumber(data.timeComparisonFareYen),
     obdComparisonFareYen: toNullableNumber(data.obdComparisonFareYen),
+    reservationId: toString(data.reservationId) || undefined,
+    confirmedFareYen: toNullableNumber(data.confirmedFareYen) ?? undefined,
+    snapshotHash: toString(data.snapshotHash) || undefined,
   }
 }
 
@@ -775,6 +784,9 @@ export async function saveCaseRecord({
   gpsComparisonFareYen = null,
   timeComparisonFareYen = null,
   obdComparisonFareYen = null,
+  reservationId,
+  confirmedFareYen,
+  snapshotHash,
 }: CaseRecordInput) {
   const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
   const staffId = workSession?.staffId ?? ''
@@ -899,6 +911,11 @@ export async function saveCaseRecord({
     gpsComparisonFareYen,
     timeComparisonFareYen,
     obdComparisonFareYen,
+    ...(reservationId ? { reservationId } : {}),
+    ...(typeof confirmedFareYen === 'number' && Number.isFinite(confirmedFareYen)
+      ? { confirmedFareYen: Math.max(Math.round(confirmedFareYen), 0) }
+      : {}),
+    ...(snapshotHash ? { snapshotHash } : {}),
     savedAt: serverTimestamp(),
   }
 

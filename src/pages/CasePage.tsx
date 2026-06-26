@@ -22,6 +22,7 @@ import type { TimerSeconds } from '../hooks/useOperationTimers'
 import { useWorkSession } from '../hooks/useWorkSession'
 import {
   basicFareSettings,
+  buildFixedFareBreakdown,
   calculateFareBreakdown,
   calculateFareIncreaseProgress,
   calculateTimeFareIncreaseProgress,
@@ -554,6 +555,7 @@ export function CasePage() {
   const [meterModeToast, setMeterModeToast] = useState('')
   const [tripStartNotice, setTripStartNotice] = useState('')
   const [isFixedCompleteLoading, setIsFixedCompleteLoading] = useState(false)
+  const [fixedCompleteState, setFixedCompleteState] = useState<'idle' | 'done' | 'error'>('idle')
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [obdConnectionDialogVariant, setObdConnectionDialogVariant] = useState<'mid-trip' | 'pre-trip'>('pre-trip')
   const [settingsMessage, setSettingsMessage] = useState(
@@ -849,14 +851,10 @@ export function CasePage() {
     meterMode === 'fixed' &&
     status === '走行中' &&
     Boolean(fixedFareRun)
-  const canConfirmFixedTripComplete =
-    meterMode === 'fixed' &&
-    status === '精算前' &&
-    Boolean(fixedFareRun) &&
-    !isFixedCompleteLoading
   const canEditCharges =
-    meterMode !== 'fixed' &&
-    (status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving'))
+    meterMode === 'fixed'
+      ? status === '精算前' || status === '精算修正'
+      : status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving')
   const canAddAssistCharge = canEditCharges
   const canAddExpenseCharge = canEditCharges
   const canAddDispatchCharge = canEditCharges
@@ -1265,6 +1263,46 @@ export function CasePage() {
     nightDrivingSeconds: nightPeriodMetrics.nightDrivingSeconds,
   })
 
+  const settlementBreakdown = useMemo(() => {
+    if (meterMode === 'fixed' && fixedFareRun) {
+      return buildFixedFareBreakdown({
+        confirmedFareYen: fixedFareRun.confirmedFareYen,
+        dispatchCharges: selectedDispatchCharges,
+        specialVehicleCharges: selectedSpecialVehicleCharges,
+        careOptions: selectedCareOptions,
+        customFees,
+        expenses,
+        waitingSeconds: waitingFareSeconds,
+        escortSeconds: escortFareSeconds,
+        isDisabilityDiscount,
+        taxiTickets,
+        settings: {
+          escortFare: currentEscortFareSettings,
+          waitingFare: currentWaitingFareSettings,
+          discount: settlementDiscount,
+        },
+      })
+    }
+
+    return fareBreakdown
+  }, [
+    customFees,
+    currentEscortFareSettings,
+    currentWaitingFareSettings,
+    escortFareSeconds,
+    expenses,
+    fareBreakdown,
+    fixedFareRun,
+    isDisabilityDiscount,
+    meterMode,
+    selectedCareOptions,
+    selectedDispatchCharges,
+    selectedSpecialVehicleCharges,
+    settlementDiscount,
+    taxiTickets,
+    waitingFareSeconds,
+  ])
+
   const paymentTotalYen = paymentMethods.reduce(
     (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
     0,
@@ -1295,10 +1333,7 @@ export function CasePage() {
       },
       dropoffLocation,
       fareSnapshot: fareSnapshotRef.current,
-      fareTotalYen:
-        meterMode === 'fixed' && fixedFareRun
-          ? fixedFareRun.confirmedFareYen
-          : fareBreakdown.totalFareYen,
+      fareTotalYen: settlementBreakdown.totalFareYen,
       gps: {
         currentSpeedKmh: gps.currentSpeedKmh,
         gpsLogCount: gps.gpsLogCount,
@@ -1340,6 +1375,7 @@ export function CasePage() {
     elapsedTimers.seconds,
     expenses,
     fareBreakdown.totalFareYen,
+    settlementBreakdown.totalFareYen,
     fixedFareRun,
     gps.businessDistanceKm,
     gps.chargeableDistanceKm,
@@ -1661,7 +1697,7 @@ export function CasePage() {
   const settlePaymentRemainder = () => {
     setPaymentAmounts({
       ...createEmptyPaymentAmounts(),
-      [paymentMethod]: fareBreakdown.totalFareYen,
+      [paymentMethod]: settlementBreakdown.totalFareYen,
     })
   }
 
@@ -1983,6 +2019,22 @@ export function CasePage() {
     return true
   }
 
+  const openFixedSettlementFlow = () => {
+    if (status !== '精算前' || !fixedFareRun) {
+      return
+    }
+
+    if (paymentTotalYen === 0) {
+      setPaymentAmounts({
+        ...createEmptyPaymentAmounts(),
+        [paymentMethod]: settlementBreakdown.totalFareYen,
+      })
+    }
+
+    setIsSettlementFlowOpen(true)
+    setSettlementFlowStep('receipt')
+  }
+
   const handleFixedTripEnd = () => {
     if (!canEndFixedTrip) {
       setCaseSaveState('error')
@@ -1999,33 +2051,47 @@ export function CasePage() {
     }
 
     setCaseSaveState('idle')
-    setCaseSaveMessage('運行を終了しました。事前確定運賃で精算前です。')
+    setCaseSaveMessage('運行を終了しました。精算画面で支払いを確定してください。')
+    openFixedSettlementFlow()
   }
 
-  const handleConfirmFixedTripComplete = async () => {
-    if (!canConfirmFixedTripComplete || !fixedFareRun) {
-      return
-    }
-
+  const completeFixedFareAfterSave = async (reservationId: string): Promise<boolean> => {
     setIsFixedCompleteLoading(true)
     setTripStartNotice('')
 
     try {
-      await completeFixedFareRun(fixedFareRun.reservationId)
-      const reservationId = fixedFareRun.reservationId
+      await completeFixedFareRun(reservationId)
       clearActiveTripSnapshot()
       clearReservationTripContext()
-      navigate(`/reservations/${encodeURIComponent(reservationId)}`)
+      setFixedCompleteState('done')
+      setCaseSaveMessage('案件を保存し、事前確定Mを完了しました。レシート・領収書は任意で発行できます。')
+      return true
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : '事前確定Mの完了に失敗しました。'
+      setFixedCompleteState('error')
       setCaseSaveState('error')
-      setCaseSaveMessage(message)
+      setCaseSaveMessage(`${message}\n\n案件は保存済みです。「完了APIを再試行」から再度お試しください。`)
       setTripStartNotice(message)
+      return false
     } finally {
       setIsFixedCompleteLoading(false)
+    }
+  }
+
+  const handleConfirmFixedTripComplete = async () => {
+    const reservationId =
+      fixedFareRun?.reservationId ?? savedCaseRecord?.reservationId ?? ''
+
+    if (!reservationId) {
+      return
+    }
+
+    const succeeded = await completeFixedFareAfterSave(reservationId)
+    if (succeeded) {
+      navigate(`/reservations/${encodeURIComponent(reservationId)}`)
     }
   }
 
@@ -2037,7 +2103,7 @@ export function CasePage() {
     if (paymentTotalYen === 0) {
       setPaymentAmounts({
         ...createEmptyPaymentAmounts(),
-        [paymentMethod]: fareBreakdown.totalFareYen,
+        [paymentMethod]: settlementBreakdown.totalFareYen,
       })
     }
 
@@ -2088,7 +2154,11 @@ export function CasePage() {
     setSettlementEditBaseline(createSettlementEditSnapshot())
     if (handleStatusChange('精算修正')) {
       setCaseSaveState('idle')
-      setCaseSaveMessage('精算修正中です。距離・時間は固定し、介助・実費・タクシー券・割引・宛名のみ修正できます。')
+      setCaseSaveMessage(
+        meterMode === 'fixed'
+          ? '精算修正中です。介助・実費・タクシー券・割引・宛名のみ修正できます。'
+          : '精算修正中です。距離・時間は固定し、介助・実費・タクシー券・割引・宛名のみ修正できます。',
+      )
     }
   }
 
@@ -2348,7 +2418,9 @@ export function CasePage() {
 
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
-      clearActiveTripSnapshot()
+      if (meterMode !== 'fixed' || fixedCompleteState === 'done') {
+        clearActiveTripSnapshot()
+      }
       handleStatusChange('案件終了')
       return savedCaseRecord
     }
@@ -2378,7 +2450,7 @@ export function CasePage() {
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
     }
-    if (paymentTotalYen !== fareBreakdown.totalFareYen) {
+    if (paymentTotalYen !== settlementBreakdown.totalFareYen) {
       setCaseSaveState('error')
       setCaseSaveMessage('支払総額と請求額が一致しないため保存できません。')
       return null
@@ -2417,21 +2489,28 @@ export function CasePage() {
       const closedAt = new Date().toISOString()
       const currentCaseNumberAssignment = caseNumberAssignmentRef.current
       const currentFareSnapshot = fareSnapshotRef.current
-      const comparisonFares = calculateMeterComparisonFares({
-        careOptions: selectedCareOptions,
-        customFees,
-        dispatchCharges: selectedDispatchCharges,
-        distanceKm: gps.chargeableDistanceKm,
-        drivingSeconds: finalDrivingSeconds,
-        escortSeconds: escortFareSeconds,
-        expenses,
-        isDisabilityDiscount,
-        lowSpeedSeconds: gps.lowSpeedSeconds,
-        meterSettings: latestMeterSettingsRef.current,
-        specialVehicleCharges: selectedSpecialVehicleCharges,
-        taxiTickets,
-        waitingSeconds: adjustedWaitingSeconds,
-      })
+      const comparisonFares =
+        meterMode === 'fixed'
+          ? {
+              gpsComparisonFareYen: null,
+              obdComparisonFareYen: null,
+              timeComparisonFareYen: null,
+            }
+          : calculateMeterComparisonFares({
+              careOptions: selectedCareOptions,
+              customFees,
+              dispatchCharges: selectedDispatchCharges,
+              distanceKm: gps.chargeableDistanceKm,
+              drivingSeconds: finalDrivingSeconds,
+              escortSeconds: escortFareSeconds,
+              expenses,
+              isDisabilityDiscount,
+              lowSpeedSeconds: gps.lowSpeedSeconds,
+              meterSettings: latestMeterSettingsRef.current,
+              specialVehicleCharges: selectedSpecialVehicleCharges,
+              taxiTickets,
+              waitingSeconds: adjustedWaitingSeconds,
+            })
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
         caseDate: currentCaseNumberAssignment?.caseDate,
@@ -2449,7 +2528,7 @@ export function CasePage() {
         accompanyingSeconds: adjustedAccompanyingSeconds,
         workSession: workSession.currentSession,
         vehicle: selectedVehicle,
-        fareBreakdown,
+        fareBreakdown: settlementBreakdown,
         paymentMethod,
         payments,
         receiptName,
@@ -2464,6 +2543,13 @@ export function CasePage() {
         gpsComparisonFareYen: comparisonFares.gpsComparisonFareYen,
         timeComparisonFareYen: comparisonFares.timeComparisonFareYen,
         obdComparisonFareYen: comparisonFares.obdComparisonFareYen,
+        ...(meterMode === 'fixed' && fixedFareRun
+          ? {
+              reservationId: fixedFareRun.reservationId,
+              confirmedFareYen: fixedFareRun.confirmedFareYen,
+              snapshotHash: fixedFareRun.snapshotHash,
+            }
+          : {}),
       })
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
@@ -2494,27 +2580,27 @@ export function CasePage() {
         workSessionId: workSession.currentSession?.id ?? '',
         storeId: workSession.currentSession?.storeId ?? '',
         storeName: workSession.currentSession?.storeName ?? '',
-        dispatchFareYen: fareBreakdown.dispatchFareYen,
-        specialVehicleFareYen: fareBreakdown.specialVehicleFareYen,
-        basicFareYen: fareBreakdown.basicFareYen,
-        meterTimeFareYen: fareBreakdown.meterTimeFareYen,
-        waitingFareYen: fareBreakdown.waitingFareYen,
-        escortFareYen: fareBreakdown.escortFareYen,
-        careOptionFareYen: fareBreakdown.careOptionFareYen,
-        customFeeFareYen: fareBreakdown.customFeeFareYen,
-        expenseFareYen: fareBreakdown.expenseFareYen,
-        normalFareYen: fareBreakdown.normalFareYen,
-        nightSurchargeYen: fareBreakdown.nightSurchargeYen,
-        totalFareYen: fareBreakdown.totalFareYen,
-        grossFareYen: fareBreakdown.grossFareYen,
-        discountableFareYen: fareBreakdown.discountableFareYen,
-        isDisabilityDiscount: fareBreakdown.isDisabilityDiscount,
-        disabilityDiscountRate: fareBreakdown.disabilityDiscountRate,
-        disabilityDiscountAmount: fareBreakdown.disabilityDiscountAmount,
-        discountName: fareBreakdown.discountName,
-        discountMethod: fareBreakdown.discountMethod,
-        discountValue: fareBreakdown.discountValue,
-        taxiTicketAmountYen: fareBreakdown.taxiTicketAmountYen,
+        dispatchFareYen: settlementBreakdown.dispatchFareYen,
+        specialVehicleFareYen: settlementBreakdown.specialVehicleFareYen,
+        basicFareYen: settlementBreakdown.basicFareYen,
+        meterTimeFareYen: settlementBreakdown.meterTimeFareYen,
+        waitingFareYen: settlementBreakdown.waitingFareYen,
+        escortFareYen: settlementBreakdown.escortFareYen,
+        careOptionFareYen: settlementBreakdown.careOptionFareYen,
+        customFeeFareYen: settlementBreakdown.customFeeFareYen,
+        expenseFareYen: settlementBreakdown.expenseFareYen,
+        normalFareYen: settlementBreakdown.normalFareYen,
+        nightSurchargeYen: settlementBreakdown.nightSurchargeYen,
+        totalFareYen: settlementBreakdown.totalFareYen,
+        grossFareYen: settlementBreakdown.grossFareYen,
+        discountableFareYen: settlementBreakdown.discountableFareYen,
+        isDisabilityDiscount: settlementBreakdown.isDisabilityDiscount,
+        disabilityDiscountRate: settlementBreakdown.disabilityDiscountRate,
+        disabilityDiscountAmount: settlementBreakdown.disabilityDiscountAmount,
+        discountName: settlementBreakdown.discountName,
+        discountMethod: settlementBreakdown.discountMethod,
+        discountValue: settlementBreakdown.discountValue,
+        taxiTicketAmountYen: settlementBreakdown.taxiTicketAmountYen,
         taxiTickets,
         paymentMethod,
         payments,
@@ -2568,18 +2654,25 @@ export function CasePage() {
           name: expense.name,
           amount: expense.amountYen,
         })),
-        timeDiscountEnabled: fareBreakdown.timeMeter?.timeDiscountEnabled ?? false,
-        legalTimeFare: fareBreakdown.timeMeter?.legalTimeFare ?? 0,
-        timeDiscountAmount: fareBreakdown.timeMeter?.timeDiscountAmount ?? 0,
-        actualTimeFare: fareBreakdown.timeMeter?.actualTimeFare ?? 0,
-        initialMinutes: fareBreakdown.timeMeter?.initialMinutes ?? 0,
-        additionalSeconds: fareBreakdown.timeMeter?.additionalSeconds ?? 0,
-        meterMode: fareBreakdown.meterMode,
-        actualMeterMode: fareBreakdown.meterMode,
-        actualFareYen: fareBreakdown.totalFareYen,
+        timeDiscountEnabled: settlementBreakdown.timeMeter?.timeDiscountEnabled ?? false,
+        legalTimeFare: settlementBreakdown.timeMeter?.legalTimeFare ?? 0,
+        timeDiscountAmount: settlementBreakdown.timeMeter?.timeDiscountAmount ?? 0,
+        actualTimeFare: settlementBreakdown.timeMeter?.actualTimeFare ?? 0,
+        initialMinutes: settlementBreakdown.timeMeter?.initialMinutes ?? 0,
+        additionalSeconds: settlementBreakdown.timeMeter?.additionalSeconds ?? 0,
+        meterMode: settlementBreakdown.meterMode,
+        actualMeterMode: settlementBreakdown.meterMode,
+        actualFareYen: settlementBreakdown.totalFareYen,
         gpsComparisonFareYen: comparisonFares.gpsComparisonFareYen,
         timeComparisonFareYen: comparisonFares.timeComparisonFareYen,
         obdComparisonFareYen: comparisonFares.obdComparisonFareYen,
+        ...(meterMode === 'fixed' && fixedFareRun
+          ? {
+              reservationId: fixedFareRun.reservationId,
+              confirmedFareYen: fixedFareRun.confirmedFareYen,
+              snapshotHash: fixedFareRun.snapshotHash,
+            }
+          : {}),
       }
 
       let gpsRouteSaveFailed = false
@@ -2622,7 +2715,9 @@ export function CasePage() {
         }
       }
 
-      clearActiveTripSnapshot()
+      if (meterMode !== 'fixed') {
+        clearActiveTripSnapshot()
+      }
       setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
       writePostSettlementLock(caseNumber)
@@ -2654,6 +2749,13 @@ export function CasePage() {
     if (savedRecord) {
       setSavedCaseRecord(savedRecord)
       setSettlementFlowStep('receipt')
+
+      if (meterMode === 'fixed') {
+        const reservationId = fixedFareRun?.reservationId ?? savedRecord.reservationId ?? ''
+        if (reservationId) {
+          await completeFixedFareAfterSave(reservationId)
+        }
+      }
     }
   }
 
@@ -3097,7 +3199,7 @@ export function CasePage() {
                   <strong>
                     {formatFareYen(
                       meterMode === 'fixed' && fixedFareRun
-                        ? fixedFareRun.confirmedFareYen
+                        ? settlementBreakdown.totalFareYen
                         : fareBreakdown.totalFareYen,
                     )}
                   </strong>
@@ -3282,15 +3384,14 @@ export function CasePage() {
                 <strong>実費</strong>
               </button>
               {meterMode === 'fixed' ? (
-                canConfirmFixedTripComplete || isFixedCompleteLoading ? (
+                status === '精算前' && caseSaveState !== 'saved' ? (
                   <button
                     className="r9-status-button r9-status-button--settlement"
                     type="button"
-                    disabled={!canConfirmFixedTripComplete}
-                    onClick={() => { void handleConfirmFixedTripComplete() }}
+                    onClick={openFixedSettlementFlow}
                   >
                     <span aria-hidden="true">▣</span>
-                    <strong>{isFixedCompleteLoading ? '確定処理中…' : '運行完了を確定'}</strong>
+                    <strong>精算・終了</strong>
                   </button>
                 ) : (
                 <button
@@ -3914,7 +4015,7 @@ export function CasePage() {
         </div>
       ) : null}
 
-      {isSettlementFlowOpen && meterMode !== 'fixed' ? (
+      {isSettlementFlowOpen ? (
         <div className="settings-backdrop" role="presentation">
           <section
             aria-labelledby="settlement-flow-title"
@@ -3944,6 +4045,16 @@ export function CasePage() {
               <div className="r9-confirm-actions">
                 {status === '精算前' ? (
                   <>
+                    {meterMode === 'fixed' ? (
+                      <>
+                        <button className="secondary-action" type="button" onClick={() => setIsCareModalOpen(true)}>
+                          介助追加
+                        </button>
+                        <button className="secondary-action" type="button" onClick={() => setIsExpenseModalOpen(true)}>
+                          実費追加
+                        </button>
+                      </>
+                    ) : null}
                     <button className="secondary-action" type="button" onClick={openSettlementEdit}>
                       精算修正
                     </button>
@@ -4003,9 +4114,10 @@ export function CasePage() {
                   </p>
                 </div>
                 <SettlementPanel
-                  breakdown={fareBreakdown}
+                  breakdown={settlementBreakdown}
                   businessDistanceKm={gps.businessDistanceKm}
                   chargeableDistanceKm={gps.chargeableDistanceKm}
+                  hideDistanceBreakdown={meterMode === 'fixed'}
                   isDisabilityDiscount={isDisabilityDiscount}
                   settlementDiscount={settlementDiscount}
                   paymentAmounts={paymentAmounts}
@@ -4141,6 +4253,27 @@ export function CasePage() {
                     A4領収書(PDF)
                   </button>
                 </div>
+                {meterMode === 'fixed' && fixedCompleteState === 'error' ? (
+                  <button
+                    className="r9-flow-primary"
+                    type="button"
+                    disabled={isFixedCompleteLoading}
+                    onClick={() => { void handleConfirmFixedTripComplete() }}
+                  >
+                    {isFixedCompleteLoading ? '完了API処理中…' : '完了APIを再試行'}
+                  </button>
+                ) : null}
+                {meterMode === 'fixed' && fixedCompleteState === 'done' && savedCaseRecord.reservationId ? (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => {
+                      navigate(`/reservations/${encodeURIComponent(savedCaseRecord.reservationId ?? '')}`)
+                    }}
+                  >
+                    予約詳細へ戻る
+                  </button>
+                ) : null}
                 {settlementFlowStep === 'saved' ? (
                   <p className="r9-issue-complete">
                     <strong>発行完了</strong>

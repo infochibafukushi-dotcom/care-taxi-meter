@@ -497,6 +497,122 @@ export function calculateFareBreakdown({
   };
 }
 
+export function buildFixedFareBreakdown({
+  confirmedFareYen,
+  dispatchCharges = [],
+  specialVehicleCharges = [],
+  careOptions,
+  customFees = [],
+  expenses,
+  waitingSeconds = 0,
+  escortSeconds = 0,
+  isDisabilityDiscount = false,
+  taxiTickets = [],
+  settings = {},
+}: {
+  confirmedFareYen: number;
+  dispatchCharges?: Array<{ amountYen: number }>;
+  specialVehicleCharges?: Array<{ amountYen: number }>;
+  careOptions: Array<{ amountYen: number }>;
+  customFees?: Array<{ amount: number }>;
+  expenses: Array<{ amountYen: number }>;
+  waitingSeconds?: number;
+  escortSeconds?: number;
+  isDisabilityDiscount?: boolean;
+  taxiTickets?: Array<{ amount: number }>;
+  settings?: {
+    waitingFare?: TimeFareSettings;
+    escortFare?: TimeFareSettings;
+    discount?: DiscountSettings;
+  };
+}): FareBreakdown {
+  const baseFareYen = Math.max(Math.round(confirmedFareYen), 0);
+  const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
+  const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
+  const waitingFareYen = calculateTimeFareYen(
+    waitingSeconds,
+    settings.waitingFare ?? waitingFareSettings,
+  );
+  const escortFareYen = calculateTimeFareYen(
+    escortSeconds,
+    settings.escortFare ?? escortFareSettings,
+  );
+  const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
+  const customFeeFareYen = calculateCustomFeeTotalYen(customFees);
+  const expenseFareYen = calculateExpenseTotalYen(expenses);
+  const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
+  const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
+  const discountValue = Math.max(Number(discountSettings.value) || 0, 0);
+  const discountRate = discountSettings.method === "percentage" ? discountValue / 100 : 0;
+  const discountableFareYen = baseFareYen;
+  const disabilityDiscountAmount = isDisabilityDiscount
+    ? Math.min(
+        discountSettings.method === "percentage"
+          ? roundDownToTenYen(discountableFareYen * discountRate)
+          : Math.round(discountValue),
+        discountableFareYen,
+      )
+    : 0;
+  const discountedBaseFareYen = Math.max(discountableFareYen - disabilityDiscountAmount, 0);
+  const taxiTicketRequestedYen = taxiTickets.reduce(
+    (total, ticket) => total + Math.max(Math.round(ticket.amount) || 0, 0),
+    0,
+  );
+  const taxiTicketAmountYen = Math.min(taxiTicketRequestedYen, discountedBaseFareYen);
+  const otherChargesYen =
+    dispatchFareYen +
+    specialVehicleFareYen +
+    waitingFareYen +
+    escortFareYen +
+    careOptionFareYen +
+    customFeeFareYen +
+    expenseFareYen;
+  const grossFareYen = discountableFareYen + otherChargesYen;
+  const totalFareYen = Math.max(
+    discountedBaseFareYen - taxiTicketAmountYen + otherChargesYen,
+    0,
+  );
+
+  return {
+    dispatchFareYen,
+    specialVehicleFareYen,
+    basicFareYen: baseFareYen,
+    waitingFareYen,
+    meterTimeFareYen: 0,
+    escortFareYen,
+    careOptionFareYen,
+    customFeeFareYen,
+    expenseFareYen,
+    normalFareYen: baseFareYen,
+    nightSurchargeYen: 0,
+    grossFareYen,
+    discountableFareYen,
+    isDisabilityDiscount,
+    disabilityDiscountRate: discountRate,
+    disabilityDiscountAmount,
+    discountName,
+    discountMethod: discountSettings.method,
+    discountValue,
+    taxiTicketAmountYen,
+    totalFareYen,
+    lineItems: [
+      { label: "事前確定運賃", amountYen: baseFareYen },
+      { label: discountName, amountYen: -disabilityDiscountAmount },
+      { label: "タクシー券", amountYen: -taxiTicketAmountYen },
+      { label: "予約・迎車料金", amountYen: dispatchFareYen },
+      { label: "特殊車両料金", amountYen: specialVehicleFareYen },
+      { label: "介助料金", amountYen: careOptionFareYen },
+      ...(customFeeFareYen > 0
+        ? [{ label: "その他", amountYen: customFeeFareYen }]
+        : []),
+      { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
+      { label: "実費", amountYen: expenseFareYen },
+    ],
+    meterMode: "fixed",
+    timeMeter: null,
+  };
+}
+
 export function calculateFareIncreaseProgress(
   distanceKm: number,
   settings: BasicFareSettings = basicFareSettings,

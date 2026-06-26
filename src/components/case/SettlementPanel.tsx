@@ -6,6 +6,7 @@ type SettlementPanelProps = {
   breakdown: FareBreakdown
   businessDistanceKm: number
   chargeableDistanceKm: number
+  hideDistanceBreakdown?: boolean
   isDisabilityDiscount: boolean
   settlementDiscount: DiscountSettings
   paymentAmounts: Record<PaymentMethod, number>
@@ -30,6 +31,7 @@ export function SettlementPanel({
   breakdown,
   businessDistanceKm,
   chargeableDistanceKm,
+  hideDistanceBreakdown = false,
   isDisabilityDiscount,
   settlementDiscount,
   paymentAmounts,
@@ -72,16 +74,18 @@ export function SettlementPanel({
         <span>請求額</span>
         <strong>{formatFareYen(breakdown.totalFareYen)}円</strong>
       </div>
-      <div className="settlement-lines" aria-label="距離内訳">
-        <div>
-          <span>運賃距離</span>
-          <strong>{chargeableDistanceKm.toFixed(3)}km</strong>
+      {hideDistanceBreakdown ? null : (
+        <div className="settlement-lines" aria-label="距離内訳">
+          <div>
+            <span>運賃距離</span>
+            <strong>{chargeableDistanceKm.toFixed(3)}km</strong>
+          </div>
+          <div>
+            <span>営業距離</span>
+            <strong>{businessDistanceKm.toFixed(3)}km</strong>
+          </div>
         </div>
-        <div>
-          <span>営業距離</span>
-          <strong>{businessDistanceKm.toFixed(3)}km</strong>
-        </div>
-      </div>
+      )}
       <label className="settlement-control">
         宛名（PDF発行時のみ使用・案件ログに保存しません）
         <input

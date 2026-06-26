@@ -9,6 +9,9 @@ export { getMonthRangeInJapan, getTodayRangeInJapan }
 
 export function getActualMeterMode(caseRecord: StoredCaseRecord): MeterMode {
   const mode = (caseRecord.actualMeterMode || caseRecord.meterMode || 'gps') as MeterMode
+  if (mode === 'fixed') {
+    return 'fixed'
+  }
   return mode === 'time' || mode === 'obd' ? mode : 'gps'
 }
 
@@ -70,6 +73,22 @@ export type ReceiptFareLine = {
 export function createPrimaryFareReceiptLines(
   caseRecord: StoredCaseRecord,
 ): ReceiptFareLine[] {
+  if (caseRecord.meterMode === 'fixed') {
+    const fareYen =
+      typeof caseRecord.confirmedFareYen === 'number' && Number.isFinite(caseRecord.confirmedFareYen)
+        ? caseRecord.confirmedFareYen
+        : caseRecord.normalFareYen > 0
+          ? caseRecord.normalFareYen
+          : caseRecord.basicFareYen
+
+    return [
+      {
+        label: '事前確定運賃',
+        value: `${formatFareYen(fareYen)}円`,
+      },
+    ]
+  }
+
   if (caseRecord.meterMode === 'time') {
     const timeFareYen =
       caseRecord.normalFareYen > 0
