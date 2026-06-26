@@ -7446,3 +7446,179 @@ h1 {
   outline: 2px solid #60a5fa;
   outline-offset: 2px;
 }
+
+.reservation-list-card,
+.reservation-detail-card {
+  width: min(100%, 1040px);
+}
+
+.reservation-list-header,
+.reservation-detail-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.reservation-list-controls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.reservation-list-controls label {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.reservation-list-count {
+  margin: 0;
+  color: #64748b;
+  font-weight: 800;
+}
+
+.reservation-record-list {
+  display: grid;
+  gap: 10px;
+}
+
+.reservation-record-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgb(14 165 233 / 20%);
+  border-radius: 16px;
+  color: inherit;
+  background: #fff;
+  text-decoration: none;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.reservation-record-row:hover {
+  transform: translateY(-1px);
+  border-color: rgb(14 165 233 / 48%);
+  box-shadow: 0 14px 28px rgb(15 23 42 / 10%);
+}
+
+.reservation-record-row span,
+.reservation-detail-section {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.reservation-record-row small {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.reservation-record-row strong {
+  overflow: hidden;
+  font-size: 0.98rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservation-record-address strong {
+  white-space: normal;
+}
+
+.reservation-detail-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.reservation-detail-section {
+  padding: 18px;
+  border: 1px solid rgb(15 23 42 / 10%);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.reservation-detail-section h2,
+.reservation-detail-section h3 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+}
+
+.reservation-detail-dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.reservation-detail-dl div {
+  display: grid;
+  gap: 4px;
+}
+
+.reservation-detail-dl dt {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.reservation-detail-dl dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.reservation-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.reservation-verification-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reservation-verification-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.reservation-verification-badge--ok {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.reservation-verification-badge--warn {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.reservation-service-fees ul {
+  margin: 0 0 16px;
+  padding-left: 1.2rem;
+}
+
+@media (max-width: 860px) {
+  .reservation-list-header,
+  .reservation-detail-header,
+  .reservation-record-row {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-list-controls {
+    display: grid;
+    align-items: stretch;
+  }
+}

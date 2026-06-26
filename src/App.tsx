@@ -10,6 +10,8 @@ import { HeadquartersPage } from './pages/HeadquartersPage'
 import { HomePage } from './pages/HomePage'
 import { ObdPocPage } from './pages/ObdPocPage'
 import { PrinterPocPage } from './pages/PrinterPocPage'
+import { ReservationDetailPage } from './pages/ReservationDetailPage'
+import { ReservationListPage } from './pages/ReservationListPage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 
 const routerBaseName =
@@ -41,6 +43,14 @@ const router = createBrowserRouter([
       {
         path: 'cases/:caseRecordId',
         element: <CaseDetailPage />,
+      },
+      {
+        path: 'reservations',
+        element: <ReservationListPage />,
+      },
+      {
+        path: 'reservations/:reservationId',
+        element: <ReservationDetailPage />,
       },
       {
         path: 'driver',

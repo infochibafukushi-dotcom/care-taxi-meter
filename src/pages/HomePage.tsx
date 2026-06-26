@@ -791,6 +791,19 @@ export function HomePage() {
               </Link>
             )
           ) : null}
+          {currentSession && !isHqAdmin ? (
+            hasActiveTripSnapshot ? (
+              <button className="secondary-action home-button" type="button" disabled>運行予約一覧</button>
+            ) : (
+              <Link
+                className="secondary-action"
+                to="/reservations"
+                onClick={() => logNavigationClick({ label: '運行予約一覧', to: '/reservations' })}
+              >
+                運行予約一覧
+              </Link>
+            )
+          ) : null}
           {!isHqAdmin ? (
             <button className="secondary-action home-button" type="button" onClick={openTodaySales}>
               本日の売上

@@ -1,11 +1,35 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const githubPagesBase = '/care-taxi-meter/'
+const appBasePath = githubPagesBase.replace(/\/$/, '')
+const driverApiProxyPath = `${appBasePath}/api/driver`
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const reservationOrigin = env.RESERVATION_V4_ORIGIN?.trim()
+  const meterDriverToken = env.METER_DRIVER_TOKEN?.trim()
+
+  const reservationDriverProxy: ProxyOptions | undefined = reservationOrigin
+    ? {
+        target: reservationOrigin,
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path: string) =>
+          path.startsWith(appBasePath) ? path.slice(appBasePath.length) || '/' : path,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            if (meterDriverToken) {
+              proxyReq.setHeader('Authorization', `Bearer ${meterDriverToken}`)
+            }
+          })
+        },
+      }
+    : undefined
+
+  return {
   base: githubPagesBase,
   define: {
     'import.meta.env.VITE_APP_BUILD_VERSION': JSON.stringify(
@@ -43,4 +67,12 @@ export default defineConfig({
       },
     }),
   ],
+  server: reservationDriverProxy
+    ? {
+        proxy: {
+          [driverApiProxyPath]: reservationDriverProxy,
+        },
+      }
+    : undefined,
+  }
 })

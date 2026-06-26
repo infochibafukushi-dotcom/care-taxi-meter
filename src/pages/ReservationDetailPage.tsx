@@ -1,0 +1,231 @@
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { fetchDriverReservation } from '../services/reservationApi'
+import type { DriverReservationDetail } from '../types/reservation'
+import {
+  formatMeterRunStatus,
+  formatReservationStatus,
+} from '../types/reservation'
+import { formatFareYen } from '../services/fare'
+import { formatCaseDateTime } from '../utils/caseRecords'
+import { formatElapsedTime } from '../utils/time'
+import { logDiagnostic } from '../utils/diagnostics'
+
+const formatAddress = (address: string) =>
+  address.trim() ? address : '住所未取得'
+
+const formatOptionalText = (value: string) =>
+  value.trim() ? value : '未設定'
+
+const formatVerificationBadge = (verified: boolean) =>
+  verified ? 'OK' : '要確認'
+
+type ReservationDetailState = {
+  errorMessage: string
+  isLoading: boolean
+  reservation: DriverReservationDetail | null
+}
+
+type ReservationListLocationState = {
+  listDate?: string
+}
+
+export function ReservationDetailPage() {
+  const { reservationId = '' } = useParams()
+  const location = useLocation()
+  const listDate = (location.state as ReservationListLocationState | null)?.listDate
+  const backToListPath = listDate ? `/reservations?date=${encodeURIComponent(listDate)}` : '/reservations'
+  const [state, setState] = useState<ReservationDetailState>({
+    errorMessage: '',
+    isLoading: true,
+    reservation: null,
+  })
+
+  useEffect(() => {
+    logDiagnostic('ReservationDetailPage mount', { reservationId })
+    return () => logDiagnostic('ReservationDetailPage unmount', { reservationId })
+  }, [reservationId])
+
+  useEffect(() => {
+    if (!reservationId) {
+      setState({
+        errorMessage: '予約IDが指定されていません。',
+        isLoading: false,
+        reservation: null,
+      })
+      return undefined
+    }
+
+    let isMounted = true
+
+    setState({
+      errorMessage: '',
+      isLoading: true,
+      reservation: null,
+    })
+
+    fetchDriverReservation(reservationId)
+      .then((reservation) => {
+        if (!isMounted) {
+          return
+        }
+
+        setState({
+          errorMessage: '',
+          isLoading: false,
+          reservation,
+        })
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+
+        setState({
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : '予約詳細の取得に失敗しました。',
+          isLoading: false,
+          reservation: null,
+        })
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [reservationId])
+
+  const reservation = state.reservation
+
+  return (
+    <main className="page reservation-detail-page" aria-labelledby="reservation-detail-title">
+      <section className="content-card reservation-detail-card">
+        <div className="reservation-detail-header">
+          <div>
+            <Link className="text-link" to={backToListPath}>
+              ← 一覧へ戻る
+            </Link>
+            <p className="eyebrow">Reservation Detail</p>
+            <h1 id="reservation-detail-title">予約詳細</h1>
+          </div>
+        </div>
+
+        {state.isLoading ? (
+          <p className="empty-note">予約詳細を取得中です。</p>
+        ) : null}
+
+        {state.errorMessage ? (
+          <p className="case-error" role="alert">
+            {state.errorMessage}
+          </p>
+        ) : null}
+
+        {reservation ? (
+          <div className="reservation-detail-grid">
+            <section className="reservation-detail-section" aria-label="検証結果">
+              <h2>検証結果</h2>
+              <div className="reservation-verification-badges">
+                <span
+                  className={`reservation-verification-badge reservation-verification-badge--${
+                    reservation.snapshotHashVerified ? 'ok' : 'warn'
+                  }`}
+                >
+                  スナップショット検証: {formatVerificationBadge(reservation.snapshotHashVerified)}
+                </span>
+                <span
+                  className={`reservation-verification-badge reservation-verification-badge--${
+                    reservation.fareMatch ? 'ok' : 'warn'
+                  }`}
+                >
+                  料金整合: {formatVerificationBadge(reservation.fareMatch)}
+                </span>
+                <span
+                  className={`reservation-verification-badge reservation-verification-badge--${
+                    reservation.integrity.consentSnapshotHashMatches ? 'ok' : 'warn'
+                  }`}
+                >
+                  同意スナップショット: {formatVerificationBadge(reservation.integrity.consentSnapshotHashMatches)}
+                </span>
+              </div>
+            </section>
+
+            <section className="reservation-detail-section" aria-label="基本情報">
+              <h2>基本情報</h2>
+              <dl className="reservation-detail-dl">
+                <div><dt>予約ID</dt><dd>{reservation.reservationId}</dd></div>
+                <div><dt>見積番号</dt><dd>{formatOptionalText(reservation.estimateNo)}</dd></div>
+                <div><dt>予約日時</dt><dd>{formatCaseDateTime(reservation.scheduledAt)}</dd></div>
+                <div><dt>ステータス</dt><dd>{formatReservationStatus(reservation.status)}</dd></div>
+                <div><dt>メーター状態</dt><dd>{formatMeterRunStatus(reservation.meterRunStatus)}</dd></div>
+                <div><dt>事前確定M</dt><dd>{reservation.fixedFare.preFixedFareConfirmable ? '対象' : '対象外'}</dd></div>
+              </dl>
+            </section>
+
+            <section className="reservation-detail-section" aria-label="利用者情報">
+              <h2>利用者</h2>
+              <dl className="reservation-detail-dl">
+                <div><dt>氏名</dt><dd>{formatOptionalText(reservation.customer.name)}</dd></div>
+                <div><dt>フリガナ</dt><dd>{formatOptionalText(reservation.customer.kana)}</dd></div>
+                <div><dt>電話</dt><dd>{formatOptionalText(reservation.customer.phone)}</dd></div>
+                <div><dt>メール</dt><dd>{formatOptionalText(reservation.customer.email)}</dd></div>
+              </dl>
+            </section>
+
+            <section className="reservation-detail-section" aria-label="行程">
+              <h2>行程</h2>
+              <dl className="reservation-detail-dl">
+                <div><dt>日付</dt><dd>{reservation.trip.date}</dd></div>
+                <div><dt>時刻</dt><dd>{reservation.trip.time}</dd></div>
+                <div><dt>迎車</dt><dd>{formatAddress(reservation.trip.pickupAddress)}</dd></div>
+                <div><dt>降車</dt><dd>{formatAddress(reservation.trip.destinationAddress)}</dd></div>
+                <div><dt>車両</dt><dd>{formatOptionalText(reservation.trip.vehicle)}</dd></div>
+                <div><dt>備考</dt><dd>{formatOptionalText(reservation.trip.notes)}</dd></div>
+              </dl>
+            </section>
+
+            <section className="reservation-detail-section" aria-label="料金">
+              <h2>料金</h2>
+              <dl className="reservation-detail-dl">
+                <div><dt>確定運賃</dt><dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd></div>
+                <div><dt>事前確定運賃本体</dt><dd>{formatFareYen(reservation.fixedFare.fixedFareTotalYen)}円</dd></div>
+                <div><dt>運賃種別</dt><dd>{reservation.fixedFare.fareType}</dd></div>
+                <div><dt>高速利用</dt><dd>{reservation.fixedFare.useToll ? 'あり' : 'なし'}</dd></div>
+                <div><dt>ルートID</dt><dd>{formatOptionalText(reservation.fixedFare.selectedRouteId)}</dd></div>
+                <div><dt>料金確定日時</dt><dd>{formatCaseDateTime(reservation.fixedFare.fareLockedAt)}</dd></div>
+              </dl>
+              {reservation.quoteSnapshot.serviceFees.length > 0 ? (
+                <div className="reservation-service-fees">
+                  <h3>サービス料金</h3>
+                  <ul>
+                    {reservation.quoteSnapshot.serviceFees.map((fee) => (
+                      <li key={fee.key}>
+                        {fee.label}: {formatFareYen(fee.amount)}円
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <dl className="reservation-detail-dl">
+                <div><dt>見積距離</dt><dd>{(reservation.quoteSnapshot.distanceMeters / 1000).toFixed(1)} km</dd></div>
+                <div><dt>見積時間</dt><dd>{formatElapsedTime(reservation.quoteSnapshot.durationSeconds)}</dd></div>
+                <div><dt>見積モード</dt><dd>{reservation.quoteSnapshot.fareMode}</dd></div>
+              </dl>
+            </section>
+
+            <section className="reservation-detail-section" aria-label="同意証跡">
+              <h2>同意証跡</h2>
+              <dl className="reservation-detail-dl">
+                <div><dt>同意日時</dt><dd>{formatCaseDateTime(reservation.consent.consentAt)}</dd></div>
+                <div><dt>同意文バージョン</dt><dd>{formatOptionalText(reservation.consent.consentTextVersion)}</dd></div>
+                <div><dt>見積運賃</dt><dd>{formatFareYen(reservation.consent.quotedFareYen)}円</dd></div>
+                <div><dt>ソース</dt><dd>{formatOptionalText(reservation.consent.source)}</dd></div>
+                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{reservation.consent.snapshotHash}</dd></div>
+              </dl>
+            </section>
+          </div>
+        ) : null}
+      </section>
+    </main>
+  )
+}

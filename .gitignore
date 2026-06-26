@@ -30,5 +30,8 @@ functions/node_modules
 .env.*
 !.env.example
 
+# Local reference samples (not for commit)
+tmp-reservation-samples/
+
 # Generated visual verification artifacts (binary files are not accepted in PRs)
 docs/screenshots/
