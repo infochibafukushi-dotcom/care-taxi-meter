@@ -1,0 +1,14 @@
+name = "care-taxi-meter-driver-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+ALLOWED_ORIGIN = "http://localhost:5173"
+RESERVATION_V4_ORIGIN = "https://reservation-v4.example.com"
+
+[[services]]
+binding = "RESERVATION_V4"
+service = "throbbing-bush-8f59"
+
+# Secret (set via `wrangler secret put METER_DRIVER_TOKEN`):
+# METER_DRIVER_TOKEN

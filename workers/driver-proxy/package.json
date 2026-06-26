@@ -1,0 +1,16 @@
+{
+  "name": "care-taxi-meter-driver-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test src/proxy.test.ts",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "tsx": "^4.20.3",
+    "typescript": "~6.0.2",
+    "wrangler": "^4.24.0"
+  }
+}

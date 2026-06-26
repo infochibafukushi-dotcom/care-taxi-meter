@@ -9,7 +9,8 @@
     "build:pages": "npm run build -- --base=/care-taxi-meter/",
     "lint": "eslint .",
     "preview": "vite preview",
-    "reset:dev-data": "node scripts/resetDevelopmentData.mjs"
+    "reset:dev-data": "node scripts/resetDevelopmentData.mjs",
+    "test:driver-proxy": "npm test --prefix workers/driver-proxy"
   },
   "dependencies": {
     "encoding-japanese": "^2.2.0",
