@@ -6,7 +6,10 @@ import type {
   DriverReservationSummary,
   DriverReservationsListResponseApi,
 } from '../types/reservation'
-import type { CompleteFixedFareRunPayload } from '../types/preFixedFare'
+import {
+  mapPreFixedFareExceptionFromApi,
+  type CompleteFixedFareRunPayload,
+} from '../types/preFixedFare'
 
 type ReservationApiErrorBody = {
   error?: string
@@ -183,6 +186,9 @@ export const mapDriverReservationDetail = (
   storeId: reservation.storeId,
   snapshotHashVerified: reservation.integrity.snapshotHashVerified,
   fareMatch: reservation.integrity.confirmedFareMatchesSnapshot,
+  fixedFareCompletionStatus: reservation.fixedFareCompletionStatus ?? null,
+  fixedFareCompletionReason: reservation.fixedFareCompletionReason ?? null,
+  preFixedFareException: mapPreFixedFareExceptionFromApi(reservation.preFixedFareException),
 })
 
 export async function fetchDriverReservations(date: string): Promise<{

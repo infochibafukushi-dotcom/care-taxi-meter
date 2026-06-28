@@ -10,11 +10,17 @@ import {
   buildReservationTripContext,
   saveReservationTripContext,
 } from '../services/reservationTripContext'
+import { PreFixedFarePassengerChangeDetailSection } from '../components/case/PreFixedFarePassengerChangeDetailSection'
 import type { DriverReservationDetail } from '../types/reservation'
 import {
   formatMeterRunStatus,
   formatReservationStatus,
+  isPreFixedFarePassengerChangeReservation,
 } from '../types/reservation'
+import {
+  formatFixedFareCompletionReason,
+  formatFixedFareCompletionStatus,
+} from '../types/preFixedFare'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
@@ -188,6 +194,10 @@ export function ReservationDetailPage() {
 
   const reservation = state.reservation
   const meterRunStatus = reservation?.meterRunStatus ?? ''
+  const isPassengerChangeCompletion = reservation
+    ? isPreFixedFarePassengerChangeReservation(reservation)
+    : false
+  const showPassengerChangePanel = Boolean(reservation?.preFixedFareException)
 
   return (
     <main className="page reservation-detail-page" aria-labelledby="reservation-detail-title">
@@ -249,9 +259,31 @@ export function ReservationDetailPage() {
                   </>
                 ) : null}
                 {meterRunStatus === 'completed' ? (
-                  <p className="reservation-run-status">事前確定M 完了</p>
+                  <p className="reservation-run-status">
+                    {isPassengerChangeCompletion
+                      ? '事前確定M 旅客都合途中終了'
+                      : '事前確定M 完了'}
+                  </p>
                 ) : null}
               </section>
+            ) : null}
+
+            {showPassengerChangePanel && reservation ? (
+              <PreFixedFarePassengerChangeDetailSection
+                completionStatusLabel={
+                  reservation.fixedFareCompletionStatus === 'completed_with_passenger_change'
+                    ? formatFixedFareCompletionStatus(reservation.fixedFareCompletionStatus)
+                    : isPassengerChangeCompletion
+                      ? formatFixedFareCompletionStatus('completed_with_passenger_change')
+                      : null
+                }
+                completionReasonLabel={
+                  reservation.fixedFareCompletionReason
+                    ? formatFixedFareCompletionReason(reservation.fixedFareCompletionReason)
+                    : null
+                }
+                preFixedFareException={reservation.preFixedFareException}
+              />
             ) : null}
 
             <section className="reservation-detail-section" aria-label="検証結果">

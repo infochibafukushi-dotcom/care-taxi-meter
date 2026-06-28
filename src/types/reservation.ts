@@ -1,5 +1,11 @@
 /** reservation-v4 driver API raw response shapes (from production smoke samples). */
 
+import type {
+  CompletionReason,
+  PreFixedFareCompletionStatus,
+  PreFixedFareException,
+} from './preFixedFare'
+
 export type ReservationServiceFeeApi = {
   key: string
   label: string
@@ -100,6 +106,9 @@ export type DriverReservationDetailApi = {
   integrity: ReservationIntegrityApi
   franchiseeId: string | null
   storeId: string | null
+  fixedFareCompletionStatus?: PreFixedFareCompletionStatus | string | null
+  fixedFareCompletionReason?: CompletionReason | string | null
+  preFixedFareException?: PreFixedFareException | Record<string, unknown> | null
 }
 
 export type DriverReservationsListResponseApi = {
@@ -142,7 +151,12 @@ export type DriverReservationDetail = {
   storeId: string | null
   snapshotHashVerified: boolean
   fareMatch: boolean
+  fixedFareCompletionStatus: PreFixedFareCompletionStatus | string | null
+  fixedFareCompletionReason: CompletionReason | string | null
+  preFixedFareException: PreFixedFareException | null
 }
+
+export { isPreFixedFarePassengerChangeCompletion as isPreFixedFarePassengerChangeReservation } from './preFixedFare'
 
 export const reservationStatusLabels: Record<string, string> = {
   active: '有効',

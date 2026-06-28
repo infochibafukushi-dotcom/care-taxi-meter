@@ -10,7 +10,7 @@ export type FareMode = typeof FARE_MODE_PRE_FIXED
 
 export type PreFixedFareExceptionType = 'passenger_requested_change'
 
-export type CompletionReason = 'passenger_requested_route_change'
+export type CompletionReason = 'normal_completed' | 'passenger_requested_route_change'
 
 export type PreFixedFareExceptionLocation = {
   lat: number | null
@@ -65,3 +65,82 @@ export function buildCompleteFixedFareRunPayload(
     },
   }
 }
+
+export const fixedFareCompletionStatusLabels: Record<PreFixedFareCompletionStatus, string> = {
+  completed: '通常完了',
+  completed_with_passenger_change: '旅客都合途中終了',
+}
+
+export const fixedFareCompletionReasonLabels: Record<CompletionReason, string> = {
+  normal_completed: '通常完了',
+  passenger_requested_route_change: PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+}
+
+export const PRE_FIXED_FARE_PASSENGER_CHANGE_PANEL_TITLE =
+  `事前確定運賃M：${PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL}のため途中終了`
+
+export const PRE_FIXED_FARE_PASSENGER_CHANGE_NEXT_OPERATION_LABEL =
+  '通常メーター等の別運送として開始'
+
+export const formatFixedFareCompletionStatus = (status: string) =>
+  fixedFareCompletionStatusLabels[status as PreFixedFareCompletionStatus] ?? status
+
+export const formatFixedFareCompletionReason = (reason: string) =>
+  fixedFareCompletionReasonLabels[reason as CompletionReason] ?? reason
+
+const toNullableFiniteNumber = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+export const mapPreFixedFareExceptionFromApi = (
+  value: unknown,
+): PreFixedFareException | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const source = value as Record<string, unknown>
+  const type = typeof source.type === 'string' ? source.type : 'passenger_requested_change'
+
+  if (type !== 'passenger_requested_change') {
+    return null
+  }
+
+  const endedLocationSource =
+    source.endedLocation && typeof source.endedLocation === 'object' && !Array.isArray(source.endedLocation)
+      ? (source.endedLocation as Record<string, unknown>)
+      : {}
+
+  return {
+    type: 'passenger_requested_change',
+    reasonLabel:
+      typeof source.reasonLabel === 'string' && source.reasonLabel.trim()
+        ? source.reasonLabel
+        : PRE_FIXED_FARE_PASSENGER_CHANGE_REASON_LABEL,
+    endedAt: typeof source.endedAt === 'string' ? source.endedAt : '',
+    endedLocation: {
+      lat: toNullableFiniteNumber(endedLocationSource.lat),
+      lng: toNullableFiniteNumber(endedLocationSource.lng),
+      accuracy: toNullableFiniteNumber(endedLocationSource.accuracy),
+    },
+    originalFixedFareYen:
+      typeof source.originalFixedFareYen === 'number' && Number.isFinite(source.originalFixedFareYen)
+        ? Math.max(Math.round(source.originalFixedFareYen), 0)
+        : 0,
+    fareModeBeforeEnd: FARE_MODE_PRE_FIXED,
+    nextOperationRequired: 'start_new_meter_trip',
+    note: typeof source.note === 'string' ? source.note : '',
+  }
+}
+
+export type PreFixedFarePassengerChangeIndicators = {
+  fixedFareCompletionStatus?: string | null
+  fixedFareCompletionReason?: string | null
+  preFixedFareException?: PreFixedFareException | null
+}
+
+export const isPreFixedFarePassengerChangeCompletion = (
+  indicators: PreFixedFarePassengerChangeIndicators,
+) =>
+  indicators.fixedFareCompletionStatus === 'completed_with_passenger_change' ||
+  indicators.fixedFareCompletionReason === 'passenger_requested_route_change' ||
+  indicators.preFixedFareException != null
