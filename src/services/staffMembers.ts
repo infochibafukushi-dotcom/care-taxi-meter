@@ -15,7 +15,7 @@ import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany } from './companies'
 import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from './stores'
-import { signInStaffWithFirebaseAuth } from './firebaseAuth'
+import { signInStaffWithFirebaseAuth, type LoginStaffResult } from './firebaseAuth'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
 import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
@@ -281,7 +281,6 @@ export async function authenticateStaff({
   companyId: string
   password: string
   userId: string
-}) {
-  const loginResult = await signInStaffWithFirebaseAuth({ companyId, password, userId })
-  return loginResult?.staffMember ?? null
+}): Promise<LoginStaffResult | null> {
+  return signInStaffWithFirebaseAuth({ companyId, password, userId })
 }

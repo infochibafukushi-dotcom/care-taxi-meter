@@ -27,6 +27,19 @@ import { logDiagnostic, logNavigationClick } from '../utils/diagnostics'
 
 const defaultCompanyName = defaultCompany.name
 
+const createStoreFromStaffMember = (staffMember: StaffMember, companyName: string): Store => ({
+  id: staffMember.storeId,
+  companyId: staffMember.companyId,
+  franchiseeId: staffMember.franchiseeId || staffMember.companyId,
+  name: staffMember.storeName || companyName,
+  storeName: staffMember.storeName || companyName,
+  companyName,
+  status: 'active',
+  enabled: true,
+  isActive: true,
+  sortOrder: staffMember.sortOrder,
+})
+
 type LoginForm = {
   companyId: string
   userId: string
@@ -564,28 +577,49 @@ export function HomePage() {
     setIsLoginSubmitting(true)
     setLoginMessage('認証中です。')
     try {
-      const staffMember = await authenticateStaff(loginForm)
-      if (!staffMember) {
+      const loginResult = await authenticateStaff(loginForm)
+      if (!loginResult?.staffMember?.id) {
         setLoginMessage('会社ID・ログインID・パスワードが一致するスタッフが見つかりません。')
         return
       }
 
-      const companies = await fetchCompanies()
-      const company = companies.find((item) => item.id === staffMember.companyId) ?? null
-      const stores = await fetchStores(staffMember.companyId)
-      const store = stores.find((item) => item.id === staffMember.storeId) ?? stores[0]
+      const { staffMember, companyName: loginCompanyName } = loginResult
+      let resolvedCompanyName = loginCompanyName || defaultCompanyName
+
+      try {
+        const companies = await fetchCompanies()
+        const company = companies.find((item) => item.id === staffMember.companyId) ?? null
+        if (company?.name) {
+          resolvedCompanyName = company.name
+        }
+      } catch (error) {
+        console.error('[HomePage] fetchCompanies after login failed', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      let store: Store | null = null
+      try {
+        const stores = await fetchStores(staffMember.companyId)
+        store = stores.find((item) => item.id === staffMember.storeId) ?? stores[0] ?? null
+      } catch (error) {
+        console.error('[HomePage] fetchStores after login failed', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+
       if (!store) {
-        setLoginMessage('所属店舗が見つかりません。管理画面で店舗を登録してください。')
-        return
+        store = createStoreFromStaffMember(staffMember, resolvedCompanyName)
       }
 
       const nextLoggedInUser = {
-        companyName: company?.name ?? defaultCompanyName,
+        companyName: resolvedCompanyName,
         staffMember,
         store,
       }
       setLoggedInUser(nextLoggedInUser)
       saveAuthStaffSession(staffMember, nextLoggedInUser.companyName)
+      setLoginForm((currentForm) => ({ ...currentForm, password: '' }))
 
       if (staffMember.role === 'hq_admin') {
         setLoginMessage('FC本部管理者としてログインしました。現場業務の出勤処理は行いません。')
