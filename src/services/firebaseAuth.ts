@@ -58,6 +58,19 @@ export async function signInStaffWithFirebaseAuth({
       companyName: response.data.companyName || '',
     }
   } catch (error) {
+    const callableError = error as {
+      code?: unknown
+      message?: unknown
+      details?: unknown
+      name?: unknown
+    }
+    // Temporary production debugging log. Do not include credentials.
+    console.error('[firebaseAuth] loginStaff callable failed', {
+      code: typeof callableError.code === 'string' ? callableError.code : null,
+      message: typeof callableError.message === 'string' ? callableError.message : String(error),
+      details: callableError.details ?? null,
+      name: typeof callableError.name === 'string' ? callableError.name : null,
+    })
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('not-found')) {
       return null
