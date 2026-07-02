@@ -43,8 +43,8 @@ type CompanyRecord = {
   address?: string
 }
 
-const COMPANY_LOGIN_ALIASES: Record<string, string> = {
-  ちばケアタクシー: defaultFranchiseeId,
+const HEADQUARTERS_LOGIN_ALIASES: Record<string, string> = {
+  株式会社千葉福祉サポート: defaultFranchiseeId,
 }
 
 const normalizeLoginInput = (value: string) => value.trim()
@@ -222,7 +222,7 @@ const matchesLoginIdentifier = (staffMember: StaffMemberRecord, normalizedUserLo
 function resolveCandidateCompanyIds(companyId: string, companies: CompanyRecord[]) {
   const normalizedCompanyId = normalizeLoginInput(companyId)
   const normalizedCompanyIdSlug = normalizeCompanyIdInput(companyId)
-  const aliasCompanyId = COMPANY_LOGIN_ALIASES[normalizedCompanyId]
+  const headquartersAliasCompanyId = HEADQUARTERS_LOGIN_ALIASES[normalizedCompanyId]
 
   const matchedCompanies = companies.filter(
     (company) =>
@@ -231,7 +231,7 @@ function resolveCandidateCompanyIds(companyId: string, companies: CompanyRecord[
       company.corporateName === normalizedCompanyId ||
       company.tradeName === normalizedCompanyId ||
       company.id === normalizedCompanyIdSlug ||
-      (aliasCompanyId ? company.id === aliasCompanyId : false),
+      (headquartersAliasCompanyId ? company.id === headquartersAliasCompanyId : false),
   )
 
   return {
@@ -239,10 +239,65 @@ function resolveCandidateCompanyIds(companyId: string, companies: CompanyRecord[
     candidateCompanyIds: new Set([
       normalizedCompanyId,
       normalizedCompanyIdSlug,
-      ...(aliasCompanyId ? [aliasCompanyId] : []),
+      ...(headquartersAliasCompanyId ? [headquartersAliasCompanyId] : []),
       ...matchedCompanies.map((company) => company.id),
     ]),
   }
+}
+
+function isHeadquartersCompanyLogin(companyId: string, companies: CompanyRecord[]) {
+  const normalizedCompanyId = normalizeLoginInput(companyId)
+  const normalizedCompanyIdSlug = normalizeCompanyIdInput(companyId)
+  const headquartersAliasCompanyId = HEADQUARTERS_LOGIN_ALIASES[normalizedCompanyId]
+
+  if (
+    normalizedCompanyId === defaultFranchiseeId ||
+    normalizedCompanyIdSlug === defaultFranchiseeId ||
+    headquartersAliasCompanyId === defaultFranchiseeId
+  ) {
+    return true
+  }
+
+  const headquartersCompany = companies.find((company) => company.id === defaultFranchiseeId)
+  if (!headquartersCompany) {
+    return false
+  }
+
+  return (
+    normalizedCompanyId === headquartersCompany.name ||
+    normalizedCompanyId === headquartersCompany.corporateName ||
+    normalizedCompanyId === headquartersCompany.tradeName
+  )
+}
+
+const matchesStaffMemberForLogin = ({
+  staffMember,
+  candidateCompanyIds,
+  companyId,
+  companies,
+  normalizedUserLoginIdentifier,
+  normalizedPassword,
+}: {
+  staffMember: StaffMemberRecord
+  candidateCompanyIds: Set<string>
+  companyId: string
+  companies: CompanyRecord[]
+  normalizedUserLoginIdentifier: string
+  normalizedPassword: string
+}) => {
+  if (!staffMember.enabled) {
+    return false
+  }
+
+  if (staffMember.role === 'hq_admin' && !isHeadquartersCompanyLogin(companyId, companies)) {
+    return false
+  }
+
+  return (
+    matchesCompanyId(staffMember, candidateCompanyIds) &&
+    matchesLoginIdentifier(staffMember, normalizedUserLoginIdentifier) &&
+    staffMember.password === normalizedPassword
+  )
 }
 
 async function fetchStoresForCompany(db: FirebaseFirestore.Firestore, companyId: string) {
@@ -347,12 +402,15 @@ async function resolveStaffMemberForLogin({
   const [staffMembers, companies] = await Promise.all([loadStaffMembers(db), loadCompanies(db)])
   const { matchedCompanies, candidateCompanyIds } = resolveCandidateCompanyIds(companyId, companies)
 
-  const matchedStaffMember = staffMembers.find(
-    (staffMember) =>
-      staffMember.enabled &&
-      matchesCompanyId(staffMember, candidateCompanyIds) &&
-      matchesLoginIdentifier(staffMember, normalizedUserLoginIdentifier) &&
-      staffMember.password === normalizedPassword,
+  const matchedStaffMember = staffMembers.find((staffMember) =>
+    matchesStaffMemberForLogin({
+      staffMember,
+      candidateCompanyIds,
+      companyId,
+      companies,
+      normalizedUserLoginIdentifier,
+      normalizedPassword,
+    }),
   )
 
   if (matchedStaffMember) {
