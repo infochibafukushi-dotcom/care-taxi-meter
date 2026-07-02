@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "reset:dev-data": "node scripts/resetDevelopmentData.mjs",
+    "repair:chiba-care-taxi-tenant": "tsx scripts/repairChibaCareTaxiTenantFields.ts",
     "test:driver-proxy": "npm test --prefix workers/driver-proxy"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "firebase-admin": "^13.10.0",
+    "tsx": "^4.21.0",
     "globals": "^17.6.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
