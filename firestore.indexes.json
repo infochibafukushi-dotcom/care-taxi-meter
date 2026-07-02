@@ -45,13 +45,6 @@
       ]
     },
     {
-      "collectionGroup": "gpsRoute",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "expiresAt", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "vehicles",
       "queryScope": "COLLECTION",
       "fields": [
