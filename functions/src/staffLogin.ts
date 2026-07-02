@@ -53,6 +53,11 @@ const normalizeCompanyIdInput = (value: string) =>
   value.trim().toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
+const toPasswordValue = (value: unknown) => {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
+}
 const toBooleanValue = (value: unknown, fallback = true) =>
   typeof value === 'boolean' ? value : fallback
 
@@ -73,7 +78,7 @@ const toStaffMember = (id: string, data: Record<string, unknown>): StaffMemberRe
   storeName: toStringValue(data.storeName),
   userId: toStringValue(data.userId),
   loginId: toStringValue(data.loginId) || toStringValue(data.userId),
-  password: toStringValue(data.password),
+  password: toPasswordValue(data.password),
   name: toStringValue(data.name) || '名称未設定のスタッフ',
   role: toRole(data.role),
   enabled: toBooleanValue(data.enabled ?? data.isActive),
@@ -196,10 +201,23 @@ async function loadCompanies(db: FirebaseFirestore.Firestore) {
   return snapshot.docs.map((doc) => toCompany(doc.id, doc.data()))
 }
 
-async function loadStaffMembers(db: FirebaseFirestore.Firestore) {
-  const snapshot = await db.collection('staffMembers').orderBy('sortOrder', 'asc').get()
-  return snapshot.docs.map((doc) => toStaffMember(doc.id, doc.data()))
+async function loadStaffMembers(db: FirebaseFirestore.Firestore): Promise<StaffMemberRecord[]> {
+  const snapshot = await db.collection('staffMembers').get()
+  return snapshot.docs
+    .map((doc) => toStaffMember(doc.id, doc.data()))
+    .sort((firstStaff, secondStaff) => firstStaff.sortOrder - secondStaff.sortOrder)
 }
+
+const matchesCompanyId = (staffMember: StaffMemberRecord, candidateCompanyIds: Set<string>) =>
+  candidateCompanyIds.has(staffMember.companyId) || candidateCompanyIds.has(staffMember.franchiseeId)
+
+const matchesLoginIdentifier = (staffMember: StaffMemberRecord, normalizedUserLoginIdentifier: string) =>
+  [
+    staffMember.userId,
+    staffMember.loginId,
+    staffMember.name,
+    staffMember.id,
+  ].some((candidate) => normalizeLoginIdentifier(candidate) === normalizedUserLoginIdentifier)
 
 function resolveCandidateCompanyIds(companyId: string, companies: CompanyRecord[]) {
   const normalizedCompanyId = normalizeLoginInput(companyId)
@@ -332,10 +350,8 @@ async function resolveStaffMemberForLogin({
   const matchedStaffMember = staffMembers.find(
     (staffMember) =>
       staffMember.enabled &&
-      candidateCompanyIds.has(staffMember.companyId) &&
-      (normalizeLoginIdentifier(staffMember.userId) === normalizedUserLoginIdentifier ||
-        normalizeLoginIdentifier(staffMember.loginId) === normalizedUserLoginIdentifier ||
-        normalizeLoginIdentifier(staffMember.name) === normalizedUserLoginIdentifier) &&
+      matchesCompanyId(staffMember, candidateCompanyIds) &&
+      matchesLoginIdentifier(staffMember, normalizedUserLoginIdentifier) &&
       staffMember.password === normalizedPassword,
   )
 
