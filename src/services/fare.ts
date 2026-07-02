@@ -1,3 +1,11 @@
+import {
+  ADDITIONAL_DISTANCE_KM,
+  ADDITIONAL_FARE_YEN,
+  INITIAL_DISTANCE_KM,
+  INITIAL_FARE_YEN,
+  TIME_DISTANCE_FARE_YEN,
+  TIME_DISTANCE_SECONDS,
+} from '../constants/fareConstants'
 import type { MeterMode } from '../types/case'
 import { resolveMeterSettingsMode } from '../utils/meterConstants'
 import type { TimeMeterSettings } from './meterSettings'
@@ -86,10 +94,10 @@ export type FareBreakdown = {
 };
 
 export const basicFareSettings: BasicFareSettings = {
-  initialDistanceKm: 1.096,
-  initialFareYen: 500,
-  additionalDistanceKm: 0.255,
-  additionalFareYen: 100,
+  initialDistanceKm: INITIAL_DISTANCE_KM,
+  initialFareYen: INITIAL_FARE_YEN,
+  additionalDistanceKm: ADDITIONAL_DISTANCE_KM,
+  additionalFareYen: ADDITIONAL_FARE_YEN,
 };
 
 export const waitingFareSettings: TimeFareSettings = {
@@ -104,8 +112,8 @@ export const escortFareSettings: TimeFareSettings = {
 
 export const meterTimeFareSettings: MeterTimeFareSettings = {
   lowSpeedThresholdKmh: 10,
-  unitSeconds: 90,
-  unitFareYen: 90,
+  unitSeconds: TIME_DISTANCE_SECONDS,
+  unitFareYen: TIME_DISTANCE_FARE_YEN,
 };
 
 export const dispatchMenuMaster: DispatchMenuItem[] = [

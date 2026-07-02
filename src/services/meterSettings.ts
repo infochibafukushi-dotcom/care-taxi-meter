@@ -1,3 +1,7 @@
+import {
+  CHARTER_UNIT_FARE_YEN,
+  CHARTER_UNIT_MINUTES,
+} from '../constants/fareConstants'
 import { doc, getDoc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
@@ -123,10 +127,10 @@ const meterSettingsDocumentId = 'meterSettings'
 export const fixedTimeFareUnitSeconds = 30 * 60
 
 export const defaultTimeMeterLegalSettings: TimeMeterLegalSettings = {
-  baseFareYen: 4050,
-  baseMinutes: 30,
-  additionalMinutes: 30,
-  additionalFareYen: 4050,
+  baseFareYen: CHARTER_UNIT_FARE_YEN,
+  baseMinutes: CHARTER_UNIT_MINUTES,
+  additionalMinutes: CHARTER_UNIT_MINUTES,
+  additionalFareYen: CHARTER_UNIT_FARE_YEN,
 }
 
 export const defaultTimeMeterDiscountSettings: TimeMeterDiscountSettings = {
@@ -143,8 +147,8 @@ export const defaultTimeMeterSettings: TimeMeterSettings = {
 const defaultTimeMeterModeSettings: MeterSettingsByMode['time'] = {
   additionalFare: { unitFareYen: 2000, unitSeconds: fixedTimeFareUnitSeconds },
   assistItems: careOptionMaster,
-  baseFareYen: 4000,
-  baseMinutes: 30,
+  baseFareYen: CHARTER_UNIT_FARE_YEN,
+  baseMinutes: CHARTER_UNIT_MINUTES,
   discount: DEFAULT_DISCOUNT_SETTINGS,
   dispatchMenuItems: dispatchMenuMaster,
   escortFare: { ...escortFareSettings, unitSeconds: fixedTimeFareUnitSeconds },
