@@ -7,6 +7,7 @@ import { fetchStores, saveStore } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { clearAuthStaffSession, loadAuthStaffSession, saveHqViewingSession } from '../services/authSession'
+import { signOutFirebaseAuth } from '../services/firebaseAuth'
 import { defaultFranchiseeId } from '../services/tenancy'
 import { defaultHeadquartersInfo, fetchHeadquartersInfo, saveHeadquartersInfo } from '../services/hqSettings'
 import type { HeadquartersInfo } from '../services/hqSettings'
@@ -401,6 +402,7 @@ export function HeadquartersPage() {
   const handleLogout = () => {
     workSession.logout()
     clearAuthStaffSession()
+    void signOutFirebaseAuth()
     sessionStorage.clear()
     localStorage.clear()
     navigate('/')

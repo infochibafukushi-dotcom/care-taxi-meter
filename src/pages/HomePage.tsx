@@ -12,6 +12,7 @@ import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store, WorkSession } from '../types/work'
 import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
+import { signOutFirebaseAuth, waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import type { AuthStaffSession } from '../services/authSession'
 import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import { formatBreakMinutes, formatBoundTimeDetail, formatDurationHoursMinutesJapanese } from '../utils/time'
@@ -333,31 +334,39 @@ export function HomePage() {
       return
     }
 
-    const authSession = loadAuthStaffSession()
-    const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
-      authSession,
-      currentSession,
-    })
-
-    if (!restoredLoggedInUser) {
-      return
-    }
-
-    console.info('[HomePage] restored loggedInUser for work session subscription', {
-      fromAuthSession: Boolean(authSession),
-      fromCurrentSession: Boolean(currentSession),
-      staffId: restoredLoggedInUser.staffMember.id,
-      storeId: restoredLoggedInUser.staffMember.storeId,
-    })
-
     let isActive = true
-    void Promise.resolve().then(() => {
-      if (!isActive) {
+
+    void (async () => {
+      const firebaseUser = await waitForFirebaseAuthUser()
+      const authSession = loadAuthStaffSession()
+
+      if (authSession && !firebaseUser) {
+        clearAuthStaffSession()
+        if (isActive) {
+          setLoginMessage('ログインセッションの有効期限が切れました。再度ログインしてください。')
+        }
         return
       }
+
+      const restoredLoggedInUser = createLoggedInUserFromRestoredSession({
+        authSession,
+        currentSession,
+      })
+
+      if (!restoredLoggedInUser || !isActive) {
+        return
+      }
+
+      console.info('[HomePage] restored loggedInUser for work session subscription', {
+        fromAuthSession: Boolean(authSession),
+        fromCurrentSession: Boolean(currentSession),
+        staffId: restoredLoggedInUser.staffMember.id,
+        storeId: restoredLoggedInUser.staffMember.storeId,
+      })
+
       setLoggedInUser(restoredLoggedInUser)
       setLoginMessage('ログイン状態を復元しました。勤務状態を同期しています。')
-    })
+    })()
 
     return () => {
       isActive = false
@@ -625,6 +634,7 @@ export function HomePage() {
   const handleLogout = () => {
     setLoggedInUser(null)
     clearAuthStaffSession()
+    void signOutFirebaseAuth()
     setLoginForm((currentForm) => ({ ...currentForm, password: '' }))
     setLoginMessage('ログアウトしました。')
   }
