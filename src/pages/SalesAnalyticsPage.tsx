@@ -546,19 +546,11 @@ export function SalesAnalyticsPage() {
   useEffect(() => {
     let isMounted = true
 
-    Promise.all([fetchCaseRecords(accessScope), fetchStaffMembers(accessScope), fetchVehicles(accessScope)])
-      .then(([records, loadedStaffMembers, loadedVehicles]) => {
-        if (!isMounted) {
-          return
-        }
-
-        setCaseRecords(records)
-        setStaffMembers(loadedStaffMembers)
-        setVehicles(loadedVehicles)
-        setErrorMessage('')
-        setIsLoading(false)
-      })
-      .catch((error) => {
+    void (async () => {
+      let records: StoredCaseRecord[] = []
+      try {
+        records = await fetchCaseRecords(accessScope)
+      } catch (error) {
         if (!isMounted) {
           return
         }
@@ -572,7 +564,33 @@ export function SalesAnalyticsPage() {
             : '売上分析データを取得できませんでした。',
         )
         setIsLoading(false)
-      })
+        return
+      }
+
+      let loadedStaffMembers: StaffMember[] = []
+      try {
+        loadedStaffMembers = await fetchStaffMembers(accessScope)
+      } catch {
+        loadedStaffMembers = []
+      }
+
+      let loadedVehicles: Vehicle[] = []
+      try {
+        loadedVehicles = await fetchVehicles(accessScope)
+      } catch {
+        loadedVehicles = []
+      }
+
+      if (!isMounted) {
+        return
+      }
+
+      setCaseRecords(records)
+      setStaffMembers(loadedStaffMembers)
+      setVehicles(loadedVehicles)
+      setErrorMessage('')
+      setIsLoading(false)
+    })()
 
     return () => {
       isMounted = false

@@ -123,7 +123,7 @@ const createWorkSessionTenantConstraints = (scope?: TenantAccessScope): QueryCon
   const constraints: QueryConstraint[] = []
 
   if (franchiseeId) {
-    constraints.push(where('companyId', '==', franchiseeId))
+    constraints.push(where('franchiseeId', '==', franchiseeId))
   }
 
   if (scope.storeId) {
@@ -166,7 +166,7 @@ export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
   if (scope && !isHqRole(scope.role ?? '')) {
     const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
     if (franchiseeId) {
-      constraints.push(where('companyId', '==', franchiseeId))
+      constraints.push(where('franchiseeId', '==', franchiseeId))
     }
     if (scope.storeId) {
       constraints.push(where('storeId', '==', scope.storeId))
@@ -191,7 +191,7 @@ export async function fetchOpenWorkingWorkSession({
   storeId?: string
 }) {
   const constraints: QueryConstraint[] = [
-    where('companyId', '==', companyId),
+    where('franchiseeId', '==', companyId),
     where('staffId', '==', staffId),
   ]
 
@@ -234,7 +234,7 @@ export function subscribeOpenWorkingWorkSession({
   storeId?: string
 }) {
   const constraints: QueryConstraint[] = [
-    where('companyId', '==', companyId),
+    where('franchiseeId', '==', companyId),
     where('staffId', '==', staffId),
   ]
 

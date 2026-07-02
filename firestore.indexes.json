@@ -50,6 +50,116 @@
       "fields": [
         { "fieldPath": "expiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "vehicles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "sortOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vehicles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "sortOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "staffMembers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "sortOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "staffMembers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "sortOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "clockOutAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "clockOutAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" },
+        { "fieldPath": "clockOutAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" },
+        { "fieldPath": "clockOutAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -595,29 +595,45 @@ export function AdminPage() {
 
   useEffect(() => {
     let isMounted = true;
+    const accessScope = { franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole };
 
-    Promise.all([fetchStores(currentRole === "hq_admin" ? undefined : currentFranchiseeId), fetchStaffMembers({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole }), fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })])
-      .then(([loadedStores, loadedStaffMembers, loadedVehicles]) => {
-        if (!isMounted) {
-          return;
-        }
+    void (async () => {
+      const failedSections: string[] = [];
 
-        setStores(loadedStores);
-        setStaffMembers(loadedStaffMembers);
-        setVehicles(loadedVehicles);
-        setMasterMessage("店舗・従業員・車両情報を読み込みました。");
-      })
-      .catch((error) => {
-        if (!isMounted) {
-          return;
-        }
+      let loadedStores: Awaited<ReturnType<typeof fetchStores>> = [];
+      try {
+        loadedStores = await fetchStores(currentRole === "hq_admin" ? undefined : currentFranchiseeId);
+      } catch {
+        failedSections.push("店舗");
+      }
 
-        setMasterMessage(
-          error instanceof Error
-            ? `店舗・従業員・車両情報を読み込めませんでした。${error.message}`
-            : "店舗・従業員・車両情報を読み込めませんでした。",
-        );
-      });
+      let loadedStaffMembers: Awaited<ReturnType<typeof fetchStaffMembers>> = [];
+      try {
+        loadedStaffMembers = await fetchStaffMembers(accessScope);
+      } catch {
+        failedSections.push("従業員");
+      }
+
+      let loadedVehicles: Awaited<ReturnType<typeof fetchVehicles>> = [];
+      try {
+        loadedVehicles = await fetchVehicles(accessScope);
+      } catch {
+        failedSections.push("車両");
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setStores(loadedStores);
+      setStaffMembers(loadedStaffMembers);
+      setVehicles(loadedVehicles);
+      setMasterMessage(
+        failedSections.length === 0
+          ? "店舗・従業員・車両情報を読み込みました。"
+          : `一部の情報を読み込めませんでした（${failedSections.join("・")}）。`,
+      );
+    })();
 
     return () => {
       isMounted = false;

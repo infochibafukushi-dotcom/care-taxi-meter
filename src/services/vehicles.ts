@@ -8,8 +8,9 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  where,
 } from 'firebase/firestore'
-import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type { Vehicle, VehicleFuelType, VehicleStatus } from '../types/work'
 import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
@@ -65,8 +66,32 @@ function getVehiclesCollection() {
   return collection(db, vehiclesCollectionName)
 }
 
+const createVehicleTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || scope.role === 'hq_admin') return []
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('franchiseeId', '==', franchiseeId))
+  }
+
+  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  return constraints
+}
+
 export async function fetchVehicles(scope?: TenantAccessScope) {
-  const snapshots = await getDocs(query(getVehiclesCollection(), orderBy('sortOrder', 'asc')))
+  const snapshots = await getDocs(
+    query(
+      getVehiclesCollection(),
+      ...createVehicleTenantConstraints(scope),
+      orderBy('sortOrder', 'asc'),
+    ),
+  )
+
   return snapshots.docs.map(toVehicle).filter((vehicle) => matchesTenantScope(vehicle, scope))
 }
 
