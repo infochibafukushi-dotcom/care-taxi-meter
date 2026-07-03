@@ -58,6 +58,11 @@ const toVehicle = (snapshot: QueryDocumentSnapshot<DocumentData>): Vehicle => {
     enabled: toBooleanValue(data.enabled),
     isActive: toBooleanValue(data.isActive ?? data.enabled),
     sortOrder: toNumberValue(data.sortOrder),
+    inUse: data.inUse === true,
+    currentDriverId: toStringValue(data.currentDriverId) || undefined,
+    currentDriverName: toStringValue(data.currentDriverName) || undefined,
+    currentWorkSessionId: toStringValue(data.currentWorkSessionId) || undefined,
+    inUseSince: toStringValue(data.inUseSince) || undefined,
   }
 }
 
@@ -148,8 +153,17 @@ export async function saveVehicle(vehicle: Vehicle) {
   const db = getFirestore(getFirebaseApp())
   const vehicleRef = doc(db, vehiclesCollectionName, vehicle.id)
   const snapshot = await getDoc(vehicleRef)
+  // 稼働ロックは claim/release 専用。車両管理の保存で上書きしない。
+  const {
+    inUse: _inUse,
+    currentDriverId: _currentDriverId,
+    currentDriverName: _currentDriverName,
+    currentWorkSessionId: _currentWorkSessionId,
+    inUseSince: _inUseSince,
+    ...vehicleMaster
+  } = vehicle
   const document = {
-    ...vehicle,
+    ...vehicleMaster,
     companyId: vehicle.franchiseeId || vehicle.companyId,
     franchiseeId: vehicle.franchiseeId || vehicle.companyId,
     vehicleName: vehicle.vehicleName || vehicle.name,

@@ -16,6 +16,9 @@ const workSessionsCollectionName = 'workSessions'
 export const VEHICLE_IN_USE_MESSAGE =
   'この車両は現在ほかの案件で使用中です。別の車両を選択してください。'
 
+const VEHICLE_LOAD_FAILED_MESSAGE =
+  '車両情報の取得に失敗しました。時間をおいて再度お試しください。'
+
 export type SelectableVehicleWithAvailability = Vehicle & {
   isInUse: boolean
   isSelectable: boolean
@@ -35,7 +38,15 @@ type VehicleOccupancyFields = {
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 
-const readOccupancy = (data: Record<string, unknown>): VehicleOccupancyFields => ({
+const readOccupancyFromVehicle = (vehicle: Vehicle): VehicleOccupancyFields => ({
+  inUse: vehicle.inUse === true,
+  currentDriverId: vehicle.currentDriverId ?? '',
+  currentDriverName: vehicle.currentDriverName ?? '',
+  currentWorkSessionId: vehicle.currentWorkSessionId ?? '',
+  inUseSince: vehicle.inUseSince ?? '',
+})
+
+const readOccupancyFromData = (data: Record<string, unknown>): VehicleOccupancyFields => ({
   inUse: data.inUse === true,
   currentDriverId: toStringValue(data.currentDriverId),
   currentDriverName: toStringValue(data.currentDriverName),
@@ -43,7 +54,7 @@ const readOccupancy = (data: Record<string, unknown>): VehicleOccupancyFields =>
   inUseSince: toStringValue(data.inUseSince),
 })
 
-const isWorkSessionHoldingVehicle = (data: Record<string, unknown> | undefined) => {
+const isOwnWorkingSession = (data: Record<string, unknown> | undefined) => {
   if (!data) {
     return false
   }
@@ -58,15 +69,17 @@ const isWorkSessionHoldingVehicle = (data: Record<string, unknown> | undefined) 
 const buildInUseLabel = (driverName: string) =>
   driverName ? `使用中：${driverName}` : '使用中'
 
+const isHeldByOtherStaff = (occupancy: VehicleOccupancyFields, currentStaffId: string) =>
+  occupancy.inUse &&
+  Boolean(occupancy.currentDriverId) &&
+  occupancy.currentDriverId !== currentStaffId
+
 const toAvailabilityVehicle = (
   vehicle: Vehicle,
   occupancy: VehicleOccupancyFields,
   currentStaffId: string,
 ): SelectableVehicleWithAvailability => {
-  const heldByOther =
-    occupancy.inUse &&
-    Boolean(occupancy.currentDriverId) &&
-    occupancy.currentDriverId !== currentStaffId
+  const heldByOther = isHeldByOtherStaff(occupancy, currentStaffId)
 
   return {
     ...vehicle,
@@ -90,58 +103,33 @@ const formatVehicleOptionLabel = (vehicle: SelectableVehicleWithAvailability) =>
 
 export const getVehicleOptionLabel = formatVehicleOptionLabel
 
+/** Firestore permission 等の生エラーを利用者向け文言に変換する */
+export const toVehicleAvailabilityUserMessage = (error: unknown, fallback = VEHICLE_LOAD_FAILED_MESSAGE) => {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (!message) {
+    return fallback
+  }
+
+  if (/missing or insufficient permissions|permission-denied|permission_denied/i.test(message)) {
+    return fallback
+  }
+
+  return message
+}
+
 /**
  * 選択可能車両に使用中状態を付与する。
- * 正は車両ドキュメントの稼働ロック。ホルダーの出勤セッションが終了していれば空きとして扱う。
+ * 他人の workSession は読まない（ドライバー権限では permission denied になるため）。
+ * 使用中表示は車両ドキュメントのロックフィールドのみで判定する。
  */
 export async function getSelectableVehiclesWithAvailability(
   scope: TenantAccessScope | undefined,
   currentStaffId: string,
 ): Promise<SelectableVehicleWithAvailability[]> {
   const vehicles = await getSelectableVehicles(scope)
-  const db = getFirestore(getFirebaseApp())
 
-  return Promise.all(
-    vehicles.map(async (vehicle) => {
-      const vehicleSnapshot = await getDoc(doc(db, vehiclesCollectionName, vehicle.id))
-      if (!vehicleSnapshot.exists()) {
-        return toAvailabilityVehicle(vehicle, {
-          inUse: false,
-          currentDriverId: '',
-          currentDriverName: '',
-          currentWorkSessionId: '',
-          inUseSince: '',
-        }, currentStaffId)
-      }
-
-      const occupancy = readOccupancy(vehicleSnapshot.data() as Record<string, unknown>)
-      if (!occupancy.inUse || !occupancy.currentWorkSessionId) {
-        return toAvailabilityVehicle(vehicle, occupancy, currentStaffId)
-      }
-
-      if (occupancy.currentDriverId === currentStaffId) {
-        return toAvailabilityVehicle(vehicle, occupancy, currentStaffId)
-      }
-
-      const holderSnapshot = await getDoc(
-        doc(db, workSessionsCollectionName, occupancy.currentWorkSessionId),
-      )
-      const holderData = holderSnapshot.exists()
-        ? (holderSnapshot.data() as Record<string, unknown>)
-        : undefined
-
-      if (!isWorkSessionHoldingVehicle(holderData)) {
-        return toAvailabilityVehicle(vehicle, {
-          inUse: false,
-          currentDriverId: '',
-          currentDriverName: '',
-          currentWorkSessionId: '',
-          inUseSince: '',
-        }, currentStaffId)
-      }
-
-      return toAvailabilityVehicle(vehicle, occupancy, currentStaffId)
-    }),
+  return vehicles.map((vehicle) =>
+    toAvailabilityVehicle(vehicle, readOccupancyFromVehicle(vehicle), currentStaffId),
   )
 }
 
@@ -155,45 +143,34 @@ export async function assertVehicleAvailableForStaff({
   workSessionId: string
 }) {
   const db = getFirestore(getFirebaseApp())
-  const vehicleRef = doc(db, vehiclesCollectionName, vehicleId)
-  const vehicleSnapshot = await getDoc(vehicleRef)
+  const vehicleSnapshot = await getDoc(doc(db, vehiclesCollectionName, vehicleId))
 
   if (!vehicleSnapshot.exists()) {
     throw new Error('選択した車両が見つかりません。')
   }
 
-  const occupancy = readOccupancy(vehicleSnapshot.data() as Record<string, unknown>)
+  const occupancy = readOccupancyFromData(vehicleSnapshot.data() as Record<string, unknown>)
   if (!occupancy.inUse) {
     return
   }
 
-  if (
-    occupancy.currentDriverId === staffId &&
-    (!occupancy.currentWorkSessionId || occupancy.currentWorkSessionId === workSessionId)
-  ) {
+  if (occupancy.currentDriverId === staffId) {
     return
-  }
-
-  if (occupancy.currentWorkSessionId) {
-    const holderSnapshot = await getDoc(
-      doc(db, workSessionsCollectionName, occupancy.currentWorkSessionId),
-    )
-    const holderData = holderSnapshot.exists()
-      ? (holderSnapshot.data() as Record<string, unknown>)
-      : undefined
-
-    if (!isWorkSessionHoldingVehicle(holderData)) {
-      return
-    }
   }
 
   if (occupancy.currentDriverId && occupancy.currentDriverId !== staffId) {
     throw new Error(VEHICLE_IN_USE_MESSAGE)
   }
+
+  // currentDriverId が空の古いロックは、同一 workSession 以外は使用中扱い
+  if (occupancy.currentWorkSessionId && occupancy.currentWorkSessionId !== workSessionId) {
+    throw new Error(VEHICLE_IN_USE_MESSAGE)
+  }
 }
 
 /**
- * 案件開始時に車両を確保する。同一 workSession による再確保は成功する。
+ * 案件開始時に車両を確保する。同一スタッフによる再確保は成功する。
+ * 他人の workSession は読まない（車両ロックフィールドのみで判定）。
  */
 export async function claimVehicleForCaseStart({
   vehicleId,
@@ -217,43 +194,32 @@ export async function claimVehicleForCaseStart({
       throw new Error('選択した車両が見つかりません。')
     }
 
+    // 自分の出勤セッションのみ読む
     const workSessionSnapshot = await transaction.get(workSessionRef)
     if (!workSessionSnapshot.exists()) {
       throw new Error('出勤セッションが見つかりません。再度出勤してください。')
     }
 
     const workSessionData = workSessionSnapshot.data() as Record<string, unknown>
-    if (!isWorkSessionHoldingVehicle(workSessionData)) {
+    if (!isOwnWorkingSession(workSessionData)) {
       throw new Error('出勤セッションが有効ではありません。再度出勤してください。')
     }
 
-    const occupancy = readOccupancy(vehicleSnapshot.data() as Record<string, unknown>)
-    if (occupancy.inUse && occupancy.currentWorkSessionId) {
-      if (occupancy.currentWorkSessionId === workSessionId) {
-        transaction.update(workSessionRef, {
-          activeTripVehicleId: vehicleId,
-          updatedAt: serverTimestamp(),
-        })
-        return
-      }
+    const occupancy = readOccupancyFromData(vehicleSnapshot.data() as Record<string, unknown>)
 
-      const holderRef = doc(db, workSessionsCollectionName, occupancy.currentWorkSessionId)
-      const holderSnapshot = await transaction.get(holderRef)
-      const holderData = holderSnapshot.exists()
-        ? (holderSnapshot.data() as Record<string, unknown>)
-        : undefined
+    if (occupancy.inUse && occupancy.currentWorkSessionId === workSessionId) {
+      transaction.update(workSessionRef, {
+        activeTripVehicleId: vehicleId,
+        updatedAt: serverTimestamp(),
+      })
+      return
+    }
 
-      if (isWorkSessionHoldingVehicle(holderData) && occupancy.currentDriverId !== staffId) {
-        throw new Error(VEHICLE_IN_USE_MESSAGE)
-      }
-    } else if (
-      occupancy.inUse &&
-      occupancy.currentDriverId &&
-      occupancy.currentDriverId !== staffId
-    ) {
+    if (isHeldByOtherStaff(occupancy, staffId)) {
       throw new Error(VEHICLE_IN_USE_MESSAGE)
     }
 
+    // 同一スタッフの別セッション、または未ロックなら確保（再確保）
     transaction.update(vehicleRef, {
       inUse: true,
       currentDriverId: staffId,
@@ -293,7 +259,7 @@ export async function releaseVehicleFromCase({
     const workSessionSnapshot = await transaction.get(workSessionRef)
 
     if (vehicleSnapshot.exists()) {
-      const occupancy = readOccupancy(vehicleSnapshot.data() as Record<string, unknown>)
+      const occupancy = readOccupancyFromData(vehicleSnapshot.data() as Record<string, unknown>)
       if (!occupancy.currentWorkSessionId || occupancy.currentWorkSessionId === workSessionId) {
         transaction.update(vehicleRef, {
           inUse: false,

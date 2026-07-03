@@ -131,6 +131,12 @@ export type Vehicle = {
   enabled: boolean
   isActive: boolean
   sortOrder: number
+  /** 案件開始時の稼働ロック（未設定の既存データは未使用扱い） */
+  inUse?: boolean
+  currentDriverId?: string
+  currentDriverName?: string
+  currentWorkSessionId?: string
+  inUseSince?: string
 }
 
 export type WorkSession = {

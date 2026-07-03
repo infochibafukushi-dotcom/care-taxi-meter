@@ -15,6 +15,7 @@ import {
   claimVehicleForCaseStart,
   getSelectableVehiclesWithAvailability,
   getVehicleOptionLabel,
+  toVehicleAvailabilityUserMessage,
   VEHICLE_IN_USE_MESSAGE,
   type SelectableVehicleWithAvailability,
 } from '../services/vehicleAvailability'
@@ -157,7 +158,7 @@ export function CaseStartPage() {
 
         setVehicles([])
         setIsLoadingVehicles(false)
-        setMessage(error instanceof Error ? error.message : '車両の読み込みに失敗しました。')
+        setMessage(toVehicleAvailabilityUserMessage(error))
       }
     })()
 
@@ -250,18 +251,19 @@ export function CaseStartPage() {
 
       navigate(`/case?${query.toString()}`)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : VEHICLE_IN_USE_MESSAGE
+      const errorMessage = toVehicleAvailabilityUserMessage(error, VEHICLE_IN_USE_MESSAGE)
       setMessage(errorMessage)
 
       try {
         const refreshedVehicles = await loadVehicles()
         const selectableCount = refreshedVehicles.filter((vehicle) => vehicle.isSelectable).length
         if (selectableCount === 0 && refreshedVehicles.length > 0) {
-          setMessage(
-            `${errorMessage} 現在選択できる車両がありません。`,
-          )
+          setMessage(`${errorMessage} 現在選択できる車両がありません。`)
         }
-        if (selectedVehicleId && refreshedVehicles.some((vehicle) => vehicle.id === selectedVehicleId && vehicle.isInUse)) {
+        if (
+          selectedVehicleId &&
+          refreshedVehicles.some((vehicle) => vehicle.id === selectedVehicleId && vehicle.isInUse)
+        ) {
           setSelectedVehicleId('')
         }
       } catch {
