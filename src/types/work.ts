@@ -156,6 +156,7 @@ export type WorkSession = {
   activeTripStatus?: string | null
   activeTripUpdatedAt?: string | null
   activeTripCaseNumber?: string | null
+  activeTripVehicleId?: string | null
 }
 
 

@@ -59,6 +59,17 @@ h1 {
   margin-top: 36px;
 }
 
+.case-start-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.case-start-actions .secondary-action {
+  width: 100%;
+}
+
 .primary-action,
 .secondary-action,
 .text-link {

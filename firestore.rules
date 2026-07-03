@@ -67,6 +67,20 @@ service cloud.firestore {
         && hasTenant(request.resource.data)
         && preservesStaffTenantIdentity();
     }
+    function onlyVehicleOccupancyChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'inUse',
+        'currentDriverId',
+        'currentDriverName',
+        'currentWorkSessionId',
+        'inUseSince',
+        'updatedAt',
+      ]);
+    }
+    function preservesVehicleTenantIdentity() {
+      return docFranchisee(request.resource.data) == docFranchisee(resource.data)
+        && request.resource.data.storeId == resource.data.storeId;
+    }
 
     match /auditLogs/{auditLogId} {
       allow read: if isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(resource.data)) || (isStoreManager() && sameStore(resource.data));
@@ -110,6 +124,11 @@ service cloud.firestore {
       allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
       allow read: if (isStoreManager() || isDriver()) && sameStore(resource.data);
       allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
+      // ドライバーは案件開始時の車両ロック確保・解除のみ更新可
+      allow update: if isDriver()
+        && sameStore(resource.data)
+        && preservesVehicleTenantIdentity()
+        && onlyVehicleOccupancyChanged();
       allow delete: if false;
     }
 

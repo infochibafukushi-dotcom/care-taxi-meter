@@ -66,6 +66,7 @@ const toWorkSession = (snapshot: {
     activeTripStatus: toStringValue(data.activeTripStatus) || null,
     activeTripUpdatedAt: toStringValue(data.activeTripUpdatedAt) || null,
     activeTripCaseNumber: toStringValue(data.activeTripCaseNumber) || null,
+    activeTripVehicleId: toStringValue(data.activeTripVehicleId) || null,
   }
 }
 
@@ -302,6 +303,7 @@ export async function clockInWorkSession({
     activeTripStatus: null,
     activeTripUpdatedAt: null,
     activeTripCaseNumber: null,
+    activeTripVehicleId: null,
   }
 
   const attendanceRef = getStaffAttendanceRef({
@@ -389,6 +391,12 @@ export async function clockOutWorkSession({
       throw new Error('運行を終了してから退勤してください')
     }
 
+    const activeTripVehicleId = latestWorkSession.activeTripVehicleId
+    const vehicleRef = activeTripVehicleId
+      ? doc(db, 'vehicles', activeTripVehicleId)
+      : null
+    const vehicleSnapshot = vehicleRef ? await transaction.get(vehicleRef) : null
+
     transaction.update(workSessionRef, {
       clockOutAt,
       clockOutLatitude: location.latitude,
@@ -399,6 +407,7 @@ export async function clockOutWorkSession({
       activeTripStatus: null,
       activeTripUpdatedAt: serverTimestamp(),
       activeTripCaseNumber: null,
+      activeTripVehicleId: null,
       updatedAt: serverTimestamp(),
     })
     transaction.set(attendanceRef, {
@@ -412,6 +421,22 @@ export async function clockOutWorkSession({
       clockOutAt,
       updatedAt: serverTimestamp(),
     })
+
+    if (vehicleRef && vehicleSnapshot?.exists()) {
+      const vehicleData = vehicleSnapshot.data() as Record<string, unknown>
+      const lockedWorkSessionId =
+        typeof vehicleData.currentWorkSessionId === 'string' ? vehicleData.currentWorkSessionId : ''
+      if (!lockedWorkSessionId || lockedWorkSessionId === workSession.id) {
+        transaction.update(vehicleRef, {
+          inUse: false,
+          currentDriverId: '',
+          currentDriverName: '',
+          currentWorkSessionId: '',
+          inUseSince: '',
+          updatedAt: serverTimestamp(),
+        })
+      }
+    }
   })
 
   return closedSession

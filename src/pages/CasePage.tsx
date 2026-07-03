@@ -55,6 +55,11 @@ import { readReservationTripContext, clearReservationTripContext } from '../serv
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import { completeFixedFareRun } from '../services/reservationApi'
 import { waitForFirebaseAuthUser } from '../services/firebaseAuth'
+import {
+  claimVehicleForCaseStart,
+  releaseVehicleFromCase,
+  VEHICLE_IN_USE_MESSAGE,
+} from '../services/vehicleAvailability'
 import { getSelectableVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -2834,6 +2839,19 @@ export function CasePage() {
       if (meterMode !== 'fixed') {
         clearActiveTripSnapshot()
       }
+
+      const workSessionId = workSession.currentSession?.id
+      if (workSessionId && selectedVehicle.id) {
+        try {
+          await releaseVehicleFromCase({
+            vehicleId: selectedVehicle.id,
+            workSessionId,
+          })
+        } catch (releaseError) {
+          console.warn('Failed to release vehicle after case save.', releaseError)
+        }
+      }
+
       setSavedCaseRecord(savedRecord)
       setCaseSaveState('saved')
       writePostSettlementLock(caseNumber)
@@ -3083,6 +3101,24 @@ export function CasePage() {
       resumeHoldTimerRef.current = null
     }
 
+    const session = workSession.currentSession
+    if (session && selectedVehicleId) {
+      try {
+        await claimVehicleForCaseStart({
+          vehicleId: selectedVehicleId,
+          staffId: session.staffId,
+          staffName: session.staffName,
+          workSessionId: session.id,
+        })
+      } catch (error) {
+        setCaseSaveMessage(
+          error instanceof Error ? error.message : VEHICLE_IN_USE_MESSAGE,
+        )
+        navigate('/case/start')
+        return
+      }
+    }
+
     if (meterMode === 'obd') {
       await disconnectObd()
     }
@@ -3154,6 +3190,19 @@ export function CasePage() {
       if (!window.confirm('TOPへ戻りますか？')) {
         return
       }
+      navigate('/')
+      return
+    }
+
+    const workSessionId = workSession.currentSession?.id
+    const vehicleIdToRelease = selectedVehicleId
+    if (workSessionId && vehicleIdToRelease && !isPostSettlementAwaitingNewCase) {
+      void releaseVehicleFromCase({
+        vehicleId: vehicleIdToRelease,
+        workSessionId,
+      }).catch((error) => {
+        console.warn('Failed to release vehicle on return to TOP.', error)
+      })
     }
 
     navigate('/')
