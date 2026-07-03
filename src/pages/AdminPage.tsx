@@ -12,7 +12,12 @@ import {
   ensureDefaultStore,
   fetchStores,
 } from "../services/stores";
-import { fetchVehicles, saveVehicle } from "../services/vehicles";
+import {
+  fetchVehicles,
+  saveVehicle,
+  toVehicleSaveUserMessage,
+  VEHICLE_EDIT_FORBIDDEN_MESSAGE,
+} from "../services/vehicles";
 import { fetchClosedWorkSessionsInClockOutRange, fetchWorkingWorkSessionCount } from "../services/workSessions";
 import type { StoredCaseRecord } from "../services/caseRecords";
 import { formatFareYen } from "../services/fare";
@@ -1203,7 +1208,15 @@ export function AdminPage() {
     }
   };
 
+  const canEditVehicles =
+    currentRole === "owner" || currentRole === "manager" || currentRole === "hq_admin";
+
   const handleVehicleSave = async () => {
+    if (!canEditVehicles) {
+      setMasterMessage(VEHICLE_EDIT_FORBIDDEN_MESSAGE);
+      return;
+    }
+
     const hasEmptyName = vehicles.some((vehicle) => !vehicle.name.trim());
 
     if (hasEmptyName) {
@@ -1215,11 +1228,7 @@ export function AdminPage() {
       await Promise.all(vehicles.map((vehicle) => saveVehicle(applyDefaultTenantToVehicle(vehicle))));
       setMasterMessage("車両情報を保存しました。");
     } catch (error) {
-      setMasterMessage(
-        error instanceof Error
-          ? `車両情報を保存できませんでした。${error.message}`
-          : "車両情報を保存できませんでした。",
-      );
+      setMasterMessage(toVehicleSaveUserMessage(error));
     }
   };
 
@@ -1463,6 +1472,7 @@ export function AdminPage() {
               onSave={handleVehicleSave}
               onUpdate={updateVehicle}
               canSelectStore={!isFranchiseeOwnerAdmin}
+              canEdit={canEditVehicles}
             />
           ) : null}
 

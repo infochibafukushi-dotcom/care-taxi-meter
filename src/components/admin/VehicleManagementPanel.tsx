@@ -9,6 +9,7 @@ type VehicleManagementPanelProps = {
   onSave: () => void
   onUpdate: (id: string, updates: Partial<Vehicle>) => void
   canSelectStore?: boolean
+  canEdit?: boolean
 }
 
 const getVehicleTypeOptions = (vehicleType: string) => {
@@ -27,6 +28,7 @@ export function VehicleManagementPanel({
   onSave,
   onUpdate,
   canSelectStore = true,
+  canEdit = true,
 }: VehicleManagementPanelProps) {
   const handleStoreChange = (vehicle: Vehicle, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -43,12 +45,17 @@ export function VehicleManagementPanel({
           <p className="eyebrow">Vehicles</p>
           <h2 id="vehicle-management-title">車両管理</h2>
         </div>
-        <div className="admin-master-actions">
-          <button type="button" onClick={onAdd}>+ 車両追加</button>
-          <button type="button" onClick={onSave}>保存</button>
-        </div>
+        {canEdit ? (
+          <div className="admin-master-actions">
+            <button type="button" onClick={onAdd}>+ 車両追加</button>
+            <button type="button" onClick={onSave}>保存</button>
+          </div>
+        ) : null}
       </div>
       {message ? <p className="save-note">{message}</p> : null}
+      {!canEdit ? (
+        <p className="save-note" role="status">車両情報の編集権限がありません。</p>
+      ) : null}
       <div className="admin-master-table-wrap">
         <table className="admin-master-table admin-master-table--wide">
           <thead>
@@ -73,11 +80,32 @@ export function VehicleManagementPanel({
             {vehicles.length > 0 ? (
               vehicles.map((vehicle) => (
                 <tr key={vehicle.id}>
-                  <td><input type="checkbox" checked={vehicle.enabled} onChange={(event) => onUpdate(vehicle.id, { enabled: event.target.checked })} /></td>
-                  <td><input min="1" type="number" value={vehicle.sortOrder} onChange={(event) => onUpdate(vehicle.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })} /></td>
-                  <td><input value={vehicle.companyId} onChange={(event) => onUpdate(vehicle.id, { companyId: event.target.value })} /></td>
                   <td>
-                    {canSelectStore ? (
+                    <input
+                      type="checkbox"
+                      checked={vehicle.enabled}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { enabled: event.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      min="1"
+                      type="number"
+                      value={vehicle.sortOrder}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { sortOrder: Math.max(Number(event.target.value) || 1, 1) })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={vehicle.companyId}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { companyId: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    {canSelectStore && canEdit ? (
                       <select value={vehicle.storeId} onChange={(event) => handleStoreChange(vehicle, event.target.value)}>
                         <option value="">未設定</option>
                         {stores
@@ -88,15 +116,35 @@ export function VehicleManagementPanel({
                       <span>{vehicle.storeName || stores.find((store) => store.id === vehicle.storeId)?.name || '既定店舗'}</span>
                     )}
                   </td>
-                  <td><input value={vehicle.name} onChange={(event) => onUpdate(vehicle.id, { name: event.target.value })} /></td>
-                  <td><input value={vehicle.number} onChange={(event) => onUpdate(vehicle.id, { number: event.target.value })} /></td>
                   <td>
-                    <select value={vehicle.status} onChange={(event) => onUpdate(vehicle.id, { status: event.target.value as VehicleStatus })}>
+                    <input
+                      value={vehicle.name}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { name: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={vehicle.number}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { number: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      value={vehicle.status}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { status: event.target.value as VehicleStatus })}
+                    >
                       {vehicleStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                   </td>
                   <td>
-                    <select value={vehicle.fuelType} onChange={(event) => onUpdate(vehicle.id, { fuelType: event.target.value as VehicleFuelType })}>
+                    <select
+                      value={vehicle.fuelType}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { fuelType: event.target.value as VehicleFuelType })}
+                    >
                       {vehicleFuelTypes.map((fuelType) => <option key={fuelType || 'empty'} value={fuelType}>{fuelType || '未設定'}</option>)}
                     </select>
                   </td>
@@ -104,6 +152,7 @@ export function VehicleManagementPanel({
                     <select
                       aria-label={`${vehicle.name || '車両'}の車両種別`}
                       value={vehicle.vehicleType}
+                      disabled={!canEdit}
                       onChange={(event) => onUpdate(vehicle.id, { vehicleType: event.target.value })}
                     >
                       <option value="">未設定</option>
@@ -114,11 +163,46 @@ export function VehicleManagementPanel({
                       ))}
                     </select>
                   </td>
-                  <td><input min="0" type="number" value={vehicle.wheelchairCapacity} onChange={(event) => onUpdate(vehicle.id, { wheelchairCapacity: Math.max(Number(event.target.value) || 0, 0) })} /></td>
-                  <td><input type="checkbox" checked={vehicle.stretcherSupported} onChange={(event) => onUpdate(vehicle.id, { stretcherSupported: event.target.checked })} /></td>
-                  <td><input type="date" value={vehicle.inspectionExpiresAt} onChange={(event) => onUpdate(vehicle.id, { inspectionExpiresAt: event.target.value })} /></td>
-                  <td><input type="date" value={vehicle.insuranceExpiresAt} onChange={(event) => onUpdate(vehicle.id, { insuranceExpiresAt: event.target.value })} /></td>
-                  <td><input value={vehicle.memo} onChange={(event) => onUpdate(vehicle.id, { memo: event.target.value })} /></td>
+                  <td>
+                    <input
+                      min="0"
+                      type="number"
+                      value={vehicle.wheelchairCapacity}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { wheelchairCapacity: Math.max(Number(event.target.value) || 0, 0) })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={vehicle.stretcherSupported}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { stretcherSupported: event.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="date"
+                      value={vehicle.inspectionExpiresAt}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { inspectionExpiresAt: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="date"
+                      value={vehicle.insuranceExpiresAt}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { insuranceExpiresAt: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={vehicle.memo}
+                      disabled={!canEdit}
+                      onChange={(event) => onUpdate(vehicle.id, { memo: event.target.value })}
+                    />
+                  </td>
                 </tr>
               ))
             ) : (

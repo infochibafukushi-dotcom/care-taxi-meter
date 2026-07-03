@@ -77,9 +77,44 @@ service cloud.firestore {
         'updatedAt',
       ]);
     }
+    function vehicleLockFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'inUse',
+        'currentDriverId',
+        'currentDriverName',
+        'currentWorkSessionId',
+        'inUseSince',
+        'activeTripVehicleId',
+        'currentCaseId',
+      ]);
+    }
     function preservesVehicleTenantIdentity() {
       return docFranchisee(request.resource.data) == docFranchisee(resource.data)
         && request.resource.data.storeId == resource.data.storeId;
+    }
+    function canUpdateVehicleMasterData() {
+      return !vehicleLockFieldsChanged()
+        && hasTenant(request.resource.data)
+        && (
+          (isFranchiseeOwner() && sameFranchisee(request.resource.data))
+          || (isStoreManager() && sameStore(request.resource.data))
+        );
+    }
+    function canUpdateVehicleOccupancy() {
+      return onlyVehicleOccupancyChanged()
+        && preservesVehicleTenantIdentity()
+        && (
+          (isFranchiseeOwner() && sameFranchisee(resource.data))
+          || (isStoreManager() && sameStore(resource.data))
+          || (isDriver() && sameStore(resource.data))
+        );
+    }
+    function canCreateVehicle() {
+      return hasTenant(request.resource.data)
+        && (
+          (isFranchiseeOwner() && sameFranchisee(request.resource.data))
+          || (isStoreManager() && sameStore(request.resource.data))
+        );
     }
 
     match /auditLogs/{auditLogId} {
@@ -121,14 +156,12 @@ service cloud.firestore {
     match /vehicles/{vehicleId} {
       allow read, write: if isHqAdmin();
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
-      allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
       allow read: if (isStoreManager() || isDriver()) && sameStore(resource.data);
-      allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
-      // ドライバーは案件開始時の車両ロック確保・解除のみ更新可
-      allow update: if isDriver()
-        && sameStore(resource.data)
-        && preservesVehicleTenantIdentity()
-        && onlyVehicleOccupancyChanged();
+      // 車両管理: 通常項目のみ（ロック用フィールドは変更不可）
+      allow create: if canCreateVehicle();
+      allow update: if canUpdateVehicleMasterData();
+      // 案件開始/終了の稼働ロック専用（owner/manager/driver）
+      allow update: if canUpdateVehicleOccupancy();
       allow delete: if false;
     }
 

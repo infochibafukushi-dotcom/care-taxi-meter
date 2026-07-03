@@ -11,10 +11,27 @@ import {
   where,
 } from 'firebase/firestore'
 import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
+import { FirebaseError } from 'firebase/app'
 import { getFirebaseApp } from '../lib/firebase'
 import type { Vehicle, VehicleFuelType, VehicleStatus } from '../types/work'
 import { defaultStoreId, getFranchiseeId, getStoreId, isHqRole } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+
+/** 車両管理の保存で書き込んではいけない稼働ロック用フィールド */
+export const VEHICLE_LOCK_FIELD_KEYS = [
+  'inUse',
+  'currentDriverId',
+  'currentDriverName',
+  'currentWorkSessionId',
+  'inUseSince',
+  'activeTripVehicleId',
+  'currentCaseId',
+] as const
+
+export const VEHICLE_SAVE_PERMISSION_MESSAGE =
+  '車両情報を保存できませんでした。編集権限または保存対象項目を確認してください。'
+
+export const VEHICLE_EDIT_FORBIDDEN_MESSAGE = '車両情報の編集権限がありません。'
 
 const vehiclesCollectionName = 'vehicles'
 const validStatuses: VehicleStatus[] = ['稼働中', '整備中', '休車', '売却済']
@@ -149,30 +166,66 @@ export async function getSelectableVehicles(scope?: TenantAccessScope) {
   return vehicles.filter(isVehicleSelectable)
 }
 
+/**
+ * 車両管理画面用の保存ペイロード。
+ * 稼働ロック用フィールドは含めない（claim/release 専用）。
+ */
+export const buildVehicleAdminUpdatePayload = (vehicle: Vehicle) => {
+  const franchiseeId = vehicle.franchiseeId || vehicle.companyId
+  const storeId = vehicle.storeId || defaultStoreId
+
+  return {
+    id: vehicle.id,
+    companyId: franchiseeId,
+    franchiseeId,
+    storeId,
+    storeName: vehicle.storeName || '',
+    name: vehicle.name,
+    vehicleName: vehicle.vehicleName || vehicle.name,
+    number: vehicle.number || '',
+    plateNumber: vehicle.plateNumber || vehicle.number || '',
+    status: vehicle.status,
+    fuelType: vehicle.fuelType || '',
+    vehicleType: vehicle.vehicleType || '',
+    wheelchairCapacity: Math.max(vehicle.wheelchairCapacity || 0, 0),
+    stretcherSupported: Boolean(vehicle.stretcherSupported),
+    inspectionExpiresAt: vehicle.inspectionExpiresAt || '',
+    insuranceExpiresAt: vehicle.insuranceExpiresAt || '',
+    memo: vehicle.memo || '',
+    enabled: vehicle.enabled !== false,
+    isActive: vehicle.isActive ?? vehicle.enabled !== false,
+    sortOrder: Math.max(vehicle.sortOrder || 1, 1),
+  }
+}
+
+export const toVehicleSaveUserMessage = (error: unknown) => {
+  if (error instanceof FirebaseError && error.code === 'permission-denied') {
+    return VEHICLE_SAVE_PERMISSION_MESSAGE
+  }
+
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/missing or insufficient permissions|permission-denied|permission_denied/i.test(message)) {
+    return VEHICLE_SAVE_PERMISSION_MESSAGE
+  }
+
+  if (error instanceof Error && error.message) {
+    return `車両情報を保存できませんでした。${error.message}`
+  }
+
+  return VEHICLE_SAVE_PERMISSION_MESSAGE
+}
+
 export async function saveVehicle(vehicle: Vehicle) {
   const db = getFirestore(getFirebaseApp())
   const vehicleRef = doc(db, vehiclesCollectionName, vehicle.id)
   const snapshot = await getDoc(vehicleRef)
-  // 稼働ロックは claim/release 専用。車両管理の保存で上書きしない。
-  const {
-    inUse: _inUse,
-    currentDriverId: _currentDriverId,
-    currentDriverName: _currentDriverName,
-    currentWorkSessionId: _currentWorkSessionId,
-    inUseSince: _inUseSince,
-    ...vehicleMaster
-  } = vehicle
   const document = {
-    ...vehicleMaster,
-    companyId: vehicle.franchiseeId || vehicle.companyId,
-    franchiseeId: vehicle.franchiseeId || vehicle.companyId,
-    vehicleName: vehicle.vehicleName || vehicle.name,
-    plateNumber: vehicle.plateNumber || vehicle.number,
-    isActive: vehicle.isActive ?? vehicle.enabled,
+    ...buildVehicleAdminUpdatePayload(vehicle),
     ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
+  // merge: true でもロック用フィールドは payload に含めないため既存ロックは保持される
   await setDoc(vehicleRef, document, { merge: true })
   return vehicle
 }
