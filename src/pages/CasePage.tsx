@@ -54,6 +54,7 @@ import {
 import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import { completeFixedFareRun } from '../services/reservationApi'
+import { waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import { getSelectableVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
@@ -1089,12 +1090,18 @@ export function CasePage() {
   useEffect(() => {
     let isMounted = true
 
-    getSelectableVehicles({
-      franchiseeId: currentFranchiseeId,
-      storeId: currentStoreId,
-      role: workSession.currentSession?.staffRole,
-    })
-      .then((loadedVehicles) => {
+    void (async () => {
+      const firebaseUser = await waitForFirebaseAuthUser()
+      if (!isMounted || !firebaseUser) {
+        return
+      }
+
+      try {
+        const loadedVehicles = await getSelectableVehicles({
+          franchiseeId: currentFranchiseeId,
+          storeId: currentStoreId,
+          role: workSession.currentSession?.staffRole,
+        })
         if (!isMounted) {
           return
         }
@@ -1107,10 +1114,10 @@ export function CasePage() {
 
           return currentVehicle?.id ?? matchedVehicle?.id ?? fallbackVehicle?.id ?? ''
         })
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error('Failed to load vehicles', error)
-      })
+      }
+    })()
 
     return () => {
       isMounted = false

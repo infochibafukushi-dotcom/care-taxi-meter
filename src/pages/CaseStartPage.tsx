@@ -9,6 +9,7 @@ import {
   defaultMeterPermissions,
   getAllowedMeterModes,
 } from '../services/subscriptionPlans'
+import { waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import { getSelectableVehicles } from '../services/vehicles'
 import type { MeterMode } from '../types/case'
@@ -101,8 +102,22 @@ export function CaseStartPage() {
     setIsLoadingVehicles(true)
     setMessage('稼働中車両を読み込み中です。')
 
-    getSelectableVehicles(accessScope)
-      .then((loadedVehicles) => {
+    void (async () => {
+      // 直リンク・リロード時は Auth 復元前に query すると permission-denied になる
+      const firebaseUser = await waitForFirebaseAuthUser()
+      if (!isMounted) {
+        return
+      }
+
+      if (!firebaseUser) {
+        setVehicles([])
+        setIsLoadingVehicles(false)
+        setMessage('ログインセッションの有効期限が切れました。再度ログインしてください。')
+        return
+      }
+
+      try {
+        const loadedVehicles = await getSelectableVehicles(accessScope)
         if (!isMounted) {
           return
         }
@@ -116,8 +131,7 @@ export function CaseStartPage() {
               ? '予約連携の事前確定Mで使用する車両を選択してください。'
               : '案件で使用する車両とメーター方式を選択してください。',
         )
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!isMounted) {
           return
         }
@@ -125,7 +139,8 @@ export function CaseStartPage() {
         setVehicles([])
         setIsLoadingVehicles(false)
         setMessage(error instanceof Error ? error.message : '車両の読み込みに失敗しました。')
-      })
+      }
+    })()
 
     return () => {
       isMounted = false
