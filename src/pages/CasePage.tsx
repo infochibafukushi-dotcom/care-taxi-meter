@@ -54,7 +54,7 @@ import {
 import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import { completeFixedFareRun } from '../services/reservationApi'
-import { fetchVehicles } from '../services/vehicles'
+import { getSelectableVehicles } from '../services/vehicles'
 import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord } from '../services/caseRecords'
 import {
   defaultMeterSettings,
@@ -1089,40 +1089,21 @@ export function CasePage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchVehicles({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: workSession.currentSession?.staffRole })
+    getSelectableVehicles({
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      role: workSession.currentSession?.staffRole,
+    })
       .then((loadedVehicles) => {
         if (!isMounted) {
           return
         }
 
         setVehicles(loadedVehicles)
-        const matchedVehicle = loadedVehicles.find(
-          (vehicle) =>
-            vehicle.enabled &&
-            vehicle.status === '稼働中' &&
-            vehicle.id === vehicleIdFromQuery &&
-            (!workSession.currentSession ||
-              (vehicle.companyId === workSession.currentSession.companyId &&
-                vehicle.storeId === workSession.currentSession.storeId)),
-        )
-        const fallbackVehicle = loadedVehicles.find(
-          (vehicle) =>
-            vehicle.enabled &&
-            vehicle.status === '稼働中' &&
-            (!workSession.currentSession ||
-              (vehicle.companyId === workSession.currentSession.companyId &&
-                vehicle.storeId === workSession.currentSession.storeId)),
-        )
+        const matchedVehicle = loadedVehicles.find((vehicle) => vehicle.id === vehicleIdFromQuery)
+        const fallbackVehicle = loadedVehicles[0]
         setSelectedVehicleId((currentVehicleId) => {
-          const currentVehicle = loadedVehicles.find(
-            (vehicle) =>
-              vehicle.enabled &&
-              vehicle.status === '稼働中' &&
-              vehicle.id === currentVehicleId &&
-              (!workSession.currentSession ||
-                (vehicle.companyId === workSession.currentSession.companyId &&
-                  vehicle.storeId === workSession.currentSession.storeId)),
-          )
+          const currentVehicle = loadedVehicles.find((vehicle) => vehicle.id === currentVehicleId)
 
           return currentVehicle?.id ?? matchedVehicle?.id ?? fallbackVehicle?.id ?? ''
         })

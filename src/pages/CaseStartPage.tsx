@@ -9,7 +9,8 @@ import {
   defaultMeterPermissions,
   getAllowedMeterModes,
 } from '../services/subscriptionPlans'
-import { fetchVehicles } from '../services/vehicles'
+import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
+import { getSelectableVehicles } from '../services/vehicles'
 import type { MeterMode } from '../types/case'
 import type { MeterPermissions, Vehicle } from '../types/work'
 import { logDiagnostic } from '../utils/diagnostics'
@@ -18,6 +19,9 @@ import {
   meterModeLabels,
   readStoredMeterMode,
 } from '../utils/meterConstants'
+
+const EMPTY_VEHICLES_MESSAGE =
+  '選択できる車両がありません。車両管理で車両が登録済みの場合は、ログイン中の店舗情報または車両の有効状態を確認してください。'
 
 export function CaseStartPage() {
   const navigate = useNavigate()
@@ -29,7 +33,12 @@ export function CaseStartPage() {
     [isReservationStart, reservationId],
   )
   const workSession = useWorkSession()
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(workSession.currentSession),
+    [workSession.currentSession],
+  )
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [isLoadingVehicles, setIsLoadingVehicles] = useState(false)
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(
     () => (isReservationStart ? 'fixed' : readStoredMeterMode()),
@@ -71,17 +80,41 @@ export function CaseStartPage() {
   useEffect(() => {
     let isMounted = true
 
-    fetchVehicles()
+    if (!workSession.currentSession) {
+      setVehicles([])
+      setIsLoadingVehicles(false)
+      return () => {
+        isMounted = false
+      }
+    }
+
+    const franchiseeId = accessScope.franchiseeId
+    if (!franchiseeId) {
+      setVehicles([])
+      setIsLoadingVehicles(false)
+      setMessage(EMPTY_VEHICLES_MESSAGE)
+      return () => {
+        isMounted = false
+      }
+    }
+
+    setIsLoadingVehicles(true)
+    setMessage('稼働中車両を読み込み中です。')
+
+    getSelectableVehicles(accessScope)
       .then((loadedVehicles) => {
         if (!isMounted) {
           return
         }
 
         setVehicles(loadedVehicles)
+        setIsLoadingVehicles(false)
         setMessage(
-          isReservationStart
-            ? '予約連携の事前確定Mで使用する車両を選択してください。'
-            : '案件で使用する車両とメーター方式を選択してください。',
+          loadedVehicles.length === 0
+            ? EMPTY_VEHICLES_MESSAGE
+            : isReservationStart
+              ? '予約連携の事前確定Mで使用する車両を選択してください。'
+              : '案件で使用する車両とメーター方式を選択してください。',
         )
       })
       .catch((error) => {
@@ -89,24 +122,17 @@ export function CaseStartPage() {
           return
         }
 
+        setVehicles([])
+        setIsLoadingVehicles(false)
         setMessage(error instanceof Error ? error.message : '車両の読み込みに失敗しました。')
       })
 
     return () => {
       isMounted = false
     }
-  }, [isReservationStart])
+  }, [accessScope, isReservationStart, workSession.currentSession])
 
-  const availableVehicles = useMemo(
-    () => vehicles.filter(
-      (vehicle) =>
-        vehicle.enabled &&
-        vehicle.status === '稼働中' &&
-        vehicle.companyId === workSession.currentSession?.companyId &&
-        vehicle.storeId === workSession.currentSession?.storeId,
-    ),
-    [vehicles, workSession.currentSession],
-  )
+  const availableVehicles = vehicles
 
   const allowedMeterModes = useMemo(
     () => getAllowedMeterModes(meterPermissions),
@@ -132,7 +158,7 @@ export function CaseStartPage() {
     }
 
     if (!selectedVehicleValue) {
-      setMessage('案件で使用する車両を選択してください。')
+      setMessage(isLoadingVehicles ? '車両を読み込み中です。' : EMPTY_VEHICLES_MESSAGE)
       return
     }
 
@@ -192,7 +218,7 @@ export function CaseStartPage() {
         <p className="lead">
           {isReservationStart
             ? '事前確定Mの予約連携です。使用する車両を選択してください。'
-            : '出勤中の会社・店舗に所属する稼働中車両のみ表示します。'}
+            : '出勤中の会社・店舗に所属する稼働可能な車両を表示します。'}
         </p>
         {isReservationStart && reservationTripContext ? (
           <p className="save-note" role="status">
@@ -215,8 +241,12 @@ export function CaseStartPage() {
           </label>
           <label>
             使用車両
-            <select value={selectedVehicleValue} onChange={(event) => setSelectedVehicleId(event.target.value)}>
-              <option value="">車両を選択</option>
+            <select
+              value={selectedVehicleValue}
+              onChange={(event) => setSelectedVehicleId(event.target.value)}
+              disabled={isLoadingVehicles}
+            >
+              <option value="">{isLoadingVehicles ? '読み込み中...' : '車両を選択'}</option>
               {availableVehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   {vehicle.name} / {vehicle.number || 'ナンバー未設定'}
@@ -245,11 +275,13 @@ export function CaseStartPage() {
             </label>
           )}
         </div>
-        <p className="save-note">{message}</p>
+        <p className={availableVehicles.length === 0 && !isLoadingVehicles ? 'case-error' : 'save-note'} role="status">
+          {message}
+        </p>
         <button
           className="primary-action"
           type="button"
-          disabled={isReservationStart && !reservationTripContext}
+          disabled={(isReservationStart && !reservationTripContext) || isLoadingVehicles || availableVehicles.length === 0}
           onClick={handleStartCase}
         >
           メーター画面へ進む
