@@ -3186,7 +3186,11 @@ export function CasePage() {
   }
 
   const handleReturnToTop = () => {
-    if (isCaseInProgress) {
+    // 走行中・待機中・精算前・未保存中はロックを維持する（TOP表示自体も抑制されるが二重防御）
+    const mustKeepVehicleLock =
+      isCaseInProgress || isProtectedOperationStatus(status) || isSettlementInProgress
+
+    if (mustKeepVehicleLock) {
       if (!window.confirm('TOPへ戻りますか？')) {
         return
       }
@@ -3196,6 +3200,7 @@ export function CasePage() {
 
     const workSessionId = workSession.currentSession?.id
     const vehicleIdToRelease = selectedVehicleId
+    // 空車などメーター開始前のキャンセル時のみ解除。保存済み後は保存時に解除済み。
     if (workSessionId && vehicleIdToRelease && !isPostSettlementAwaitingNewCase) {
       void releaseVehicleFromCase({
         vehicleId: vehicleIdToRelease,
