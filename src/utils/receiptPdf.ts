@@ -89,6 +89,26 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   ]
 
   if (isFixedMeter) {
+    const discountLines: ReceiptLine[] = caseRecord.isDisabilityDiscount
+      ? [
+          {
+            label: caseRecord.discountName || '割引',
+            value: `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円`,
+          },
+        ]
+      : []
+
+    const taxiTicketLines: ReceiptLine[] =
+      caseRecord.taxiTickets.length > 0 || caseRecord.taxiTicketAmountYen > 0
+        ? [
+            { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
+            {
+              label: 'タクシー券適用額',
+              value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円`,
+            },
+          ]
+        : []
+
     return [
       { label: '案件番号', value: caseRecord.caseNumber },
       { label: '宛名', value: caseRecord.receiptName || '未入力' },
@@ -101,6 +121,8 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
       },
       ...careOptionLines,
       ...expenseLines,
+      ...discountLines,
+      ...taxiTicketLines,
       { label: '合計請求額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
       { label: '支払方法', value: caseRecord.paymentMethod },
       { label: '支払内訳', value: formatPaymentDetails(caseRecord) },
@@ -287,7 +309,7 @@ function createReceiptCanvas(
 
   lines.forEach((line, index) => {
     const rowY = tableTop + index * rowHeight
-    const isTotal = line.label === '合計金額'
+    const isTotal = line.label === '合計金額' || line.label === '合計請求額'
 
     if (index % 2 === 0) {
       context.fillStyle = '#f8fafc'

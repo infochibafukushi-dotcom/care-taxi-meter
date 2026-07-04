@@ -368,6 +368,30 @@ function createThermalReceiptRows(
         })
       })
 
+    if (caseRecord.isDisabilityDiscount) {
+      rows.push({
+        label: caseRecord.discountName || '割引',
+        amount: `-${formatThermalYen(caseRecord.disabilityDiscountAmount)}`,
+        yenAmount: caseRecord.disabilityDiscountAmount,
+      })
+    }
+
+    if (caseRecord.taxiTicketAmountYen > 0) {
+      rows.push({
+        label: 'タクシー券',
+        amount: `-${formatThermalYen(caseRecord.taxiTicketAmountYen)}`,
+        yenAmount: caseRecord.taxiTicketAmountYen,
+      })
+      caseRecord.taxiTickets.forEach((ticket) => {
+        rows.push({
+          indent: true,
+          label: `${ticket.municipality} ${ticket.ticketNumber || '番号未入力'}`,
+          amount: formatThermalYen(ticket.amount),
+          yenAmount: ticket.amount,
+        })
+      })
+    }
+
     return rows.filter(shouldShowThermalReceiptFareRow)
   }
 
