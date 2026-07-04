@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import {
-  completeFixedFareRun,
   fetchDriverReservation,
   startFixedFareRun,
 } from '../services/reservationApi'
@@ -162,34 +161,37 @@ export function ReservationDetailPage() {
     }
   }
 
-  const handleCompleteFixedFareRun = async () => {
-    if (!reservationId || state.isActionLoading) {
+  const handleReturnToActiveMeter = () => {
+    if (!reservationId) {
+      return
+    }
+
+    const activeTripSnapshot = readActiveTripSnapshot()
+
+    if (!activeTripSnapshot) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          'この端末に運行中メーターデータがありません。別端末で開始したか、データが消えた可能性があります。',
+      }))
+      return
+    }
+
+    const snapshotReservationId = activeTripSnapshot.reservationId?.trim() ?? ''
+    if (snapshotReservationId && snapshotReservationId !== reservationId) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          '別の未終了運行があります。先にそちらを復元または終了してください。',
+      }))
       return
     }
 
     setState((current) => ({
       ...current,
       actionErrorMessage: '',
-      isActionLoading: true,
     }))
-
-    try {
-      await completeFixedFareRun(reservationId)
-      await loadReservation(reservationId)
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        actionErrorMessage:
-          error instanceof Error
-            ? error.message
-            : '事前確定Mの完了に失敗しました。',
-      }))
-    } finally {
-      setState((current) => ({
-        ...current,
-        isActionLoading: false,
-      }))
-    }
+    navigate('/case')
   }
 
   const reservation = state.reservation
@@ -249,12 +251,11 @@ export function ReservationDetailPage() {
                   <>
                     <p className="reservation-run-status">事前確定M 運行中</p>
                     <button
-                      className="secondary-action"
+                      className="primary-action"
                       type="button"
-                      disabled={state.isActionLoading}
-                      onClick={handleCompleteFixedFareRun}
+                      onClick={handleReturnToActiveMeter}
                     >
-                      {state.isActionLoading ? '完了処理中…' : '完了'}
+                      運行中のメーターへ戻る
                     </button>
                   </>
                 ) : null}
