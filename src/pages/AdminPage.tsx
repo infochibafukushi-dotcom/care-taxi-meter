@@ -496,12 +496,14 @@ export function AdminPage() {
           return;
         }
 
+        const rawMessage = error instanceof Error ? error.message : "";
         setSummaryState((currentState) => ({
           ...currentState,
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "管理画面の集計取得に失敗しました。",
+          errorMessage: /missing or insufficient permissions|permission-denied|permission_denied/i.test(
+            rawMessage,
+          )
+            ? "管理情報を読み込めませんでした。ログイン権限または店舗情報を確認してください。"
+            : rawMessage || "管理画面の集計取得に失敗しました。",
           isLoading: false,
           caseRecords: [],
         }));
@@ -692,10 +694,13 @@ export function AdminPage() {
         }
 
         setWorkingStaffCount(0);
+        const rawMessage = error instanceof Error ? error.message : "";
         setWorkSummaryMessage(
-          error instanceof Error
-            ? `出勤状況を読み込めませんでした。${error.message}`
-            : "出勤状況を読み込めませんでした。",
+          /missing or insufficient permissions|permission-denied|permission_denied/i.test(rawMessage)
+            ? "管理情報を読み込めませんでした。ログイン権限または店舗情報を確認してください。"
+            : rawMessage
+              ? `出勤状況を読み込めませんでした。${rawMessage}`
+              : "出勤状況を読み込めませんでした。",
         );
       });
 

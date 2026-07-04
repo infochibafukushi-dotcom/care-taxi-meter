@@ -127,11 +127,12 @@ const createWorkSessionTenantConstraints = (scope?: TenantAccessScope): QueryCon
     constraints.push(where('franchiseeId', '==', franchiseeId))
   }
 
-  if (scope.storeId) {
+  // owner は加盟店全体を読める。storeId は manager/driver のみクエリに含める。
+  if (scope.storeId && (scope.role === 'manager' || scope.role === 'driver')) {
     constraints.push(where('storeId', '==', scope.storeId))
   }
 
-  if (scope.staffId) {
+  if (scope.role === 'driver' && scope.staffId) {
     constraints.push(where('staffId', '==', scope.staffId))
   }
 
@@ -162,24 +163,14 @@ export async function fetchClosedWorkSessionsInClockOutRange({
 }
 
 export async function fetchWorkingWorkSessionCount(scope?: TenantAccessScope) {
-  const constraints: QueryConstraint[] = []
+  const snapshots = await getDocs(
+    createWorkingWorkSessionsQuery(createWorkSessionTenantConstraints(scope)),
+  )
 
-  if (scope && !isHqRole(scope.role ?? '')) {
-    const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
-    if (franchiseeId) {
-      constraints.push(where('franchiseeId', '==', franchiseeId))
-    }
-    if (scope.storeId) {
-      constraints.push(where('storeId', '==', scope.storeId))
-    }
-    if (scope.role === 'driver' && scope.staffId) {
-      constraints.push(where('staffId', '==', scope.staffId))
-    }
-  }
-
-  const snapshots = await getDocs(createWorkingWorkSessionsQuery(constraints))
-
-  return snapshots.docs.map(toWorkSession).filter(isOpenWorkingSession).filter((session) => matchesTenantScope(session, scope)).length
+  return snapshots.docs
+    .map(toWorkSession)
+    .filter(isOpenWorkingSession)
+    .filter((session) => matchesTenantScope(session, scope)).length
 }
 
 export async function fetchOpenWorkingWorkSession({

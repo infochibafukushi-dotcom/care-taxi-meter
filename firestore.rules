@@ -77,27 +77,35 @@ service cloud.firestore {
         'updatedAt',
       ]);
     }
-    function vehicleLockFieldsChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'inUse',
-        'currentDriverId',
-        'currentDriverName',
-        'currentWorkSessionId',
-        'inUseSince',
-        'activeTripVehicleId',
-        'currentCaseId',
-      ]);
+    // ロック用フィールドは「値が変わっていない」ことだけを見る。
+    // フィールドが存在するだけで拒否しない（車両管理の通常保存を許可するため）。
+    function lockFieldPreserved(field) {
+      return resource.data.get(field, null) == request.resource.data.get(field, null);
+    }
+    function lockFieldsPreserved() {
+      return lockFieldPreserved('inUse')
+        && lockFieldPreserved('currentDriverId')
+        && lockFieldPreserved('currentDriverName')
+        && lockFieldPreserved('currentWorkSessionId')
+        && lockFieldPreserved('inUseSince')
+        && lockFieldPreserved('activeTripVehicleId')
+        && lockFieldPreserved('currentCaseId');
     }
     function preservesVehicleTenantIdentity() {
       return docFranchisee(request.resource.data) == docFranchisee(resource.data)
         && request.resource.data.storeId == resource.data.storeId;
     }
     function canUpdateVehicleMasterData() {
-      return !vehicleLockFieldsChanged()
-        && hasTenant(request.resource.data)
+      return hasTenant(request.resource.data)
+        && hasTenant(resource.data)
+        && lockFieldsPreserved()
         && (
-          (isFranchiseeOwner() && sameFranchisee(request.resource.data))
-          || (isStoreManager() && sameStore(request.resource.data))
+          (isFranchiseeOwner()
+            && sameFranchisee(resource.data)
+            && sameFranchisee(request.resource.data))
+          || (isStoreManager()
+            && sameStore(resource.data)
+            && sameStore(request.resource.data))
         );
     }
     function canUpdateVehicleOccupancy() {
