@@ -3,10 +3,12 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import {
   fetchDriverReservation,
+  resetFixedFareRun,
   startFixedFareRun,
 } from '../services/reservationApi'
 import {
   buildReservationTripContext,
+  clearReservationTripContext,
   saveReservationTripContext,
 } from '../services/reservationTripContext'
 import { PreFixedFarePassengerChangeDetailSection } from '../components/case/PreFixedFarePassengerChangeDetailSection'
@@ -33,6 +35,34 @@ const formatOptionalText = (value: string) =>
 
 const formatVerificationBadge = (verified: boolean) =>
   verified ? 'OK' : '要確認'
+
+const resolveActiveTripRestoreState = (currentReservationId: string) => {
+  const activeTripSnapshot = readActiveTripSnapshot()
+
+  if (!activeTripSnapshot) {
+    return {
+      canRestore: false,
+      needsReset: true,
+      message:
+        'この端末に運行中メーターデータがありません。別端末で開始したか、データが消えた可能性があります。',
+    }
+  }
+
+  const snapshotReservationId = activeTripSnapshot.reservationId?.trim() ?? ''
+  if (snapshotReservationId && snapshotReservationId !== currentReservationId) {
+    return {
+      canRestore: false,
+      needsReset: true,
+      message: '別の未終了運行があります。先にそちらを復元または終了してください。',
+    }
+  }
+
+  return {
+    canRestore: true,
+    needsReset: false,
+    message: '',
+  }
+}
 
 type ReservationDetailState = {
   actionErrorMessage: string
@@ -166,23 +196,11 @@ export function ReservationDetailPage() {
       return
     }
 
-    const activeTripSnapshot = readActiveTripSnapshot()
-
-    if (!activeTripSnapshot) {
+    const restoreState = resolveActiveTripRestoreState(reservationId)
+    if (!restoreState.canRestore) {
       setState((current) => ({
         ...current,
-        actionErrorMessage:
-          'この端末に運行中メーターデータがありません。別端末で開始したか、データが消えた可能性があります。',
-      }))
-      return
-    }
-
-    const snapshotReservationId = activeTripSnapshot.reservationId?.trim() ?? ''
-    if (snapshotReservationId && snapshotReservationId !== reservationId) {
-      setState((current) => ({
-        ...current,
-        actionErrorMessage:
-          '別の未終了運行があります。先にそちらを復元または終了してください。',
+        actionErrorMessage: restoreState.message,
       }))
       return
     }
@@ -194,8 +212,73 @@ export function ReservationDetailPage() {
     navigate('/case')
   }
 
+  const handleResetMeterRunStatus = async () => {
+    if (!reservationId || state.isActionLoading) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      'この予約の運行中状態をリセットします。メーター精算・売上保存は行われません。テストデータや復元不能な場合のみ実行してください。よろしいですか？',
+    )
+    if (!confirmed) {
+      return
+    }
+
+    const enteredReservationId = window.prompt('確認のため、予約IDを入力してください。', '')?.trim() ?? ''
+    if (!enteredReservationId) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage: '予約IDが入力されなかったため、リセットを中止しました。',
+      }))
+      return
+    }
+
+    if (enteredReservationId !== reservationId) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage: '予約IDが一致しないため、リセットを中止しました。',
+      }))
+      return
+    }
+
+    setState((current) => ({
+      ...current,
+      actionErrorMessage: '',
+      isActionLoading: true,
+    }))
+
+    try {
+      await resetFixedFareRun(reservationId, {
+        reason: 'missing_active_trip_snapshot',
+        confirmReservationId: reservationId,
+        resetBy: 'meter_driver',
+      })
+      clearReservationTripContext()
+      await loadReservation(reservationId)
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        actionErrorMessage:
+          error instanceof Error
+            ? error.message
+            : '事前確定Mの運行中状態リセットに失敗しました。',
+      }))
+    } finally {
+      setState((current) => ({
+        ...current,
+        isActionLoading: false,
+      }))
+    }
+  }
+
   const reservation = state.reservation
   const meterRunStatus = reservation?.meterRunStatus ?? ''
+  const activeTripRestoreState =
+    meterRunStatus === 'in_progress' && reservationId
+      ? resolveActiveTripRestoreState(reservationId)
+      : { canRestore: false, needsReset: false, message: '' }
+  const showMeterRunResetAction =
+    meterRunStatus === 'in_progress' && activeTripRestoreState.needsReset
   const isPassengerChangeCompletion = reservation
     ? isPreFixedFarePassengerChangeReservation(reservation)
     : false
@@ -253,10 +336,29 @@ export function ReservationDetailPage() {
                     <button
                       className="primary-action"
                       type="button"
+                      disabled={state.isActionLoading}
                       onClick={handleReturnToActiveMeter}
                     >
                       運行中のメーターへ戻る
                     </button>
+                    {showMeterRunResetAction ? (
+                      <div className="reservation-meter-reset-panel">
+                        <p className="case-error" role="alert">
+                          {activeTripRestoreState.message}
+                        </p>
+                        <p className="reservation-meter-reset-note">
+                          復元不能な場合のみ、以下から運行中状態を開始前に戻せます。精算・売上は作成されません。
+                        </p>
+                        <button
+                          className="case-detail-danger-button"
+                          type="button"
+                          disabled={state.isActionLoading}
+                          onClick={handleResetMeterRunStatus}
+                        >
+                          {state.isActionLoading ? 'リセット処理中…' : '運行中状態をリセットする'}
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
                 {meterRunStatus === 'completed' ? (

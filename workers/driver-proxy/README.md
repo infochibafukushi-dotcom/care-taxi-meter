@@ -16,6 +16,7 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
 | GET | `/api/driver/reservations/:reservationId` |
 | POST | `/api/driver/reservations/:reservationId/start-fixed-fare` |
 | POST | `/api/driver/reservations/:reservationId/complete-fixed-fare` |
+| POST | `/api/driver/reservations/:reservationId/reset-fixed-fare` |
 
 その他のパスは `404`、許可パスへの未対応メソッドは `405` です。`OPTIONS` は CORS preflight 用に許可パスのみ受け付けます。
 

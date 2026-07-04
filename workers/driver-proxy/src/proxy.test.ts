@@ -50,6 +50,14 @@ describe('evaluateDriverProxyRoute', () => {
       ).kind,
       'allowed',
     )
+    assert.equal(
+      evaluateDriverProxyRoute(
+        'POST',
+        '/api/driver/reservations/res-001/reset-fixed-fare',
+        new URLSearchParams(),
+      ).kind,
+      'allowed',
+    )
   })
 
   it('rejects unknown paths', () => {
@@ -123,6 +131,46 @@ describe('handleDriverProxyRequest', () => {
 
     assert.equal(response.status, 200)
     assert.equal(upstreamMethod, 'POST')
+  })
+
+  it('proxies reset-fixed-fare POST body', async () => {
+    let upstreamUrl = ''
+    let upstreamMethod = ''
+    let upstreamBody = ''
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamUrl = String(input)
+      upstreamMethod = init?.method ?? ''
+      upstreamBody = init?.body ? await new Response(init.body as BodyInit).text() : ''
+      return new Response(JSON.stringify({ success: true, run: { meterRunStatus: 'not_started' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    const resetBody = {
+      reason: 'missing_active_trip_snapshot',
+      confirmReservationId: 'res-001',
+      resetBy: 'meter_driver',
+    }
+
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/reservations/res-001/reset-fixed-fare', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+        body: JSON.stringify(resetBody),
+      }),
+      env,
+      fetchImpl,
+    )
+
+    assert.equal(response.status, 200)
+    assert.equal(new URL(upstreamUrl).pathname, '/api/driver/reservations/res-001/reset-fixed-fare')
+    assert.equal(upstreamMethod, 'POST')
+    assert.deepEqual(JSON.parse(upstreamBody), resetBody)
   })
 
   it('forwards complete-fixed-fare passenger-change completion body', async () => {

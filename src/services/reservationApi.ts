@@ -264,3 +264,31 @@ export async function completeFixedFareRun(
     throw new ReservationApiError(500, response.message?.trim() || '事前確定Mの完了に失敗しました。')
   }
 }
+
+export type ResetFixedFareRunPayload = {
+  reason?: string
+  confirmReservationId: string
+  resetBy?: string
+}
+
+export async function resetFixedFareRun(
+  reservationId: string,
+  payload: ResetFixedFareRunPayload,
+): Promise<void> {
+  const encodedReservationId = encodeURIComponent(reservationId)
+  const response = await postReservationApi<FixedFareRunActionResponseApi>(
+    `/reservations/${encodedReservationId}/reset-fixed-fare`,
+    {
+      reason: payload.reason ?? 'missing_active_trip_snapshot',
+      confirmReservationId: payload.confirmReservationId,
+      resetBy: payload.resetBy ?? 'meter_driver',
+    },
+  )
+
+  if (!response.success) {
+    throw new ReservationApiError(
+      500,
+      response.message?.trim() || '事前確定Mの運行中状態リセットに失敗しました。',
+    )
+  }
+}

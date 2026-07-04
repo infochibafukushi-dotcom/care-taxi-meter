@@ -56,6 +56,11 @@ export const evaluateDriverProxyRoute = (
     return { kind: 'allowed' }
   }
 
+  const resetMatch = pathname.match(/^\/api\/driver\/reservations\/([^/]+)\/reset-fixed-fare$/)
+  if (resetMatch && isValidReservationId(resetMatch[1])) {
+    return { kind: 'allowed' }
+  }
+
   return { kind: 'not_found' }
 }
 

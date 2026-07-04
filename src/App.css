@@ -7633,3 +7633,29 @@ h1 {
     align-items: stretch;
   }
 }
+
+.reservation-meter-reset-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgb(220 38 38 / 24%);
+  border-radius: 16px;
+  background: #fef2f2;
+}
+
+.reservation-meter-reset-panel .case-error {
+  margin: 0;
+}
+
+.reservation-meter-reset-note {
+  margin: 0;
+  color: #7f1d1d;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.reservation-meter-reset-panel .case-detail-danger-button {
+  width: 100%;
+}
