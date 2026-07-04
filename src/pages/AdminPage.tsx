@@ -6,7 +6,14 @@ import { TimeMeterDiscountSettingsPanel } from "../components/admin/TimeMeterDis
 import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
 import { GpsRouteManagementPanel } from "../components/admin/GpsRouteManagementPanel";
 import { fetchCaseRecords } from "../services/caseRecords";
-import { fetchStaffMembers, saveStaffMember } from "../services/staffMembers";
+import {
+  fetchStaffMembers,
+  isStaffReadyToSave,
+  saveStaffMember,
+  STAFF_EDIT_FORBIDDEN_MESSAGE,
+  STAFF_INCOMPLETE_MESSAGE,
+  toStaffSaveUserMessage,
+} from "../services/staffMembers";
 import {
   defaultCompanyId,
   ensureDefaultStore,
@@ -1134,16 +1141,23 @@ export function AdminPage() {
 
   const createStaffMember = (): StaffMember => {
     const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
+    const franchiseeId =
+      primaryStore?.franchiseeId ||
+      primaryStore?.companyId ||
+      currentFranchiseeId ||
+      defaultCompanyId;
+    const storeId = primaryStore?.id || currentStoreId || `${franchiseeId}_main-store`;
+    const storeName = primaryStore?.name || currentStoreName || "本店";
     return {
       id: `staff-${Date.now()}-${crypto.randomUUID()}`,
-      companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
-      franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
-      storeId: primaryStore?.id ?? "",
-      storeName: primaryStore?.name ?? "",
-      userId: "新しい従業員",
-      loginId: "新しい従業員",
+      companyId: franchiseeId,
+      franchiseeId,
+      storeId,
+      storeName,
+      userId: "",
+      loginId: "",
       password: "",
-      name: "新しい従業員",
+      name: "",
       role: "driver",
       canDrive: true,
       isActive: true,
@@ -1229,38 +1243,69 @@ export function AdminPage() {
     );
   };
 
-  const handleStaffSave = async () => {
-    const hasEmptyName = staffMembers.some(
-      (staffMember) => !staffMember.name.trim(),
-    );
+  const canEditStaff =
+    currentRole === "owner" || currentRole === "manager" || currentRole === "hq_admin";
 
-    if (hasEmptyName) {
-      setMasterMessage("従業員名は空欄にできません。");
+  const handleStaffSave = async () => {
+    if (!canEditStaff) {
+      setMasterMessage(STAFF_EDIT_FORBIDDEN_MESSAGE);
       return;
     }
 
-    const invalidSuperAdminAssignment = currentRole !== "hq_admin" && staffMembers.some(
-      (staffMember) => staffMember.role === "hq_admin" && staffMember.userId !== "admin",
+    const preparedStaffMembers = staffMembers.map((staffMember) =>
+      applyDefaultTenantToStaffMember(staffMember),
     );
+    const incompleteStaffMembers = preparedStaffMembers
+      .filter(
+        (staffMember) =>
+          staffMember.name.trim() ||
+          staffMember.loginId?.trim() ||
+          staffMember.userId.trim(),
+      )
+      .filter((staffMember) => !isStaffReadyToSave(staffMember));
+
+    if (incompleteStaffMembers.length > 0) {
+      setMasterMessage(STAFF_INCOMPLETE_MESSAGE);
+      return;
+    }
+
+    const staffMembersToSave = preparedStaffMembers.filter((staffMember) =>
+      isStaffReadyToSave(staffMember),
+    );
+
+    if (staffMembersToSave.length === 0) {
+      setMasterMessage(STAFF_INCOMPLETE_MESSAGE);
+      return;
+    }
+
+    const invalidSuperAdminAssignment =
+      currentRole !== "hq_admin" &&
+      staffMembersToSave.some(
+        (staffMember) => staffMember.role === "hq_admin" && staffMember.userId !== "admin",
+      );
 
     if (invalidSuperAdminAssignment) {
       setMasterMessage("本部管理者権限はFC本部権限でログインした場合のみ付与できます。");
       return;
     }
 
-    const hasDriverMissingTenant = staffMembers.some(
-      (staffMember) =>
-        staffMember.role === "driver" &&
-        (!staffMember.companyId ||
-          !staffMember.franchiseeId ||
-          !staffMember.storeId ||
-          !staffMember.storeName),
-    );
-
-    if (hasDriverMissingTenant) {
-      setMasterMessage("店舗情報が取得できません。再読み込みしてください。");
+    if (
+      staffMembersToSave.some(
+        (staffMember) =>
+          !staffMember.storeId.trim() || !(staffMember.franchiseeId || staffMember.companyId).trim(),
+      )
+    ) {
+      setMasterMessage("従業員の会社IDまたは店舗が未設定です。店舗情報を確認してください。");
       return;
     }
+
+    const sessionContext = {
+      companyId: sessionSource?.companyId ?? currentFranchiseeId,
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      staffRole: currentRole,
+      staffId: currentStaffId,
+    };
 
     try {
       const auditActor = currentStaffId
@@ -1272,14 +1317,20 @@ export function AdminPage() {
             userName: currentStaffName,
           }
         : null;
-      await Promise.all(staffMembers.map((staffMember) => saveStaffMember(applyDefaultTenantToStaffMember(staffMember), auditActor)));
+      await Promise.all(
+        staffMembersToSave.map((staffMember) =>
+          saveStaffMember(staffMember, auditActor, sessionContext),
+        ),
+      );
       setMasterMessage("従業員情報を保存しました。");
     } catch (error) {
-      setMasterMessage(
-        error instanceof Error
-          ? `従業員情報を保存できませんでした。${error.message}`
-          : "従業員情報を保存できませんでした。",
-      );
+      logAdminLoadFailure("saveStaffMembers", "staffMembers", {
+        count: staffMembersToSave.length,
+        role: currentRole,
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      }, error);
+      setMasterMessage(toStaffSaveUserMessage(error));
     }
   };
 
@@ -1553,6 +1604,7 @@ export function AdminPage() {
               onUpdate={updateStaffMember}
               canAssignHqAdmin={currentRole === "hq_admin"}
               canSelectStore={!isFranchiseeOwnerAdmin}
+              canEdit={canEditStaff}
             />
           ) : null}
 

@@ -11,6 +11,7 @@ import {
   setDoc,
 } from 'firebase/firestore'
 import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
+import { FirebaseError } from 'firebase/app'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { ensureDefaultCompany } from './companies'
@@ -18,8 +19,13 @@ import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from '.
 import { signInStaffWithFirebaseAuth, type LoginStaffResult } from './firebaseAuth'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
-import { getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import { defaultStoreId, getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+
+export const STAFF_SAVE_PERMISSION_MESSAGE =
+  '従業員情報を保存できませんでした。編集権限または保存対象項目を確認してください。'
+export const STAFF_INCOMPLETE_MESSAGE = '従業員名とログインIDを入力してください。'
+export const STAFF_EDIT_FORBIDDEN_MESSAGE = '従業員情報の編集権限がありません。'
 
 const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
@@ -117,24 +123,146 @@ export async function fetchStaffMembers(scope?: TenantAccessScope) {
   return snapshots.docs.map(toStaffMember).filter((staffMember) => matchesTenantScope(staffMember, scope))
 }
 
-export async function saveStaffMember(staffMember: StaffMember, actor?: AuditActor | null) {
+type StaffSaveSessionContext = {
+  companyId?: string
+  franchiseeId?: string
+  storeId?: string
+  staffRole?: string
+  staffId?: string
+}
+
+const getErrorCode = (error: unknown) => {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return String((error as { code?: unknown }).code ?? '')
+  }
+  return ''
+}
+
+/**
+ * 従業員管理画面用の保存ペイロード。undefined は送らない。
+ */
+export const buildStaffAdminPayload = (staffMember: StaffMember) => {
+  const franchiseeId = (staffMember.franchiseeId || staffMember.companyId || '').trim()
+  const storeId = (staffMember.storeId || defaultStoreId).trim() || defaultStoreId
+  const name = staffMember.name.trim()
+  const loginId = (staffMember.loginId || staffMember.userId || name).trim() || name
+  const role = toRole(staffMember.role)
+
+  return {
+    id: staffMember.id,
+    companyId: franchiseeId,
+    franchiseeId,
+    storeId,
+    storeName: (staffMember.storeName || '').trim(),
+    userId: (staffMember.userId || loginId).trim() || loginId,
+    loginId,
+    password: staffMember.password || '',
+    name,
+    role,
+    status: staffMember.status ?? (staffMember.enabled !== false ? 'employed' : 'disabled'),
+    joinedAt: staffMember.joinedAt || '',
+    retiredAt: staffMember.retiredAt || '',
+    lastLoginAt: staffMember.lastLoginAt || '',
+    canDrive: staffMember.canDrive ?? (role === 'owner' || role === 'driver'),
+    isActive: staffMember.isActive ?? staffMember.enabled !== false,
+    phoneNumber: staffMember.phoneNumber || '',
+    email: staffMember.email || '',
+    address: staffMember.address || '',
+    licenseNumber: staffMember.licenseNumber || '',
+    licenseExpiresAt: staffMember.licenseExpiresAt || '',
+    accidentHistory: staffMember.accidentHistory || '',
+    memo: staffMember.memo || '',
+    enabled: staffMember.enabled !== false,
+    sortOrder: Math.max(staffMember.sortOrder || 1, 1),
+  }
+}
+
+export const isStaffReadyToSave = (staffMember: StaffMember) => {
+  const name = staffMember.name.trim()
+  const loginId = (staffMember.loginId || staffMember.userId || '').trim()
+  const franchiseeId = (staffMember.franchiseeId || staffMember.companyId || '').trim()
+  return Boolean(name && loginId && franchiseeId)
+}
+
+export const toStaffSaveUserMessage = (error: unknown) => {
+  if (error instanceof FirebaseError && error.code === 'permission-denied') {
+    return STAFF_SAVE_PERMISSION_MESSAGE
+  }
+
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/missing or insufficient permissions|permission-denied|permission_denied/i.test(message)) {
+    return STAFF_SAVE_PERMISSION_MESSAGE
+  }
+
+  if (error instanceof Error && error.message) {
+    return `従業員情報を保存できませんでした。${error.message}`
+  }
+
+  return STAFF_SAVE_PERMISSION_MESSAGE
+}
+
+export async function saveStaffMember(
+  staffMember: StaffMember,
+  actor?: AuditActor | null,
+  sessionContext: StaffSaveSessionContext = {},
+) {
   const staffMemberRef = getStaffMemberRef(staffMember.id)
-  const snapshot = await getDoc(staffMemberRef)
-  const document = {
-    ...staffMember,
-    companyId: staffMember.franchiseeId || staffMember.companyId,
-    franchiseeId: staffMember.franchiseeId || staffMember.companyId,
-    loginId: staffMember.loginId || staffMember.userId || staffMember.name,
-    userId: staffMember.userId || staffMember.loginId || staffMember.name,
-    isActive: staffMember.isActive ?? staffMember.enabled,
-    canDrive: staffMember.canDrive ?? (staffMember.role === 'owner' || staffMember.role === 'driver'),
-    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+  const masterPayload = buildStaffAdminPayload(staffMember)
+
+  if (!masterPayload.franchiseeId) {
+    throw new Error('従業員の会社ID（franchiseeId）が未設定です。')
+  }
+  if (!masterPayload.storeId) {
+    throw new Error('従業員の店舗ID（storeId）が未設定です。')
+  }
+
+  let operation: 'create' | 'update' = 'create'
+  let previousStaffMember: StaffMember | null = null
+
+  try {
+    const snapshot = await getDoc(staffMemberRef)
+    operation = snapshot.exists() ? 'update' : 'create'
+    previousStaffMember = snapshot.exists() ? toStaffMember(snapshot) : null
+  } catch (error) {
+    operation = 'create'
+    console.warn('[StaffManagement] getDoc before save failed; treating as create', {
+      staffId: staffMember.id,
+      errorCode: getErrorCode(error),
+      errorMessage: error instanceof Error ? error.message : String(error ?? ''),
+      session: sessionContext,
+    })
+  }
+
+  const payload = {
+    ...masterPayload,
+    ...(operation === 'create' ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  const previousStaffMember = snapshot.exists() ? toStaffMember(snapshot) : null
-
-  await setDoc(staffMemberRef, document, { merge: true })
+  try {
+    await setDoc(staffMemberRef, payload, { merge: true })
+  } catch (error) {
+    console.warn('[StaffManagement] save failed', {
+      operation,
+      staffId: staffMember.id,
+      payload: {
+        ...masterPayload,
+        createdAt: operation === 'create' ? '[serverTimestamp]' : undefined,
+        updatedAt: '[serverTimestamp]',
+      },
+      payloadKeys: Object.keys(payload),
+      session: {
+        companyId: sessionContext.companyId ?? '',
+        franchiseeId: sessionContext.franchiseeId ?? '',
+        storeId: sessionContext.storeId ?? '',
+        staffRole: sessionContext.staffRole ?? '',
+        staffId: sessionContext.staffId ?? '',
+      },
+      errorCode: getErrorCode(error),
+      errorMessage: error instanceof Error ? error.message : String(error ?? ''),
+    })
+    throw error
+  }
 
   if (actor && previousStaffMember?.role && previousStaffMember.role !== staffMember.role) {
     await createAuditLog({

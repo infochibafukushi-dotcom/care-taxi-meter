@@ -10,6 +10,7 @@ type StaffManagementPanelProps = {
   onUpdate: (id: string, updates: Partial<StaffMember>) => void
   canAssignHqAdmin?: boolean
   canSelectStore?: boolean
+  canEdit?: boolean
 }
 
 export function StaffManagementPanel({
@@ -21,6 +22,7 @@ export function StaffManagementPanel({
   onUpdate,
   canAssignHqAdmin = false,
   canSelectStore = true,
+  canEdit = true,
 }: StaffManagementPanelProps) {
   const handleStoreChange = (staffMember: StaffMember, storeId: string) => {
     const store = stores.find((item) => item.id === storeId)
@@ -37,12 +39,17 @@ export function StaffManagementPanel({
           <p className="eyebrow">Staff</p>
           <h2 id="staff-management-title">従業員管理</h2>
         </div>
-        <div className="admin-master-actions">
-          <button type="button" onClick={onAdd}>+ 従業員追加</button>
-          <button type="button" onClick={onSave}>保存</button>
-        </div>
+        {canEdit ? (
+          <div className="admin-master-actions">
+            <button type="button" onClick={onAdd}>+ 従業員追加</button>
+            <button type="button" onClick={onSave}>保存</button>
+          </div>
+        ) : null}
       </div>
       {message ? <p className="save-note">{message}</p> : null}
+      {!canEdit ? (
+        <p className="save-note" role="status">従業員情報の編集権限がありません。</p>
+      ) : null}
       <div className="admin-master-table-wrap">
         <table className="admin-master-table admin-master-table--wide">
           <thead>
