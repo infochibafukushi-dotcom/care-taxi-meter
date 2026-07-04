@@ -55,6 +55,30 @@ type AdminSummaryState = {
   workSessions: WorkSession[];
 };
 
+const isPermissionDeniedError = (error: unknown) => {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    code === "permission-denied" ||
+    /missing or insufficient permissions|permission-denied|permission_denied/i.test(
+      `${code} ${message}`,
+    )
+  );
+};
+
+const toAdminLoadUserMessage = (sectionLabel: string, error: unknown) => {
+  if (isPermissionDeniedError(error)) {
+    return `${sectionLabel}を読み込めませんでした。ログイン権限または店舗情報を確認してください。`;
+  }
+  if (error instanceof Error && error.message) {
+    return `${sectionLabel}を読み込めませんでした。${error.message}`;
+  }
+  return `${sectionLabel}を読み込めませんでした。`;
+};
+
 type AdminCenterSection =
   | "company"
   | "fare"
@@ -413,6 +437,34 @@ export function AdminPage() {
   const currentStaffId = workSession.currentSession?.staffId ?? authSession?.id ?? "";
   const currentStaffName = workSession.currentSession?.staffName ?? authSession?.name ?? "";
   const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? authSession?.role ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
+  const sessionDiagnostics = useMemo(
+    () => ({
+      companyId: sessionSource?.companyId ?? "",
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      staffRole: currentRole,
+      staffId: currentStaffId,
+    }),
+    [currentFranchiseeId, currentRole, currentStaffId, currentStoreId, sessionSource?.companyId],
+  );
+  const logAdminLoadFailure = (
+    operationName: string,
+    collectionName: string,
+    querySummary: Record<string, unknown>,
+    error: unknown,
+  ) => {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    console.warn(`[AdminPage] ${operationName} failed`, {
+      collection: collectionName,
+      query: querySummary,
+      ...sessionDiagnostics,
+      errorCode: code,
+      errorMessage: error instanceof Error ? error.message : String(error ?? ""),
+    });
+  };
   const [summaryState, setSummaryState] = useState<AdminSummaryState>({
     errorMessage: "",
     isLoading: true,
@@ -478,7 +530,13 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchCaseRecords({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole, staffId: currentStaffId })
+    const caseRecordsQuery = {
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      role: currentRole,
+      staffId: currentStaffId,
+    };
+    fetchCaseRecords(caseRecordsQuery)
       .then((caseRecords) => {
         if (!isMounted) {
           return;
@@ -496,14 +554,10 @@ export function AdminPage() {
           return;
         }
 
-        const rawMessage = error instanceof Error ? error.message : "";
+        logAdminLoadFailure("loadCaseRecords", "caseRecords", caseRecordsQuery, error);
         setSummaryState((currentState) => ({
           ...currentState,
-          errorMessage: /missing or insufficient permissions|permission-denied|permission_denied/i.test(
-            rawMessage,
-          )
-            ? "管理情報を読み込めませんでした。ログイン権限または店舗情報を確認してください。"
-            : rawMessage || "管理画面の集計取得に失敗しました。",
+          errorMessage: toAdminLoadUserMessage("売上集計", error),
           isLoading: false,
           caseRecords: [],
         }));
@@ -532,15 +586,16 @@ export function AdminPage() {
 
     const { endIso, startIso } = getCurrentJapanMonth();
     let isMounted = true;
+    const closedSessionsScope = {
+      franchiseeId: currentFranchiseeId,
+      role: currentRole,
+      staffId: currentRole === "driver" ? staffId : undefined,
+      storeId: currentStoreId,
+    };
 
     fetchClosedWorkSessionsInClockOutRange({
       endIso,
-      scope: {
-        franchiseeId: currentFranchiseeId,
-        role: currentRole,
-        staffId: currentRole === "driver" ? staffId : undefined,
-        storeId: currentStoreId,
-      },
+      scope: closedSessionsScope,
       startIso,
     })
       .then((workSessions) => {
@@ -555,12 +610,14 @@ export function AdminPage() {
           return;
         }
 
+        logAdminLoadFailure("loadClosedWorkSessions", "workSessions", {
+          ...closedSessionsScope,
+          startIso,
+          endIso,
+        }, error);
+        // 売上集計エラーを上書きしない。個人運行管理用データのみ空にする。
         setSummaryState((currentState) => ({
           ...currentState,
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "勤務実績の取得に失敗しました。",
           workSessions: [],
         }));
       });
@@ -610,21 +667,26 @@ export function AdminPage() {
       let loadedStores: Awaited<ReturnType<typeof fetchStores>> = [];
       try {
         loadedStores = await fetchStores(currentRole === "hq_admin" ? undefined : currentFranchiseeId);
-      } catch {
+      } catch (error) {
+        logAdminLoadFailure("loadStores", "stores", {
+          franchiseeId: currentRole === "hq_admin" ? undefined : currentFranchiseeId,
+        }, error);
         failedSections.push("店舗");
       }
 
       let loadedStaffMembers: Awaited<ReturnType<typeof fetchStaffMembers>> = [];
       try {
         loadedStaffMembers = await fetchStaffMembers(accessScope);
-      } catch {
+      } catch (error) {
+        logAdminLoadFailure("loadStaffMembers", "staffMembers", accessScope, error);
         failedSections.push("従業員");
       }
 
       let loadedVehicles: Awaited<ReturnType<typeof fetchVehicles>> = [];
       try {
         loadedVehicles = await fetchVehicles(accessScope);
-      } catch {
+      } catch (error) {
+        logAdminLoadFailure("loadVehicles", "vehicles", accessScope, error);
         failedSections.push("車両");
       }
 
@@ -638,7 +700,7 @@ export function AdminPage() {
       setMasterMessage(
         failedSections.length === 0
           ? "店舗・従業員・車両情報を読み込みました。"
-          : `一部の情報を読み込めませんでした（${failedSections.join("・")}）。`,
+          : `一部の情報を読み込めませんでした（${failedSections.join("・")}）。ログイン権限または店舗情報を確認してください。`,
       );
     })();
 
@@ -679,7 +741,12 @@ export function AdminPage() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchWorkingWorkSessionCount({ franchiseeId: currentFranchiseeId, storeId: currentStoreId, role: currentRole })
+    const workingCountQuery = {
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      role: currentRole,
+    };
+    fetchWorkingWorkSessionCount(workingCountQuery)
       .then((count) => {
         if (!isMounted) {
           return;
@@ -693,15 +760,9 @@ export function AdminPage() {
           return;
         }
 
+        logAdminLoadFailure("loadWorkingWorkSessionCount", "workSessions", workingCountQuery, error);
         setWorkingStaffCount(0);
-        const rawMessage = error instanceof Error ? error.message : "";
-        setWorkSummaryMessage(
-          /missing or insufficient permissions|permission-denied|permission_denied/i.test(rawMessage)
-            ? "管理情報を読み込めませんでした。ログイン権限または店舗情報を確認してください。"
-            : rawMessage
-              ? `出勤状況を読み込めませんでした。${rawMessage}`
-              : "出勤状況を読み込めませんでした。",
-        );
+        setWorkSummaryMessage(toAdminLoadUserMessage("出勤状況", error));
       });
 
     return () => {
@@ -1098,12 +1159,19 @@ export function AdminPage() {
 
   const createVehicle = (): Vehicle => {
     const primaryStore = isFranchiseeOwnerAdmin ? ownerDefaultStore : stores[0];
+    const franchiseeId =
+      primaryStore?.franchiseeId ||
+      primaryStore?.companyId ||
+      currentFranchiseeId ||
+      defaultCompanyId;
+    const storeId = primaryStore?.id || currentStoreId || `${franchiseeId}_main-store`;
+    const storeName = primaryStore?.name || currentStoreName || "本店";
     return {
       id: `vehicle-${Date.now()}-${crypto.randomUUID()}`,
-      companyId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
-      franchiseeId: primaryStore?.franchiseeId ?? primaryStore?.companyId ?? defaultCompanyId,
-      storeId: primaryStore?.id ?? "",
-      storeName: primaryStore?.name ?? "",
+      companyId: franchiseeId,
+      franchiseeId,
+      storeId,
+      storeName,
       name: "新しい車両",
       vehicleName: "新しい車両",
       number: "",
@@ -1229,10 +1297,25 @@ export function AdminPage() {
       return;
     }
 
+    const vehiclesToSave = vehicles
+      .map((vehicle) => applyDefaultTenantToVehicle(vehicle))
+      .filter((vehicle) => vehicle.name.trim().length > 0);
+
+    if (vehiclesToSave.some((vehicle) => !vehicle.storeId.trim() || !(vehicle.franchiseeId || vehicle.companyId).trim())) {
+      setMasterMessage("車両の会社IDまたは店舗が未設定です。店舗情報を確認してください。");
+      return;
+    }
+
     try {
-      await Promise.all(vehicles.map((vehicle) => saveVehicle(applyDefaultTenantToVehicle(vehicle))));
+      await Promise.all(vehiclesToSave.map((vehicle) => saveVehicle(vehicle)));
       setMasterMessage("車両情報を保存しました。");
     } catch (error) {
+      logAdminLoadFailure("saveVehicles", "vehicles", {
+        count: vehiclesToSave.length,
+        role: currentRole,
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+      }, error);
       setMasterMessage(toVehicleSaveUserMessage(error));
     }
   };
@@ -1341,18 +1424,6 @@ export function AdminPage() {
           <p className="empty-note">Firestoreから管理集計を取得中です。</p>
         ) : null}
 
-        {summaryState.errorMessage ? (
-          <p className="case-error" role="alert">
-            {summaryState.errorMessage}
-          </p>
-        ) : null}
-
-        {workSummaryMessage.includes("読み込めませんでした") ? (
-          <p className="case-error" role="alert">
-            {workSummaryMessage}
-          </p>
-        ) : null}
-
         <div
           className="admin-summary-grid admin-summary-grid--center"
           aria-label="業務サマリー"
@@ -1360,6 +1431,9 @@ export function AdminPage() {
           <div>
             <span>本日売上</span>
             <strong>{formatFareYen(salesSummary.todaySalesYen)}円</strong>
+            {summaryState.errorMessage ? (
+              <p className="case-error" role="alert">{summaryState.errorMessage}</p>
+            ) : null}
           </div>
           <div>
             <span>本日件数</span>
@@ -1368,6 +1442,9 @@ export function AdminPage() {
           <div>
             <span>出勤中人数</span>
             <strong>{workingStaffCount}人</strong>
+            {workSummaryMessage.includes("読み込めませんでした") ? (
+              <p className="case-error" role="alert">{workSummaryMessage}</p>
+            ) : null}
           </div>
           <div>
             <span>稼働車両数</span>

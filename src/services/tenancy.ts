@@ -84,7 +84,15 @@ export const matchesTenantScope = <T extends { companyId?: string; franchiseeId?
   if (!scope || isHqRole(scope.role ?? '')) return true
   const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
   if (franchiseeId && (item.franchiseeId || item.companyId) !== franchiseeId) return false
-  if (scope.storeId && item.storeId !== scope.storeId) return false
+  // owner は加盟店全体。manager / driver のみ店舗で絞る
+  if (
+    scope.storeId &&
+    (scope.role === 'manager' || scope.role === 'driver') &&
+    item.storeId &&
+    item.storeId !== scope.storeId
+  ) {
+    return false
+  }
   if (scope.role === 'driver' && scope.staffId && item.staffId !== scope.staffId) return false
   return true
 }

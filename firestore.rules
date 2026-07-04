@@ -4,6 +4,7 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function role() { return signedIn() ? request.auth.token.role : null; }
     function franchiseeId() { return signedIn() ? (request.auth.token.franchiseeId != null ? request.auth.token.franchiseeId : request.auth.token.companyId) : null; }
+    function companyId() { return signedIn() ? request.auth.token.companyId : null; }
     function storeId() { return signedIn() ? request.auth.token.storeId : null; }
     function staffId() { return signedIn() ? request.auth.token.staffId : null; }
     function isHqAdmin() { return role() == 'hq_admin' || role() == 'superAdmin'; }
@@ -11,7 +12,13 @@ service cloud.firestore {
     function isStoreManager() { return role() == 'store_manager' || role() == 'manager'; }
     function isDriver() { return role() == 'driver'; }
     function docFranchisee(data) { return data.franchiseeId != null ? data.franchiseeId : data.companyId; }
-    function sameFranchisee(data) { return docFranchisee(data) == franchiseeId(); }
+    // token / ドキュメントで companyId と franchiseeId が混在していても同一加盟店なら許可
+    function sameFranchisee(data) {
+      return docFranchisee(data) == franchiseeId()
+        || (companyId() != null && docFranchisee(data) == companyId())
+        || (data.companyId != null && data.companyId == franchiseeId())
+        || (data.franchiseeId != null && companyId() != null && data.franchiseeId == companyId());
+    }
     function sameStore(data) { return sameFranchisee(data) && data.storeId == storeId(); }
     function ownStaffData(data) { return sameStore(data) && (data.staffId == staffId() || data.driverId == staffId() || data.id == staffId()); }
     function hasTenant(data) { return docFranchisee(data) is string && data.storeId is string; }
@@ -77,28 +84,29 @@ service cloud.firestore {
         'updatedAt',
       ]);
     }
-    // ロック用フィールドは「値が変わっていない」ことだけを見る。
-    // フィールドが存在するだけで拒否しない（車両管理の通常保存を許可するため）。
-    function lockFieldPreserved(field) {
-      return resource.data.get(field, null) == request.resource.data.get(field, null);
-    }
-    function lockFieldsPreserved() {
-      return lockFieldPreserved('inUse')
-        && lockFieldPreserved('currentDriverId')
-        && lockFieldPreserved('currentDriverName')
-        && lockFieldPreserved('currentWorkSessionId')
-        && lockFieldPreserved('inUseSince')
-        && lockFieldPreserved('activeTripVehicleId')
-        && lockFieldPreserved('currentCaseId');
+    // 変更されたキーにロック用フィールドが含まれるかだけを見る。
+    // 既存ドキュメントにロック用フィールドがあるだけでは拒否しない。
+    function lockFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'inUse',
+        'currentDriverId',
+        'currentDriverName',
+        'currentWorkSessionId',
+        'inUseSince',
+        'activeTripVehicleId',
+        'currentCaseId',
+      ]);
     }
     function preservesVehicleTenantIdentity() {
-      return docFranchisee(request.resource.data) == docFranchisee(resource.data)
+      return sameFranchisee(request.resource.data)
+        && sameFranchisee(resource.data)
         && request.resource.data.storeId == resource.data.storeId;
     }
+    // 車両管理の通常保存。ロック用フィールドを変更していなければ許可。
+    // 既存ドキュメントに storeId が欠けていても、書き込み後の request がテナントを持てば可。
     function canUpdateVehicleMasterData() {
-      return hasTenant(request.resource.data)
-        && hasTenant(resource.data)
-        && lockFieldsPreserved()
+      return !lockFieldsChanged()
+        && hasTenant(request.resource.data)
         && (
           (isFranchiseeOwner()
             && sameFranchisee(resource.data)
