@@ -7,6 +7,8 @@ import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import { defaultFranchiseeId, defaultStoreId, tenantFields } from './tenancy'
 import type { TenantScope } from './tenancy'
+import { OFFICIAL_COMPANY_PROFILE } from '../constants/officialCompanyProfile'
+import { resolveReceiptCompanySettings } from '../utils/receiptCompanyContact'
 import { createAuditLog } from './auditLogs'
 import {
   basicFareSettings,
@@ -190,13 +192,13 @@ export const defaultMeterSettings: MeterSettings = {
   specialVehicleMenuItems: specialVehicleMenuMaster,
   expensePresets: expenseSettings.defaultItems,
   company: {
-    address: '',
-    companyName: '',
-    corporateName: '',
-    tradeName: '',
+    address: OFFICIAL_COMPANY_PROFILE.address,
+    companyName: OFFICIAL_COMPANY_PROFILE.corporateName,
+    corporateName: OFFICIAL_COMPANY_PROFILE.corporateName,
+    tradeName: OFFICIAL_COMPANY_PROFILE.tradeName,
     email: '',
-    postalCode: '',
-    phoneNumber: '',
+    postalCode: OFFICIAL_COMPANY_PROFILE.postalCode,
+    phoneNumber: OFFICIAL_COMPANY_PROFILE.phoneNumber,
   },
   receipt: {
     issuerName: '',
@@ -461,7 +463,7 @@ function sanitizeCompany(value: unknown): CompanySettings {
 
   const legacyCompanyName = toStringValue(source.companyName)
 
-  return {
+  return resolveReceiptCompanySettings({
     address: toStringValue(source.address),
     companyName: legacyCompanyName,
     corporateName: toStringValue(source.corporateName, legacyCompanyName),
@@ -469,7 +471,7 @@ function sanitizeCompany(value: unknown): CompanySettings {
     email: toStringValue(source.email),
     postalCode: toStringValue(source.postalCode) || toStringValue(source.zipCode),
     phoneNumber: toStringValue(source.phoneNumber),
-  }
+  })
 }
 
 function sanitizeTimeMeterLegal(value: unknown): TimeMeterLegalSettings {

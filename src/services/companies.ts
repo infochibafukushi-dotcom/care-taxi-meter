@@ -42,11 +42,11 @@ export const defaultCompany: Company = {
   enabled: true,
   sortOrder: 1,
   ownerName: '山本信勝',
-  phoneNumber: '',
-  postalCode: '',
+  phoneNumber: '090-6331-4289',
+  postalCode: '260-0023',
   invoiceNumber: '',
   email: '',
-  address: '',
+  address: '千葉県千葉市中央区出洲港8-3-2',
   memo: '',
 }
 
