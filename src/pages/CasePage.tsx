@@ -10,7 +10,9 @@ import { ObdConnectionRequiredDialog } from '../components/case/ObdConnectionReq
 import { ObdConnectFab } from '../components/case/ObdConnectFab'
 import { PostSettlementBanner } from '../components/case/PostSettlementBanner'
 import { PassengerChangePostSettlementBanner } from '../components/case/PassengerChangePostSettlementBanner'
+import { PreFixedFareConfirmedRouteDialog } from '../components/case/PreFixedFareConfirmedRouteDialog'
 import { PreFixedFarePassengerChangeDialog } from '../components/case/PreFixedFarePassengerChangeDialog'
+import { PreFixedFareRouteChangeDialog } from '../components/case/PreFixedFareRouteChangeDialog'
 import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { TopReturnFab } from '../components/case/TopReturnFab'
@@ -53,6 +55,13 @@ import {
 } from '../services/postSettlementLock'
 import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
+import {
+  buildConfirmedRouteStops,
+  buildConfirmedRouteView,
+  formatRoutePathLabel,
+  getCurrentSegmentStops,
+  openGoogleMapsNavigation,
+} from '../services/preFixedFareRoute'
 import { completeFixedFareRun } from '../services/reservationApi'
 import { waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import {
@@ -92,6 +101,10 @@ import {
   buildCompleteFixedFareRunPayload,
   type PreFixedFareException,
 } from '../types/preFixedFare'
+import type {
+  PreFixedFareRouteChangeLog,
+  PreFixedFareRouteStop,
+} from '../types/preFixedFareRouteChange'
 import { tenantScopeFromSession } from '../services/tenancy'
 import { extractAreaFromAddress } from '../utils/address'
 import { formatCaseDateTime } from '../utils/caseRecords'
@@ -530,6 +543,21 @@ const buildPreFixedFarePassengerChangeException = (
   note: PRE_FIXED_FARE_PASSENGER_CHANGE_NOTE,
 })
 
+/** 事前確定M: 運行中に追加する介助オプション（元の確定運賃内の介助とは別明細） */
+const PRE_FIXED_ADDITIONAL_CARE_PRESETS = [
+  { id: 'additional-boarding', name: '追加乗降介助' },
+  { id: 'store-escort', name: '店内付き添い' },
+  { id: 'hospital-escort', name: '院内付き添い' },
+  { id: 'stretcher-extra', name: 'ストレッチャー追加作業' },
+] as const
+
+const PRE_FIXED_EXPENSE_QUICK_PRESETS = [
+  { id: 'parking', name: '駐車場代' },
+  { id: 'toll', name: '有料道路代' },
+  { id: 'facility', name: '施設利用料' },
+  { id: 'other-advance', name: 'その他立替金' },
+] as const
+
 export function CasePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -624,7 +652,32 @@ export function CasePage() {
   const [fixedCompleteState, setFixedCompleteState] = useState<'idle' | 'done' | 'error'>('idle')
   const [isPassengerChangeDialogOpen, setIsPassengerChangeDialogOpen] = useState(false)
   const [pendingPassengerChangeException, setPendingPassengerChangeException] =
-    useState<PreFixedFareException | null>(null)
+    useState<PreFixedFareException | null>(
+      () => restoredTripSnapshot?.preFixedFareException ?? null,
+    )
+  const pendingPassengerChangeExceptionRef = useRef(pendingPassengerChangeException)
+  pendingPassengerChangeExceptionRef.current = pendingPassengerChangeException
+  const [isConfirmedRouteDialogOpen, setIsConfirmedRouteDialogOpen] = useState(false)
+  const [isRouteChangeDialogOpen, setIsRouteChangeDialogOpen] = useState(false)
+  const [isRouteChangePreStartDialogOpen, setIsRouteChangePreStartDialogOpen] = useState(false)
+  const [additionalRouteFareYen, setAdditionalRouteFareYen] = useState(
+    restoredTripSnapshot?.additionalRouteFareYen ?? 0,
+  )
+  const [additionalCareFareYen, setAdditionalCareFareYen] = useState(
+    restoredTripSnapshot?.additionalCareFareYen ?? 0,
+  )
+  const [routeChangeLogs, setRouteChangeLogs] = useState<PreFixedFareRouteChangeLog[]>(
+    restoredTripSnapshot?.routeChangeLogs ?? [],
+  )
+  const [preFixedOverallStops, setPreFixedOverallStops] = useState<PreFixedFareRouteStop[]>(
+    () =>
+      restoredTripSnapshot?.preFixedOverallStops ??
+      buildConfirmedRouteStops(reservationTripContext),
+  )
+  const [preFixedSegmentIndex, setPreFixedSegmentIndex] = useState(
+    restoredTripSnapshot?.preFixedSegmentIndex ?? 0,
+  )
+  const [routeChangeNotice, setRouteChangeNotice] = useState('')
   const [isObdConnectionDialogOpen, setIsObdConnectionDialogOpen] = useState(false)
   const [obdConnectionDialogVariant, setObdConnectionDialogVariant] = useState<'mid-trip' | 'pre-trip'>('pre-trip')
   const [settingsMessage, setSettingsMessage] = useState(
@@ -918,24 +971,81 @@ export function CasePage() {
   const canOpenSettlement = status === '走行中' && meterMode !== 'fixed'
   const canEndFixedTrip =
     meterMode === 'fixed' &&
+    (status === '走行中' || status === '待機中' || status === '院内付き添い中') &&
+    Boolean(fixedFareRun || reservationTripContext)
+  /** 事前確定M: 精算中・終了後はルート変更不可 */
+  const isFixedRouteChangeBlocked =
+    meterMode === 'fixed' &&
+    (
+      status === '精算前' ||
+      status === '精算修正' ||
+      status === '案件終了' ||
+      caseSaveState === 'saving' ||
+      caseSaveState === 'saved' ||
+      Boolean(savedCaseRecord)
+    )
+  /** 事前確定M: 運行中（走行・待機・付き添い）のみルート変更フローを直接開始 */
+  const canStartFixedRouteChangeFlow =
+    meterMode === 'fixed' &&
+    isTripStarted &&
+    (status === '走行中' || status === '待機中' || status === '院内付き添い中') &&
+    !isFixedRouteChangeBlocked
+  const canArriveFixedSegment =
+    meterMode === 'fixed' &&
     status === '走行中' &&
-    Boolean(fixedFareRun)
+    Boolean(fixedFareRun) &&
+    preFixedOverallStops.length >= 2 &&
+    preFixedSegmentIndex < preFixedOverallStops.length - 2
   const fareMode =
     meterMode === 'fixed' && fixedFareRun ? FARE_MODE_PRE_FIXED : null
   const canEndWithPassengerChange =
     fareMode === FARE_MODE_PRE_FIXED &&
-    status === '走行中' &&
+    (status === '走行中' || status === '待機中' || status === '院内付き添い中') &&
     Boolean(fixedFareRun)
   const hasPassengerChangeTermination = Boolean(pendingPassengerChangeException)
+  const isFixedInOperation =
+    meterMode === 'fixed' &&
+    (status === '走行中' || status === '待機中' || status === '院内付き添い中')
+  const isFixedPreSettlement =
+    meterMode === 'fixed' &&
+    (status === '精算前' || status === '精算修正') &&
+    !savedCaseRecord &&
+    caseSaveState !== 'saved'
+  const isFixedPassengerChangePreSettlement =
+    isFixedPreSettlement && hasPassengerChangeTermination
+  const isFixedClosed =
+    meterMode === 'fixed' &&
+    (status === '案件終了' || Boolean(savedCaseRecord) || caseSaveState === 'saved')
   const canEditCharges =
     meterMode === 'fixed'
-      ? status === '精算前' || status === '精算修正'
+      ? isFixedInOperation || (isFixedPreSettlement && !hasPassengerChangeTermination)
       : status === '精算修正' || (status !== '精算前' && !isCaseClosed && caseSaveState !== 'saving')
-  const canAddAssistCharge = canEditCharges
-  const canAddExpenseCharge = canEditCharges
-  const canAddDispatchCharge = canEditCharges
-  const canAddSpecialVehicleCharge = canEditCharges
-  const canOpenDispatchModal = canEditCharges
+  /** 事前確定M: 運行中・通常精算前は追加介助を編集可。旅客都合途中終了後は無効 */
+  const canAddAssistCharge =
+    meterMode === 'fixed'
+      ? isFixedInOperation || (isFixedPreSettlement && !hasPassengerChangeTermination)
+      : canEditCharges
+  /**
+   * 事前確定M: 運行前・運行中・精算前で実費追加可。
+   * 旅客都合途中終了後（精算前）も可。精算完了後（案件終了・保存済み）は不可。
+   */
+  const canAddExpenseCharge =
+    meterMode === 'fixed'
+      ? !isFixedClosed &&
+        (
+          (!isTripStarted && status === '空車') ||
+          isFixedInOperation ||
+          isFixedPreSettlement
+        )
+      : canEditCharges
+  const canAddDispatchCharge = meterMode === 'fixed' ? false : canEditCharges
+  const canAddSpecialVehicleCharge = meterMode === 'fixed' ? false : canEditCharges
+  const canOpenDispatchModal = meterMode === 'fixed' ? false : canEditCharges
+  const canOpenFixedSettlement =
+    meterMode === 'fixed' &&
+    status === '精算前' &&
+    caseSaveState !== 'saved' &&
+    !savedCaseRecord
 
   useEffect(() => () => {
     if (settlementHoldTimerRef.current !== null) {
@@ -1228,13 +1338,31 @@ export function CasePage() {
   }, [restoredTripSnapshot, sourceCaseRecordId])
 
   useEffect(() => {
-    if (!reservationTripContext || restoredTripSnapshot) {
+    if (!reservationTripContext) {
       return
     }
 
-    setCaseSaveState('idle')
-    setCaseSaveMessage('予約連携の事前確定Mを読み込みました。')
-    setSettingsMessage(`予約 ${reservationTripContext.reservationId} の案内を開始できます。`)
+    setFixedFareRun((current) => {
+      if (current?.reservationId === reservationTripContext.reservationId) {
+        return {
+          ...current,
+          confirmedFareYen: reservationTripContext.confirmedFareYen,
+          snapshotHash: reservationTripContext.snapshotHash,
+        }
+      }
+
+      return {
+        reservationId: reservationTripContext.reservationId,
+        confirmedFareYen: reservationTripContext.confirmedFareYen,
+        snapshotHash: reservationTripContext.snapshotHash,
+      }
+    })
+
+    if (!restoredTripSnapshot) {
+      setCaseSaveState('idle')
+      setCaseSaveMessage('予約連携の事前確定Mを読み込みました。')
+      setSettingsMessage(`予約 ${reservationTripContext.reservationId} の案内を開始できます。`)
+    }
 
     if (reservationTripContext.pickupAddress.trim()) {
       const pickup = {
@@ -1257,6 +1385,10 @@ export function CasePage() {
       dropoffLocationRef.current = dropoff
       setDropoffLocation(dropoff)
     }
+
+    setPreFixedOverallStops((current) =>
+      current.length >= 2 ? current : buildConfirmedRouteStops(reservationTripContext),
+    )
   }, [reservationTripContext, restoredTripSnapshot])
 
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])
@@ -1326,10 +1458,32 @@ export function CasePage() {
     nightDrivingSeconds: nightPeriodMetrics.nightDrivingSeconds,
   })
 
+  const resolvedConfirmedFareYen = useMemo(() => {
+    if (fixedFareRun && Number.isFinite(fixedFareRun.confirmedFareYen)) {
+      return Math.max(Math.round(fixedFareRun.confirmedFareYen), 0)
+    }
+
+    if (reservationTripContext && Number.isFinite(reservationTripContext.confirmedFareYen)) {
+      return Math.max(Math.round(reservationTripContext.confirmedFareYen), 0)
+    }
+
+    if (
+      reservationTripContext &&
+      Number.isFinite(reservationTripContext.fixedFareTotalYen)
+    ) {
+      return Math.max(Math.round(reservationTripContext.fixedFareTotalYen), 0)
+    }
+
+    return 0
+  }, [fixedFareRun, reservationTripContext])
+
   const settlementBreakdown = useMemo(() => {
-    if (meterMode === 'fixed' && fixedFareRun) {
+    // 事前確定Mでは距離加算の通常内訳を使わず、予約確定運賃ベースの内訳のみ表示する。
+    if (meterMode === 'fixed') {
       return buildFixedFareBreakdown({
-        confirmedFareYen: fixedFareRun.confirmedFareYen,
+        confirmedFareYen: resolvedConfirmedFareYen,
+        additionalRouteFareYen,
+        additionalCareFareYen,
         dispatchCharges: selectedDispatchCharges,
         specialVehicleCharges: selectedSpecialVehicleCharges,
         careOptions: selectedCareOptions,
@@ -1349,15 +1503,17 @@ export function CasePage() {
 
     return fareBreakdown
   }, [
+    additionalCareFareYen,
+    additionalRouteFareYen,
     customFees,
     currentEscortFareSettings,
     currentWaitingFareSettings,
     escortFareSeconds,
     expenses,
     fareBreakdown,
-    fixedFareRun,
     isDisabilityDiscount,
     meterMode,
+    resolvedConfirmedFareYen,
     selectedCareOptions,
     selectedDispatchCharges,
     selectedSpecialVehicleCharges,
@@ -1365,6 +1521,23 @@ export function CasePage() {
     taxiTickets,
     waitingFareSeconds,
   ])
+
+  const confirmedRouteView = useMemo(
+    () => buildConfirmedRouteView(reservationTripContext),
+    [reservationTripContext],
+  )
+  const currentSegmentStops = useMemo(
+    () => getCurrentSegmentStops(preFixedOverallStops, preFixedSegmentIndex),
+    [preFixedOverallStops, preFixedSegmentIndex],
+  )
+  const overallRouteLabel = useMemo(
+    () => formatRoutePathLabel(preFixedOverallStops),
+    [preFixedOverallStops],
+  )
+  const currentSegmentLabel = useMemo(
+    () => formatRoutePathLabel(currentSegmentStops),
+    [currentSegmentStops],
+  )
 
   const paymentTotalYen = paymentMethods.reduce(
     (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
@@ -1425,12 +1598,24 @@ export function CasePage() {
             reservationId: fixedFareRun.reservationId,
             confirmedFareYen: fixedFareRun.confirmedFareYen,
             snapshotHash: fixedFareRun.snapshotHash,
+            additionalRouteFareYen,
+            additionalCareFareYen,
+            routeChangeLogs,
+            preFixedOverallStops,
+            preFixedSegmentIndex,
+            preFixedFareException: pendingPassengerChangeExceptionRef.current,
           }
         : {}),
       taxiTickets,
       timers: elapsedTimers.seconds,
     })
   }, [
+    additionalCareFareYen,
+    additionalRouteFareYen,
+    pendingPassengerChangeException,
+    preFixedOverallStops,
+    preFixedSegmentIndex,
+    routeChangeLogs,
     activeTimer,
     activityHistories,
     billableTimeStarted,
@@ -1847,8 +2032,9 @@ export function CasePage() {
     const allowedTransitions: Record<OperationStatus, OperationStatus[]> = {
       空車: ['走行中'],
       走行中: ['待機中', '院内付き添い中', '精算前'],
-      待機中: ['走行中'],
-      院内付き添い中: ['走行中'],
+      // 事前確定Mは待機・付き添い中から直接精算確認へ進める。
+      待機中: meterMode === 'fixed' ? ['走行中', '精算前'] : ['走行中'],
+      院内付き添い中: meterMode === 'fixed' ? ['走行中', '精算前'] : ['走行中'],
       精算前: ['精算修正', '走行中', '案件終了'],
       精算修正: ['精算前'],
       案件終了: [],
@@ -2084,8 +2270,12 @@ export function CasePage() {
     return true
   }
 
-  const openFixedSettlementFlow = () => {
-    if (status !== '精算前' || !fixedFareRun) {
+  const openFixedSettlementFlow = (options?: { force?: boolean }) => {
+    if (meterMode !== 'fixed' || resolvedConfirmedFareYen <= 0) {
+      return
+    }
+
+    if (!options?.force && status !== '精算前') {
       return
     }
 
@@ -2111,6 +2301,7 @@ export function CasePage() {
       passengerChangeExceptionOverride ?? pendingPassengerChangeException
 
     if (passengerChangeExceptionOverride) {
+      pendingPassengerChangeExceptionRef.current = passengerChangeExceptionOverride
       setPendingPassengerChangeException(passengerChangeExceptionOverride)
     }
 
@@ -2123,12 +2314,151 @@ export function CasePage() {
     }
 
     setCaseSaveState('idle')
-    setCaseSaveMessage(
-      passengerChangeException
-        ? '旅客都合変更による途中終了として運行を終了しました。精算画面で支払いを確定してください。'
-        : '運行を終了しました。精算画面で支払いを確定してください。',
+    setIsCareModalOpen(false)
+    setIsExpenseModalOpen(false)
+    setIsDispatchModalOpen(false)
+    setIsRouteChangeDialogOpen(false)
+    setIsPassengerChangeDialogOpen(false)
+
+    if (passengerChangeException) {
+      // 途中終了後は運行中UIへ戻さず、精算前サマリーから「精算へ進む」のみ案内する。
+      setCaseSaveMessage('旅客都合変更により事前確定運賃を途中終了しました。')
+      setRouteChangeNotice('旅客都合変更により事前確定運賃を途中終了しました。')
+      return
+    }
+
+    setCaseSaveMessage('運行を終了しました。精算確認画面で支払いを確定してください。')
+    openFixedSettlementFlow({ force: true })
+  }
+
+  const handleFixedSegmentArrive = () => {
+    if (!canArriveFixedSegment) {
+      setRouteChangeNotice('最終区間です。到着済みの場合は運行終了へ進んでください。')
+      return
+    }
+
+    setPreFixedSegmentIndex((current) =>
+      Math.min(current + 1, Math.max(preFixedOverallStops.length - 2, 0)),
     )
-    openFixedSettlementFlow()
+    setRouteChangeNotice('現在区間の到着を記録しました。')
+  }
+
+  /** 事前確定M: 外部ナビ起動のみ。運行開始・料金計測・運行ログは行わない。 */
+  const handleOpenFixedNavigation = () => {
+    const targetStops =
+      currentSegmentStops.length >= 2 ? currentSegmentStops : preFixedOverallStops
+    const opened = openGoogleMapsNavigation(targetStops)
+    if (!opened) {
+      setRouteChangeNotice('ナビを開始できませんでした。ルート情報を確認してください。')
+      return
+    }
+
+    // 運行開始前はメーター状態を一切変更せず、外部ナビ起動のみ行う。
+    setRouteChangeNotice(
+      isTripStarted
+        ? 'ナビを開始しました。アプリ側の確定ルートは予約時の内容を保持します。'
+        : '外部ナビを起動しました。運行はまだ開始していません。「固定運賃で運行開始」でメーターを開始してください。',
+    )
+  }
+
+  const handleFixedRouteChangeClick = () => {
+    if (meterMode !== 'fixed' || isFixedRouteChangeBlocked) {
+      return
+    }
+
+    // 運行開始前: 誤操作防止の確認のみ（ルート変更フローは開始しない）
+    if (!isTripStarted) {
+      setIsRouteChangePreStartDialogOpen(true)
+      return
+    }
+
+    // 運行中: 現在地GPS取得 → 変更パターン選択へ
+    if (canStartFixedRouteChangeFlow) {
+      setIsRouteChangeDialogOpen(true)
+    }
+  }
+
+  const appendRouteChangeLog = async (log: PreFixedFareRouteChangeLog) => {
+    setRouteChangeLogs((current) => [...current, log])
+
+    if (!workSession.currentSession) {
+      return
+    }
+
+    await createAuditLog({
+      action: 'pre_fixed_fare_route_change',
+      actor: {
+        userId: workSession.currentSession.staffId,
+        userName: workSession.currentSession.staffName,
+        role: workSession.currentSession.staffRole,
+        franchiseeId:
+          workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+        storeId: workSession.currentSession.storeId,
+      },
+      targetId: caseNumber,
+      targetType: 'activeTrip',
+      before: {
+        fareMode: FARE_MODE_PRE_FIXED,
+        route: log.routeBefore,
+        confirmedFareYen: fixedFareRun?.confirmedFareYen ?? 0,
+      },
+      after: {
+        pattern: log.pattern,
+        route: log.routeAfter,
+        additionalRouteFareYen: log.additionalRouteFareYen,
+        additionalCareFareYen: log.additionalCareFareYen,
+        totalFareYen: log.totalFareYen,
+        consentAt: log.consentAt,
+        consentMethod: log.consentMethod,
+      },
+      reason: log.reason,
+    })
+  }
+
+  const handleRouteChangeEndHere = async (log: PreFixedFareRouteChangeLog) => {
+    setIsRouteChangeDialogOpen(false)
+    await appendRouteChangeLog(log)
+    // この変更自体の追加運賃は0円。短くなっても当初運賃は減額しない。
+    const exception = buildPreFixedFarePassengerChangeException(
+      fixedFareRun?.confirmedFareYen ?? resolvedConfirmedFareYen,
+      gps.position,
+    )
+    setRouteChangeNotice('旅客都合変更により事前確定運賃を途中終了しました。')
+    handleFixedTripEnd(exception)
+  }
+
+  const handleRouteChangeTrafficDetour = async (log: PreFixedFareRouteChangeLog) => {
+    setIsRouteChangeDialogOpen(false)
+    await appendRouteChangeLog(log)
+    setRouteChangeNotice('交通規制・迂回を記録しました。追加運賃なしで運行を継続します。')
+  }
+
+  const handlePassengerRouteChangeConfirmed = async ({
+    log,
+    nextStops,
+    additionalRouteFareYen: routeFareYen,
+    additionalCareFareYen: careFareYen,
+    startNavigation,
+  }: {
+    log: PreFixedFareRouteChangeLog
+    nextStops: PreFixedFareRouteStop[]
+    additionalRouteFareYen: number
+    additionalCareFareYen: number
+    startNavigation: boolean
+  }) => {
+    setIsRouteChangeDialogOpen(false)
+    await appendRouteChangeLog(log)
+    setAdditionalRouteFareYen((current) => current + routeFareYen)
+    setAdditionalCareFareYen((current) => current + careFareYen)
+    setPreFixedOverallStops(nextStops)
+    setPreFixedSegmentIndex(0)
+    setRouteChangeNotice(
+      `ルート変更を承諾しました。追加区間運賃 ${formatFareYen(routeFareYen)}円を加算します。`,
+    )
+
+    if (startNavigation) {
+      openGoogleMapsNavigation(nextStops)
+    }
   }
 
   const handleConfirmPassengerChangeTermination = async () => {
@@ -2619,6 +2949,12 @@ export function CasePage() {
               reservationId: fixedFareRun.reservationId,
               confirmedFareYen: fixedFareRun.confirmedFareYen,
               snapshotHash: fixedFareRun.snapshotHash,
+              additionalRouteFareYen,
+              additionalCareFareYen,
+              routeChangeLogs,
+              preFixedOverallStops,
+              preFixedSegmentIndex,
+              preFixedFareException: pendingPassengerChangeExceptionRef.current,
             }
           : {}),
         taxiTickets,
@@ -2773,6 +3109,9 @@ export function CasePage() {
               reservationId: fixedFareRun.reservationId,
               confirmedFareYen: fixedFareRun.confirmedFareYen,
               snapshotHash: fixedFareRun.snapshotHash,
+              additionalRouteFareYen,
+              additionalCareFareYen: settlementBreakdown.additionalCareFareYen ?? additionalCareFareYen,
+              routeChangeLogs,
             }
           : {}),
         ...preFixedFareSaveExtras,
@@ -2897,6 +3236,9 @@ export function CasePage() {
               reservationId: fixedFareRun.reservationId,
               confirmedFareYen: fixedFareRun.confirmedFareYen,
               snapshotHash: fixedFareRun.snapshotHash,
+              additionalRouteFareYen,
+              additionalCareFareYen: settlementBreakdown.additionalCareFareYen ?? additionalCareFareYen,
+              routeChangeLogs,
             }
           : {}),
         ...preFixedFareSaveExtras,
@@ -3489,16 +3831,31 @@ export function CasePage() {
                 <div className="r9-fare-amount">
                   <strong>
                     {formatFareYen(
-                      meterMode === 'fixed' && fixedFareRun
+                      meterMode === 'fixed'
                         ? settlementBreakdown.totalFareYen
                         : fareBreakdown.totalFareYen,
                     )}
                   </strong>
                   <span className="r9-fare-unit">円</span>
                 </div>
-                {meterMode === 'fixed' && fixedFareRun && isTripStarted ? (
+                {meterMode === 'fixed' ? (
+                  <div className="fixed-fare-status-row">
+                    <span className="fixed-fare-status-chip fixed-fare-status-chip--confirmed">
+                      確定運賃
+                    </span>
+                    {reservationTripContext?.consentAt ? (
+                      <span className="fixed-fare-status-chip fixed-fare-status-chip--agreed">
+                        お客様同意済み
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {meterMode === 'fixed' && resolvedConfirmedFareYen > 0 ? (
                   <p className="fixed-fare-running-label">
-                    事前確定運賃 {formatFareYen(fixedFareRun.confirmedFareYen)}円
+                    事前確定運賃 {formatFareYen(resolvedConfirmedFareYen)}円
+                    {additionalRouteFareYen > 0
+                      ? ` ＋ 追加区間 ${formatFareYen(additionalRouteFareYen)}円`
+                      : ''}
                   </p>
                 ) : null}
               </div>
@@ -3581,6 +3938,142 @@ export function CasePage() {
                 </div>
               ) : null}
 
+              {meterMode === 'fixed' && isFixedInOperation ? (
+                <div className="pre-fixed-time-fare-rates" aria-label="待機料・付き添い料">
+                  <div>
+                    <strong>待機料</strong>
+                    <p>初期30分　一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    <p>30分1秒以降　30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    <small>計測中 {waitingClockLabel}</small>
+                  </div>
+                  <div>
+                    <strong>付き添い料</strong>
+                    <p>初期30分　一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    <p>30分1秒以降　30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    <small>計測中 {accompanyingClockLabel}</small>
+                  </div>
+                </div>
+              ) : null}
+
+              {meterMode === 'fixed' && isFixedInOperation ? (
+                <div className="pre-fixed-route-summary" aria-label="ルート情報">
+                  <div>
+                    <span>全体ルート</span>
+                    <strong>{overallRouteLabel || '—'}</strong>
+                  </div>
+                  <div>
+                    <span>現在区間</span>
+                    <strong>{currentSegmentLabel || '—'}</strong>
+                  </div>
+                </div>
+              ) : null}
+
+              {meterMode === 'fixed' && isFixedPassengerChangePreSettlement ? (
+                <div className="pre-fixed-terminated-panel" aria-label="旅客都合変更による途中終了">
+                  <p className="pre-fixed-terminated-panel__message">
+                    旅客都合変更により事前確定運賃を途中終了しました。
+                  </p>
+                  <dl className="pre-fixed-terminated-panel__summary">
+                    <div>
+                      <dt>元の事前確定運賃</dt>
+                      <dd>{formatFareYen(resolvedConfirmedFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>追加区間運賃</dt>
+                      <dd>{formatFareYen(additionalRouteFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>追加介助料</dt>
+                      <dd>{formatFareYen(settlementBreakdown.additionalCareFareYen ?? 0)}円</dd>
+                    </div>
+                    <div>
+                      <dt>待機/付き添い料金</dt>
+                      <dd>
+                        {formatFareYen(
+                          settlementBreakdown.waitingFareYen + settlementBreakdown.escortFareYen,
+                        )}円
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>実費</dt>
+                      <dd>{formatFareYen(settlementBreakdown.expenseFareYen)}円</dd>
+                    </div>
+                    <div className="pre-fixed-terminated-panel__total">
+                      <dt>合計請求額</dt>
+                      <dd>{formatFareYen(settlementBreakdown.totalFareYen)}円</dd>
+                    </div>
+                  </dl>
+                  <div className="pre-fixed-terminated-panel__actions">
+                    {canAddExpenseCharge ? (
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => setIsExpenseModalOpen(true)}
+                      >
+                        実費追加
+                      </button>
+                    ) : null}
+                    <button
+                      className="r9-flow-primary pre-fixed-terminated-panel__settle"
+                      type="button"
+                      onClick={() => openFixedSettlementFlow({ force: true })}
+                    >
+                      精算へ進む
+                    </button>
+                  </div>
+                </div>
+              ) : meterMode === 'fixed' && isFixedInOperation ? (
+                <div className="pre-fixed-main-actions" aria-label="事前確定M メイン操作">
+                  <div className="r9-timer-display">
+                    <span>運行時間</span>
+                    <strong>{drivingClockLabel}</strong>
+                  </div>
+                  <div className="pre-fixed-main-action-grid">
+                    <button
+                      className={`pre-fixed-main-action ${status === '待機中' ? 'pre-fixed-main-action--active' : ''}`}
+                      type="button"
+                      disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
+                      onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
+                    >
+                      <strong>{waitingToggleLabel}</strong>
+                      <small>{waitingClockLabel}</small>
+                    </button>
+                    <button
+                      className={`pre-fixed-main-action pre-fixed-main-action--escort ${status === '院内付き添い中' ? 'pre-fixed-main-action--active' : ''}`}
+                      type="button"
+                      disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
+                      onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
+                    >
+                      <strong>{accompanyingToggleLabel}</strong>
+                      <small>{accompanyingClockLabel}</small>
+                    </button>
+                    <button
+                      className="pre-fixed-main-action pre-fixed-main-action--arrive"
+                      type="button"
+                      disabled={!canArriveFixedSegment}
+                      onClick={handleFixedSegmentArrive}
+                    >
+                      <strong>到着</strong>
+                      <small>現在区間</small>
+                    </button>
+                    <button
+                      className="pre-fixed-main-action pre-fixed-main-action--end"
+                      type="button"
+                      disabled={caseSaveState === 'saving' || !canEndFixedTrip}
+                      onClick={() => { handleFixedTripEnd() }}
+                    >
+                      <strong>運行終了</strong>
+                      <small>精算・領収書発行へ</small>
+                    </button>
+                  </div>
+                  {canUndoRecentActivity && activeActivity ? (
+                    <button className="r9-time-action r9-time-action--undo" type="button" onClick={() => { void undoRecentActivity() }}>
+                      <span>直前操作取消</span>
+                      <small>{getActivityLabel(activeActivity.type)}開始から30秒以内</small>
+                    </button>
+                  ) : null}
+                </div>
+              ) : meterMode === 'fixed' ? null : (
               <div className="r9-timer-action-grid" aria-label="時間操作">
                 <div className="r9-timer-display">
                   <span>運行時間</span>
@@ -3613,13 +4106,21 @@ export function CasePage() {
                   </button>
                 ) : null}
               </div>
+              )}
             </section>
 
           </section>
 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
-              breakdown={fareBreakdown}
+              breakdown={settlementBreakdown}
+              title={meterMode === 'fixed' ? '料金内訳（事前確定M）' : '料金内訳'}
+              totalLabel={meterMode === 'fixed' ? '合計請求額' : '合計金額'}
+              footerNote={
+                meterMode === 'fixed'
+                  ? '※本運賃は事前確定済のため、メーターは加算されません。'
+                  : undefined
+              }
               headerEnd={(
                 <ObdConnectFab
                   isConnecting={isObdConnectInProgress}
@@ -3627,7 +4128,7 @@ export function CasePage() {
                   onConnect={handleObdConnectFabClick}
                 />
               )}
-              hideTotal
+              hideTotal={meterMode !== 'fixed'}
             />
           </section>
 
@@ -3637,16 +4138,106 @@ export function CasePage() {
                 {tripStartNotice}
               </p>
             ) : null}
+            {meterMode === 'fixed' ? (
+              <div className="r9-status-stack pre-fixed-status-stack">
+                {!isTripStarted && !isFixedClosed ? (
+                  <button
+                    className="r9-status-button r9-status-button--driving"
+                    type="button"
+                    disabled={!canStartTrip}
+                    onClick={() => { void handleDrivingStart() }}
+                  >
+                    <span aria-hidden="true">🚘</span>
+                    <strong>固定運賃で運行開始</strong>
+                  </button>
+                ) : null}
+                <button
+                  className="r9-status-button r9-status-button--route-view"
+                  type="button"
+                  onClick={() => setIsConfirmedRouteDialogOpen(true)}
+                >
+                  <span aria-hidden="true">🗺</span>
+                  <strong>確定ルートを見る</strong>
+                </button>
+                {!isFixedPassengerChangePreSettlement && !isFixedClosed ? (
+                  <button
+                    className="r9-status-button r9-status-button--nav"
+                    type="button"
+                    disabled={preFixedOverallStops.length < 2}
+                    onClick={handleOpenFixedNavigation}
+                  >
+                    <span aria-hidden="true">➤</span>
+                    <strong>ナビ開始</strong>
+                  </button>
+                ) : null}
+                {!isFixedPassengerChangePreSettlement && !isFixedClosed ? (
+                  <button
+                    className="r9-status-button r9-status-button--route-change"
+                    type="button"
+                    disabled={isFixedRouteChangeBlocked}
+                    onClick={handleFixedRouteChangeClick}
+                  >
+                    <span aria-hidden="true">↻</span>
+                    <strong>ルート変更</strong>
+                  </button>
+                ) : null}
+                {canOpenFixedSettlement || isFixedPassengerChangePreSettlement ? (
+                  <button
+                    className="r9-status-button r9-status-button--settlement"
+                    type="button"
+                    onClick={() => openFixedSettlementFlow({ force: true })}
+                  >
+                    <span aria-hidden="true">▣</span>
+                    <strong>精算へ進む</strong>
+                  </button>
+                ) : !isFixedClosed ? (
+                  <button
+                    className="r9-status-button r9-status-button--settlement"
+                    type="button"
+                    disabled={caseSaveState === 'saving' || !canEndFixedTrip}
+                    onClick={() => { handleFixedTripEnd() }}
+                  >
+                    <span aria-hidden="true">▣</span>
+                    <strong>運行終了</strong>
+                    <small>精算・領収書発行へ</small>
+                  </button>
+                ) : null}
+                {!isFixedClosed ? (
+                  <div className="pre-fixed-secondary-actions" aria-label="付帯操作">
+                    {!isFixedPassengerChangePreSettlement ? (
+                      <button
+                        type="button"
+                        disabled={!canAddAssistCharge}
+                        onClick={() => setIsCareModalOpen(true)}
+                      >
+                        <span aria-hidden="true">♿</span>
+                        介助
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={!canAddExpenseCharge}
+                      onClick={() => setIsExpenseModalOpen(true)}
+                    >
+                      <span aria-hidden="true">￥</span>
+                      実費
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
             <div className="r9-status-stack">
-              <button
-                className="r9-status-button r9-status-button--driving"
-                type="button"
-                disabled={!canStartTrip}
-                onClick={() => { void handleDrivingStart() }}
-              >
-                <span aria-hidden="true">🚘</span>
-                <strong>{meterMode === 'fixed' ? '固定運賃で運行開始' : '送迎開始'}</strong>
-              </button>
+              {!isTripStarted ? (
+                <button
+                  className="r9-status-button r9-status-button--driving"
+                  type="button"
+                  disabled={!canStartTrip}
+                  onClick={() => { void handleDrivingStart() }}
+                >
+                  <span aria-hidden="true">🚘</span>
+                  <strong>送迎開始</strong>
+                </button>
+              ) : null}
               <button
                 className="r9-status-button r9-status-button--assist"
                 type="button"
@@ -3674,28 +4265,6 @@ export function CasePage() {
                 <span aria-hidden="true">￥</span>
                 <strong>実費</strong>
               </button>
-              {meterMode === 'fixed' ? (
-                status === '精算前' && caseSaveState !== 'saved' ? (
-                  <button
-                    className="r9-status-button r9-status-button--settlement"
-                    type="button"
-                    onClick={openFixedSettlementFlow}
-                  >
-                    <span aria-hidden="true">▣</span>
-                    <strong>精算・終了</strong>
-                  </button>
-                ) : (
-                <button
-                  className="r9-status-button r9-status-button--settlement"
-                  type="button"
-                  disabled={caseSaveState === 'saving' || !canEndFixedTrip}
-                  onClick={() => { handleFixedTripEnd() }}
-                >
-                  <span aria-hidden="true">▣</span>
-                  <strong>運行終了</strong>
-                </button>
-                )
-              ) : (
               <button
                 className="r9-status-button r9-status-button--settlement r9-status-button--hold"
                 type="button"
@@ -3711,20 +4280,13 @@ export function CasePage() {
                 <strong>精算・終了</strong>
                 <small id="settlement-hold-help">長押し</small>
               </button>
-              )}
             </div>
+            )}
 
-            {canEndWithPassengerChange ? (
-              <div className="r9-passenger-change-action">
-                <button
-                  className="secondary-action r9-passenger-change-button"
-                  type="button"
-                  disabled={caseSaveState === 'saving'}
-                  onClick={() => setIsPassengerChangeDialogOpen(true)}
-                >
-                  旅客都合変更で途中終了
-                </button>
-              </div>
+            {routeChangeNotice && meterMode === 'fixed' ? (
+              <p className="r9-trip-start-notice" role="status">
+                {routeChangeNotice}
+              </p>
             ) : null}
 
             {isDevelopmentMode ? (
@@ -3830,20 +4392,51 @@ export function CasePage() {
             ) : null}
           </section>
 
-          {fixedFareRun && meterMode === 'fixed' ? (
-            <section className="reservation-detail-section reservation-trip-context-panel" aria-label="予約連携情報">
-              <h2>予約連携</h2>
-              <dl className="reservation-detail-dl">
-                <div><dt>予約ID</dt><dd>{fixedFareRun.reservationId}</dd></div>
-                <div><dt>確定運賃</dt><dd>{formatFareYen(fixedFareRun.confirmedFareYen)}円</dd></div>
-                <div><dt>同意日時</dt><dd>{reservationTripContext ? formatCaseDateTime(reservationTripContext.consentAt) : '—'}</dd></div>
-                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{fixedFareRun.snapshotHash}</dd></div>
-                <div><dt>迎車</dt><dd>{pickupLocation.address || reservationTripContext?.pickupAddress || '住所未取得'}</dd></div>
-                <div><dt>降車</dt><dd>{dropoffLocation.address || reservationTripContext?.dropoffAddress || '住所未取得'}</dd></div>
+          {meterMode === 'fixed' ? (
+            <section
+              className="reservation-detail-section reservation-trip-context-panel pre-fixed-reservation-bar"
+              aria-label="予約連携情報"
+            >
+              <dl className="reservation-detail-dl pre-fixed-reservation-bar__meta">
+                <div>
+                  <dt>予約ID</dt>
+                  <dd>
+                    {fixedFareRun?.reservationId ??
+                      reservationTripContext?.reservationId ??
+                      '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>同意日時</dt>
+                  <dd>
+                    {reservationTripContext?.consentAt
+                      ? formatCaseDateTime(reservationTripContext.consentAt)
+                      : '—'}
+                  </dd>
+                </div>
               </dl>
+              <div className="pre-fixed-reservation-bar__route">
+                <div>
+                  <span>迎車</span>
+                  <strong>
+                    {reservationTripContext?.pickupAddress ||
+                      pickupLocation.address ||
+                      '—'}
+                  </strong>
+                </div>
+                <div>
+                  <span>降車</span>
+                  <strong>
+                    {reservationTripContext?.dropoffAddress ||
+                      dropoffLocation.address ||
+                      '—'}
+                  </strong>
+                </div>
+              </div>
             </section>
           ) : null}
 
+          {meterMode !== 'fixed' ? (
           <section className="route-address-panel" aria-labelledby="route-address-title">
             <h2 className="sr-only" id="route-address-title">運行住所</h2>
             <div className="route-address-grid">
@@ -3867,6 +4460,7 @@ export function CasePage() {
               </div>
             </div>
           </section>
+          ) : null}
         </div>
       </div>
 
@@ -4054,7 +4648,9 @@ export function CasePage() {
             <header className="settings-header">
               <div>
                 <span>ASSIST</span>
-                <h2 id="care-modal-title">介助</h2>
+                <h2 id="care-modal-title">
+                  {meterMode === 'fixed' ? '介助オプション編集' : '介助'}
+                </h2>
               </div>
               <button type="button" onClick={() => setIsCareModalOpen(false)}>
                 閉じる
@@ -4069,27 +4665,71 @@ export function CasePage() {
             <div className="r9-operation-sections">
               <section className="r9-operation-section" aria-labelledby="care-items-title">
                 <div className="r9-operation-section__header">
-                  <h3 id="care-items-title">介助項目</h3>
-                  <strong>{formatFareYen(fareBreakdown.careOptionFareYen)}円</strong>
+                  <h3 id="care-items-title">
+                    {meterMode === 'fixed' ? '追加介助料' : '介助項目'}
+                  </h3>
+                  <strong>
+                    {formatFareYen(
+                      meterMode === 'fixed'
+                        ? (settlementBreakdown.additionalCareFareYen ?? 0)
+                        : fareBreakdown.careOptionFareYen,
+                    )}円
+                  </strong>
                 </div>
+                {meterMode === 'fixed' ? (
+                  <p className="empty-note">
+                    元の事前確定運賃に含まれる介助料は変更しません。追加介助が発生した場合のみ加算してください。初期値は0円です。
+                  </p>
+                ) : null}
                 <div className="r9-modal-button-grid r9-modal-button-grid--care">
-                  {enabledCareOptions.map((item) => {
-                    const isSelected = selectedCareOptionIds.has(item.id)
+                  {meterMode === 'fixed'
+                    ? PRE_FIXED_ADDITIONAL_CARE_PRESETS.map((preset) => {
+                        const masterMatch = enabledCareOptions.find(
+                          (item) => item.name === preset.name || item.id === preset.id,
+                        )
+                        const defaultAmountYen = masterMatch?.amount ?? 0
 
-                    return (
-                      <button
-                        className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
-                        key={item.id}
-                        type="button"
-                        aria-pressed={isSelected}
-                        disabled={!canAddAssistCharge}
-                        onClick={() => toggleCareOption(item)}
-                      >
-                        <span>{isSelected ? '✓ ' : ''}{item.name}</span>
-                        <strong>{formatFareYen(item.amount)}円</strong>
-                      </button>
-                    )
-                  })}
+                        return (
+                          <button
+                            className="r9-modal-choice"
+                            key={preset.id}
+                            type="button"
+                            disabled={!canAddAssistCharge}
+                            onClick={() =>
+                              setKeypadTarget({
+                                amountYen: defaultAmountYen,
+                                mode: 'care',
+                                name: preset.name,
+                                sourceId: masterMatch?.id ?? preset.id,
+                              })
+                            }
+                          >
+                            <span>{preset.name}</span>
+                            <strong>
+                              {defaultAmountYen > 0
+                                ? `${formatFareYen(defaultAmountYen)}円`
+                                : '金額入力'}
+                            </strong>
+                          </button>
+                        )
+                      })
+                    : enabledCareOptions.map((item) => {
+                        const isSelected = selectedCareOptionIds.has(item.id)
+
+                        return (
+                          <button
+                            className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
+                            key={item.id}
+                            type="button"
+                            aria-pressed={isSelected}
+                            disabled={!canAddAssistCharge}
+                            onClick={() => toggleCareOption(item)}
+                          >
+                            <span>{isSelected ? '✓ ' : ''}{item.name}</span>
+                            <strong>{formatFareYen(item.amount)}円</strong>
+                          </button>
+                        )
+                      })}
                   <button
                     className="r9-modal-choice"
                     type="button"
@@ -4097,8 +4737,9 @@ export function CasePage() {
                     onClick={() =>
                       setKeypadTarget({
                         amountYen: 0,
-                        mode: 'customFee',
-                        name: '',
+                        mode: meterMode === 'fixed' ? 'care' : 'customFee',
+                        name: meterMode === 'fixed' ? 'その他' : '',
+                        sourceId: meterMode === 'fixed' ? 'additional-care-other' : undefined,
                       })
                     }
                   >
@@ -4108,7 +4749,9 @@ export function CasePage() {
                 </div>
                 <div className="r9-summary-card r9-summary-card--modal">
                   {selectedCareOptions.length === 0 && customFees.length === 0 ? (
-                    <p className="empty-note">介助料金は未追加です。</p>
+                    <p className="empty-note">
+                      {meterMode === 'fixed' ? '追加介助料は0円です。' : '介助料金は未追加です。'}
+                    </p>
                   ) : (
                     <div className="r9-summary-list">
                       {selectedCareOptions.map((option) => (
@@ -4231,7 +4874,7 @@ export function CasePage() {
             <header className="settings-header">
               <div>
                 <span>COST</span>
-                <h2 id="expense-modal-title">実費</h2>
+                <h2 id="expense-modal-title">{meterMode === 'fixed' ? '実費追加' : '実費'}</h2>
               </div>
               <button type="button" onClick={() => setIsExpenseModalOpen(false)}>
                 閉じる
@@ -4240,34 +4883,79 @@ export function CasePage() {
 
             <div className="r9-operation-section">
               <div className="r9-operation-section__header">
-                <h3>実費ワンタッチ</h3>
+                <h3>{meterMode === 'fixed' ? '実費' : '実費ワンタッチ'}</h3>
                 <strong>{formatFareYen(expenseTotalYen)}円</strong>
               </div>
+              {meterMode === 'fixed' ? (
+                <p className="empty-note">
+                  駐車場代・有料道路代・立替金などを複数件追加できます。初期値は0円です。
+                </p>
+              ) : null}
               <div className="r9-modal-button-grid r9-modal-button-grid--expense">
-                {currentExpensePresets
-                  .filter((preset) => preset.name.trim())
-                  .map((preset) => (
-                    <button
-                      className="r9-modal-choice r9-modal-choice--expense"
-                      key={preset.id}
-                      type="button"
-                      disabled={!canAddExpenseCharge}
-                      onClick={() =>
-                        setKeypadTarget({
-                          amountYen: preset.defaultAmountYen,
-                          mode: 'expense',
-                          name: preset.name,
-                        })
+                {(meterMode === 'fixed'
+                  ? PRE_FIXED_EXPENSE_QUICK_PRESETS.map((preset) => {
+                      const settingsPreset = currentExpensePresets.find(
+                        (item) =>
+                          item.name === preset.name ||
+                          item.name.includes(preset.name.replace(/代$/, '')) ||
+                          item.id === preset.id,
+                      )
+                      return {
+                        id: preset.id,
+                        name: preset.name,
+                        defaultAmountYen: settingsPreset?.defaultAmountYen ?? 0,
                       }
-                    >
-                      <span>{preset.name}</span>
-                      <strong>{formatFareYen(preset.defaultAmountYen)}円</strong>
-                    </button>
-                  ))}
+                    })
+                  : currentExpensePresets
+                      .filter((preset) => preset.name.trim())
+                      .map((preset) => ({
+                        id: preset.id,
+                        name: preset.name,
+                        defaultAmountYen: preset.defaultAmountYen,
+                      }))
+                ).map((preset) => (
+                  <button
+                    className="r9-modal-choice r9-modal-choice--expense"
+                    key={preset.id}
+                    type="button"
+                    disabled={!canAddExpenseCharge}
+                    onClick={() =>
+                      setKeypadTarget({
+                        amountYen: preset.defaultAmountYen,
+                        mode: 'expense',
+                        name: preset.name,
+                      })
+                    }
+                  >
+                    <span>{preset.name}</span>
+                    <strong>
+                      {preset.defaultAmountYen > 0
+                        ? `${formatFareYen(preset.defaultAmountYen)}円`
+                        : '金額入力'}
+                    </strong>
+                  </button>
+                ))}
+                {meterMode === 'fixed' ? (
+                  <button
+                    className="r9-modal-choice r9-modal-choice--expense"
+                    type="button"
+                    disabled={!canAddExpenseCharge}
+                    onClick={() =>
+                      setKeypadTarget({
+                        amountYen: 0,
+                        mode: 'expense',
+                        name: '',
+                      })
+                    }
+                  >
+                    <span>項目を追加</span>
+                    <strong>名称・金額入力</strong>
+                  </button>
+                ) : null}
               </div>
               <div className="r9-summary-card r9-summary-card--modal">
                 {expenses.length === 0 ? (
-                  <p className="empty-note">実費は未追加です。</p>
+                  <p className="empty-note">実費は0円です。</p>
                 ) : (
                   <div className="r9-summary-list">
                     {expenses.map((expense) => (
@@ -4351,12 +5039,16 @@ export function CasePage() {
                   <>
                     {meterMode === 'fixed' ? (
                       <>
-                        <button className="secondary-action" type="button" onClick={() => setIsCareModalOpen(true)}>
-                          介助追加
-                        </button>
-                        <button className="secondary-action" type="button" onClick={() => setIsExpenseModalOpen(true)}>
-                          実費追加
-                        </button>
+                        {canAddAssistCharge ? (
+                          <button className="secondary-action" type="button" onClick={() => setIsCareModalOpen(true)}>
+                            介助追加
+                          </button>
+                        ) : null}
+                        {canAddExpenseCharge ? (
+                          <button className="secondary-action" type="button" onClick={() => setIsExpenseModalOpen(true)}>
+                            実費追加
+                          </button>
+                        ) : null}
                       </>
                     ) : null}
                     <button className="secondary-action" type="button" onClick={openSettlementEdit}>
@@ -4651,6 +5343,73 @@ export function CasePage() {
         onCancel={() => setIsPassengerChangeDialogOpen(false)}
         onConfirm={() => { void handleConfirmPassengerChangeTermination() }}
       />
+
+      <PreFixedFareConfirmedRouteDialog
+        isOpen={isConfirmedRouteDialogOpen}
+        routeView={confirmedRouteView}
+        onClose={() => setIsConfirmedRouteDialogOpen(false)}
+      />
+
+      {isRouteChangePreStartDialogOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="pre-fixed-route-change-prestart-title"
+            aria-modal="true"
+            className="settings-modal r9-settlement-confirm"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>確認</span>
+                <h2 id="pre-fixed-route-change-prestart-title">ルート変更は運行開始後に行います</h2>
+              </div>
+              <button type="button" onClick={() => setIsRouteChangePreStartDialogOpen(false)}>
+                閉じる
+              </button>
+            </header>
+            <p className="lead" style={{ whiteSpace: 'pre-wrap' }}>
+              {`ルート変更は、運行開始後にお客様都合の立ち寄り追加・目的地変更などが発生したときに使用します。
+
+先に「固定運賃で運行開始」を押してから、ルート変更を行ってください。
+
+運行開始前は「確定ルートを見る」「ナビ開始」をご利用ください。`}
+            </p>
+            <div className="r9-confirm-actions">
+              <button
+                className="r9-flow-primary"
+                type="button"
+                onClick={() => setIsRouteChangePreStartDialogOpen(false)}
+              >
+                了解
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {meterMode === 'fixed' ? (
+        <PreFixedFareRouteChangeDialog
+          isOpen={isRouteChangeDialogOpen}
+          caseId={caseNumber}
+          reservationId={
+            fixedFareRun?.reservationId ??
+            reservationTripContext?.reservationId ??
+            ''
+          }
+          driverName={workSession.currentSession?.staffName ?? ''}
+          confirmedFareYen={resolvedConfirmedFareYen}
+          waitingFareYen={settlementBreakdown.waitingFareYen}
+          escortFareYen={settlementBreakdown.escortFareYen}
+          overallStops={preFixedOverallStops}
+          fareSettings={currentBasicFareSettings}
+          onClose={() => setIsRouteChangeDialogOpen(false)}
+          onEndHere={(log) => { void handleRouteChangeEndHere(log) }}
+          onTrafficDetour={(log) => { void handleRouteChangeTrafficDetour(log) }}
+          onPassengerRouteChangeConfirmed={(payload) => {
+            void handlePassengerRouteChangeConfirmed(payload)
+          }}
+        />
+      ) : null}
 
       <TopReturnFab onClick={handleReturnToTop} visible={canShowTopFab} />
     </main>

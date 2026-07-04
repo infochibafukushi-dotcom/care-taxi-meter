@@ -13,6 +13,14 @@ import type {
   TaxiTicket,
   TimerKey,
 } from '../types/case'
+import {
+  mapPreFixedFareExceptionFromApi,
+  type PreFixedFareException,
+} from '../types/preFixedFare'
+import type {
+  PreFixedFareRouteChangeLog,
+  PreFixedFareRouteStop,
+} from '../types/preFixedFareRouteChange'
 import { parseMeterModeParam } from '../utils/meterConstants'
 import {
   emptyCapturedAddressLocation,
@@ -70,6 +78,13 @@ export type ActiveTripSnapshot = {
   reservationId?: string
   confirmedFareYen?: number
   snapshotHash?: string
+  additionalRouteFareYen?: number
+  additionalCareFareYen?: number
+  routeChangeLogs?: PreFixedFareRouteChangeLog[]
+  preFixedOverallStops?: PreFixedFareRouteStop[]
+  preFixedSegmentIndex?: number
+  /** 旅客都合変更による途中終了（精算前） */
+  preFixedFareException?: PreFixedFareException | null
   /** Start timestamps for open waiting / accompanying / driving segments. */
   timerStartedAt?: TimerStartedAtMap
   taxiTickets: TaxiTicket[]
@@ -227,6 +242,28 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
         typeof snapshot.snapshotHash === 'string' && snapshot.snapshotHash.trim()
           ? snapshot.snapshotHash.trim()
           : undefined,
+      additionalRouteFareYen:
+        typeof snapshot.additionalRouteFareYen === 'number' &&
+        Number.isFinite(snapshot.additionalRouteFareYen)
+          ? Math.max(Math.round(snapshot.additionalRouteFareYen), 0)
+          : undefined,
+      additionalCareFareYen:
+        typeof snapshot.additionalCareFareYen === 'number' &&
+        Number.isFinite(snapshot.additionalCareFareYen)
+          ? Math.max(Math.round(snapshot.additionalCareFareYen), 0)
+          : undefined,
+      routeChangeLogs: Array.isArray(snapshot.routeChangeLogs)
+        ? snapshot.routeChangeLogs
+        : undefined,
+      preFixedOverallStops: Array.isArray(snapshot.preFixedOverallStops)
+        ? snapshot.preFixedOverallStops
+        : undefined,
+      preFixedSegmentIndex:
+        typeof snapshot.preFixedSegmentIndex === 'number' &&
+        Number.isFinite(snapshot.preFixedSegmentIndex)
+          ? Math.max(Math.floor(snapshot.preFixedSegmentIndex), 0)
+          : undefined,
+      preFixedFareException: mapPreFixedFareExceptionFromApi(snapshot.preFixedFareException),
       timerStartedAt: normalizeTimerStartedAt(snapshot.timerStartedAt),
       taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
       timers: normalizeSnapshotTimerSeconds(snapshot.timers),

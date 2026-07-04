@@ -72,6 +72,8 @@ export function formatComparisonDifferenceYen(differenceYen: number) {
 export type ReceiptFareLine = {
   label: string
   value: string
+  amountYen?: number
+  indent?: boolean
 }
 
 export const isPreFixedFarePassengerChangeCase = (caseRecord: StoredCaseRecord) =>
@@ -88,21 +90,56 @@ export function createPrimaryFareReceiptLines(
   caseRecord: StoredCaseRecord,
 ): ReceiptFareLine[] {
   if (caseRecord.meterMode === 'fixed') {
-    const fareYen =
+    const originalFareYen =
       typeof caseRecord.confirmedFareYen === 'number' && Number.isFinite(caseRecord.confirmedFareYen)
         ? caseRecord.confirmedFareYen
         : caseRecord.preFixedFareException?.originalFixedFareYen ??
           (caseRecord.normalFareYen > 0
             ? caseRecord.normalFareYen
             : caseRecord.basicFareYen)
+    const additionalRouteFareYen = Math.max(
+      Math.round(caseRecord.additionalRouteFareYen ?? 0),
+      0,
+    )
+    const additionalCareFareYen = Math.max(
+      Math.round(caseRecord.additionalCareFareYen ?? 0),
+      0,
+    )
     const isPassengerChange = isPreFixedFarePassengerChangeCase(caseRecord)
+    const hasRouteChangeExtras =
+      additionalRouteFareYen > 0 ||
+      additionalCareFareYen > 0 ||
+      (caseRecord.routeChangeLogs?.length ?? 0) > 0
+
+    if (!hasRouteChangeExtras) {
+      return [
+        {
+          label: isPassengerChange
+            ? '事前確定運賃：旅客都合変更により終了'
+            : '事前確定運賃',
+          value: `${formatFareYen(originalFareYen)}円`,
+          amountYen: originalFareYen,
+        },
+      ]
+    }
 
     return [
       {
         label: isPassengerChange
-          ? '事前確定運賃：旅客都合変更により終了'
-          : '事前確定運賃',
-        value: `${formatFareYen(fareYen)}円`,
+          ? '元の事前確定運賃：旅客都合変更により終了'
+          : '元の事前確定運賃',
+        value: `${formatFareYen(originalFareYen)}円`,
+        amountYen: originalFareYen,
+      },
+      {
+        label: '追加区間運賃',
+        value: `${formatFareYen(additionalRouteFareYen)}円`,
+        amountYen: additionalRouteFareYen,
+      },
+      {
+        label: '追加介助料',
+        value: `${formatFareYen(additionalCareFareYen)}円`,
+        amountYen: additionalCareFareYen,
       },
     ]
   }

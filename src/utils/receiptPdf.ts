@@ -38,8 +38,29 @@ const normalizeReceiptTitle = (value: string) =>
   value.trim() || defaultMeterSettings.receipt.receiptDefault
 
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
-  const careOptionLines =
-    caseRecord.assistCharges.length > 0
+  const additionalCareFareYen = Math.max(Math.round(caseRecord.additionalCareFareYen ?? 0), 0)
+  const isFixedMeter = caseRecord.meterMode === 'fixed'
+  const hasFixedExtras =
+    isFixedMeter &&
+    (
+      Math.max(Math.round(caseRecord.additionalRouteFareYen ?? 0), 0) > 0 ||
+      additionalCareFareYen > 0 ||
+      (caseRecord.routeChangeLogs?.length ?? 0) > 0
+    )
+  const settlementCareFareYen = Math.max(caseRecord.careOptionFareYen - additionalCareFareYen, 0)
+  const careOptionLines = isFixedMeter
+    ? hasFixedExtras && settlementCareFareYen > 0
+      ? [
+          {
+            label: '介助料金',
+            value: `${formatFareYen(settlementCareFareYen)}円`,
+          },
+        ]
+      : caseRecord.assistCharges.map((assistCharge) => ({
+          label: `追加介助：${assistCharge.name}`,
+          value: `${formatFareYen(assistCharge.amount)}円`,
+        }))
+    : caseRecord.assistCharges.length > 0
       ? [
           ...caseRecord.assistCharges.map((assistCharge) => ({
             label: `介助料金：${assistCharge.name}`,
@@ -56,6 +77,35 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
             value: `${formatFareYen(caseRecord.careOptionFareYen)}円`,
           },
         ]
+
+  const expenseLines: ReceiptLine[] = [
+    { label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` },
+    ...caseRecord.expenseCharges
+      .filter((expenseCharge) => expenseCharge.name.trim())
+      .map((expenseCharge) => ({
+        label: `実費：${expenseCharge.name}`,
+        value: `${formatFareYen(expenseCharge.amount)}円`,
+      })),
+  ]
+
+  if (isFixedMeter) {
+    return [
+      { label: '案件番号', value: caseRecord.caseNumber },
+      { label: '宛名', value: caseRecord.receiptName || '未入力' },
+      { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
+      { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
+      ...createPrimaryFareReceiptLines(caseRecord),
+      {
+        label: '待機/付き添い料金',
+        value: `${formatFareYen(caseRecord.waitingFareYen + caseRecord.escortFareYen)}円`,
+      },
+      ...careOptionLines,
+      ...expenseLines,
+      { label: '合計請求額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
+      { label: '支払方法', value: caseRecord.paymentMethod },
+      { label: '支払内訳', value: formatPaymentDetails(caseRecord) },
+    ]
+  }
 
   return [
     { label: '案件番号', value: caseRecord.caseNumber },
@@ -81,7 +131,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     { label: caseRecord.discountName || '割引', value: caseRecord.isDisabilityDiscount ? `-${formatFareYen(caseRecord.disabilityDiscountAmount)}円` : '未適用' },
     { label: 'タクシー券', value: formatTaxiTicketDetails(caseRecord) },
     { label: 'タクシー券適用額', value: `-${formatFareYen(caseRecord.taxiTicketAmountYen)}円` },
-    { label: '実費', value: `${formatFareYen(caseRecord.expenseFareYen)}円` },
+    ...expenseLines,
     { label: '合計金額', value: `${formatFareYen(caseRecord.totalFareYen)}円` },
     { label: '支払方法', value: caseRecord.paymentMethod },
     { label: '支払内訳', value: formatPaymentDetails(caseRecord) },

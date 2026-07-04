@@ -8,13 +8,24 @@ type FareBreakdownPanelProps = {
   headerEnd?: ReactNode
   hideTotal?: boolean
   paymentMethod?: PaymentMethod
+  title?: string
+  totalLabel?: string
+  footerNote?: string
 }
 
-export function FareBreakdownPanel({ breakdown, headerEnd, hideTotal, paymentMethod }: FareBreakdownPanelProps) {
+export function FareBreakdownPanel({
+  breakdown,
+  headerEnd,
+  hideTotal,
+  paymentMethod,
+  title = '料金内訳',
+  totalLabel = '合計金額',
+  footerNote,
+}: FareBreakdownPanelProps) {
   return (
     <section className="fare-breakdown" aria-labelledby="fare-breakdown-title">
       <div className="fare-breakdown__header">
-        <h2 id="fare-breakdown-title">料金内訳</h2>
+        <h2 id="fare-breakdown-title">{title}</h2>
         {headerEnd}
       </div>
       <dl>
@@ -32,11 +43,12 @@ export function FareBreakdownPanel({ breakdown, headerEnd, hideTotal, paymentMet
         ) : null}
         {!hideTotal ? (
           <div className="fare-breakdown__total">
-            <dt>合計金額</dt>
+            <dt>{totalLabel}</dt>
             <dd>{formatFareYen(breakdown.totalFareYen)}円</dd>
           </div>
         ) : null}
       </dl>
+      {footerNote ? <p className="fare-breakdown__note">{footerNote}</p> : null}
     </section>
   )
 }

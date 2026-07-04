@@ -29,6 +29,7 @@ import type {
   FareMode,
   PreFixedFareException,
 } from '../types/preFixedFare'
+import type { PreFixedFareRouteChangeLog } from '../types/preFixedFareRouteChange'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -68,6 +69,9 @@ export type CaseRecordInput = {
   fareMode?: FareMode
   completionReason?: CompletionReason
   preFixedFareException?: PreFixedFareException
+  additionalRouteFareYen?: number
+  additionalCareFareYen?: number
+  routeChangeLogs?: PreFixedFareRouteChangeLog[]
   recordStatus?: CaseRecordStatus
 }
 
@@ -241,6 +245,9 @@ export type CaseRecordDocument = {
   fareMode?: FareMode
   completionReason?: CompletionReason
   preFixedFareException?: PreFixedFareException
+  additionalRouteFareYen?: number
+  additionalCareFareYen?: number
+  routeChangeLogs?: PreFixedFareRouteChangeLog[]
   savedAt: FieldValue
 }
 
@@ -738,6 +745,11 @@ const toStoredCaseRecord = (
         ? 'passenger_requested_route_change'
         : undefined,
     preFixedFareException: toPreFixedFareException(data.preFixedFareException),
+    additionalRouteFareYen: toNullableNumber(data.additionalRouteFareYen) ?? undefined,
+    additionalCareFareYen: toNullableNumber(data.additionalCareFareYen) ?? undefined,
+    routeChangeLogs: Array.isArray(data.routeChangeLogs)
+      ? (data.routeChangeLogs as PreFixedFareRouteChangeLog[])
+      : undefined,
   }
 }
 
@@ -848,6 +860,9 @@ export async function saveCaseRecord({
   fareMode,
   completionReason,
   preFixedFareException,
+  additionalRouteFareYen,
+  additionalCareFareYen,
+  routeChangeLogs,
   recordStatus = 'completed',
 }: CaseRecordInput) {
   const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
@@ -981,6 +996,13 @@ export async function saveCaseRecord({
     ...(fareMode ? { fareMode } : {}),
     ...(completionReason ? { completionReason } : {}),
     ...(preFixedFareException ? { preFixedFareException } : {}),
+    ...(typeof additionalRouteFareYen === 'number' && Number.isFinite(additionalRouteFareYen)
+      ? { additionalRouteFareYen: Math.max(Math.round(additionalRouteFareYen), 0) }
+      : {}),
+    ...(typeof additionalCareFareYen === 'number' && Number.isFinite(additionalCareFareYen)
+      ? { additionalCareFareYen: Math.max(Math.round(additionalCareFareYen), 0) }
+      : {}),
+    ...(routeChangeLogs && routeChangeLogs.length > 0 ? { routeChangeLogs } : {}),
     savedAt: serverTimestamp(),
   }
 

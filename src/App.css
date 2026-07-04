@@ -7659,3 +7659,398 @@ h1 {
 .reservation-meter-reset-panel .case-detail-danger-button {
   width: 100%;
 }
+
+.reservation-fare-breakdown {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgb(14 165 233 / 22%);
+  border-radius: 16px;
+  background: #f0f9ff;
+}
+
+.reservation-fare-breakdown--excluded {
+  border-color: rgb(148 163 184 / 35%);
+  background: #f8fafc;
+}
+
+.reservation-fare-breakdown h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.reservation-fare-breakdown-note {
+  margin: 0;
+  color: #475569;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+/* 事前確定M 専用UI */
+.fixed-fare-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fixed-fare-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.fixed-fare-status-chip--confirmed {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+.fixed-fare-status-chip--agreed {
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.fare-breakdown__note {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.r9-status-button--route-view {
+  background: linear-gradient(145deg, #7c3aed, #4c1d95);
+}
+
+.r9-status-button--nav {
+  background: linear-gradient(145deg, #16a34a, #14532d);
+}
+
+.r9-status-button--route-change {
+  background: linear-gradient(145deg, #ea580c, #9a3412);
+}
+
+.pre-fixed-status-stack {
+  gap: 8px;
+}
+
+.pre-fixed-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pre-fixed-secondary-actions button {
+  min-height: 56px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 12px;
+  color: #e2e8f0;
+  background: #1e3a5f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.pre-fixed-secondary-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-secondary-actions span {
+  font-size: 1rem;
+}
+
+.pre-fixed-reservation-bar {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.pre-fixed-reservation-bar__meta {
+  margin: 0;
+}
+
+.pre-fixed-reservation-bar__route {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pre-fixed-reservation-bar__route > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.pre-fixed-reservation-bar__route > div:last-child {
+  background: #ecfdf5;
+}
+
+.pre-fixed-reservation-bar__route span {
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pre-fixed-reservation-bar__route strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 860px) {
+  .pre-fixed-reservation-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pre-fixed-time-fare-rates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pre-fixed-time-fare-rates > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.pre-fixed-time-fare-rates strong {
+  color: #f8fafc;
+  font-size: 0.95rem;
+}
+
+.pre-fixed-time-fare-rates p,
+.pre-fixed-time-fare-rates small {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.pre-fixed-route-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-fixed-route-summary > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #111827;
+  color: #f8fafc;
+}
+
+.pre-fixed-route-summary span {
+  color: #93c5fd;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.pre-fixed-route-summary strong {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.pre-fixed-main-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.pre-fixed-terminated-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
+
+.pre-fixed-terminated-panel__message {
+  margin: 0;
+  color: #9a3412;
+  font-size: 0.98rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.pre-fixed-terminated-panel__summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.pre-fixed-terminated-panel__summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.pre-fixed-terminated-panel__summary dt {
+  color: #7c2d12;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.pre-fixed-terminated-panel__summary dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.pre-fixed-terminated-panel__total {
+  padding-top: 8px;
+  border-top: 1px solid #fdba74;
+}
+
+.pre-fixed-terminated-panel__total dt,
+.pre-fixed-terminated-panel__total dd {
+  font-size: 1.05rem;
+}
+
+.pre-fixed-terminated-panel__actions {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-fixed-terminated-panel__actions .secondary-action,
+.pre-fixed-terminated-panel__settle {
+  width: 100%;
+  min-height: 52px;
+}
+
+.pre-fixed-secondary-actions:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+.pre-fixed-main-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pre-fixed-main-action {
+  min-height: 88px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px;
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(145deg, #ca8a04, #854d0e);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%);
+  cursor: pointer;
+}
+
+.pre-fixed-main-action--escort {
+  background: linear-gradient(145deg, #16a34a, #14532d);
+}
+
+.pre-fixed-main-action--arrive {
+  background: linear-gradient(145deg, #2563eb, #1e3a8a);
+}
+
+.pre-fixed-main-action--end {
+  background: linear-gradient(145deg, #ea580c, #7c2d12);
+}
+
+.pre-fixed-main-action--active {
+  outline: 3px solid #fde68a;
+}
+
+.pre-fixed-main-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-main-action strong {
+  font-size: 1.05rem;
+}
+
+.pre-fixed-main-action small {
+  color: rgb(255 255 255 / 88%);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pre-fixed-route-dialog {
+  max-width: min(720px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+
+.pre-fixed-route-change-body {
+  display: grid;
+  gap: 12px;
+}
+
+.pre-fixed-route-pattern-list,
+.pre-fixed-destination-list,
+.pre-fixed-route-candidate-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-fixed-destination-fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+}
+
+.pre-fixed-destination-fieldset label {
+  display: grid;
+  gap: 4px;
+  font-weight: 700;
+}
+
+.pre-fixed-route-candidate {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.pre-fixed-route-candidate span {
+  display: grid;
+  gap: 2px;
+}
+
+.pre-fixed-confirmed-route-dl {
+  margin-bottom: 12px;
+}
+
+@media (min-width: 720px) {
+  .pre-fixed-main-action-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

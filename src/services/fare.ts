@@ -91,6 +91,12 @@ export type FareBreakdown = {
   lineItems: FareLineItem[];
   meterMode: MeterMode;
   timeMeter: TimeMeterFareBreakdown | null;
+  /** 事前確定M: 当初の事前確定運賃本体（追加区間運賃を含まない） */
+  originalConfirmedFareYen?: number;
+  /** 事前確定M: ルート変更による追加区間運賃 */
+  additionalRouteFareYen?: number;
+  /** 事前確定M: ルート変更時に手動加算した追加介助料 */
+  additionalCareFareYen?: number;
 };
 
 export const basicFareSettings: BasicFareSettings = {
@@ -507,8 +513,8 @@ export function calculateFareBreakdown({
 
 export function buildFixedFareBreakdown({
   confirmedFareYen,
-  dispatchCharges = [],
-  specialVehicleCharges = [],
+  additionalRouteFareYen = 0,
+  additionalCareFareYen = 0,
   careOptions,
   customFees = [],
   expenses,
@@ -519,7 +525,11 @@ export function buildFixedFareBreakdown({
   settings = {},
 }: {
   confirmedFareYen: number;
+  additionalRouteFareYen?: number;
+  additionalCareFareYen?: number;
+  /** @deprecated 事前確定Mでは確定運賃本体に含め、別加算しない */
   dispatchCharges?: Array<{ amountYen: number }>;
+  /** @deprecated 事前確定Mでは確定運賃本体に含め、別加算しない */
   specialVehicleCharges?: Array<{ amountYen: number }>;
   careOptions: Array<{ amountYen: number }>;
   customFees?: Array<{ amount: number }>;
@@ -534,9 +544,9 @@ export function buildFixedFareBreakdown({
     discount?: DiscountSettings;
   };
 }): FareBreakdown {
-  const baseFareYen = Math.max(Math.round(confirmedFareYen), 0);
-  const dispatchFareYen = calculateCareOptionTotalYen(dispatchCharges);
-  const specialVehicleFareYen = calculateCareOptionTotalYen(specialVehicleCharges);
+  const originalConfirmedFareYen = Math.max(Math.round(confirmedFareYen), 0);
+  const routeFareYen = Math.max(Math.round(additionalRouteFareYen), 0);
+  const manualAdditionalCareFareYen = Math.max(Math.round(additionalCareFareYen), 0);
   const waitingFareYen = calculateTimeFareYen(
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
@@ -545,14 +555,19 @@ export function buildFixedFareBreakdown({
     escortSeconds,
     settings.escortFare ?? escortFareSettings,
   );
-  const careOptionFareYen = calculateCareOptionTotalYen(careOptions);
+  // 追加介助料は元の事前確定運賃に含まれる介助とは別明細。選択介助・その他・ルート変更分を合算する。
   const customFeeFareYen = calculateCustomFeeTotalYen(customFees);
+  const careOptionFareYen =
+    calculateCareOptionTotalYen(careOptions) +
+    customFeeFareYen +
+    manualAdditionalCareFareYen;
   const expenseFareYen = calculateExpenseTotalYen(expenses);
   const discountSettings = settings.discount ?? DEFAULT_DISCOUNT_SETTINGS;
   const discountName = discountSettings.name.trim() || DEFAULT_DISCOUNT_SETTINGS.name;
   const discountValue = Math.max(Number(discountSettings.value) || 0, 0);
   const discountRate = discountSettings.method === "percentage" ? discountValue / 100 : 0;
-  const discountableFareYen = baseFareYen;
+  // 当初の事前確定運賃のみ割引対象。追加区間運賃は別明細として加算する。
+  const discountableFareYen = originalConfirmedFareYen;
   const disabilityDiscountAmount = isDisabilityDiscount
     ? Math.min(
         discountSettings.method === "percentage"
@@ -567,23 +582,21 @@ export function buildFixedFareBreakdown({
     0,
   );
   const taxiTicketAmountYen = Math.min(taxiTicketRequestedYen, discountedBaseFareYen);
+  // 事前確定Mのメーター内訳は専用明細のみ。予約迎車・特殊車両は確定運賃本体に含めず加算しない。
   const otherChargesYen =
-    dispatchFareYen +
-    specialVehicleFareYen +
-    waitingFareYen +
-    escortFareYen +
-    careOptionFareYen +
-    customFeeFareYen +
-    expenseFareYen;
+    routeFareYen + waitingFareYen + escortFareYen + careOptionFareYen + expenseFareYen;
   const grossFareYen = discountableFareYen + otherChargesYen;
   const totalFareYen = Math.max(
     discountedBaseFareYen - taxiTicketAmountYen + otherChargesYen,
     0,
   );
+  const baseFareYen = originalConfirmedFareYen + routeFareYen;
+  const hasExtras =
+    routeFareYen > 0 || careOptionFareYen > 0 || waitingFareYen + escortFareYen > 0 || expenseFareYen > 0;
 
   return {
-    dispatchFareYen,
-    specialVehicleFareYen,
+    dispatchFareYen: 0,
+    specialVehicleFareYen: 0,
     basicFareYen: baseFareYen,
     waitingFareYen,
     meterTimeFareYen: 0,
@@ -603,21 +616,22 @@ export function buildFixedFareBreakdown({
     discountValue,
     taxiTicketAmountYen,
     totalFareYen,
+    // 事前確定M専用内訳（通常メーターの基本運賃・割引・介助料金等は出さない）
     lineItems: [
-      { label: "事前確定運賃", amountYen: baseFareYen },
-      { label: discountName, amountYen: -disabilityDiscountAmount },
-      { label: "タクシー券", amountYen: -taxiTicketAmountYen },
-      { label: "予約・迎車料金", amountYen: dispatchFareYen },
-      { label: "特殊車両料金", amountYen: specialVehicleFareYen },
-      { label: "介助料金", amountYen: careOptionFareYen },
-      ...(customFeeFareYen > 0
-        ? [{ label: "その他", amountYen: customFeeFareYen }]
-        : []),
+      {
+        label: hasExtras ? "元の事前確定運賃" : "事前確定運賃",
+        amountYen: originalConfirmedFareYen,
+      },
+      { label: "追加区間運賃", amountYen: routeFareYen },
+      { label: "追加介助料", amountYen: careOptionFareYen },
       { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
     meterMode: "fixed",
     timeMeter: null,
+    originalConfirmedFareYen,
+    additionalRouteFareYen: routeFareYen,
+    additionalCareFareYen: careOptionFareYen,
   };
 }
 

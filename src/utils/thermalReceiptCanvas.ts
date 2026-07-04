@@ -321,15 +321,57 @@ function createThermalReceiptRows(
         ? caseRecord.normalFareYen
         : caseRecord.basicFareYen
 
+  const isFixedMeter = caseRecord.meterMode === 'fixed'
   const rows: FareRow[] = [
     ...createPrimaryFareReceiptLines(caseRecord).map((line) => ({
       label: line.label,
       amount: line.value,
+      indent: line.indent,
       yenAmount:
-        line.label === '深夜早朝割増'
-          ? caseRecord.nightSurchargeYen
-          : primaryFareYen,
+        typeof line.amountYen === 'number'
+          ? line.amountYen
+          : line.label === '深夜早朝割増'
+            ? caseRecord.nightSurchargeYen
+            : primaryFareYen,
     })),
+  ]
+
+  if (isFixedMeter) {
+    rows.push({
+      label: '待機/付き添い料金',
+      amount: formatThermalYen(caseRecord.waitingFareYen + caseRecord.escortFareYen),
+      yenAmount: caseRecord.waitingFareYen + caseRecord.escortFareYen,
+    })
+
+    caseRecord.assistCharges.forEach((assistCharge) => {
+      rows.push({
+        indent: true,
+        label: assistCharge.name,
+        amount: formatThermalYen(assistCharge.amount),
+        yenAmount: assistCharge.amount,
+      })
+    })
+
+    rows.push({
+      label: '実費',
+      amount: formatThermalYen(caseRecord.expenseFareYen),
+      yenAmount: caseRecord.expenseFareYen,
+    })
+    expenseItems
+      .filter((expenseItem) => expenseItem.name.trim())
+      .forEach((expenseItem) => {
+        rows.push({
+          indent: true,
+          label: expenseItem.name,
+          amount: formatThermalYen(expenseItem.amountYen),
+          yenAmount: expenseItem.amountYen,
+        })
+      })
+
+    return rows.filter(shouldShowThermalReceiptFareRow)
+  }
+
+  rows.push(
     {
       label: '待機料金',
       amount: formatThermalYen(caseRecord.waitingFareYen),
@@ -340,12 +382,13 @@ function createThermalReceiptRows(
       amount: formatThermalYen(caseRecord.escortFareYen),
       yenAmount: caseRecord.escortFareYen,
     },
-    {
-      label: '介助料金',
-      amount: formatThermalYen(caseRecord.careOptionFareYen),
-      yenAmount: caseRecord.careOptionFareYen,
-    },
-  ]
+  )
+
+  rows.push({
+    label: '介助料金',
+    amount: formatThermalYen(caseRecord.careOptionFareYen),
+    yenAmount: caseRecord.careOptionFareYen,
+  })
 
   caseRecord.assistCharges.forEach((assistCharge) => {
     rows.push({

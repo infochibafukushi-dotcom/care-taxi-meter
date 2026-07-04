@@ -12,7 +12,7 @@ import {
   saveReservationTripContext,
 } from '../services/reservationTripContext'
 import { PreFixedFarePassengerChangeDetailSection } from '../components/case/PreFixedFarePassengerChangeDetailSection'
-import type { DriverReservationDetail } from '../types/reservation'
+import type { DriverReservationDetail, ReservationServiceFee } from '../types/reservation'
 import {
   formatMeterRunStatus,
   formatReservationStatus,
@@ -35,6 +35,24 @@ const formatOptionalText = (value: string) =>
 
 const formatVerificationBadge = (verified: boolean) =>
   verified ? 'OK' : '要確認'
+
+/** reservation-v4 の calculateTotalFromSnapshot と同じく、確定運賃合計から除外するサービス料金キー */
+const SERVICE_FEE_KEYS_EXCLUDED_FROM_CONFIRMED_TOTAL = new Set(['specialVehicleFee'])
+
+const partitionQuoteServiceFees = (serviceFees: ReservationServiceFee[]) => {
+  const includedInConfirmedFare: ReservationServiceFee[] = []
+  const excludedFromConfirmedFare: ReservationServiceFee[] = []
+
+  for (const fee of serviceFees) {
+    if (SERVICE_FEE_KEYS_EXCLUDED_FROM_CONFIRMED_TOTAL.has(fee.key)) {
+      excludedFromConfirmedFare.push(fee)
+    } else {
+      includedInConfirmedFare.push(fee)
+    }
+  }
+
+  return { includedInConfirmedFare, excludedFromConfirmedFare }
+}
 
 const resolveActiveTripRestoreState = (currentReservationId: string) => {
   const activeTripSnapshot = readActiveTripSnapshot()
@@ -283,6 +301,16 @@ export function ReservationDetailPage() {
     ? isPreFixedFarePassengerChangeReservation(reservation)
     : false
   const showPassengerChangePanel = Boolean(reservation?.preFixedFareException)
+  const quoteServiceFeePartitions = reservation
+    ? partitionQuoteServiceFees(reservation.quoteSnapshot.serviceFees)
+    : { includedInConfirmedFare: [], excludedFromConfirmedFare: [] }
+  const confirmedFareBreakdownTotalYen = reservation
+    ? reservation.fixedFare.fixedFareTotalYen +
+      quoteServiceFeePartitions.includedInConfirmedFare.reduce(
+        (total, fee) => total + Math.max(Math.round(fee.amount) || 0, 0),
+        0,
+      )
+    : 0
 
   return (
     <main className="page reservation-detail-page" aria-labelledby="reservation-detail-title">
@@ -403,6 +431,7 @@ export function ReservationDetailPage() {
                   className={`reservation-verification-badge reservation-verification-badge--${
                     reservation.fareMatch ? 'ok' : 'warn'
                   }`}
+                  title="確定運賃 = 運賃本体 + 確定運賃に含むサービス料金（特殊車両使用料は除く）"
                 >
                   料金整合: {formatVerificationBadge(reservation.fareMatch)}
                 </span>
@@ -453,25 +482,56 @@ export function ReservationDetailPage() {
             <section className="reservation-detail-section" aria-label="料金">
               <h2>料金</h2>
               <dl className="reservation-detail-dl">
-                <div><dt>確定運賃</dt><dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd></div>
-                <div><dt>事前確定運賃本体</dt><dd>{formatFareYen(reservation.fixedFare.fixedFareTotalYen)}円</dd></div>
+                <div>
+                  <dt>確定運賃（予約時同意額）</dt>
+                  <dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd>
+                </div>
                 <div><dt>運賃種別</dt><dd>{reservation.fixedFare.fareType}</dd></div>
                 <div><dt>高速利用</dt><dd>{reservation.fixedFare.useToll ? 'あり' : 'なし'}</dd></div>
                 <div><dt>ルートID</dt><dd>{formatOptionalText(reservation.fixedFare.selectedRouteId)}</dd></div>
                 <div><dt>料金確定日時</dt><dd>{formatCaseDateTime(reservation.fixedFare.fareLockedAt)}</dd></div>
               </dl>
-              {reservation.quoteSnapshot.serviceFees.length > 0 ? (
-                <div className="reservation-service-fees">
-                  <h3>サービス料金</h3>
-                  <ul>
-                    {reservation.quoteSnapshot.serviceFees.map((fee) => (
-                      <li key={fee.key}>
-                        {fee.label}: {formatFareYen(fee.amount)}円
-                      </li>
+
+              <div className="reservation-fare-breakdown">
+                <h3>確定運賃の内訳</h3>
+                <p className="reservation-fare-breakdown-note">
+                  メーター画面・領収書の「事前確定運賃」は、この確定運賃（予約時同意額）を本体として表示します。
+                </p>
+                <dl className="reservation-detail-dl">
+                  <div>
+                    <dt>運賃本体</dt>
+                    <dd>{formatFareYen(reservation.fixedFare.fixedFareTotalYen)}円</dd>
+                  </div>
+                  {quoteServiceFeePartitions.includedInConfirmedFare.map((fee) => (
+                    <div key={fee.key}>
+                      <dt>{fee.label}</dt>
+                      <dd>{formatFareYen(fee.amount)}円</dd>
+                    </div>
+                  ))}
+                  <div>
+                    <dt>内訳合計</dt>
+                    <dd>{formatFareYen(confirmedFareBreakdownTotalYen)}円</dd>
+                  </div>
+                </dl>
+              </div>
+
+              {quoteServiceFeePartitions.excludedFromConfirmedFare.length > 0 ? (
+                <div className="reservation-fare-breakdown reservation-fare-breakdown--excluded">
+                  <h3>確定運賃に含まない項目</h3>
+                  <p className="reservation-fare-breakdown-note">
+                    運行時にメーター画面で別途加算します。確定運賃・料金整合の計算には含めません。
+                  </p>
+                  <dl className="reservation-detail-dl">
+                    {quoteServiceFeePartitions.excludedFromConfirmedFare.map((fee) => (
+                      <div key={fee.key}>
+                        <dt>{fee.label}</dt>
+                        <dd>{formatFareYen(fee.amount)}円</dd>
+                      </div>
                     ))}
-                  </ul>
+                  </dl>
                 </div>
               ) : null}
+
               <dl className="reservation-detail-dl">
                 <div><dt>見積距離</dt><dd>{(reservation.quoteSnapshot.distanceMeters / 1000).toFixed(1)} km</dd></div>
                 <div><dt>見積時間</dt><dd>{formatElapsedTime(reservation.quoteSnapshot.durationSeconds)}</dd></div>
