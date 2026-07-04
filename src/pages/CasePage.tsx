@@ -39,13 +39,13 @@ import { fetchCompanyById, getCompanyMeterPermissions } from '../services/compan
 import { updateWorkSessionActiveTrip } from '../services/workSessions'
 import { createAuditLog } from '../services/auditLogs'
 import {
-  applyElapsedSecondsToActiveTimer,
+  applyActiveTripRestoration,
   clearActiveTripSnapshot,
   getActiveTripSnapshotElapsedSeconds,
   readActiveTripSnapshot,
   saveActiveTripSnapshot,
 } from '../services/activeTripSnapshot'
-import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { ActiveTripSnapshot, TimerStartedAtMap } from '../services/activeTripSnapshot'
 import {
   clearPostSettlementLock,
   readPostSettlementLock,
@@ -208,21 +208,33 @@ const resolveActiveTripRestoration = (snapshot: ActiveTripSnapshot | null): Rest
     return { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
   }
 
-  const elapsedSeconds = getActiveTripSnapshotElapsedSeconds(snapshot)
+  const offlineSeconds = getActiveTripSnapshotElapsedSeconds(snapshot)
+  const isActivityTimer =
+    snapshot.activeTimer === 'waiting' || snapshot.activeTimer === 'accompanying'
   const cachedDecision = lastRestorationDecision &&
     lastRestorationDecision.caseNumber === snapshot.caseNumber &&
     lastRestorationDecision.capturedAt === snapshot.capturedAt
       ? lastRestorationDecision
       : null
-  const shouldApplyElapsed = cachedDecision
-    ? cachedDecision.shouldApplyElapsed
-    : elapsedSeconds <= 600
-      ? true
-      : elapsedSeconds <= 1800
+
+  let shouldApplyElapsed: boolean
+  if (cachedDecision) {
+    shouldApplyElapsed = cachedDecision.shouldApplyElapsed
+  } else if (offlineSeconds <= 600) {
+    shouldApplyElapsed = true
+  } else if (isActivityTimer) {
+    const activityLabel = snapshot.activeTimer === 'waiting' ? '待機' : '付き添い'
+    shouldApplyElapsed = window.confirm(
+      `${activityLabel}中のまま一定時間が経過しています。閉じていた時間も${activityLabel}時間として加算しますか？\n\n「OK」で加算して復元、「キャンセル」で加算せずに復元します。`,
+    )
+  } else {
+    shouldApplyElapsed =
+      offlineSeconds <= 1800
         ? window.confirm(
-            `未終了の運行データがあります。前回保存から${Math.floor(elapsedSeconds / 60)}分経過しています。復元までの時間とGPS移動距離を運行に加算しますか？`,
+            `未終了の運行データがあります。前回保存から${Math.floor(offlineSeconds / 60)}分経過しています。復元までの時間を運行に加算しますか？`,
           )
         : false
+  }
 
   lastRestorationDecision = {
     caseNumber: snapshot.caseNumber,
@@ -230,12 +242,14 @@ const resolveActiveTripRestoration = (snapshot: ActiveTripSnapshot | null): Rest
     shouldApplyElapsed,
   }
 
+  const restoredSnapshot = applyActiveTripRestoration(snapshot, shouldApplyElapsed)
+
   return {
-    elapsedSeconds,
-    shouldBridgeGpsDistance: shouldApplyElapsed && snapshot.status === '走行中' && Boolean(snapshot.gps.position),
-    snapshot: shouldApplyElapsed
-      ? applyElapsedSecondsToActiveTimer(snapshot, elapsedSeconds)
-      : snapshot,
+    elapsedSeconds: offlineSeconds,
+    // Distance is never bridged for waiting / accompanying; only while driving.
+    shouldBridgeGpsDistance:
+      shouldApplyElapsed && snapshot.status === '走行中' && Boolean(snapshot.gps.position),
+    snapshot: restoredSnapshot,
   }
 }
 
@@ -314,22 +328,45 @@ const createRestoredActivityHistories = (
   if (!snapshot) {
     return []
   }
-  if (snapshot.activityHistories.length > 0) {
-    return snapshot.activityHistories
+  return snapshot.activityHistories
+}
+
+const createRestoredActiveActivity = (
+  snapshot: ActiveTripSnapshot | null | undefined,
+): ActivityHistoryEntry | null => {
+  if (!snapshot) {
+    return null
   }
-  const restoredActivityType = statusActivityMap[snapshot.status]
-  const restoredSeconds = restoredActivityType ? snapshot.timers[restoredActivityType] : 0
-  if (!restoredActivityType || restoredSeconds <= 0) {
-    return []
+
+  const activityType = statusActivityMap[snapshot.status]
+  if (!activityType) {
+    return null
   }
-  const endAt = new Date().toISOString()
-  const startAt = new Date(Date.now() - restoredSeconds * 1000).toISOString()
-  return [{
-    endAt,
-    id: createId(`restored-activity-${restoredActivityType}`),
+
+  const startedAtFromTimer = snapshot.timerStartedAt?.[activityType]
+  if (startedAtFromTimer) {
+    return {
+      endAt: '',
+      id: createId(`activity-${activityType}`),
+      startAt: startedAtFromTimer,
+      type: activityType,
+    }
+  }
+
+  // Legacy snapshots without timerStartedAt: derive start from restored timer totals.
+  const closedSeconds = calculateActivityHistorySeconds(snapshot.activityHistories, activityType)
+  const segmentSeconds = Math.max(snapshot.timers[activityType] - closedSeconds, 0)
+  const startAt =
+    segmentSeconds > 0
+      ? new Date(Date.now() - segmentSeconds * 1000).toISOString()
+      : new Date().toISOString()
+
+  return {
+    endAt: '',
+    id: createId(`activity-${activityType}`),
     startAt,
-    type: restoredActivityType,
-  }]
+    type: activityType,
+  }
 }
 
 const toPositiveNumber = (value: string, minimum = 0) =>
@@ -551,15 +588,11 @@ export function CasePage() {
   const [activityHistories, setActivityHistories] = useState<ActivityHistoryEntry[]>(
     createRestoredActivityHistories(restoredTripSnapshot) ?? emptyActivityHistories,
   )
-  const [activeActivity, setActiveActivity] = useState<ActivityHistoryEntry | null>(
-    statusActivityMap[restoredTripSnapshot?.status ?? '空車']
-      ? {
-          endAt: '',
-          id: createId(`activity-${statusActivityMap[restoredTripSnapshot?.status ?? '空車']}`),
-          startAt: new Date().toISOString(),
-          type: statusActivityMap[restoredTripSnapshot?.status ?? '空車'] as ActivityHistoryType,
-        }
-      : null,
+  const [activeActivity, setActiveActivity] = useState<ActivityHistoryEntry | null>(() =>
+    createRestoredActiveActivity(restoredTripSnapshot),
+  )
+  const [timerStartedAt, setTimerStartedAt] = useState<TimerStartedAtMap>(
+    () => restoredTripSnapshot?.timerStartedAt ?? {},
   )
   const [billableTimeStarted, setBillableTimeStarted] = useState({
     accompanying: restoredTripSnapshot?.billableTimeStarted.accompanying ?? false,
@@ -1386,6 +1419,7 @@ export function CasePage() {
       selectedVehicleId,
       status,
       meterMode,
+      timerStartedAt,
       ...(meterMode === 'fixed' && fixedFareRun
         ? {
             reservationId: fixedFareRun.reservationId,
@@ -1429,6 +1463,7 @@ export function CasePage() {
     selectedVehicleId,
     status,
     taxiTickets,
+    timerStartedAt,
   ])
 
   const fareIncrease = calculateFareIncreaseProgress(
@@ -2472,27 +2507,55 @@ export function CasePage() {
       return false
     }
 
+    const nowIso = new Date().toISOString()
     const currentActivity = statusActivityMap[status]
     const nextActivity = statusActivityMap[nextStatus]
+    const nextActiveTimer = activeTimerMap[nextStatus] ?? null
+    let nextActiveActivity = activeActivity
+    let nextActivityHistories = activityHistories
+    let nextTimerStartedAt: TimerStartedAtMap = { ...timerStartedAt }
+    let nextBillableTimeStarted = billableTimeStarted
+
     if (currentActivity && currentActivity !== nextActivity && activeActivity?.type === currentActivity) {
+      const startedAt = timerStartedAt[currentActivity] ?? activeActivity.startAt
       const finishedHistory = {
         ...activeActivity,
-        endAt: new Date().toISOString(),
+        startAt: startedAt,
+        endAt: nowIso,
       }
-      setActiveActivity(null)
-      setActivityHistories((currentHistories) => [...currentHistories, finishedHistory])
-    }
-    if (nextActivity && currentActivity !== nextActivity) {
-      setActiveActivity({
-        endAt: '',
-        id: createId(`activity-${nextActivity}`),
-        startAt: new Date().toISOString(),
-        type: nextActivity,
-      })
+      nextActiveActivity = null
+      nextActivityHistories = [...activityHistories, finishedHistory]
+      nextTimerStartedAt = { ...nextTimerStartedAt }
+      delete nextTimerStartedAt[currentActivity]
     }
 
+    if (nextActivity && currentActivity !== nextActivity) {
+      nextActiveActivity = {
+        endAt: '',
+        id: createId(`activity-${nextActivity}`),
+        startAt: nowIso,
+        type: nextActivity,
+      }
+      nextTimerStartedAt = {
+        ...nextTimerStartedAt,
+        [nextActivity]: nowIso,
+      }
+    }
+
+    if (nextStatus === '待機中' && status === '走行中') {
+      nextBillableTimeStarted = { ...nextBillableTimeStarted, waiting: true }
+    }
+
+    if (nextStatus === '院内付き添い中') {
+      nextBillableTimeStarted = { ...nextBillableTimeStarted, accompanying: true }
+    }
+
+    setActiveActivity(nextActiveActivity)
+    setActivityHistories(nextActivityHistories)
+    setTimerStartedAt(nextTimerStartedAt)
+    setBillableTimeStarted(nextBillableTimeStarted)
     setStatus(nextStatus)
-    setActiveTimer(activeTimerMap[nextStatus] ?? null)
+    setActiveTimer(nextActiveTimer)
 
     if (nextStatus === '走行中' && meterMode !== 'fixed') {
       setIsGpsActive(true)
@@ -2504,20 +2567,63 @@ export function CasePage() {
       }
     }
 
-    if (nextStatus === '待機中' && status === '走行中') {
-      setBillableTimeStarted((current) => ({ ...current, waiting: true }))
-    }
-
-    if (nextStatus === '院内付き添い中') {
-      setBillableTimeStarted((current) => ({ ...current, accompanying: true }))
-    }
-
     if (nextStatus === '空車' || nextStatus === '案件終了') {
       setIsGpsActive(false)
     }
 
     if (nextStatus === '案件終了' && meterMode === 'obd') {
       void disconnectObd()
+    }
+
+    // Persist immediately on waiting / accompanying transitions so power-off keeps the start time.
+    if (isProtectedOperationStatus(nextStatus) && caseSaveState !== 'saved') {
+      saveActiveTripSnapshot({
+        activeTimer: nextActiveTimer,
+        activityHistories: nextActivityHistories,
+        billableTimeStarted: nextBillableTimeStarted,
+        caseNumber,
+        caseNumberAssignment: caseNumberAssignmentRef.current,
+        capturedAt: nowIso,
+        distances: {
+          businessDistanceKm: gps.businessDistanceKm,
+          chargeableDistanceKm: gps.chargeableDistanceKm,
+        },
+        dropoffLocation,
+        fareSnapshot: fareSnapshotRef.current,
+        fareTotalYen: settlementBreakdown.totalFareYen,
+        gps: {
+          currentSpeedKmh: gps.currentSpeedKmh,
+          gpsLogCount: gps.gpsLogCount,
+          lowSpeedSeconds: gps.lowSpeedSeconds,
+          movementState: gps.movementState,
+          position: gps.position,
+          speedSource: gps.speedSource,
+        },
+        isDisabilityDiscount,
+        operationEndedAt: operationEndedAtRef.current,
+        operationStartedAt: operationStartedAtRef.current,
+        paymentAmounts,
+        paymentMethod,
+        pickupLocation,
+        selectedCareOptions,
+        selectedDispatchCharges,
+        selectedExpenses: expenses,
+        customFees,
+        selectedSpecialVehicleCharges,
+        selectedVehicleId,
+        status: nextStatus,
+        meterMode,
+        timerStartedAt: nextTimerStartedAt,
+        ...(meterMode === 'fixed' && fixedFareRun
+          ? {
+              reservationId: fixedFareRun.reservationId,
+              confirmedFareYen: fixedFareRun.confirmedFareYen,
+              snapshotHash: fixedFareRun.snapshotHash,
+            }
+          : {}),
+        taxiTickets,
+        timers: elapsedTimers.seconds,
+      })
     }
 
     return true

@@ -25,6 +25,9 @@ import {
 
 export const activeTripSnapshotStorageKey = 'careTaxiMeterActiveTripSnapshot'
 
+/** Absolute start times for the currently open timer segments. */
+export type TimerStartedAtMap = Partial<Record<'waiting' | 'accompanying' | 'driving', string>>
+
 export type ActiveTripSnapshot = {
   activeTimer: TimerKey | null
   activityHistories: ActivityHistoryEntry[]
@@ -67,9 +70,13 @@ export type ActiveTripSnapshot = {
   reservationId?: string
   confirmedFareYen?: number
   snapshotHash?: string
+  /** Start timestamps for open waiting / accompanying / driving segments. */
+  timerStartedAt?: TimerStartedAtMap
   taxiTickets: TaxiTicket[]
   timers: TimerSeconds
 }
+
+type ActivityTimerKey = 'waiting' | 'accompanying'
 
 export type ActiveTripRestorationPlan = {
   elapsedSeconds: number
@@ -95,6 +102,52 @@ const normalizeSnapshotTimerSeconds = (value: unknown): TimerSeconds => {
     waiting: Math.max(Math.floor(toFiniteSnapshotNumber(source.waiting)), 0),
   }
 }
+
+const isValidIsoTimestamp = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && Number.isFinite(new Date(value).getTime())
+
+export const normalizeTimerStartedAt = (value: unknown): TimerStartedAtMap => {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
+
+  const source = value as Partial<Record<string, unknown>>
+  const result: TimerStartedAtMap = {}
+
+  for (const key of ['waiting', 'accompanying', 'driving'] as const) {
+    if (isValidIsoTimestamp(source[key])) {
+      result[key] = source[key]
+    }
+  }
+
+  return result
+}
+
+export const calculateClosedActivitySeconds = (
+  histories: ActivityHistoryEntry[],
+  type: ActivityTimerKey,
+) =>
+  histories
+    .filter((history) => history.type === type && history.startAt && history.endAt)
+    .reduce((totalSeconds, history) => {
+      const startAt = new Date(history.startAt).getTime()
+      const endAt = new Date(history.endAt).getTime()
+      if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+        return totalSeconds
+      }
+      return totalSeconds + Math.floor((endAt - startAt) / 1000)
+    }, 0)
+
+export const getIsoElapsedSeconds = (iso: string, nowMs = Date.now()) => {
+  const startedAtMs = new Date(iso).getTime()
+  if (!Number.isFinite(startedAtMs)) {
+    return 0
+  }
+  return Math.max(Math.floor((nowMs - startedAtMs) / 1000), 0)
+}
+
+const isActivityTimerKey = (value: TimerKey | null | undefined): value is ActivityTimerKey =>
+  value === 'waiting' || value === 'accompanying'
 
 export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
   try {
@@ -174,6 +227,7 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
         typeof snapshot.snapshotHash === 'string' && snapshot.snapshotHash.trim()
           ? snapshot.snapshotHash.trim()
           : undefined,
+      timerStartedAt: normalizeTimerStartedAt(snapshot.timerStartedAt),
       taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
       timers: normalizeSnapshotTimerSeconds(snapshot.timers),
     }
@@ -227,5 +281,95 @@ export const applyElapsedSecondsToActiveTimer = (
       ...snapshot.timers,
       [snapshot.activeTimer]: snapshot.timers[snapshot.activeTimer] + elapsedSeconds,
     },
+  }
+}
+
+/**
+ * Restore open timer segments after browser/app restart.
+ * Waiting / accompanying prefer absolute timerStartedAt over capturedAt.
+ * GPS/OBD distances are never modified here.
+ */
+export const applyActiveTripRestoration = (
+  snapshot: ActiveTripSnapshot,
+  shouldApplyOfflineElapsed: boolean,
+  nowMs = Date.now(),
+): ActiveTripSnapshot => {
+  const nowIso = new Date(nowMs).toISOString()
+  const activeTimer = snapshot.activeTimer
+
+  if (isActivityTimerKey(activeTimer)) {
+    const startedAt = snapshot.timerStartedAt?.[activeTimer]
+    const closedSeconds = calculateClosedActivitySeconds(snapshot.activityHistories, activeTimer)
+
+    if (startedAt) {
+      if (shouldApplyOfflineElapsed) {
+        const segmentSeconds = getIsoElapsedSeconds(startedAt, nowMs)
+        return {
+          ...snapshot,
+          capturedAt: nowIso,
+          timers: {
+            ...snapshot.timers,
+            [activeTimer]: closedSeconds + segmentSeconds,
+          },
+        }
+      }
+
+      // Decline offline time: keep only the segment until last save, then restart from now.
+      const capturedAt = snapshot.capturedAt || nowIso
+      const capturedAtMs = new Date(capturedAt).getTime()
+      const startedAtMs = new Date(startedAt).getTime()
+      const segmentUntilSave =
+        Number.isFinite(startedAtMs) && Number.isFinite(capturedAtMs) && capturedAtMs > startedAtMs
+          ? Math.floor((capturedAtMs - startedAtMs) / 1000)
+          : 0
+
+      const activityHistories =
+        segmentUntilSave > 0
+          ? [
+              ...snapshot.activityHistories,
+              {
+                endAt: capturedAt,
+                id: `frozen-${activeTimer}-${nowMs}`,
+                startAt: startedAt,
+                type: activeTimer,
+              },
+            ]
+          : snapshot.activityHistories
+
+      return {
+        ...snapshot,
+        activityHistories,
+        capturedAt: nowIso,
+        timerStartedAt: {
+          ...snapshot.timerStartedAt,
+          [activeTimer]: nowIso,
+        },
+        timers: {
+          ...snapshot.timers,
+          [activeTimer]: closedSeconds + segmentUntilSave,
+        },
+      }
+    }
+
+    // Legacy snapshots without timerStartedAt: fall back to capturedAt delta.
+    if (shouldApplyOfflineElapsed) {
+      const elapsedSeconds = getActiveTripSnapshotElapsedSeconds(snapshot, nowMs)
+      return applyElapsedSecondsToActiveTimer(snapshot, elapsedSeconds)
+    }
+
+    return {
+      ...snapshot,
+      capturedAt: nowIso,
+    }
+  }
+
+  if (activeTimer && shouldApplyOfflineElapsed) {
+    const elapsedSeconds = getActiveTripSnapshotElapsedSeconds(snapshot, nowMs)
+    return applyElapsedSecondsToActiveTimer(snapshot, elapsedSeconds)
+  }
+
+  return {
+    ...snapshot,
+    capturedAt: nowIso,
   }
 }
