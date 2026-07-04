@@ -171,10 +171,17 @@ service cloud.firestore {
 
     match /vehicles/{vehicleId} {
       allow read, write: if isHqAdmin();
-      allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
-      allow read: if (isStoreManager() || isDriver()) && sameStore(resource.data);
-      // 車両管理: 通常項目のみ（ロック用フィールドは変更不可）
+      // get: 未作成ドキュメントも owner/manager/driver が存在確認できる（新規保存前の getDoc 用）
+      allow get: if isFranchiseeOwner()
+        && (resource == null || sameFranchisee(resource.data));
+      allow get: if (isStoreManager() || isDriver())
+        && (resource == null || sameStore(resource.data));
+      // list: クエリ結果の各ドキュメント
+      allow list: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow list: if (isStoreManager() || isDriver()) && sameStore(resource.data);
+      // 車両管理 create（ロック用フィールドなし）
       allow create: if canCreateVehicle();
+      // 車両管理 update（ロック用フィールドの値が変わらない場合のみ）
       allow update: if canUpdateVehicleMasterData();
       // 案件開始/終了の稼働ロック専用（owner/manager/driver）
       allow update: if canUpdateVehicleOccupancy();

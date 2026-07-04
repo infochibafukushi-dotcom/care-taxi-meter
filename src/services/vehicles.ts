@@ -169,22 +169,25 @@ export async function getSelectableVehicles(scope?: TenantAccessScope) {
 /**
  * 車両管理画面用の保存ペイロード。
  * 稼働ロック用フィールドは含めない（claim/release 専用）。
+ * undefined は送らない。
  */
 export const buildVehicleAdminUpdatePayload = (vehicle: Vehicle) => {
-  const franchiseeId = vehicle.franchiseeId || vehicle.companyId
-  const storeId = vehicle.storeId || defaultStoreId
+  const franchiseeId = (vehicle.franchiseeId || vehicle.companyId || '').trim()
+  const storeId = (vehicle.storeId || defaultStoreId).trim() || defaultStoreId
+  const name = vehicle.name.trim()
+  const number = (vehicle.number || vehicle.plateNumber || '').trim()
 
   return {
     id: vehicle.id,
     companyId: franchiseeId,
     franchiseeId,
     storeId,
-    storeName: vehicle.storeName || '',
-    name: vehicle.name,
-    vehicleName: vehicle.vehicleName || vehicle.name,
-    number: vehicle.number || '',
-    plateNumber: vehicle.plateNumber || vehicle.number || '',
-    status: vehicle.status,
+    storeName: (vehicle.storeName || '').trim(),
+    name,
+    vehicleName: (vehicle.vehicleName || name).trim() || name,
+    number,
+    plateNumber: (vehicle.plateNumber || number).trim() || number,
+    status: vehicle.status || '稼働中',
     fuelType: vehicle.fuelType || '',
     vehicleType: vehicle.vehicleType || '',
     wheelchairCapacity: Math.max(vehicle.wheelchairCapacity || 0, 0),
@@ -197,6 +200,15 @@ export const buildVehicleAdminUpdatePayload = (vehicle: Vehicle) => {
     sortOrder: Math.max(vehicle.sortOrder || 1, 1),
   }
 }
+
+export const isVehicleReadyToSave = (vehicle: Vehicle) => {
+  const name = vehicle.name.trim()
+  const number = (vehicle.number || vehicle.plateNumber || '').trim()
+  const franchiseeId = (vehicle.franchiseeId || vehicle.companyId || '').trim()
+  return Boolean(name && number && franchiseeId)
+}
+
+export const VEHICLE_INCOMPLETE_MESSAGE = '車両名とナンバーを入力してください。'
 
 export const toVehicleSaveUserMessage = (error: unknown) => {
   if (error instanceof FirebaseError && error.code === 'permission-denied') {
@@ -215,17 +227,81 @@ export const toVehicleSaveUserMessage = (error: unknown) => {
   return VEHICLE_SAVE_PERMISSION_MESSAGE
 }
 
-export async function saveVehicle(vehicle: Vehicle) {
+type VehicleSaveSessionContext = {
+  companyId?: string
+  franchiseeId?: string
+  storeId?: string
+  staffRole?: string
+  staffId?: string
+}
+
+const getErrorCode = (error: unknown) => {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return String((error as { code?: unknown }).code ?? '')
+  }
+  return ''
+}
+
+export async function saveVehicle(
+  vehicle: Vehicle,
+  sessionContext: VehicleSaveSessionContext = {},
+) {
   const db = getFirestore(getFirebaseApp())
   const vehicleRef = doc(db, vehiclesCollectionName, vehicle.id)
-  const snapshot = await getDoc(vehicleRef)
-  const document = {
-    ...buildVehicleAdminUpdatePayload(vehicle),
-    ...(!snapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+  const masterPayload = buildVehicleAdminUpdatePayload(vehicle)
+
+  if (!masterPayload.franchiseeId) {
+    throw new Error('車両の会社ID（franchiseeId）が未設定です。')
+  }
+  if (!masterPayload.storeId) {
+    throw new Error('車両の店舗ID（storeId）が未設定です。')
+  }
+
+  let operation: 'create' | 'update' = 'create'
+  try {
+    const snapshot = await getDoc(vehicleRef)
+    operation = snapshot.exists() ? 'update' : 'create'
+  } catch (error) {
+    // 未作成ドキュメントの get が rules で拒否される場合は create として扱う
+    operation = 'create'
+    console.warn('[VehicleManagement] getDoc before save failed; treating as create', {
+      vehicleId: vehicle.id,
+      errorCode: getErrorCode(error),
+      errorMessage: error instanceof Error ? error.message : String(error ?? ''),
+      session: sessionContext,
+    })
+  }
+
+  const payload = {
+    ...masterPayload,
+    ...(operation === 'create' ? { createdAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   }
 
-  // merge: true でもロック用フィールドは payload に含めないため既存ロックは保持される
-  await setDoc(vehicleRef, document, { merge: true })
-  return vehicle
+  try {
+    // merge: true でもロック用フィールドは payload に含めないため既存ロックは保持される
+    await setDoc(vehicleRef, payload, { merge: true })
+    return vehicle
+  } catch (error) {
+    console.warn('[VehicleManagement] save failed', {
+      operation,
+      vehicleId: vehicle.id,
+      payload: {
+        ...masterPayload,
+        createdAt: operation === 'create' ? '[serverTimestamp]' : undefined,
+        updatedAt: '[serverTimestamp]',
+      },
+      payloadKeys: Object.keys(payload),
+      session: {
+        companyId: sessionContext.companyId ?? '',
+        franchiseeId: sessionContext.franchiseeId ?? '',
+        storeId: sessionContext.storeId ?? '',
+        staffRole: sessionContext.staffRole ?? '',
+        staffId: sessionContext.staffId ?? '',
+      },
+      errorCode: getErrorCode(error),
+      errorMessage: error instanceof Error ? error.message : String(error ?? ''),
+    })
+    throw error
+  }
 }

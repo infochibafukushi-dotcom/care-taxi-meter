@@ -14,9 +14,11 @@ import {
 } from "../services/stores";
 import {
   fetchVehicles,
+  isVehicleReadyToSave,
   saveVehicle,
   toVehicleSaveUserMessage,
   VEHICLE_EDIT_FORBIDDEN_MESSAGE,
+  VEHICLE_INCOMPLETE_MESSAGE,
 } from "../services/vehicles";
 import { fetchClosedWorkSessionsInClockOutRange, fetchWorkingWorkSessionCount } from "../services/workSessions";
 import type { StoredCaseRecord } from "../services/caseRecords";
@@ -1290,24 +1292,38 @@ export function AdminPage() {
       return;
     }
 
-    const hasEmptyName = vehicles.some((vehicle) => !vehicle.name.trim());
+    const preparedVehicles = vehicles.map((vehicle) => applyDefaultTenantToVehicle(vehicle));
+    const incompleteVehicles = preparedVehicles.filter(
+      (vehicle) => vehicle.name.trim() || vehicle.number.trim() || vehicle.plateNumber.trim(),
+    ).filter((vehicle) => !isVehicleReadyToSave(vehicle));
 
-    if (hasEmptyName) {
-      setMasterMessage("車両名は空欄にできません。");
+    if (incompleteVehicles.length > 0) {
+      setMasterMessage(VEHICLE_INCOMPLETE_MESSAGE);
       return;
     }
 
-    const vehiclesToSave = vehicles
-      .map((vehicle) => applyDefaultTenantToVehicle(vehicle))
-      .filter((vehicle) => vehicle.name.trim().length > 0);
+    const vehiclesToSave = preparedVehicles.filter((vehicle) => isVehicleReadyToSave(vehicle));
+
+    if (vehiclesToSave.length === 0) {
+      setMasterMessage(VEHICLE_INCOMPLETE_MESSAGE);
+      return;
+    }
 
     if (vehiclesToSave.some((vehicle) => !vehicle.storeId.trim() || !(vehicle.franchiseeId || vehicle.companyId).trim())) {
       setMasterMessage("車両の会社IDまたは店舗が未設定です。店舗情報を確認してください。");
       return;
     }
 
+    const sessionContext = {
+      companyId: sessionSource?.companyId ?? currentFranchiseeId,
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      staffRole: currentRole,
+      staffId: currentStaffId,
+    };
+
     try {
-      await Promise.all(vehiclesToSave.map((vehicle) => saveVehicle(vehicle)));
+      await Promise.all(vehiclesToSave.map((vehicle) => saveVehicle(vehicle, sessionContext)));
       setMasterMessage("車両情報を保存しました。");
     } catch (error) {
       logAdminLoadFailure("saveVehicles", "vehicles", {
