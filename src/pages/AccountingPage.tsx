@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import './AccountingPage.css'
-import { fetchCaseRecordsInClosedAtRange } from '../services/caseRecords'
+import { fetchCaseRecords } from '../services/caseRecords'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   buildEmptyExpenseInput,
@@ -20,11 +20,14 @@ import { uploadAccountingReceiptImage } from '../services/accountingReceipts'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
-import { tenantScopeFromSession } from '../services/tenancy'
 import {
+  collectAccountingSessionDiagnostics,
   formatAccountingQueryErrorMessage,
+  isAccountingDebugEnabled,
   logAccountingQueryFailure,
-  resolveAccountingAccessScope,
+  resolveAccountingSessionContext,
+  validateAccountingFirebaseAuth,
+  type AccountingSessionDiagnostics,
 } from '../services/accountingTenant'
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
@@ -63,7 +66,6 @@ import {
   getCurrentYearMonthInJapan,
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
-import { getMonthRangeInJapan } from '../utils/japanDate'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
@@ -113,28 +115,30 @@ function ExpenseFareSalesWarning({ visible }: { visible: boolean }) {
 }
 
 export function AccountingPage() {
+  const [searchParams] = useSearchParams()
+  const showAccountingDiagnostics = useMemo(() => isAccountingDebugEnabled(searchParams), [searchParams])
   const workSession = useWorkSession()
   const authSession = useMemo(() => loadAuthStaffSession(), [])
-  const sessionSource = useMemo(() => {
-    if (authSession && (authSession.role === 'owner' || authSession.role === 'hq_admin')) {
-      return authSession
-    }
-
-    return workSession.currentSession ?? authSession
-  }, [authSession, workSession.currentSession])
-  const accessScope = useMemo(() => resolveAccountingAccessScope(sessionSource), [sessionSource])
-  const tenantScope = useMemo(() => tenantScopeFromSession(sessionSource), [sessionSource])
+  const { tenant: tenantScope, accessScope } = useMemo(
+    () =>
+      resolveAccountingSessionContext({
+        authSession,
+        workSession: workSession.currentSession,
+      }),
+    [authSession, workSession.currentSession],
+  )
   const role = (accessScope.role ?? '') as StaffRole | ''
   const accessScopeKey = `${accessScope.role ?? ''}|${accessScope.franchiseeId ?? ''}|${accessScope.storeId ?? ''}|${accessScope.staffId ?? ''}`
   const staffId = accessScope.staffId ?? authSession?.id ?? workSession.currentSession?.staffId ?? ''
   const staffName =
-    authSession?.name ?? workSession.currentSession?.staffName ?? '経理担当'
+    workSession.currentSession?.staffName ?? authSession?.name ?? '経理担当'
 
   const [activeTab, setActiveTab] = useState<AccountingTab>('pl')
   const [targetYearMonth, setTargetYearMonth] = useState(getCurrentYearMonthInJapan())
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
+  const [sessionDiagnostics, setSessionDiagnostics] = useState<AccountingSessionDiagnostics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
@@ -161,42 +165,50 @@ export function AccountingPage() {
       setIsLoading(true)
       setErrorMessage('')
 
-      const monthRange = getMonthRangeInJapan(new Date(`${targetYearMonth}-01T00:00:00+09:00`))
+      const diagnostics = showAccountingDiagnostics
+        ? await collectAccountingSessionDiagnostics({
+            authSession,
+            workSession: workSession.currentSession,
+            logToConsole: true,
+          })
+        : null
+      const authValidationError = await validateAccountingFirebaseAuth({ authSession })
+
       const loadErrors: string[] = []
+      if (authValidationError) {
+        loadErrors.push(authValidationError)
+      }
+
       let records: StoredCaseRecord[] = []
       let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
       let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
 
-      try {
-        records = await fetchCaseRecordsInClosedAtRange({
-          startIso: monthRange.startIso,
-          endIso: monthRange.endIso,
-          scope: accessScope,
-        })
-      } catch (error) {
-        logAccountingQueryFailure('caseRecords', accessScope, error, {
-          startIso: monthRange.startIso,
-          endIso: monthRange.endIso,
-        })
-        loadErrors.push(formatAccountingQueryErrorMessage('caseRecords', error))
-      }
+      if (!authValidationError) {
+        try {
+          records = await fetchCaseRecords(accessScope)
+        } catch (error) {
+          logAccountingQueryFailure('caseRecords', accessScope, error)
+          loadErrors.push(formatAccountingQueryErrorMessage('caseRecords', error))
+        }
 
-      try {
-        expenseRows = await fetchAccountingExpenses(accessScope)
-      } catch (error) {
-        loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenses', error))
-      }
+        try {
+          expenseRows = await fetchAccountingExpenses(accessScope)
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenses', error))
+        }
 
-      try {
-        adjustmentRows = await fetchAccountingAdjustments(accessScope)
-      } catch (error) {
-        loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
+        try {
+          adjustmentRows = await fetchAccountingAdjustments(accessScope)
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
+        }
       }
 
       if (cancelled) {
         return
       }
 
+      setSessionDiagnostics(showAccountingDiagnostics ? diagnostics : null)
       setCaseRecords(records)
       setExpenses(expenseRows)
       setAdjustments(adjustmentRows)
@@ -209,7 +221,7 @@ export function AccountingPage() {
     return () => {
       cancelled = true
     }
-  }, [accessScopeKey, canAccess, targetYearMonth])
+  }, [accessScopeKey, authSession, canAccess, showAccountingDiagnostics, targetYearMonth, workSession.currentSession])
 
   useEffect(() => {
     if (!canAccess || expenseForm) {
@@ -619,6 +631,74 @@ export function AccountingPage() {
             </select>
           </label>
         </div>
+
+        {showAccountingDiagnostics && sessionDiagnostics ? (
+          <section className="accounting-diagnostics" aria-label="セッション診断">
+            <h2 className="accounting-diagnostics-title">セッション診断（permission 調査用）</h2>
+            <dl className="accounting-diagnostics-list">
+              <div>
+                <dt>auth.currentUser.uid</dt>
+                <dd>{sessionDiagnostics.firebaseAuthUid || '（未ログイン）'}</dd>
+              </div>
+              <div>
+                <dt>auth.currentUser.email</dt>
+                <dd>{sessionDiagnostics.firebaseAuthEmail || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>token.role</dt>
+                <dd>{sessionDiagnostics.tokenClaims?.role || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>token.franchiseeId</dt>
+                <dd>{sessionDiagnostics.tokenClaims?.franchiseeId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>token.storeId</dt>
+                <dd>{sessionDiagnostics.tokenClaims?.storeId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>app session role</dt>
+                <dd>{sessionDiagnostics.appSessionRole || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>app session userId</dt>
+                <dd>{sessionDiagnostics.appSessionUserId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>app session companyId</dt>
+                <dd>{sessionDiagnostics.appSessionCompanyId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>app session franchiseeId</dt>
+                <dd>{sessionDiagnostics.appSessionFranchiseeId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>app session storeId</dt>
+                <dd>{sessionDiagnostics.appSessionStoreId || '（なし）'}</dd>
+              </div>
+              <div>
+                <dt>session source</dt>
+                <dd>{sessionDiagnostics.sessionSource}</dd>
+              </div>
+              <div>
+                <dt>accessScope</dt>
+                <dd>
+                  role={sessionDiagnostics.accessScope.role ?? ''}, franchiseeId=
+                  {sessionDiagnostics.accessScope.franchiseeId ?? ''}, storeId=
+                  {sessionDiagnostics.accessScope.storeId ?? ''}, staffId=
+                  {sessionDiagnostics.accessScope.staffId ?? ''}
+                </dd>
+              </div>
+              <div>
+                <dt>tenant</dt>
+                <dd>
+                  franchiseeId={sessionDiagnostics.tenant.franchiseeId}, storeId=
+                  {sessionDiagnostics.tenant.storeId}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
 
         <nav className="accounting-tabs" aria-label="経理メニュー">
           {([

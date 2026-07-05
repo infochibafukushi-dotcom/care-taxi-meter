@@ -1,3 +1,5 @@
+import type { QueryConstraint } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 import type { StaffRole } from '../types/work'
 
 export const defaultFranchiseeId = 'default-franchisee'
@@ -95,4 +97,28 @@ export const matchesTenantScope = <T extends { companyId?: string; franchiseeId?
   }
   if (scope.role === 'driver' && scope.staffId && item.staffId !== scope.staffId) return false
   return true
+}
+
+/** AdminPage / SalesAnalyticsPage / caseRecords と同じテナント query 制約 */
+export const createTenantQueryConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
+  if (!scope || isHqRole(scope.role ?? '')) {
+    return []
+  }
+
+  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
+  const constraints: QueryConstraint[] = []
+
+  if (franchiseeId) {
+    constraints.push(where('franchiseeId', '==', franchiseeId))
+  }
+
+  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
+    constraints.push(where('storeId', '==', scope.storeId))
+  }
+
+  if (scope.role === 'driver' && scope.staffId) {
+    constraints.push(where('staffId', '==', scope.staffId))
+  }
+
+  return constraints
 }

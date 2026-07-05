@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import type { DocumentData, FieldValue, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
+import type { DocumentData, FieldValue, QueryDocumentSnapshot } from 'firebase/firestore'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { getFirebaseApp } from '../lib/firebase'
 import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
@@ -23,7 +23,13 @@ import { extractAreaFromAddress } from '../utils/address'
 import type { ExpensePreset } from './meterSettings'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
-import { defaultStoreId, getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
+import {
+  createTenantQueryConstraints,
+  defaultStoreId,
+  getFranchiseeId,
+  getStoreId,
+  matchesTenantScope,
+} from './tenancy'
 import type { TenantAccessScope } from './tenancy'
 import type {
   CompletionReason,
@@ -1018,32 +1024,12 @@ export async function saveCaseRecord({
   return addDoc(getCaseRecordsCollection(), record)
 }
 
-const createCaseRecordTenantConstraints = (scope?: TenantAccessScope): QueryConstraint[] => {
-  if (!scope || scope.role === 'hq_admin') return []
-
-  const franchiseeId = scope.franchiseeId || (scope as { companyId?: string }).companyId
-  const constraints: QueryConstraint[] = []
-
-  if (franchiseeId) {
-    constraints.push(where('franchiseeId', '==', franchiseeId))
-  }
-
-  if ((scope.role === 'manager' || scope.role === 'driver') && scope.storeId) {
-    constraints.push(where('storeId', '==', scope.storeId))
-  }
-
-  if (scope.role === 'driver' && scope.staffId) {
-    constraints.push(where('staffId', '==', scope.staffId))
-  }
-
-  return constraints
-}
 
 export async function fetchCaseRecords(scope?: TenantAccessScope) {
   const snapshots = await getDocs(
     query(
       getCaseRecordsCollection(),
-      ...createCaseRecordTenantConstraints(scope),
+      ...createTenantQueryConstraints(scope),
       orderBy('closedAt', 'desc'),
     ),
   )
@@ -1063,7 +1049,7 @@ export async function fetchCaseRecordsInClosedAtRange({
   const snapshots = await getDocs(
     query(
       getCaseRecordsCollection(),
-      ...createCaseRecordTenantConstraints(scope),
+      ...createTenantQueryConstraints(scope),
       where('closedAt', '>=', startIso),
       where('closedAt', '<', endIso),
       orderBy('closedAt', 'desc'),
