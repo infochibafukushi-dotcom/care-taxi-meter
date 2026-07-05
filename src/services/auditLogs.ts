@@ -1,5 +1,6 @@
 import { addDoc, collection, getFirestore, serverTimestamp } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import type { StaffRole } from '../types/work'
 import { toFranchiseRole } from './tenancy'
 
@@ -36,6 +37,10 @@ export async function createAuditLog({
   targetId = '',
   targetType = 'unknown',
 }: AuditLogInput) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const db = getFirestore(getFirebaseApp())
 
   const normalizedRole = toFranchiseRole(actor?.role ?? '') || actor?.role || ''

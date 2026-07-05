@@ -2471,6 +2471,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
   /** 事前確定M: 外部ナビ起動のみ。運行開始・料金計測・運行ログは行わない。 */
   const handleOpenFixedNavigation = () => {
+    if (reviewDemoMode) {
+      setRouteChangeNotice('審査用デモではナビ連携は利用できません。')
+      return
+    }
+
     const targetStops =
       currentSegmentStops.length >= 2 ? currentSegmentStops : preFixedOverallStops
     const opened = openGoogleMapsNavigation(targetStops)
@@ -2582,7 +2587,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       `ルート変更を承諾しました。追加区間運賃 ${formatFareYen(routeFareYen)}円を加算します。`,
     )
 
-    if (startNavigation) {
+    if (startNavigation && !reviewDemoMode) {
       openGoogleMapsNavigation(nextStops)
     }
   }
@@ -4345,7 +4350,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   <span aria-hidden="true">🗺</span>
                   <strong>確定ルートを見る</strong>
                 </button>
-                {!isFixedPassengerChangePreSettlement && !isFixedClosed ? (
+                {!reviewDemoMode && !isFixedPassengerChangePreSettlement && !isFixedClosed ? (
                   <button
                     className="r9-status-button r9-status-button--nav"
                     type="button"
@@ -4475,7 +4480,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               </p>
             ) : null}
 
-            {isDevelopmentMode ? (
+            {isDevelopmentMode && !reviewDemoMode ? (
               <div className="r9-side-tools">
                 <button type="button" onClick={() => setIsSettingsOpen(true)}>
                   開発用設定
@@ -5565,7 +5570,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               </button>
             </header>
             <p className="lead" style={{ whiteSpace: 'pre-wrap' }}>
-              {`ルート変更は、運行開始後にお客様都合の立ち寄り追加・目的地変更などが発生したときに使用します。
+              {reviewDemoMode
+                ? `ルート変更は、運行開始後にお客様都合の立ち寄り追加・目的地変更・交通規制迂回などが発生したときに使用します。
+
+先に「固定運賃で運行開始」を押してから、ルート変更を行ってください。
+
+運行開始前は「確定ルートを見る」で走行予定ルートを確認できます。`
+                : `ルート変更は、運行開始後にお客様都合の立ち寄り追加・目的地変更などが発生したときに使用します。
 
 先に「固定運賃で運行開始」を押してから、ルート変更を行ってください。
 
@@ -5602,6 +5613,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           captureLocation={
             reviewDemoMode ? captureReviewDemoCurrentLocation : undefined
           }
+          allowNavigation={!reviewDemoMode}
           onClose={() => setIsRouteChangeDialogOpen(false)}
           onEndHere={(log) => { void handleRouteChangeEndHere(log) }}
           onTrafficDetour={(log) => { void handleRouteChangeTrafficDetour(log) }}

@@ -7,6 +7,7 @@ import {
 } from '../fixtures/reviewDemoPreFixedFare'
 import { ReviewDemoPageShell } from '../components/reviewDemo/ReviewDemoPageShell'
 import { formatFareYen } from '../services/fare'
+import { buildConfirmedRouteView } from '../services/preFixedFareRoute'
 import {
   markReviewDemoRunInProgress,
   readReviewDemoRunState,
@@ -78,6 +79,7 @@ export function ReviewDemoReservationDetailPage() {
   }
 
   const quoteServiceFees = reservation.quoteSnapshot.serviceFees
+  const confirmedRouteView = buildConfirmedRouteView(buildReviewDemoReservationTripContext())
 
   const handleStartFixedFareRun = () => {
     if (isStarting) {
@@ -218,12 +220,46 @@ export function ReviewDemoReservationDetailPage() {
                 <dd>{reservation.trip.time}</dd>
               </div>
               <div>
-                <dt>迎車</dt>
+                <dt>乗車地</dt>
                 <dd>{formatAddress(reservation.trip.pickupAddress)}</dd>
               </div>
               <div>
-                <dt>降車</dt>
+                <dt>目的地</dt>
                 <dd>{formatAddress(reservation.trip.destinationAddress)}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="reservation-detail-section" aria-label="走行予定ルート">
+            <h2>走行予定ルート</h2>
+            <div className="fixed-fare-status-row">
+              <span className="fixed-fare-status-chip fixed-fare-status-chip--confirmed">
+                確定運賃
+              </span>
+              <span className="fixed-fare-status-chip fixed-fare-status-chip--agreed">
+                お客様同意済み
+              </span>
+            </div>
+            <dl className="reservation-detail-dl">
+              <div>
+                <dt>予約時の確定ルート</dt>
+                <dd>{confirmedRouteView?.overallRouteLabel || '—'}</dd>
+              </div>
+              <div>
+                <dt>推計距離</dt>
+                <dd>
+                  {confirmedRouteView?.distanceMeters != null
+                    ? `${(confirmedRouteView.distanceMeters / 1000).toFixed(1)} km`
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>推計時間</dt>
+                <dd>{formatElapsedTime(reservation.quoteSnapshot.durationSeconds)}</dd>
+              </div>
+              <div>
+                <dt>事前確定運賃</dt>
+                <dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd>
               </div>
             </dl>
           </section>

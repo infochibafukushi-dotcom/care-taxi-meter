@@ -35,6 +35,7 @@ type PreFixedFareRouteChangeDialogProps = {
   overallStops: PreFixedFareRouteStop[]
   fareSettings: BasicFareSettings
   captureLocation?: () => Promise<CapturedAddressLocation>
+  allowNavigation?: boolean
   onClose: () => void
   onEndHere: (log: PreFixedFareRouteChangeLog) => void
   onTrafficDetour: (log: PreFixedFareRouteChangeLog) => void
@@ -98,6 +99,7 @@ export function PreFixedFareRouteChangeDialog({
   overallStops,
   fareSettings,
   captureLocation = captureCurrentAddressLocation,
+  allowNavigation = true,
   onClose,
   onEndHere,
   onTrafficDetour,
@@ -646,12 +648,20 @@ export function PreFixedFareRouteChangeDialog({
             </dl>
             <p className="empty-note">追加介助料は初期値0円です。追加の介助作業がある場合のみ入力してください。</p>
             <div className="r9-confirm-actions">
-              <button className="r9-flow-primary" type="button" onClick={() => handleConfirm(true)}>
-                お客様承諾済み / このルートでナビ開始
-              </button>
-              <button className="secondary-action" type="button" onClick={() => handleConfirm(false)}>
-                お客様承諾済み（ナビは後で）
-              </button>
+              {allowNavigation ? (
+                <>
+                  <button className="r9-flow-primary" type="button" onClick={() => handleConfirm(true)}>
+                    お客様承諾済み / このルートでナビ開始
+                  </button>
+                  <button className="secondary-action" type="button" onClick={() => handleConfirm(false)}>
+                    お客様承諾済み（ナビは後で）
+                  </button>
+                </>
+              ) : (
+                <button className="r9-flow-primary" type="button" onClick={() => handleConfirm(false)}>
+                  お客様承諾済み / ルート変更を確定
+                </button>
+              )}
               <button className="secondary-action" type="button" onClick={() => setStep('routes')}>
                 戻る
               </button>

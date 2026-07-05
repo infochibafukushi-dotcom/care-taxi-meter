@@ -11,7 +11,7 @@ import {
   reviewDemoPreFixedFareReservationDetail,
   reviewDemoPreFixedFareReservationSummary,
 } from '../src/fixtures/reviewDemoPreFixedFare'
-import { generateCaseNumber, saveCaseRecord } from '../src/services/caseRecords'
+import { generateCaseNumber, recordReceiptReissue, saveCaseRecord } from '../src/services/caseRecords'
 import {
   completeFixedFareRun,
   resetFixedFareRun,
@@ -20,7 +20,7 @@ import {
 import { claimVehicleForCaseStart } from '../src/services/vehicleAvailability'
 import { updateWorkSessionActiveTrip } from '../src/services/workSessions'
 import { saveGpsRoute } from '../src/services/gpsRoutes'
-import { recordReceiptReissue } from '../src/services/caseRecords'
+import { createAuditLog } from '../src/services/auditLogs'
 import { thermalPrinterService } from '../src/services/escPosPrinterConnection'
 
 describe('review demo mode detection', () => {
@@ -138,6 +138,8 @@ describe('review demo production write guards', () => {
 
     await expect(thermalPrinterService.connectIfNeeded()).rejects.toThrow(/connectIfNeeded/)
     await expect(thermalPrinterService.printReceipt(new Uint8Array([1]))).rejects.toThrow(/printReceipt/)
+
+    await createAuditLog({ action: 'review_demo_test' })
   })
 
   it('does not call reservation-v4 fetch during guarded API functions', async () => {
