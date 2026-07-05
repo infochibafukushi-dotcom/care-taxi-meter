@@ -257,7 +257,7 @@ export async function saveVehicle(
     throw new Error('車両の店舗ID（storeId）が未設定です。')
   }
 
-  let operation: 'create' | 'update' = 'create'
+  let operation: 'create' | 'update'
   try {
     const snapshot = await getDoc(vehicleRef)
     operation = snapshot.exists() ? 'update' : 'create'

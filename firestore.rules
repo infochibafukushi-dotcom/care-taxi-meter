@@ -48,6 +48,24 @@ service cloud.firestore {
           'savedAt',
         ]);
     }
+    function isDriverReceiptReissue(data) {
+      return isDriver()
+        && ownStaffData(data)
+        && ownStaffData(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'receiptReissues',
+          'changeHistory',
+          'savedAt',
+        ])
+        && docFranchisee(request.resource.data) == docFranchisee(resource.data)
+        && request.resource.data.storeId == resource.data.storeId
+        && request.resource.data.staffId == resource.data.staffId
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.totalFareYen == resource.data.totalFareYen;
+    }
+    function isOwnMeterSettingsDoc(settingsId) {
+      return settingsId == franchiseeId() + '_' + storeId();
+    }
     function isLogicalDelete() {
       return request.resource.data.deleted == true
         && request.resource.data.deletedAt is string
@@ -262,6 +280,7 @@ service cloud.firestore {
       allow create: if isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
       allow update: if isDriverCancel(resource.data);
       allow update: if isDriverSettlementAdjustment(resource.data);
+      allow update: if isDriverReceiptReissue(resource.data);
       allow delete: if false;
 
       function parentCaseRecord() {
@@ -308,7 +327,9 @@ service cloud.firestore {
         && (resource == null || sameFranchisee(resource.data));
       allow get: if isStoreManager()
         && (resource == null || sameStore(resource.data));
-      allow get: if isDriver() && resource != null && sameStore(resource.data);
+      allow get: if isDriver()
+        && isOwnMeterSettingsDoc(settingsId)
+        && (resource == null || sameStore(resource.data));
       allow list: if isFranchiseeOwner() && sameFranchisee(resource.data);
       allow list: if (isStoreManager() || isDriver()) && sameStore(resource.data);
       allow create: if isFranchiseeOwner()

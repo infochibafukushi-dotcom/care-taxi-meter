@@ -2,6 +2,8 @@ import {
   CHARTER_UNIT_FARE_YEN,
   CHARTER_UNIT_MINUTES,
 } from '../constants/fareConstants'
+import { FirebaseError } from 'firebase/app'
+import { getAuth } from 'firebase/auth'
 import { doc, getDoc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import type { FieldValue } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
@@ -643,28 +645,89 @@ export function sanitizeMeterSettings(value: unknown): MeterSettings {
   }
 }
 
+const isFirestorePermissionDenied = (error: unknown) => {
+  if (error instanceof FirebaseError && error.code === 'permission-denied') {
+    return true
+  }
+
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return /permission-denied|insufficient permissions/i.test(message)
+}
+
+async function getAuthRoleForMeterSettings(): Promise<string | null> {
+  try {
+    const user = getAuth(getFirebaseApp()).currentUser
+    if (!user) {
+      return null
+    }
+
+    const token = await user.getIdTokenResult()
+    const role = token.claims.role
+    return typeof role === 'string' ? role : null
+  } catch {
+    return null
+  }
+}
+
+const canSeedMeterSettings = (role: string | null) =>
+  role === 'owner'
+  || role === 'manager'
+  || role === 'hq_admin'
+  || role === 'franchisee_owner'
+  || role === 'store_manager'
+  || role === 'superAdmin'
+
 export async function fetchMeterSettings(scope?: TenantScope) {
   const settingsRef = getMeterSettingsRef(scope)
-  const snapshot = await getDoc(settingsRef)
+  const targetScope = scope ?? { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }
+
+  let snapshot
+  try {
+    snapshot = await getDoc(settingsRef)
+  } catch (error) {
+    if (isFirestorePermissionDenied(error)) {
+      return defaultMeterSettings
+    }
+    throw error
+  }
 
   if (snapshot.exists()) {
     return sanitizeMeterSettings(snapshot.data())
   }
 
-  const targetScope = scope ?? { franchiseeId: defaultFranchiseeId, storeId: defaultStoreId }
+  const role = await getAuthRoleForMeterSettings()
+  if (!canSeedMeterSettings(role)) {
+    return defaultMeterSettings
+  }
+
   const isDefaultScope =
     targetScope.franchiseeId === defaultFranchiseeId && targetScope.storeId === defaultStoreId
 
   if (isDefaultScope) {
-    const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
-    if (legacySnapshot.exists()) {
-      const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
-      await saveMeterSettings(migratedSettings, scope)
-      return migratedSettings
+    try {
+      const legacySnapshot = await getDoc(getLegacyMeterSettingsRef())
+      if (legacySnapshot.exists()) {
+        const migratedSettings = sanitizeMeterSettings(legacySnapshot.data())
+        await saveMeterSettings(migratedSettings, targetScope)
+        return migratedSettings
+      }
+    } catch (error) {
+      if (isFirestorePermissionDenied(error)) {
+        return defaultMeterSettings
+      }
+      throw error
     }
   }
 
-  await saveMeterSettings(defaultMeterSettings, scope)
+  try {
+    await saveMeterSettings(defaultMeterSettings, targetScope)
+  } catch (error) {
+    if (isFirestorePermissionDenied(error)) {
+      return defaultMeterSettings
+    }
+    throw error
+  }
+
   return defaultMeterSettings
 }
 
@@ -682,6 +745,11 @@ export function subscribeMeterSettings(
       onUpdate(snapshot.exists() ? sanitizeMeterSettings(snapshot.data()) : defaultMeterSettings)
     },
     (error) => {
+      if (isFirestorePermissionDenied(error)) {
+        onUpdate(defaultMeterSettings)
+        return
+      }
+
       errorHandler?.(error)
     },
   )

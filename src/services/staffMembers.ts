@@ -216,7 +216,7 @@ export async function saveStaffMember(
     throw new Error('従業員の店舗ID（storeId）が未設定です。')
   }
 
-  let operation: 'create' | 'update' = 'create'
+  let operation: 'create' | 'update'
   let previousStaffMember: StaffMember | null = null
 
   try {

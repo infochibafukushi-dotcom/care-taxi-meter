@@ -187,7 +187,7 @@ export async function signInStaffWithFirebaseAuth({
 
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {
-      throw new Error('しばらくしてから再度お試しください。')
+      throw new Error('しばらくしてから再度お試しください。', { cause: error })
     }
 
     throw error

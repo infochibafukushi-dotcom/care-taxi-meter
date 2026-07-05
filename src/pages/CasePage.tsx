@@ -4156,14 +4156,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 <div className="pre-fixed-time-fare-rates" aria-label="待機料・付き添い料">
                   <div>
                     <strong>待機料</strong>
-                    <p>初期30分　一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
-                    <p>30分1秒以降　30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    <p>初期30分 一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    <p>30分1秒以降 30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
                     <small>計測中 {waitingClockLabel}</small>
                   </div>
                   <div>
                     <strong>付き添い料</strong>
-                    <p>初期30分　一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
-                    <p>30分1秒以降　30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    <p>初期30分 一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    <p>30分1秒以降 30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
                     <small>計測中 {accompanyingClockLabel}</small>
                   </div>
                 </div>

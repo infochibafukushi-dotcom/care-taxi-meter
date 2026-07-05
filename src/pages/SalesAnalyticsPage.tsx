@@ -547,7 +547,7 @@ export function SalesAnalyticsPage() {
     let isMounted = true
 
     void (async () => {
-      let records: StoredCaseRecord[] = []
+      let records: StoredCaseRecord[]
       try {
         records = await fetchCaseRecords(accessScope)
       } catch (error) {
@@ -567,14 +567,14 @@ export function SalesAnalyticsPage() {
         return
       }
 
-      let loadedStaffMembers: StaffMember[] = []
+      let loadedStaffMembers: StaffMember[]
       try {
         loadedStaffMembers = await fetchStaffMembers(accessScope)
       } catch {
         loadedStaffMembers = []
       }
 
-      let loadedVehicles: Vehicle[] = []
+      let loadedVehicles: Vehicle[]
       try {
         loadedVehicles = await fetchVehicles(accessScope)
       } catch {
