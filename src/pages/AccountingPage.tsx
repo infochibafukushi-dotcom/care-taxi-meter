@@ -6,6 +6,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   buildEmptyExpenseInput,
   createAccountingExpense,
+  deleteAccountingExpense,
   fetchAccountingExpenses,
   invalidateAccountingExpense,
   updateAccountingExpense,
@@ -30,11 +31,18 @@ import type { StaffRole } from '../types/work'
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
+  PL_TREATMENTS,
+  PL_TREATMENT_LABELS,
   SALES_CATEGORIES,
+  getExpensePostingDate,
+  getExpenseReceiptDate,
+  getPlTreatmentLabel,
+  normalizePlTreatment,
   type AccountingAdjustmentInput,
   type AccountingExpenseInput,
   type ExpenseCategory,
   type ExpenseConfirmationStatus,
+  type PlTreatment,
   type SalesCategory,
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
@@ -257,7 +265,7 @@ export function AccountingPage() {
     [adjustments, caseRecords, expenses, targetYearMonth],
   )
   const monthExpenses = useMemo(
-    () => expenses.filter((expense) => expense.transactionDate.startsWith(targetYearMonth)),
+    () => expenses.filter((expense) => getExpensePostingDate(expense).startsWith(targetYearMonth)),
     [expenses, targetYearMonth],
   )
   const monthAdjustments = useMemo(
@@ -294,6 +302,15 @@ export function AccountingPage() {
           key === 'taxIncludedAmount' ? Number(value) : next.taxIncludedAmount,
           key === 'taxRate' ? Number(value) : next.taxRate,
         )
+      }
+
+      if (key === 'postingDate') {
+        next.postingDate = String(value)
+        next.transactionDate = String(value)
+      }
+
+      if (key === 'receiptDate') {
+        next.receiptDate = String(value)
       }
 
       if (key === 'confirmationStatus' && value === '確認済み' && !next.expenseCategory) {
@@ -397,7 +414,12 @@ export function AccountingPage() {
     }
 
     setEditingExpenseId(expenseId)
-    setExpenseForm({ ...expense })
+    setExpenseForm({
+      ...expense,
+      receiptDate: getExpenseReceiptDate(expense),
+      postingDate: getExpensePostingDate(expense),
+      plTreatment: normalizePlTreatment(expense.plTreatment),
+    })
     setActiveTab('expenses')
     setStatusMessage('経費を編集モードで読み込みました。')
   }
@@ -418,6 +440,36 @@ export function AccountingPage() {
       await reloadExpensesAndAdjustments()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の無効化に失敗しました。')
+    }
+  }
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    const confirmed = window.confirm(
+      'この経費データを削除します。元に戻せません。削除してよろしいですか？',
+    )
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await deleteAccountingExpense(expenseId)
+
+      if (editingExpenseId === expenseId) {
+        setEditingExpenseId('')
+        setExpenseForm(
+          buildEmptyExpenseInput({
+            franchiseeId: tenantScope.franchiseeId,
+            storeId: tenantScope.storeId,
+            staffId,
+            staffName,
+          }),
+        )
+      }
+
+      setStatusMessage('経費を削除しました。')
+      await reloadExpensesAndAdjustments()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '経費の削除に失敗しました。')
     }
   }
 
@@ -598,7 +650,8 @@ export function AccountingPage() {
           <section className="accounting-panel" aria-label="月次PL">
             <h2>{formatYearMonthLabel(targetYearMonth)} の月次PL</h2>
             <p className="accounting-note">
-              確定案件 {profitLoss.caseRecordCount}件 / 確認済み経費 {profitLoss.confirmedExpenseCount}件
+              確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 繰延資産候補{' '}
+              {profitLoss.deferredCandidateCount}件
             </p>
             <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
             <div className="accounting-pl-grid">
@@ -630,6 +683,33 @@ export function AccountingPage() {
                   <li className="accounting-pl-total">
                     <span>経費合計</span>
                     <strong>{formatPlAmount(profitLoss.expensesTotalYen)}</strong>
+                  </li>
+                </ul>
+              </section>
+              <section className="accounting-pl-deferred">
+                <h3>繰延資産候補</h3>
+                <p className="accounting-note">
+                  PL反映区分が「繰延資産候補」の確認済み経費です。経費合計・営業利益には含めません。
+                </p>
+                <ul className="accounting-pl-list">
+                  {EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).length > 0 ? (
+                    EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).map(
+                      (category) => (
+                        <li key={category}>
+                          <span>{category}</span>
+                          <strong>{formatPlAmount(profitLoss.deferredCandidate[category])}</strong>
+                        </li>
+                      ),
+                    )
+                  ) : (
+                    <li>
+                      <span>該当なし</span>
+                      <strong>{formatPlAmount(0)}</strong>
+                    </li>
+                  )}
+                  <li className="accounting-pl-total">
+                    <span>繰延資産候補合計</span>
+                    <strong>{formatPlAmount(profitLoss.deferredCandidateTotalYen)}</strong>
                   </li>
                 </ul>
               </section>
@@ -878,11 +958,19 @@ export function AccountingPage() {
 
             <div className="accounting-form-grid">
               <label>
-                取引日
+                証憑日
                 <input
                   type="date"
-                  value={expenseForm.transactionDate}
-                  onChange={(event) => handleExpenseFieldChange('transactionDate', event.target.value)}
+                  value={expenseForm.receiptDate ?? getExpenseReceiptDate(expenseForm)}
+                  onChange={(event) => handleExpenseFieldChange('receiptDate', event.target.value)}
+                />
+              </label>
+              <label>
+                計上日
+                <input
+                  type="date"
+                  value={expenseForm.postingDate ?? getExpensePostingDate(expenseForm)}
+                  onChange={(event) => handleExpenseFieldChange('postingDate', event.target.value)}
                 />
               </label>
               <label>
@@ -922,6 +1010,21 @@ export function AccountingPage() {
                   OCR/AI仮分類: {expenseForm.suggestedExpenseCategory}（自動確定しません）
                 </p>
               ) : null}
+              <label>
+                PL反映区分
+                <select
+                  value={expenseForm.plTreatment ?? 'expense'}
+                  onChange={(event) =>
+                    handleExpenseFieldChange('plTreatment', event.target.value as PlTreatment)
+                  }
+                >
+                  {PL_TREATMENTS.map((treatment) => (
+                    <option key={treatment} value={treatment}>
+                      {PL_TREATMENT_LABELS[treatment]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>
                 税込金額(円)
                 <input
@@ -1093,10 +1196,12 @@ export function AccountingPage() {
               <table className="accounting-table">
                 <thead>
                   <tr>
-                    <th>取引日</th>
+                    <th>証憑日</th>
+                    <th>計上日</th>
                     <th>仕入先</th>
                     <th>内容</th>
                     <th>経費科目</th>
+                    <th>PL反映区分</th>
                     <th>税込</th>
                     <th>状態</th>
                     <th>操作</th>
@@ -1106,10 +1211,12 @@ export function AccountingPage() {
                   {monthExpenses.length > 0 ? (
                     monthExpenses.map((expense) => (
                       <tr key={expense.id}>
-                        <td>{expense.transactionDate}</td>
+                        <td>{getExpenseReceiptDate(expense)}</td>
+                        <td>{getExpensePostingDate(expense)}</td>
                         <td>{expense.vendorName}</td>
                         <td>{expense.description}</td>
                         <td>{expense.expenseCategory || '未選択'}</td>
+                        <td>{getPlTreatmentLabel(expense.plTreatment)}</td>
                         <td>{formatFareYen(expense.taxIncludedAmount)}</td>
                         <td>{expense.confirmationStatus}</td>
                         <td>
@@ -1129,12 +1236,19 @@ export function AccountingPage() {
                               無効化
                             </button>
                           ) : null}
+                          <button
+                            className="secondary-action"
+                            type="button"
+                            onClick={() => void handleDeleteExpense(expense.id)}
+                          >
+                            削除
+                          </button>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7}>対象月の経費はありません。</td>
+                      <td colSpan={9}>対象月の経費はありません。</td>
                     </tr>
                   )}
                 </tbody>

@@ -9,8 +9,10 @@ import type {
 } from '../types/accounting'
 import {
   EXPENSE_CATEGORIES,
+  getExpensePostingDate,
   isConfirmedForPl,
   isExpenseCategorySelected,
+  normalizePlTreatment,
   SALES_CATEGORIES,
 } from '../types/accounting'
 import {
@@ -83,7 +85,11 @@ export const aggregateConfirmedExpenses = (
       return
     }
 
-    const expenseYearMonth = expense.transactionDate.slice(0, 7)
+    if (normalizePlTreatment(expense.plTreatment) !== 'expense') {
+      return
+    }
+
+    const expenseYearMonth = getExpensePostingDate(expense).slice(0, 7)
     if (expenseYearMonth !== targetYearMonth) {
       return
     }
@@ -93,6 +99,34 @@ export const aggregateConfirmedExpenses = (
   })
 
   return { breakdown, confirmedExpenseCount }
+}
+
+export const aggregateDeferredCandidateExpenses = (
+  expenses: StoredAccountingExpense[],
+  targetYearMonth: string,
+) => {
+  const breakdown = createEmptyExpenseBreakdown()
+  let deferredCandidateCount = 0
+
+  expenses.forEach((expense) => {
+    if (!isConfirmedForPl(expense.confirmationStatus) || !isExpenseCategorySelected(expense.expenseCategory)) {
+      return
+    }
+
+    if (normalizePlTreatment(expense.plTreatment) !== 'deferredCandidate') {
+      return
+    }
+
+    const expenseYearMonth = getExpensePostingDate(expense).slice(0, 7)
+    if (expenseYearMonth !== targetYearMonth) {
+      return
+    }
+
+    breakdown[expense.expenseCategory] += expense.taxIncludedAmount
+    deferredCandidateCount += 1
+  })
+
+  return { breakdown, deferredCandidateCount }
 }
 
 export const calculateMonthlyProfitLoss = ({
@@ -111,10 +145,15 @@ export const calculateMonthlyProfitLoss = ({
 
   const sales = applySalesAdjustments(aggregateSalesBreakdown(monthCaseRecords), monthAdjustments)
   const { breakdown: expensesBreakdown, confirmedExpenseCount } = aggregateConfirmedExpenses(expenses, targetYearMonth)
+  const { breakdown: deferredCandidate, deferredCandidateCount } = aggregateDeferredCandidateExpenses(
+    expenses,
+    targetYearMonth,
+  )
   const expensesWithAdjustments = applyExpenseAdjustments(expensesBreakdown, monthAdjustments)
 
   const salesTotalYen = sumSalesBreakdown(sales)
   const expensesTotalYen = sumExpenseBreakdown(expensesWithAdjustments)
+  const deferredCandidateTotalYen = sumExpenseBreakdown(deferredCandidate)
 
   return {
     targetYearMonth,
@@ -122,6 +161,9 @@ export const calculateMonthlyProfitLoss = ({
     salesTotalYen,
     expenses: expensesWithAdjustments,
     expensesTotalYen,
+    deferredCandidate,
+    deferredCandidateTotalYen,
+    deferredCandidateCount,
     operatingProfitYen: salesTotalYen - expensesTotalYen,
     caseRecordCount: monthCaseRecords.length,
     confirmedExpenseCount,

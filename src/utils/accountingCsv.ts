@@ -1,5 +1,5 @@
 import type { MonthlyProfitLoss } from '../types/accounting'
-import { EXPENSE_CATEGORIES, SALES_CATEGORIES } from '../types/accounting'
+import { EXPENSE_CATEGORIES, getExpensePostingDate, getExpenseReceiptDate, getPlTreatmentLabel, normalizePlTreatment, SALES_CATEGORIES } from '../types/accounting'
 import type { AccountingSalesRow } from './accountingSalesMapping'
 import { formatYearMonthLabel } from './accountingPl'
 import { formatFareYen } from '../services/fare'
@@ -16,6 +16,10 @@ const escapeCsv = (value: string | number) => {
 const csvLine = (values: Array<string | number>) => values.map(escapeCsv).join(',')
 
 export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
+  const deferredRows = EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).map(
+    (category) => csvLine(['繰延資産候補', category, profitLoss.deferredCandidate[category]]),
+  )
+
   const lines = [
     csvLine(['月次PL', formatYearMonthLabel(profitLoss.targetYearMonth)]),
     csvLine(['区分', '科目', '金額(円)']),
@@ -23,6 +27,8 @@ export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
     csvLine(['売上', '売上合計', profitLoss.salesTotalYen]),
     ...EXPENSE_CATEGORIES.map((category) => csvLine(['経費', category, profitLoss.expenses[category]])),
     csvLine(['経費', '経費合計', profitLoss.expensesTotalYen]),
+    ...deferredRows,
+    csvLine(['繰延資産候補', '合計', profitLoss.deferredCandidateTotalYen]),
     csvLine(['利益', '営業利益', profitLoss.operatingProfitYen]),
   ]
 
@@ -57,10 +63,13 @@ export const buildSalesCsv = (rows: AccountingSalesRow[], targetYearMonth: strin
 
 export const buildExpensesCsv = (
   expenses: Array<{
+    receiptDate?: string
+    postingDate?: string
     transactionDate: string
     vendorName: string
     description: string
     expenseCategory: string
+    plTreatment?: string
     taxIncludedAmount: number
     taxRate: number
     consumptionTaxAmount: number
@@ -74,10 +83,12 @@ export const buildExpensesCsv = (
   const lines = [
     csvLine(['経費一覧', formatYearMonthLabel(targetYearMonth)]),
     csvLine([
-      '取引日',
+      '証憑日',
+      '計上日',
       '仕入先',
       '内容',
       '経費科目',
+      'PL反映区分',
       '税込金額(円)',
       '税率(%)',
       '消費税額(円)',
@@ -88,10 +99,12 @@ export const buildExpensesCsv = (
     ]),
     ...expenses.map((expense) =>
       csvLine([
-        expense.transactionDate,
+        getExpenseReceiptDate(expense),
+        getExpensePostingDate(expense),
         expense.vendorName,
         expense.description,
         expense.expenseCategory,
+        getPlTreatmentLabel(normalizePlTreatment(expense.plTreatment)),
         expense.taxIncludedAmount,
         expense.taxRate,
         expense.consumptionTaxAmount,

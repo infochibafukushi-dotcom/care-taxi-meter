@@ -384,7 +384,7 @@ service cloud.firestore {
         && canReadAccounting(resource.data)
         && canWriteAccountingData(request.resource.data)
         && validConfirmedExpenseCategory();
-      allow delete: if false;
+      allow delete: if isAccountingUser() && canReadAccounting(resource.data);
     }
 
     match /accountingAdjustments/{adjustmentId} {

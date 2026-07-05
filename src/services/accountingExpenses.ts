@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   getFirestore,
@@ -16,7 +17,14 @@ import type {
   ExpenseConfirmationStatus,
   StoredAccountingExpense,
 } from '../types/accounting'
-import { canConfirmExpense, isExpenseCategorySelected } from '../types/accounting'
+import {
+  canConfirmExpense,
+  getExpensePostingDate,
+  isExpenseCategorySelected,
+  normalizeExpenseInputForSave,
+  normalizeExpensePatchForSave,
+  normalizePlTreatment,
+} from '../types/accounting'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import {
   createAccountingTenantConstraints,
@@ -40,6 +48,9 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     companyId: String(data.companyId ?? data.franchiseeId ?? ''),
     storeId: String(data.storeId ?? ''),
     transactionDate: String(data.transactionDate ?? ''),
+    receiptDate: typeof data.receiptDate === 'string' ? data.receiptDate : undefined,
+    postingDate: typeof data.postingDate === 'string' ? data.postingDate : undefined,
+    plTreatment: normalizePlTreatment(data.plTreatment),
     vendorName: String(data.vendorName ?? ''),
     description: String(data.description ?? ''),
     expenseCategory: (data.expenseCategory as StoredAccountingExpense['expenseCategory']) ?? '',
@@ -101,7 +112,7 @@ export async function fetchAccountingExpensesByYearMonth({
   targetYearMonth: string
 }) {
   const expenses = await fetchAccountingExpenses(scope)
-  return expenses.filter((expense) => expense.transactionDate.startsWith(targetYearMonth))
+  return expenses.filter((expense) => getExpensePostingDate(expense).startsWith(targetYearMonth))
 }
 
 export async function createAccountingExpense(input: AccountingExpenseInput) {
@@ -113,12 +124,16 @@ export async function createAccountingExpense(input: AccountingExpenseInput) {
     throw new Error('経費科目を選択しないと確認済みにできません。')
   }
 
+  const normalizedInput = normalizeExpenseInputForSave(input)
+
   const db = getFirestore(getFirebaseApp())
   const document = await addDoc(
     collection(db, collectionName),
     removeUndefinedFields({
-      ...input,
-      expenseCategory: isExpenseCategorySelected(input.expenseCategory) ? input.expenseCategory : '',
+      ...normalizedInput,
+      expenseCategory: isExpenseCategorySelected(normalizedInput.expenseCategory)
+        ? normalizedInput.expenseCategory
+        : '',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }),
@@ -145,11 +160,13 @@ export async function updateAccountingExpense(
     }
   }
 
+  const normalizedPatch = normalizeExpensePatchForSave(input)
+
   const db = getFirestore(getFirebaseApp())
   await updateDoc(
     doc(db, collectionName, expenseId),
     removeUndefinedFields({
-      ...input,
+      ...normalizedPatch,
       updatedAt: serverTimestamp(),
     }),
   )
@@ -169,6 +186,15 @@ export async function invalidateAccountingExpense({
     updatedBy,
     updatedByName,
   })
+}
+
+export async function deleteAccountingExpense(expenseId: string) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  await deleteDoc(doc(db, collectionName, expenseId))
 }
 
 export const buildEmptyExpenseInput = ({
@@ -193,6 +219,9 @@ export const buildEmptyExpenseInput = ({
   return {
     ...tenant,
     transactionDate: today,
+    receiptDate: today,
+    postingDate: today,
+    plTreatment: 'expense',
     vendorName: '',
     description: '',
     expenseCategory: '',
