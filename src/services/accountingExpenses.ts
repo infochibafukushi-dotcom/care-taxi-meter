@@ -24,6 +24,9 @@ import { matchesTenantScope } from './tenancy'
 
 const collectionName = 'accountingExpenses'
 
+const removeUndefinedFields = <T extends Record<string, unknown>>(data: T) =>
+  Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T
+
 const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unknown> }): StoredAccountingExpense => {
   const data = snapshot.data()
 
@@ -101,12 +104,15 @@ export async function createAccountingExpense(input: AccountingExpenseInput) {
   }
 
   const db = getFirestore(getFirebaseApp())
-  const document = await addDoc(collection(db, collectionName), {
-    ...input,
-    expenseCategory: isExpenseCategorySelected(input.expenseCategory) ? input.expenseCategory : '',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  })
+  const document = await addDoc(
+    collection(db, collectionName),
+    removeUndefinedFields({
+      ...input,
+      expenseCategory: isExpenseCategorySelected(input.expenseCategory) ? input.expenseCategory : '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  )
 
   return document.id
 }
@@ -130,10 +136,13 @@ export async function updateAccountingExpense(
   }
 
   const db = getFirestore(getFirebaseApp())
-  await updateDoc(doc(db, collectionName, expenseId), {
-    ...input,
-    updatedAt: serverTimestamp(),
-  })
+  await updateDoc(
+    doc(db, collectionName, expenseId),
+    removeUndefinedFields({
+      ...input,
+      updatedAt: serverTimestamp(),
+    }),
+  )
 }
 
 export async function invalidateAccountingExpense({
