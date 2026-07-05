@@ -13,6 +13,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import type { DocumentData, FieldValue, QueryConstraint, QueryDocumentSnapshot } from 'firebase/firestore'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { getFirebaseApp } from '../lib/firebase'
 import type { BasicFareSettings, CareOptionMasterItem, DispatchMenuItem, FareBreakdown, MeterTimeFareSettings, SpecialVehicleMenuItem, TimeFareSettings } from './fare'
 import type { ExpenseItem, PaymentAllocation, PaymentMethod, SelectedCareOption, TaxiTicket, CustomFeeItem } from '../types/case'
@@ -789,6 +790,10 @@ export async function generateCaseNumber({
   storeId: string
   storeName?: string
 }): Promise<CaseNumberAssignment> {
+  if (isReviewDemoRuntimeEnabled()) {
+    throw new Error('Review demo mode blocked production write: generateCaseNumber')
+  }
+
   const db = getFirestore(getFirebaseApp())
   const dateKey = createCaseNumberDateKey()
   const safeStoreId = storeId || defaultStoreId
@@ -865,6 +870,10 @@ export async function saveCaseRecord({
   routeChangeLogs,
   recordStatus = 'completed',
 }: CaseRecordInput) {
+  if (isReviewDemoRuntimeEnabled()) {
+    throw new Error('Review demo mode blocked production write: saveCaseRecord')
+  }
+
   const franchiseeId = workSession?.franchiseeId || workSession?.companyId || ''
   const staffId = workSession?.staffId ?? ''
   const storeId = workSession?.storeId ?? ''
@@ -1320,6 +1329,10 @@ export async function recordReceiptReissue(
   caseRecord: StoredCaseRecord,
   { actor = null, reason }: { actor?: AuditActor | null; reason: string },
 ) {
+  if (isReviewDemoRuntimeEnabled()) {
+    throw new Error('Review demo mode blocked production write: recordReceiptReissue')
+  }
+
   const reissuedAt = new Date().toISOString()
   const reissuedBy = actor?.userId ?? ''
   const receiptReissue = { reason, reissuedAt, reissuedBy }

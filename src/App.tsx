@@ -13,6 +13,10 @@ import { PrinterPocPage } from './pages/PrinterPocPage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
 import { ReservationListPage } from './pages/ReservationListPage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
+import { ReviewDemoCasePage } from './pages/ReviewDemoCasePage'
+import { ReviewDemoCaseStartPage } from './pages/ReviewDemoCaseStartPage'
+import { ReviewDemoReservationDetailPage } from './pages/ReviewDemoReservationDetailPage'
+import { ReviewDemoReservationListPage } from './pages/ReviewDemoReservationListPage'
 
 const routerBaseName =
   import.meta.env.BASE_URL === '/'
@@ -87,6 +91,22 @@ const router = createBrowserRouter([
       {
         path: 'dev/printer',
         element: <PrinterPocPage />,
+      },
+      {
+        path: 'review-demo/reservations',
+        element: <ReviewDemoReservationListPage />,
+      },
+      {
+        path: 'review-demo/reservations/:reservationId',
+        element: <ReviewDemoReservationDetailPage />,
+      },
+      {
+        path: 'review-demo/case/start',
+        element: <ReviewDemoCaseStartPage />,
+      },
+      {
+        path: 'review-demo/case',
+        element: <ReviewDemoCasePage />,
       },
     ],
   },

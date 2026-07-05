@@ -6,6 +6,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import type { Vehicle } from '../types/work'
 import type { TenantAccessScope } from './tenancy'
 import { getSelectableVehicles } from './vehicles'
@@ -183,6 +184,10 @@ export async function claimVehicleForCaseStart({
   staffName: string
   workSessionId: string
 }) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const db = getFirestore(getFirebaseApp())
   const vehicleRef = doc(db, vehiclesCollectionName, vehicleId)
   const workSessionRef = doc(db, workSessionsCollectionName, workSessionId)

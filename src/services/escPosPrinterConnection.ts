@@ -5,6 +5,7 @@ import {
 } from '../utils/bluetoothPrinterCapabilities'
 import { getLastPrinterDevice, saveLastPrinterDevice } from './printerDeviceStorage'
 import { buildTestReceiptEscPos, writeEscPosInChunks } from '../utils/escPosCommands'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 
 export type EscPosPrinterLogType = 'info' | 'data' | 'error'
 
@@ -547,6 +548,10 @@ export class EscPosPrinterService {
   }
 
   async connectIfNeeded(): Promise<void> {
+    if (isReviewDemoRuntimeEnabled()) {
+      throw new Error('Review demo mode blocked production write: thermalPrinterService.connectIfNeeded')
+    }
+
     console.log('[PRINT] connectIfNeeded start', {
       activeMethod: this.activeMethod,
       isConnected: this.isConnected(),
@@ -751,6 +756,10 @@ export class EscPosPrinterService {
   }
 
   async printReceipt(data: Uint8Array): Promise<void> {
+    if (isReviewDemoRuntimeEnabled()) {
+      throw new Error('Review demo mode blocked production write: thermalPrinterService.printReceipt')
+    }
+
     try {
       await this.printReceiptOnce(data)
       console.log('[PRINT] success')

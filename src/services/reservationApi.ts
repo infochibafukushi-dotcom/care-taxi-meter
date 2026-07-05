@@ -10,6 +10,7 @@ import {
   mapPreFixedFareExceptionFromApi,
   type CompleteFixedFareRunPayload,
 } from '../types/preFixedFare'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 
 type ReservationApiErrorBody = {
   error?: string
@@ -226,6 +227,10 @@ export async function fetchDriverReservation(
 }
 
 export async function startFixedFareRun(reservationId: string): Promise<void> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const encodedReservationId = encodeURIComponent(reservationId)
   const response = await postReservationApi<FixedFareRunActionResponseApi>(
     `/reservations/${encodedReservationId}/start-fixed-fare`,
@@ -240,6 +245,10 @@ export async function completeFixedFareRun(
   reservationId: string,
   completion?: CompleteFixedFareRunPayload,
 ): Promise<void> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const encodedReservationId = encodeURIComponent(reservationId)
   const body: Record<string, unknown> = {}
 
@@ -275,6 +284,10 @@ export async function resetFixedFareRun(
   reservationId: string,
   payload: ResetFixedFareRunPayload,
 ): Promise<void> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const encodedReservationId = encodeURIComponent(reservationId)
   const response = await postReservationApi<FixedFareRunActionResponseApi>(
     `/reservations/${encodedReservationId}/reset-fixed-fare`,

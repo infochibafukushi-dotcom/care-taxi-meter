@@ -149,6 +149,33 @@ import type {
   StatusTone,
   TimerKey,
 } from '../types/case'
+import { getReviewDemoMeterSettings } from '../services/reviewDemoMeterSettings'
+import {
+  buildReviewDemoSavedCaseRecord,
+  createReviewDemoCaseNumberAssignment,
+  REVIEW_DEMO_VEHICLE,
+} from '../services/reviewDemoCaseRecord'
+import { markReviewDemoRunCompleted } from '../services/reviewDemoRunState'
+import {
+  clearReviewDemoActiveTripSnapshot,
+  clearReviewDemoReservationTripContext,
+  readReviewDemoActiveTripSnapshot,
+  readReviewDemoPostSettlementLock,
+  readReviewDemoReservationTripContext,
+  saveReviewDemoActiveTripSnapshot,
+  writeReviewDemoPostSettlementLock,
+} from '../services/reviewDemoStorage'
+import {
+  captureReviewDemoCurrentLocation,
+  captureReviewDemoDropoffLocation,
+  captureReviewDemoPickupLocation,
+} from '../utils/reviewDemoLocation'
+import {
+  REVIEW_DEMO_RESERVATION_ID,
+  REVIEW_DEMO_VEHICLE_ID,
+  REVIEW_DEMO_WORK_SESSION,
+  withReviewDemoSearch,
+} from '../utils/reviewDemo'
 
 type KeypadTarget = {
   amountYen: number
@@ -558,23 +585,41 @@ const PRE_FIXED_EXPENSE_QUICK_PRESETS = [
   { id: 'other-advance', name: 'その他立替金' },
 ] as const
 
-export function CasePage() {
+export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const vehicleIdFromQuery = searchParams.get('vehicleId') ?? ''
+  const vehicleIdFromQuery = searchParams.get('vehicleId') ?? (reviewDemoMode ? REVIEW_DEMO_VEHICLE_ID : '')
   const meterModeFromQuery = searchParams.get('meterMode')
-  const reservationIdFromQuery = searchParams.get('reservationId')?.trim() ?? ''
+  const reservationIdFromQuery =
+    searchParams.get('reservationId')?.trim() ?? (reviewDemoMode ? REVIEW_DEMO_RESERVATION_ID : '')
   const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
-  const [reservationTripContext] = useState<ReservationTripContext | null>(() =>
-    reservationIdFromQuery ? readReservationTripContext(reservationIdFromQuery) : null,
-  )
+  const [reservationTripContext] = useState<ReservationTripContext | null>(() => {
+    if (!reservationIdFromQuery) {
+      return null
+    }
+
+    return reviewDemoMode
+      ? readReviewDemoReservationTripContext(reservationIdFromQuery)
+      : readReservationTripContext(reservationIdFromQuery)
+  })
   const [restoredTripState] = useState(() => {
-    if (readPostSettlementLock()) {
-      clearActiveTripSnapshot()
+    const postSettlementLock = reviewDemoMode
+      ? readReviewDemoPostSettlementLock()
+      : readPostSettlementLock()
+    const activeTripSnapshot = reviewDemoMode
+      ? readReviewDemoActiveTripSnapshot()
+      : readActiveTripSnapshot()
+
+    if (postSettlementLock) {
+      if (reviewDemoMode) {
+        clearReviewDemoActiveTripSnapshot()
+      } else {
+        clearActiveTripSnapshot()
+      }
       return { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
     }
 
-    return resolveActiveTripRestoration(readActiveTripSnapshot())
+    return resolveActiveTripRestoration(activeTripSnapshot)
   })
   const restoredTripSnapshot = restoredTripState.snapshot
   const [fixedFareRun, setFixedFareRun] = useState<{
@@ -712,9 +757,11 @@ export function CasePage() {
   const [caseSaveMessage, setCaseSaveMessage] = useState(
     restoredTripSnapshot
       ? '未終了の運行データを復元しました。'
-      : isFirebaseConfigured
-        ? '精算・終了で支払方法を選択して保存します。'
-        : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
+      : reviewDemoMode
+        ? '審査用デモ設定で運行できます。精算・終了で保存します（本番には保存されません）。'
+        : isFirebaseConfigured
+          ? '精算・終了で支払方法を選択して保存します。'
+          : 'Firebase接続設定が未完了です。GitHub Pagesの環境変数を確認してください。',
   )
   const [printerConnectionDiagnostics, setPrinterConnectionDiagnostics] = useState<
     EscPosConnectionStageDiagnostic[]
@@ -747,7 +794,9 @@ export function CasePage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
-  const [postSettlementLock, setPostSettlementLock] = useState(() => readPostSettlementLock())
+  const [postSettlementLock, setPostSettlementLock] = useState(() =>
+    reviewDemoMode ? readReviewDemoPostSettlementLock() : readPostSettlementLock(),
+  )
   const operationStartedAtRef = useRef(restoredTripSnapshot?.operationStartedAt ?? '')
   const operationEndedAtRef = useRef(restoredTripSnapshot?.operationEndedAt ?? '')
   const latestMeterSettingsRef = useRef<MeterSettings>(defaultMeterSettings)
@@ -820,7 +869,7 @@ export function CasePage() {
   )
   const gps = useMeterTelemetry({
     initialObdState: initialObdTelemetryState,
-    isActive: meterMode !== 'fixed' && isGpsActive,
+    isActive: !reviewDemoMode && meterMode !== 'fixed' && isGpsActive,
     isDistanceAccumulating,
     lowSpeedThresholdKmh: currentMeterSettings.meterTimeFare.lowSpeedThresholdKmh,
     meterMode,
@@ -848,8 +897,38 @@ export function CasePage() {
     setCurrentMeterSettings(selectMeterModeSettings(latestMeterSettingsRef.current, nextMode))
     setMeterModeToast(`${meterModeLabels[nextMode]}に切り替えました`)
   }
-  const workSession = useWorkSession()
+  const baseWorkSession = useWorkSession()
+  const workSession = reviewDemoMode
+    ? { ...baseWorkSession, currentSession: REVIEW_DEMO_WORK_SESSION }
+    : baseWorkSession
+  const persistActiveTripSnapshot = (snapshot: ActiveTripSnapshot) => {
+    if (reviewDemoMode) {
+      saveReviewDemoActiveTripSnapshot(snapshot)
+      return
+    }
+
+    saveActiveTripSnapshot(snapshot)
+  }
+  const clearPersistedActiveTripSnapshot = () => {
+    if (reviewDemoMode) {
+      clearReviewDemoActiveTripSnapshot()
+      return
+    }
+
+    clearActiveTripSnapshot()
+  }
   const syncedActiveTripKeyRef = useRef('')
+
+  useEffect(() => {
+    if (!reviewDemoMode) {
+      return
+    }
+
+    if (!reservationTripContext && !restoredTripSnapshot) {
+      navigate(withReviewDemoSearch('/review-demo/reservations'), { replace: true })
+    }
+  }, [navigate, reservationTripContext, restoredTripSnapshot, reviewDemoMode])
+
   const currentScope = tenantScopeFromSession(workSession.currentSession)
   const currentFranchiseeId = currentScope.franchiseeId
   const currentStoreId = currentScope.storeId
@@ -928,6 +1007,10 @@ export function CasePage() {
       (!isTripStarted && !isGpsActive))
 
   useEffect(() => {
+    if (reviewDemoMode) {
+      return
+    }
+
     const workSessionId = workSession.currentSession?.id
     if (!workSessionId) {
       return
@@ -1061,7 +1144,7 @@ export function CasePage() {
       return
     }
 
-    clearActiveTripSnapshot()
+    clearPersistedActiveTripSnapshot()
     setStatus('案件終了')
     setCaseSaveState('saved')
     setSettlementFlowStep('saved')
@@ -1186,6 +1269,34 @@ export function CasePage() {
 
 
   useEffect(() => {
+    if (!reviewDemoMode) {
+      return
+    }
+
+    const settings = getReviewDemoMeterSettings()
+    latestMeterSettingsRef.current = settings
+    const selectedSettings = selectMeterModeSettings(settings, resolveMeterSettingsMode(meterMode))
+    setCurrentMeterSettings(selectedSettings)
+    setCurrentBasicFareSettings(selectedSettings.basicFare)
+    setCurrentWaitingFareSettings(selectedSettings.waitingFare)
+    setCurrentEscortFareSettings(selectedSettings.escortFare)
+    setCurrentCareOptionMaster(selectedSettings.assistItems)
+    setCurrentDispatchMenuItems(selectedSettings.dispatchMenuItems)
+    setCurrentSpecialVehicleMenuItems(selectedSettings.specialVehicleMenuItems)
+    setCurrentExpensePresets(settings.expensePresets)
+    setAreMeterPermissionsLoaded(true)
+    setMeterPermissions({ gps: true, time: true, obd: true })
+    setVehicles([REVIEW_DEMO_VEHICLE])
+    setSelectedVehicleId(REVIEW_DEMO_VEHICLE.id)
+    setSettingsMessage('審査用デモ設定を読み込みました。')
+  }, [meterMode, reviewDemoMode])
+
+
+  useEffect(() => {
+    if (reviewDemoMode) {
+      return undefined
+    }
+
     let isMounted = true
 
     const unsubscribe = subscribeMeterSettings(
@@ -1236,6 +1347,10 @@ export function CasePage() {
 
 
   useEffect(() => {
+    if (reviewDemoMode) {
+      return undefined
+    }
+
     let isMounted = true
 
     void (async () => {
@@ -1556,7 +1671,7 @@ export function CasePage() {
       return
     }
 
-    saveActiveTripSnapshot({
+    persistActiveTripSnapshot({
       activeTimer,
       activityHistories,
       billableTimeStarted,
@@ -1982,7 +2097,11 @@ export function CasePage() {
 
   const capturePickupLocation = () => {
     console.log('[住所取得診断] 伺い先住所取得を開始します。')
-    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+    const capturePromise = (
+      reviewDemoMode
+        ? captureReviewDemoPickupLocation()
+        : captureAddressWithLatestGps(gps.position)
+    ).then((location) => {
       console.log('[住所取得診断] 伺い先住所取得結果を案件画面へ反映します。', {
         hasAddress: Boolean(location.address),
         location,
@@ -2004,7 +2123,11 @@ export function CasePage() {
 
   const captureDropoffLocation = () => {
     console.log('[住所取得診断] 送り先住所取得を開始します。')
-    const capturePromise = captureAddressWithLatestGps(gps.position).then((location) => {
+    const capturePromise = (
+      reviewDemoMode
+        ? captureReviewDemoDropoffLocation()
+        : captureAddressWithLatestGps(gps.position)
+    ).then((location) => {
       console.log('[住所取得診断] 送り先住所取得結果を案件画面へ反映します。', {
         hasAddress: Boolean(location.address),
         location,
@@ -2111,11 +2234,14 @@ export function CasePage() {
       }
 
       try {
-        const assignment = await generateCaseNumber({
-          franchiseeId: workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
-          storeId: workSession.currentSession.storeId,
-          storeName: workSession.currentSession.storeName,
-        })
+        const assignment = reviewDemoMode
+          ? createReviewDemoCaseNumberAssignment()
+          : await generateCaseNumber({
+              franchiseeId:
+                workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+              storeId: workSession.currentSession.storeId,
+              storeName: workSession.currentSession.storeName,
+            })
 
         caseNumberAssignmentRef.current = assignment
         setCaseNumber(assignment.caseNumber)
@@ -2501,7 +2627,7 @@ export function CasePage() {
 
   const handleStartRegularMeterTrip = () => {
     clearPostSettlementLock()
-    clearActiveTripSnapshot()
+    clearPersistedActiveTripSnapshot()
     clearReservationTripContext()
     navigate('/case/start')
   }
@@ -2516,12 +2642,26 @@ export function CasePage() {
     setIsFixedCompleteLoading(true)
     setTripStartNotice('')
 
+    if (reviewDemoMode) {
+      clearPersistedActiveTripSnapshot()
+      clearReviewDemoReservationTripContext()
+      markReviewDemoRunCompleted()
+      setFixedCompleteState('done')
+      setCaseSaveMessage(
+        options?.isPassengerChange
+          ? '審査用デモとして旅客都合変更を完了しました。本番データには保存されていません。'
+          : '審査用デモとして事前確定Mを完了しました。本番データには保存されていません。',
+      )
+      setIsFixedCompleteLoading(false)
+      return true
+    }
+
     try {
       const completionPayload = buildCompleteFixedFareRunPayload(
         options?.preFixedFareException ?? null,
       )
       await completeFixedFareRun(reservationId, completionPayload)
-      clearActiveTripSnapshot()
+      clearPersistedActiveTripSnapshot()
       clearReservationTripContext()
       setFixedCompleteState('done')
       setCaseSaveMessage(
@@ -2907,7 +3047,7 @@ export function CasePage() {
 
     // Persist immediately on waiting / accompanying transitions so power-off keeps the start time.
     if (isProtectedOperationStatus(nextStatus) && caseSaveState !== 'saved') {
-      saveActiveTripSnapshot({
+      persistActiveTripSnapshot({
         activeTimer: nextActiveTimer,
         activityHistories: nextActivityHistories,
         billableTimeStarted: nextBillableTimeStarted,
@@ -2969,7 +3109,7 @@ export function CasePage() {
   const handleCaseClose = async () => {
     if (caseSaveState === 'saved' || caseSaveState === 'saving') {
       if (meterMode !== 'fixed' || fixedCompleteState === 'done') {
-        clearActiveTripSnapshot()
+        clearPersistedActiveTripSnapshot()
       }
       handleStatusChange('案件終了')
       return savedCaseRecord
@@ -3010,7 +3150,9 @@ export function CasePage() {
 
     handleStatusChange('案件終了')
     setCaseSaveState('saving')
-    setCaseSaveMessage('Firestoreへ保存中です。')
+    setCaseSaveMessage(
+      reviewDemoMode ? '審査用デモデータを保存中です。' : 'Firestoreへ保存中です。',
+    )
 
     try {
       const gpsLogsToSave = gps.gpsRaw.getGpsLogs()
@@ -3072,6 +3214,46 @@ export function CasePage() {
               taxiTickets,
               waitingSeconds: adjustedWaitingSeconds,
             })
+
+      if (reviewDemoMode) {
+        const savedRecord = buildReviewDemoSavedCaseRecord({
+          caseNumber,
+          caseNumberAssignment: currentCaseNumberAssignment,
+          fareSnapshot: currentFareSnapshot,
+          closedAt,
+          startedAt: operationStartedAtRef.current,
+          endedAt: operationEndedAtRef.current,
+          settlementBreakdown,
+          paymentMethod,
+          payments,
+          receiptName,
+          reservationTripContext,
+          fixedFareRun,
+          additionalRouteFareYen,
+          additionalCareFareYen,
+          routeChangeLogs,
+          preFixedFareSaveExtras,
+          pickupLocation: pickupLocationRef.current,
+          dropoffLocation: dropoffLocationRef.current,
+          drivingSeconds: finalDrivingSeconds,
+          waitingSeconds: adjustedWaitingSeconds,
+          accompanyingSeconds: adjustedAccompanyingSeconds,
+        })
+
+        clearReviewDemoActiveTripSnapshot()
+        writeReviewDemoPostSettlementLock(caseNumber)
+        setPostSettlementLock({
+          caseNumber,
+          lockedAt: new Date().toISOString(),
+        })
+        setSavedCaseRecord(savedRecord)
+        setCaseSaveState('saved')
+        setCaseSaveMessage(
+          '審査用デモとして保存しました（本番データには保存されていません）。レシート・領収書は任意で発行できます。',
+        )
+        return savedRecord
+      }
+
       const savedRecordRef = await saveCaseRecord({
         caseNumber,
         caseDate: currentCaseNumberAssignment?.caseDate,
@@ -3285,7 +3467,7 @@ export function CasePage() {
       }
 
       if (meterMode !== 'fixed') {
-        clearActiveTripSnapshot()
+        clearPersistedActiveTripSnapshot()
       }
 
       const workSessionId = workSession.currentSession?.id
@@ -3497,10 +3679,12 @@ export function CasePage() {
     }
 
     try {
-      const latestMeterSettings = await fetchMeterSettings({
-        franchiseeId: currentFranchiseeId,
-        storeId: currentStoreId,
-      })
+      const latestMeterSettings = reviewDemoMode
+        ? getReviewDemoMeterSettings()
+        : await fetchMeterSettings({
+            franchiseeId: currentFranchiseeId,
+            storeId: currentStoreId,
+          })
       await downloadThermalReceiptPdf(savedCaseRecord, latestMeterSettings, {
         customerName: savedCaseRecord.receiptName || receiptName,
         expenseItems: expenses,
@@ -3523,7 +3707,9 @@ export function CasePage() {
     }
 
     try {
-      const latestMeterSettings = await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
+      const latestMeterSettings = reviewDemoMode
+        ? getReviewDemoMeterSettings()
+        : await fetchMeterSettings({ franchiseeId: currentFranchiseeId, storeId: currentStoreId })
       await downloadReceiptPdf(savedCaseRecord, latestMeterSettings, {
         customerName: savedCaseRecord.receiptName || receiptName,
         issuerName: latestMeterSettings.receipt.issuerName,
@@ -3583,7 +3769,7 @@ export function CasePage() {
     dropoffCapturePromiseRef.current = null
     obdRestoreConnectAttemptedRef.current = false
     obdIdleConnectAttemptedRef.current = false
-    clearActiveTripSnapshot()
+    clearPersistedActiveTripSnapshot()
     clearPostSettlementLock()
     setPostSettlementLock(null)
 
@@ -5228,15 +5414,17 @@ export function CasePage() {
                   <strong>{formatFareYen(savedCaseRecord.totalFareYen)}円</strong>
                 </div>
                 <div className="receipt-dialog-actions">
-                  <button
-                    className="receipt-dialog-primary"
-                    type="button"
-                    onClick={() => {
-                      void handleThermalReceiptPrint()
-                    }}
-                  >
-                    領収書印刷
-                  </button>
+                  {!reviewDemoMode ? (
+                    <button
+                      className="receipt-dialog-primary"
+                      type="button"
+                      onClick={() => {
+                        void handleThermalReceiptPrint()
+                      }}
+                    >
+                      領収書印刷
+                    </button>
+                  ) : null}
                   {canSaveReceiptPdf ? (
                     <button
                       className="receipt-dialog-secondary"
@@ -5258,7 +5446,7 @@ export function CasePage() {
                     A4領収書(PDF)
                   </button>
                 </div>
-                {meterMode === 'fixed' && fixedCompleteState === 'error' ? (
+                {meterMode === 'fixed' && fixedCompleteState === 'error' && !reviewDemoMode ? (
                   <button
                     className="r9-flow-primary"
                     type="button"
@@ -5273,6 +5461,15 @@ export function CasePage() {
                     className="secondary-action"
                     type="button"
                     onClick={() => {
+                      if (reviewDemoMode) {
+                        navigate(
+                          withReviewDemoSearch(
+                            `/review-demo/reservations/${encodeURIComponent(savedCaseRecord.reservationId ?? REVIEW_DEMO_RESERVATION_ID)}`,
+                          ),
+                        )
+                        return
+                      }
+
                       navigate(`/reservations/${encodeURIComponent(savedCaseRecord.reservationId ?? '')}`)
                     }}
                   >
@@ -5402,6 +5599,9 @@ export function CasePage() {
           escortFareYen={settlementBreakdown.escortFareYen}
           overallStops={preFixedOverallStops}
           fareSettings={currentBasicFareSettings}
+          captureLocation={
+            reviewDemoMode ? captureReviewDemoCurrentLocation : undefined
+          }
           onClose={() => setIsRouteChangeDialogOpen(false)}
           onEndHere={(log) => { void handleRouteChangeEndHere(log) }}
           onTrafficDetour={(log) => { void handleRouteChangeTrafficDetour(log) }}

@@ -34,6 +34,7 @@ type PreFixedFareRouteChangeDialogProps = {
   escortFareYen: number
   overallStops: PreFixedFareRouteStop[]
   fareSettings: BasicFareSettings
+  captureLocation?: () => Promise<CapturedAddressLocation>
   onClose: () => void
   onEndHere: (log: PreFixedFareRouteChangeLog) => void
   onTrafficDetour: (log: PreFixedFareRouteChangeLog) => void
@@ -96,6 +97,7 @@ export function PreFixedFareRouteChangeDialog({
   escortFareYen,
   overallStops,
   fareSettings,
+  captureLocation = captureCurrentAddressLocation,
   onClose,
   onEndHere,
   onTrafficDetour,
@@ -140,7 +142,7 @@ export function PreFixedFareRouteChangeDialog({
 
     let cancelled = false
 
-    void captureCurrentAddressLocation()
+    void captureLocation()
       .then((captured) => {
         if (cancelled) {
           return
@@ -169,7 +171,7 @@ export function PreFixedFareRouteChangeDialog({
     return () => {
       cancelled = true
     }
-  }, [isOpen])
+  }, [captureLocation, isOpen])
 
   if (!isOpen) {
     return null

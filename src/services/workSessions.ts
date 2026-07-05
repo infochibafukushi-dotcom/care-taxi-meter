@@ -12,6 +12,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
 import { getFranchiseeId, getStoreId, isHqRole, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
@@ -442,6 +443,10 @@ export async function updateWorkSessionActiveTrip({
   status: string | null
   workSessionId: string
 }) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
   const db = getFirestore(getFirebaseApp())
   await runTransaction(db, async (transaction) => {
     const workSessionRef = getWorkSessionRef(workSessionId)

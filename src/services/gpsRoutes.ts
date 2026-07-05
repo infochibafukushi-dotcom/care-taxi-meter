@@ -3,6 +3,7 @@ import { getFirebaseApp } from '../lib/firebase'
 import { GPS_CAPTURE_INTERVAL_SECONDS } from '../hooks/useCurrentPosition'
 import { calculateDistanceMeters } from '../utils/distance'
 import type { TenantAccessScope } from './tenancy'
+import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import type {
   GpsLogEntry,
   GpsRouteBounds,
@@ -332,6 +333,10 @@ export async function saveGpsRoute({
   closedAt,
   logs,
 }: SaveGpsRouteInput): Promise<boolean> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return false
+  }
+
   console.log('[GPS_ROUTE_DEBUG_3]', {
     caseRecordId,
     rawLogCount: logs.length,
