@@ -176,6 +176,10 @@ import {
   REVIEW_DEMO_WORK_SESSION,
   withReviewDemoSearch,
 } from '../utils/reviewDemo'
+import {
+  REVIEW_DEMO_FARE_COMPOSITION_NOTE,
+  buildReviewDemoFixedFareBreakdown,
+} from '../utils/reviewDemoFare'
 
 type KeypadTarget = {
   amountYen: number
@@ -1475,7 +1479,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
     if (!restoredTripSnapshot) {
       setCaseSaveState('idle')
-      setCaseSaveMessage('予約連携の事前確定Mを読み込みました。')
+      setCaseSaveMessage(
+        reviewDemoMode
+          ? '予約連携の事前確定運賃を読み込みました。'
+          : '予約連携の事前確定Mを読み込みました。',
+      )
       setSettingsMessage(`予約 ${reservationTripContext.reservationId} の案内を開始できます。`)
     }
 
@@ -1595,7 +1603,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const settlementBreakdown = useMemo(() => {
     // 事前確定Mでは距離加算の通常内訳を使わず、予約確定運賃ベースの内訳のみ表示する。
     if (meterMode === 'fixed') {
-      return buildFixedFareBreakdown({
+      const baseBreakdown = buildFixedFareBreakdown({
         confirmedFareYen: resolvedConfirmedFareYen,
         additionalRouteFareYen,
         additionalCareFareYen,
@@ -1614,6 +1622,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           discount: settlementDiscount,
         },
       })
+
+      return reviewDemoMode
+        ? buildReviewDemoFixedFareBreakdown(baseBreakdown)
+        : baseBreakdown
     }
 
     return fareBreakdown
@@ -1629,6 +1641,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     isDisabilityDiscount,
     meterMode,
     resolvedConfirmedFareYen,
+    reviewDemoMode,
     selectedCareOptions,
     selectedDispatchCharges,
     selectedSpecialVehicleCharges,
@@ -2256,7 +2269,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           return
         }
 
-        setSettingsMessage('事前確定Mで運行を開始しました。')
+        setSettingsMessage(
+          reviewDemoMode
+            ? '事前確定運賃で運行を開始しました。'
+            : '事前確定Mで運行を開始しました。',
+        )
         setCaseSaveState('idle')
         setCaseSaveMessage('固定運賃で運行を開始しました。')
         setTripStartNotice('')
@@ -2655,7 +2672,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       setCaseSaveMessage(
         options?.isPassengerChange
           ? '審査用デモとして旅客都合変更を完了しました。本番データには保存されていません。'
-          : '審査用デモとして事前確定Mを完了しました。本番データには保存されていません。',
+          : '審査用デモとして事前確定運賃を完了しました。本番データには保存されていません。',
       )
       setIsFixedCompleteLoading(false)
       return true
@@ -4012,7 +4029,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   合計金額
                   <span className="meter-mode-badge-row">
                     <span className={`meter-mode-badge meter-mode-badge--${meterMode}`}>
-                      {meterModeLabels[meterMode]}
+                      {meterMode === 'fixed' && reviewDemoMode
+                        ? '事前確定運賃'
+                        : meterModeLabels[meterMode]}
                     </span>
                     {meterMode === 'obd' ? (
                       <ObdConnectionIndicator indicator={gps.obdIndicator} />
@@ -4042,12 +4061,16 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </div>
                 ) : null}
                 {meterMode === 'fixed' && resolvedConfirmedFareYen > 0 ? (
-                  <p className="fixed-fare-running-label">
-                    事前確定運賃 {formatFareYen(resolvedConfirmedFareYen)}円
-                    {additionalRouteFareYen > 0
-                      ? ` ＋ 追加区間 ${formatFareYen(additionalRouteFareYen)}円`
-                      : ''}
-                  </p>
+                  reviewDemoMode ? (
+                    <p className="fixed-fare-running-label">{REVIEW_DEMO_FARE_COMPOSITION_NOTE}</p>
+                  ) : (
+                    <p className="fixed-fare-running-label">
+                      事前確定運賃 {formatFareYen(resolvedConfirmedFareYen)}円
+                      {additionalRouteFareYen > 0
+                        ? ` ＋ 追加区間 ${formatFareYen(additionalRouteFareYen)}円`
+                        : ''}
+                    </p>
+                  )
                 ) : null}
               </div>
 
@@ -4214,7 +4237,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </div>
                 </div>
               ) : meterMode === 'fixed' && isFixedInOperation ? (
-                <div className="pre-fixed-main-actions" aria-label="事前確定M メイン操作">
+                <div
+                  className="pre-fixed-main-actions"
+                  aria-label={reviewDemoMode ? '事前確定運賃 メイン操作' : '事前確定M メイン操作'}
+                >
                   <div className="r9-timer-display">
                     <span>運行時間</span>
                     <strong>{drivingClockLabel}</strong>
@@ -4305,11 +4331,19 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           <section className="r9-center-panel" aria-label="料金内訳">
             <MeterFareBreakdownPanel
               breakdown={settlementBreakdown}
-              title={meterMode === 'fixed' ? '料金内訳（事前確定M）' : '料金内訳'}
+              title={
+                meterMode === 'fixed'
+                  ? reviewDemoMode
+                    ? '料金内訳（事前確定運賃）'
+                    : '料金内訳（事前確定M）'
+                  : '料金内訳'
+              }
               totalLabel={meterMode === 'fixed' ? '合計請求額' : '合計金額'}
               footerNote={
                 meterMode === 'fixed'
-                  ? '※本運賃は事前確定済のため、メーターは加算されません。'
+                  ? reviewDemoMode
+                    ? REVIEW_DEMO_FARE_COMPOSITION_NOTE
+                    : '※本運賃は事前確定済のため、メーターは加算されません。'
                   : undefined
               }
               headerEnd={(

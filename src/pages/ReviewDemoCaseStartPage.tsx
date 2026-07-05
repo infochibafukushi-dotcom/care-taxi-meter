@@ -48,7 +48,7 @@ export function ReviewDemoCaseStartPage() {
       <ReviewDemoPageShell backTo={withReviewDemoSearch(`/review-demo/reservations/${reservationId}`)}>
         <section className="content-card">
           <p className="case-error" role="alert">
-            予約連携情報が見つかりません。予約詳細から再度「事前確定Mで開始」してください。
+            予約連携情報が見つかりません。予約詳細から再度「事前確定運賃で運行開始」してください。
           </p>
         </section>
       </ReviewDemoPageShell>

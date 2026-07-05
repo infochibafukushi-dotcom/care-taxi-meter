@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   buildReviewDemoReservationTripContext,
-  reviewDemoConfirmedFareBreakdownTotalYen,
   reviewDemoPreFixedFareReservationDetail,
+  REVIEW_DEMO_ASSIST_FEE_YEN,
+  REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+  REVIEW_DEMO_TOTAL_FARE_YEN,
 } from '../fixtures/reviewDemoPreFixedFare'
 import { ReviewDemoPageShell } from '../components/reviewDemo/ReviewDemoPageShell'
 import { formatFareYen } from '../services/fare'
@@ -80,6 +82,8 @@ export function ReviewDemoReservationDetailPage() {
 
   const quoteServiceFees = reservation.quoteSnapshot.serviceFees
   const confirmedRouteView = buildConfirmedRouteView(buildReviewDemoReservationTripContext())
+  const assistFeeYen =
+    quoteServiceFees.find((fee) => fee.key === 'assistFee')?.amount ?? REVIEW_DEMO_ASSIST_FEE_YEN
 
   const handleStartFixedFareRun = () => {
     if (isStarting) {
@@ -131,8 +135,8 @@ export function ReviewDemoReservationDetailPage() {
         ) : null}
 
         <div className="reservation-detail-grid">
-          <section className="reservation-detail-section" aria-label="事前確定M 運行">
-            <h2>事前確定M 運行</h2>
+          <section className="reservation-detail-section" aria-label="事前確定運賃 運行">
+            <h2>事前確定運賃 運行</h2>
             {reservation.meterRunStatus === 'not_started' ? (
               <button
                 className="primary-action"
@@ -140,19 +144,19 @@ export function ReviewDemoReservationDetailPage() {
                 disabled={isStarting}
                 onClick={handleStartFixedFareRun}
               >
-                {isStarting ? '開始処理中…' : '事前確定Mで開始'}
+                {isStarting ? '開始処理中…' : '事前確定運賃で運行開始'}
               </button>
             ) : null}
             {reservation.meterRunStatus === 'in_progress' ? (
               <>
-                <p className="reservation-run-status">事前確定M 運行中</p>
+                <p className="reservation-run-status">事前確定運賃 運行中</p>
                 <button className="primary-action" type="button" onClick={handleReturnToActiveMeter}>
                   運行中のメーターへ戻る
                 </button>
               </>
             ) : null}
             {reservation.meterRunStatus === 'completed' ? (
-              <p className="reservation-run-status">事前確定M 完了</p>
+              <p className="reservation-run-status">事前確定運賃 完了</p>
             ) : null}
           </section>
 
@@ -192,7 +196,7 @@ export function ReviewDemoReservationDetailPage() {
                 <dd>{formatMeterRunStatus(reservation.meterRunStatus)}</dd>
               </div>
               <div>
-                <dt>事前確定M</dt>
+                <dt>事前確定運賃</dt>
                 <dd>{reservation.fixedFare.preFixedFareConfirmable ? '対象' : '対象外'}</dd>
               </div>
             </dl>
@@ -259,7 +263,7 @@ export function ReviewDemoReservationDetailPage() {
               </div>
               <div>
                 <dt>事前確定運賃</dt>
-                <dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd>
+                <dd>{formatFareYen(REVIEW_DEMO_PRE_FIXED_FARE_YEN)}円</dd>
               </div>
             </dl>
           </section>
@@ -268,34 +272,22 @@ export function ReviewDemoReservationDetailPage() {
             <h2>料金</h2>
             <dl className="reservation-detail-dl">
               <div>
-                <dt>確定運賃（予約時同意額）</dt>
-                <dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd>
+                <dt>事前確定運賃</dt>
+                <dd>{formatFareYen(REVIEW_DEMO_PRE_FIXED_FARE_YEN)}円</dd>
+              </div>
+              <div>
+                <dt>介助料金</dt>
+                <dd>{formatFareYen(assistFeeYen)}円</dd>
+              </div>
+              <div>
+                <dt>合計</dt>
+                <dd>{formatFareYen(REVIEW_DEMO_TOTAL_FARE_YEN)}円</dd>
               </div>
               <div>
                 <dt>運賃種別</dt>
                 <dd>{reservation.fixedFare.fareType}</dd>
               </div>
             </dl>
-
-            <div className="reservation-fare-breakdown">
-              <h3>確定運賃の内訳</h3>
-              <dl className="reservation-detail-dl">
-                <div>
-                  <dt>運賃本体</dt>
-                  <dd>{formatFareYen(reservation.fixedFare.fixedFareTotalYen)}円</dd>
-                </div>
-                {quoteServiceFees.map((fee) => (
-                  <div key={fee.key}>
-                    <dt>{fee.label}</dt>
-                    <dd>{formatFareYen(fee.amount)}円</dd>
-                  </div>
-                ))}
-                <div>
-                  <dt>内訳合計</dt>
-                  <dd>{formatFareYen(reviewDemoConfirmedFareBreakdownTotalYen)}円</dd>
-                </div>
-              </dl>
-            </div>
 
             <dl className="reservation-detail-dl">
               <div>

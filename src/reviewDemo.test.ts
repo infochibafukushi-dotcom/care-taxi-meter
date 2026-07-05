@@ -10,7 +10,12 @@ import {
   reviewDemoConfirmedFareBreakdownTotalYen,
   reviewDemoPreFixedFareReservationDetail,
   reviewDemoPreFixedFareReservationSummary,
+  REVIEW_DEMO_ASSIST_FEE_YEN,
+  REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+  REVIEW_DEMO_TOTAL_FARE_YEN,
 } from '../src/fixtures/reviewDemoPreFixedFare'
+import { buildReviewDemoFixedFareBreakdown } from '../src/utils/reviewDemoFare'
+import { buildFixedFareBreakdown } from '../src/services/fare'
 import { generateCaseNumber, recordReceiptReissue, saveCaseRecord } from '../src/services/caseRecords'
 import {
   completeFixedFareRun,
@@ -40,13 +45,37 @@ describe('review demo fixture data', () => {
   it('contains the expected reservation values', () => {
     expect(reviewDemoPreFixedFareReservationSummary.reservationId).toBe('PF-REVIEW-001')
     expect(reviewDemoPreFixedFareReservationDetail.customer.name).toBe('審査用デモ')
-    expect(reviewDemoPreFixedFareReservationDetail.fixedFare.confirmedFareYen).toBe(3740)
+    expect(reviewDemoPreFixedFareReservationDetail.fixedFare.confirmedFareYen).toBe(
+      REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+    )
+    expect(REVIEW_DEMO_PRE_FIXED_FARE_YEN).toBe(3740)
+    expect(REVIEW_DEMO_ASSIST_FEE_YEN).toBe(1100)
     expect(reviewDemoConfirmedFareBreakdownTotalYen).toBe(4840)
+    expect(REVIEW_DEMO_TOTAL_FARE_YEN).toBe(4840)
     expect(reviewDemoPreFixedFareReservationDetail.trip.pickupAddress).toBe('中央区出洲港8-3-2')
     expect(reviewDemoPreFixedFareReservationDetail.trip.destinationAddress).toBe('千葉メディカルセンター')
     expect(reviewDemoPreFixedFareReservationDetail.consent.consentAt).toBeTruthy()
     expect(reviewDemoPreFixedFareReservationDetail.meterRunStatus).toBe('not_started')
     expect(reviewDemoPreFixedFareReservationDetail.fixedFare.fareType).toBe('事前確定運賃')
+  })
+})
+
+describe('review demo fixed fare breakdown', () => {
+  it('includes pre-fixed fare, assist fee, and total for the meter UI', () => {
+    const baseBreakdown = buildFixedFareBreakdown({
+      confirmedFareYen: REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+      careOptions: [],
+      customFees: [],
+      expenses: [],
+    })
+    const breakdown = buildReviewDemoFixedFareBreakdown(baseBreakdown)
+
+    expect(breakdown.totalFareYen).toBe(4840)
+    expect(breakdown.lineItems).toEqual([
+      { label: '事前確定運賃', amountYen: 3740 },
+      { label: '介助料金', amountYen: 1100 },
+    ])
+    expect(breakdown.careOptionFareYen).toBe(1100)
   })
 })
 

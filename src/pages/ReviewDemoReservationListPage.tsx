@@ -1,6 +1,7 @@
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   reviewDemoPreFixedFareReservationSummary,
+  REVIEW_DEMO_TOTAL_FARE_YEN,
 } from '../fixtures/reviewDemoPreFixedFare'
 import { formatFareYen } from '../services/fare'
 import {
@@ -92,7 +93,11 @@ export function ReviewDemoReservationListPage() {
               <strong>{formatMeterRunStatus(reservation.meterRunStatus)}</strong>
             </span>
             <span>
-              <small>確定運賃</small>
+              <small>合計</small>
+              <strong>{formatFareYen(REVIEW_DEMO_TOTAL_FARE_YEN)}円</strong>
+            </span>
+            <span>
+              <small>事前確定運賃</small>
               <strong>{formatFareYen(reservation.confirmedFareYen)}円</strong>
             </span>
             <span>

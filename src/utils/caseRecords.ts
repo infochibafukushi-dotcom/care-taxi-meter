@@ -5,8 +5,13 @@ import {
   PRE_FIXED_FARE_PASSENGER_CHANGE_PANEL_TITLE,
   isPreFixedFarePassengerChangeCompletion,
 } from '../types/preFixedFare'
+import {
+  REVIEW_DEMO_ASSIST_FEE_YEN,
+  REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+} from '../fixtures/reviewDemoPreFixedFare'
 import { getDatePartsInJapan, getMonthRangeInJapan, getTodayRangeInJapan } from './japanDate'
 import { meterModeLabels } from './meterConstants'
+import { isReviewDemoCaseRecord } from './reviewDemoFare'
 
 export { meterModeLabels }
 export { getMonthRangeInJapan, getTodayRangeInJapan }
@@ -110,6 +115,39 @@ export function createPrimaryFareReceiptLines(
       additionalRouteFareYen > 0 ||
       additionalCareFareYen > 0 ||
       (caseRecord.routeChangeLogs?.length ?? 0) > 0
+
+    if (isReviewDemoCaseRecord(caseRecord)) {
+      const lines: ReceiptFareLine[] = [
+        {
+          label: '事前確定運賃',
+          value: `${formatFareYen(REVIEW_DEMO_PRE_FIXED_FARE_YEN)}円`,
+          amountYen: REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+        },
+        {
+          label: '介助料金',
+          value: `${formatFareYen(REVIEW_DEMO_ASSIST_FEE_YEN)}円`,
+          amountYen: REVIEW_DEMO_ASSIST_FEE_YEN,
+        },
+      ]
+
+      if (additionalRouteFareYen > 0) {
+        lines.push({
+          label: '追加区間運賃',
+          value: `${formatFareYen(additionalRouteFareYen)}円`,
+          amountYen: additionalRouteFareYen,
+        })
+      }
+
+      if (additionalCareFareYen > 0) {
+        lines.push({
+          label: '追加介助料',
+          value: `${formatFareYen(additionalCareFareYen)}円`,
+          amountYen: additionalCareFareYen,
+        })
+      }
+
+      return lines
+    }
 
     if (!hasRouteChangeExtras) {
       return [

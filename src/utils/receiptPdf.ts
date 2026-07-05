@@ -4,6 +4,7 @@ import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
+import { isReviewDemoCaseRecord } from './reviewDemoFare'
 import {
   createPdfFileName,
   drawPdfLine,
@@ -48,7 +49,9 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
       (caseRecord.routeChangeLogs?.length ?? 0) > 0
     )
   const settlementCareFareYen = Math.max(caseRecord.careOptionFareYen - additionalCareFareYen, 0)
-  const careOptionLines = isFixedMeter
+  const careOptionLines = isReviewDemoCaseRecord(caseRecord)
+    ? []
+    : isFixedMeter
     ? hasFixedExtras && settlementCareFareYen > 0
       ? [
           {
