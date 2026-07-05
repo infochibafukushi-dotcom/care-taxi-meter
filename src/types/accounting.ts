@@ -49,12 +49,18 @@ export const PL_TREATMENT_LABELS: Record<PlTreatment, string> = {
 
 export type AccountingPaymentMethod = (typeof PAYMENT_METHODS)[number]
 
+export const INVOICE_CHECK_STATUSES = ['未確認', '登録あり', '登録なし', '対象外'] as const
+
+export type InvoiceCheckStatus = (typeof INVOICE_CHECK_STATUSES)[number]
+
 export const RECEIPT_STATUSES = ['active', 'invalidated'] as const
 
 export type ReceiptStatus = (typeof RECEIPT_STATUSES)[number]
 
 export type OcrParsedFields = {
   transactionDate?: string
+  receiptDate?: string
+  postingDate?: string
   vendorName?: string
   description?: string
   taxIncludedAmount?: number
@@ -94,6 +100,9 @@ export type AccountingExpenseInput = AccountingTenantFields &
     consumptionTaxAmount: number
     paymentMethod: AccountingPaymentMethod | ''
     invoiceNumber?: string
+    invoiceCheckStatus?: InvoiceCheckStatus
+    invoiceRegisteredName?: string
+    invoiceCheckedAt?: string
     receiptImageUrl?: string
     receiptStoragePath?: string
     receiptId?: string

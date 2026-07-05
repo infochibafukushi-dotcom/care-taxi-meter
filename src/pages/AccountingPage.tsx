@@ -17,6 +17,7 @@ import {
   invalidateAccountingAdjustment,
 } from '../services/accountingAdjustments'
 import { uploadAccountingReceiptImage } from '../services/accountingReceipts'
+import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
@@ -33,6 +34,7 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
 import {
   EXPENSE_CATEGORIES,
+  INVOICE_CHECK_STATUSES,
   PAYMENT_METHODS,
   PL_TREATMENTS,
   PL_TREATMENT_LABELS,
@@ -45,6 +47,7 @@ import {
   type AccountingExpenseInput,
   type ExpenseCategory,
   type ExpenseConfirmationStatus,
+  type InvoiceCheckStatus,
   type PlTreatment,
   type SalesCategory,
 } from '../types/accounting'
@@ -67,6 +70,11 @@ import {
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
 import { formatCaseDateTime } from '../utils/caseRecords'
+import {
+  applyAccountingReceiptOcrToExpense,
+  formatYenInputDisplay,
+  parseYenInput,
+} from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
 type AccountingTab = 'sales' | 'expenses' | 'pl' | 'export'
@@ -146,6 +154,9 @@ export function AccountingPage() {
   const [editingExpenseId, setEditingExpenseId] = useState('')
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false)
+  const [isRunningOcr, setIsRunningOcr] = useState(false)
+  const [isConsumptionTaxManual, setIsConsumptionTaxManual] = useState(false)
+  const [ocrCandidateNotice, setOcrCandidateNotice] = useState('')
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
 
@@ -298,6 +309,23 @@ export function AccountingPage() {
   )
   const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他'] > 0
 
+  const buildFreshExpenseForm = () =>
+    buildEmptyExpenseInput({
+      franchiseeId: tenantScope.franchiseeId,
+      storeId: tenantScope.storeId,
+      staffId,
+      staffName,
+    })
+
+  const resetExpenseFormToNew = () => {
+    setEditingExpenseId('')
+    setIsConsumptionTaxManual(false)
+    setOcrCandidateNotice('')
+    setExpenseForm(buildFreshExpenseForm())
+  }
+
+  const isNewExpenseEntry = !editingExpenseId
+
   const handleExpenseFieldChange = <K extends keyof AccountingExpenseInput>(
     key: K,
     value: AccountingExpenseInput[K],
@@ -309,10 +337,10 @@ export function AccountingPage() {
 
       const next = { ...current, [key]: value, updatedBy: staffId, updatedByName: staffName }
 
-      if (key === 'taxIncludedAmount' || key === 'taxRate') {
+      if (key === 'taxRate' && !isConsumptionTaxManual) {
         next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(
-          key === 'taxIncludedAmount' ? Number(value) : next.taxIncludedAmount,
-          key === 'taxRate' ? Number(value) : next.taxRate,
+          next.taxIncludedAmount,
+          Number(value),
         )
       }
 
@@ -332,6 +360,61 @@ export function AccountingPage() {
 
       return next
     })
+  }
+
+  const handleTaxIncludedAmountChange = (raw: string) => {
+    const amount = parseYenInput(raw)
+    setExpenseForm((current) => {
+      if (!current) {
+        return current
+      }
+
+      const next = {
+        ...current,
+        taxIncludedAmount: amount,
+        updatedBy: staffId,
+        updatedByName: staffName,
+      }
+
+      if (!isConsumptionTaxManual) {
+        next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(amount, next.taxRate)
+      }
+
+      return next
+    })
+  }
+
+  const handleConsumptionTaxAmountChange = (raw: string) => {
+    setIsConsumptionTaxManual(true)
+    setExpenseForm((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        consumptionTaxAmount: parseYenInput(raw),
+        updatedBy: staffId,
+        updatedByName: staffName,
+      }
+    })
+  }
+
+  const handleRecalculateConsumptionTax = () => {
+    setExpenseForm((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        consumptionTaxAmount: calculateConsumptionTaxFromIncluded(current.taxIncludedAmount, current.taxRate),
+        updatedBy: staffId,
+        updatedByName: staffName,
+      }
+    })
+    setIsConsumptionTaxManual(false)
+    setStatusMessage('消費税額を再計算しました。')
   }
 
   const handleReceiptUpload = async (file: File | null) => {
@@ -362,11 +445,53 @@ export function AccountingPage() {
             }
           : current,
       )
-      setStatusMessage('証憑画像をアップロードしました。')
+      setStatusMessage('証憑画像をアップロードしました。OCR読取で候補を反映できます。')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '証憑画像のアップロードに失敗しました。')
     } finally {
       setIsUploadingReceipt(false)
+    }
+  }
+
+  const handleRunReceiptOcr = async () => {
+    if (!expenseForm?.receiptImageUrl) {
+      setErrorMessage('先に領収書画像をアップロードしてください。')
+      return
+    }
+
+    setIsRunningOcr(true)
+    setErrorMessage('')
+    setStatusMessage('')
+    setOcrCandidateNotice('')
+
+    try {
+      const result = await runAccountingReceiptOcr({
+        downloadUrl: expenseForm.receiptImageUrl,
+        receiptId: expenseForm.receiptId,
+      })
+
+      if (result.status === 'not_configured') {
+        setStatusMessage(result.message ?? 'OCR API が未設定です。手入力で続行できます。')
+        return
+      }
+
+      if (result.status === 'error') {
+        setErrorMessage(result.message ?? 'OCR の実行に失敗しました。')
+        return
+      }
+
+      setExpenseForm((current) =>
+        current ? applyAccountingReceiptOcrToExpense(current, result) : current,
+      )
+      setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
+      setOcrCandidateNotice(
+        'OCR候補をフォームに反映しました。日付・金額・仕入先等を確認し、経費科目は必ず手動で選択してから保存してください。',
+      )
+      setStatusMessage(result.message ?? 'OCR候補を反映しました。')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'OCR の実行に失敗しました。')
+    } finally {
+      setIsRunningOcr(false)
     }
   }
 
@@ -403,14 +528,7 @@ export function AccountingPage() {
       }
 
       setEditingExpenseId('')
-      setExpenseForm(
-        buildEmptyExpenseInput({
-          franchiseeId: tenantScope.franchiseeId,
-          storeId: tenantScope.storeId,
-          staffId,
-          staffName,
-        }),
-      )
+      resetExpenseFormToNew()
       await reloadExpensesAndAdjustments()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
@@ -426,6 +544,11 @@ export function AccountingPage() {
     }
 
     setEditingExpenseId(expenseId)
+    setIsConsumptionTaxManual(
+      expense.consumptionTaxAmount !==
+        calculateConsumptionTaxFromIncluded(expense.taxIncludedAmount, expense.taxRate),
+    )
+    setOcrCandidateNotice('')
     setExpenseForm({
       ...expense,
       receiptDate: getExpenseReceiptDate(expense),
@@ -467,15 +590,7 @@ export function AccountingPage() {
       await deleteAccountingExpense(expenseId)
 
       if (editingExpenseId === expenseId) {
-        setEditingExpenseId('')
-        setExpenseForm(
-          buildEmptyExpenseInput({
-            franchiseeId: tenantScope.franchiseeId,
-            storeId: tenantScope.storeId,
-            staffId,
-            staffName,
-          }),
-        )
+        resetExpenseFormToNew()
       }
 
       setStatusMessage('経費を削除しました。')
@@ -1030,11 +1145,65 @@ export function AccountingPage() {
         ) : null}
 
         {activeTab === 'expenses' && expenseForm ? (
-          <section className="accounting-panel" aria-label="経費入力">
+          <section className="accounting-panel accounting-expense-panel" aria-label="経費入力">
             <h2>{editingExpenseId ? '経費編集' : '経費入力'}</h2>
             <p className="accounting-note">
               OCR/AIの科目提案は参考値です。最終的な経費科目は必ず人が選択して確定してください。
             </p>
+
+            {ocrCandidateNotice ? (
+              <p className="accounting-suggestion" role="status">
+                {ocrCandidateNotice}
+              </p>
+            ) : null}
+
+            <section className="accounting-receipt-flow" aria-label="領収書OCR登録">
+              <h3>領収書から入力</h3>
+              <p className="accounting-note">
+                撮影または画像選択 → OCR読取（候補） → 内容確認 → 経費科目を手動選択 → 保存
+              </p>
+              <div className="accounting-receipt-actions">
+                <label className="accounting-receipt-upload-button primary-action">
+                  カメラで撮影
+                  <input
+                    accept="image/*"
+                    capture="environment"
+                    className="accounting-hidden-input"
+                    disabled={isUploadingReceipt || isRunningOcr}
+                    type="file"
+                    onChange={(event) => void handleReceiptUpload(event.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <label className="accounting-receipt-upload-button secondary-action">
+                  画像を選択
+                  <input
+                    accept="image/*"
+                    className="accounting-hidden-input"
+                    disabled={isUploadingReceipt || isRunningOcr}
+                    type="file"
+                    onChange={(event) => void handleReceiptUpload(event.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <button
+                  className="secondary-action"
+                  disabled={!expenseForm.receiptImageUrl || isUploadingReceipt || isRunningOcr}
+                  type="button"
+                  onClick={() => void handleRunReceiptOcr()}
+                >
+                  {isRunningOcr ? 'OCR読取中…' : 'OCR読取（候補を反映）'}
+                </button>
+              </div>
+              {isUploadingReceipt ? <p className="accounting-note">証憑画像をアップロード中…</p> : null}
+              {expenseForm.receiptImageUrl ? (
+                <div className="accounting-receipt-preview">
+                  <img alt="証憑プレビュー" src={expenseForm.receiptImageUrl} />
+                  <p>{expenseForm.receiptStoragePath}</p>
+                </div>
+              ) : null}
+              {expenseForm.ocrConfidence != null ? (
+                <p className="accounting-note">OCR信頼度（参考）: {(expenseForm.ocrConfidence * 100).toFixed(0)}%</p>
+              ) : null}
+            </section>
 
             <div className="accounting-form-grid">
               <label>
@@ -1108,26 +1277,44 @@ export function AccountingPage() {
               <label>
                 税込金額(円)
                 <input
-                  type="number"
-                  min="0"
-                  value={expenseForm.taxIncludedAmount}
-                  onChange={(event) =>
-                    handleExpenseFieldChange('taxIncludedAmount', Number(event.target.value))
-                  }
+                  inputMode="numeric"
+                  placeholder="例：551000"
+                  type="text"
+                  value={formatYenInputDisplay(expenseForm.taxIncludedAmount, isNewExpenseEntry)}
+                  onChange={(event) => handleTaxIncludedAmountChange(event.target.value)}
                 />
               </label>
               <label>
                 税率(%)
                 <input
-                  type="number"
+                  inputMode="decimal"
                   min="0"
+                  type="number"
                   value={expenseForm.taxRate}
                   onChange={(event) => handleExpenseFieldChange('taxRate', Number(event.target.value))}
                 />
               </label>
-              <label>
+              <label className="accounting-tax-field">
                 消費税額(円)
-                <input type="number" min="0" value={expenseForm.consumptionTaxAmount} readOnly />
+                <div className="accounting-tax-input-row">
+                  <input
+                    inputMode="numeric"
+                    placeholder="例：50090"
+                    type="text"
+                    value={formatYenInputDisplay(
+                      expenseForm.consumptionTaxAmount,
+                      isNewExpenseEntry && !isConsumptionTaxManual,
+                    )}
+                    onChange={(event) => handleConsumptionTaxAmountChange(event.target.value)}
+                  />
+                  <button
+                    className="secondary-action accounting-recalc-tax-button"
+                    type="button"
+                    onClick={handleRecalculateConsumptionTax}
+                  >
+                    税額を再計算
+                  </button>
+                </div>
               </label>
               <label>
                 支払方法
@@ -1157,6 +1344,46 @@ export function AccountingPage() {
                 />
               </label>
               <label>
+                インボイス確認
+                <select
+                  value={expenseForm.invoiceCheckStatus ?? '未確認'}
+                  onChange={(event) =>
+                    handleExpenseFieldChange('invoiceCheckStatus', event.target.value as InvoiceCheckStatus)
+                  }
+                >
+                  {INVOICE_CHECK_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                登録事業者名（手入力）
+                <input
+                  type="text"
+                  value={expenseForm.invoiceRegisteredName ?? ''}
+                  onChange={(event) => handleExpenseFieldChange('invoiceRegisteredName', event.target.value)}
+                />
+              </label>
+              <label>
+                インボイス確認日時
+                <input
+                  type="datetime-local"
+                  value={
+                    expenseForm.invoiceCheckedAt
+                      ? expenseForm.invoiceCheckedAt.slice(0, 16)
+                      : ''
+                  }
+                  onChange={(event) =>
+                    handleExpenseFieldChange(
+                      'invoiceCheckedAt',
+                      event.target.value ? `${event.target.value}:00` : '',
+                    )
+                  }
+                />
+              </label>
+              <label>
                 確認状態
                 <select
                   value={expenseForm.confirmationStatus}
@@ -1182,55 +1409,31 @@ export function AccountingPage() {
                   onChange={(event) => handleExpenseFieldChange('memo', event.target.value)}
                 />
               </label>
-              <label className="accounting-form-span-2">
-                証憑画像
-                <input
-                  accept="image/*"
-                  capture="environment"
-                  type="file"
-                  onChange={(event) => void handleReceiptUpload(event.target.files?.[0] ?? null)}
-                />
-              </label>
-              {expenseForm.receiptImageUrl ? (
-                <div className="accounting-receipt-preview accounting-form-span-2">
-                  <img alt="証憑プレビュー" src={expenseForm.receiptImageUrl} />
-                  <p>{expenseForm.receiptStoragePath}</p>
-                </div>
-              ) : null}
-              <details className="accounting-form-span-2">
-                <summary>OCRデータ（将来拡張用）</summary>
+              <details className="accounting-form-span-2 accounting-ocr-details">
+                <summary>OCR詳細（候補データ）</summary>
+                <p className="accounting-note">以下は OCR 候補の保存用です。経費科目は上の選択欄で手動確定してください。</p>
                 <label>
-                  ocrRawText
+                  OCR全文
                   <textarea
+                    readOnly
                     rows={3}
                     value={expenseForm.ocrRawText ?? ''}
-                    onChange={(event) => handleExpenseFieldChange('ocrRawText', event.target.value)}
                   />
                 </label>
                 <label>
                   ocrConfidence
                   <input
+                    readOnly
                     type="number"
                     step="0.01"
                     value={expenseForm.ocrConfidence ?? ''}
-                    onChange={(event) =>
-                      handleExpenseFieldChange(
-                        'ocrConfidence',
-                        event.target.value === '' ? undefined : Number(event.target.value),
-                      )
-                    }
                   />
                 </label>
                 <label>
-                  suggestedExpenseCategory
+                  suggestedExpenseCategory（参考・自動確定しない）
                   <select
+                    disabled
                     value={expenseForm.suggestedExpenseCategory ?? ''}
-                    onChange={(event) =>
-                      handleExpenseFieldChange(
-                        'suggestedExpenseCategory',
-                        event.target.value as ExpenseCategory | '',
-                      )
-                    }
                   >
                     <option value="">未設定</option>
                     {EXPENSE_CATEGORIES.map((category) => (
@@ -1245,7 +1448,7 @@ export function AccountingPage() {
                 <button
                   className="primary-action"
                   type="button"
-                  disabled={isSavingExpense || isUploadingReceipt}
+                  disabled={isSavingExpense || isUploadingReceipt || isRunningOcr}
                   onClick={() => void handleSaveExpense()}
                 >
                   {editingExpenseId ? '経費を更新' : '経費を登録'}
@@ -1254,17 +1457,7 @@ export function AccountingPage() {
                   <button
                     className="secondary-action"
                     type="button"
-                    onClick={() => {
-                      setEditingExpenseId('')
-                      setExpenseForm(
-                        buildEmptyExpenseInput({
-                          franchiseeId: tenantScope.franchiseeId,
-                          storeId: tenantScope.storeId,
-                          staffId,
-                          staffName,
-                        }),
-                      )
-                    }}
+                    onClick={resetExpenseFormToNew}
                   >
                     新規入力に切替
                   </button>
@@ -1272,8 +1465,74 @@ export function AccountingPage() {
               </div>
             </div>
 
-            <div className="accounting-table-wrap">
-              <table className="accounting-table">
+            <div className="accounting-expense-cards" aria-label="当月経費一覧（カード）">
+              {monthExpenses.length > 0 ? (
+                monthExpenses.map((expense) => (
+                  <article key={expense.id} className="accounting-expense-card">
+                    <header>
+                      <strong>{expense.vendorName || '（仕入先未入力）'}</strong>
+                      <span>{expense.confirmationStatus}</span>
+                    </header>
+                    <dl>
+                      <div>
+                        <dt>証憑日</dt>
+                        <dd>{getExpenseReceiptDate(expense)}</dd>
+                      </div>
+                      <div>
+                        <dt>計上日</dt>
+                        <dd>{getExpensePostingDate(expense)}</dd>
+                      </div>
+                      <div>
+                        <dt>内容</dt>
+                        <dd>{expense.description || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>経費科目</dt>
+                        <dd>{expense.expenseCategory || '未選択'}</dd>
+                      </div>
+                      <div>
+                        <dt>PL反映区分</dt>
+                        <dd>{getPlTreatmentLabel(expense.plTreatment)}</dd>
+                      </div>
+                      <div>
+                        <dt>税込</dt>
+                        <dd>{formatFareYen(expense.taxIncludedAmount)}</dd>
+                      </div>
+                    </dl>
+                    <div className="accounting-expense-card-actions">
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => handleEditExpense(expense.id)}
+                      >
+                        編集
+                      </button>
+                      {expense.confirmationStatus !== '無効' ? (
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={() => void handleInvalidateExpense(expense.id)}
+                        >
+                          無効化
+                        </button>
+                      ) : null}
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => void handleDeleteExpense(expense.id)}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <p className="accounting-note">当月の経費はありません。</p>
+              )}
+            </div>
+
+            <div className="accounting-table-wrap accounting-table-wrap--desktop">
+              <table className="accounting-table accounting-table--desktop">
                 <thead>
                   <tr>
                     <th>証憑日</th>

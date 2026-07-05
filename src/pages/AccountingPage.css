@@ -108,6 +108,14 @@
   gap: 0.35rem;
 }
 
+.accounting-form-grid input,
+.accounting-form-grid select,
+.accounting-form-grid textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .accounting-form-span-2 {
   grid-column: 1 / -1;
 }
@@ -134,11 +142,132 @@
   padding: 0.75rem;
 }
 
+.accounting-receipt-flow {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #bae6fd;
+  border-radius: 0.75rem;
+  background: #f0f9ff;
+}
+
+.accounting-receipt-flow h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.accounting-receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.accounting-receipt-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  text-align: center;
+}
+
+.accounting-receipt-upload-button.secondary-action {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+}
+
+.accounting-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .accounting-receipt-preview img {
   max-width: 240px;
   max-height: 240px;
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
+}
+
+.accounting-tax-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.accounting-tax-input-row input {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.accounting-recalc-tax-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.accounting-ocr-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.accounting-expense-cards {
+  display: none;
+  gap: 0.75rem;
+}
+
+.accounting-expense-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.accounting-expense-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.accounting-expense-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-expense-card dl div {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 0.5rem;
+}
+
+.accounting-expense-card dt {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.accounting-expense-card dd {
+  margin: 0;
+}
+
+.accounting-expense-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .accounting-export-actions {
@@ -246,4 +375,85 @@
 
 .accounting-pl-other-note p {
   margin: 0;
+}
+
+@media (max-width: 768px) {
+  .accounting-page {
+    overflow-x: hidden;
+  }
+
+  .accounting-toolbar,
+  .accounting-tabs,
+  .accounting-form-actions,
+  .accounting-receipt-actions,
+  .accounting-expense-card-actions {
+    flex-direction: column;
+  }
+
+  .accounting-toolbar label,
+  .accounting-form-grid label,
+  .accounting-tax-field {
+    width: 100%;
+  }
+
+  .accounting-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-form-span-2 {
+    grid-column: auto;
+  }
+
+  .accounting-form-grid input,
+  .accounting-form-grid select,
+  .accounting-form-grid textarea,
+  .accounting-tab,
+  .accounting-form-actions .primary-action,
+  .accounting-form-actions .secondary-action,
+  .accounting-receipt-actions .secondary-action,
+  .accounting-receipt-upload-button,
+  .accounting-expense-card-actions .secondary-action,
+  .accounting-recalc-tax-button {
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+
+  .accounting-receipt-upload-button,
+  .accounting-form-actions .primary-action,
+  .accounting-form-actions .secondary-action,
+  .accounting-receipt-actions .secondary-action {
+    width: 100%;
+  }
+
+  .accounting-tax-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .accounting-recalc-tax-button {
+    width: 100%;
+  }
+
+  .accounting-table-wrap--desktop {
+    display: none;
+  }
+
+  .accounting-expense-cards {
+    display: grid;
+  }
+
+  .accounting-receipt-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .accounting-diagnostics-list div {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 769px) {
+  .accounting-expense-cards {
+    display: none;
+  }
 }

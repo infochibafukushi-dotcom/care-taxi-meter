@@ -59,6 +59,12 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     consumptionTaxAmount: Number(data.consumptionTaxAmount ?? 0),
     paymentMethod: (data.paymentMethod as StoredAccountingExpense['paymentMethod']) ?? '',
     invoiceNumber: typeof data.invoiceNumber === 'string' ? data.invoiceNumber : '',
+    invoiceCheckStatus:
+      typeof data.invoiceCheckStatus === 'string'
+        ? (data.invoiceCheckStatus as StoredAccountingExpense['invoiceCheckStatus'])
+        : '未確認',
+    invoiceRegisteredName: typeof data.invoiceRegisteredName === 'string' ? data.invoiceRegisteredName : '',
+    invoiceCheckedAt: typeof data.invoiceCheckedAt === 'string' ? data.invoiceCheckedAt : '',
     receiptImageUrl: typeof data.receiptImageUrl === 'string' ? data.receiptImageUrl : '',
     receiptStoragePath: typeof data.receiptStoragePath === 'string' ? data.receiptStoragePath : '',
     receiptId: typeof data.receiptId === 'string' ? data.receiptId : '',
@@ -230,6 +236,9 @@ export const buildEmptyExpenseInput = ({
     consumptionTaxAmount: 0,
     paymentMethod: '',
     invoiceNumber: '',
+    invoiceCheckStatus: '未確認',
+    invoiceRegisteredName: '',
+    invoiceCheckedAt: '',
     receiptImageUrl: '',
     receiptStoragePath: '',
     receiptId: '',

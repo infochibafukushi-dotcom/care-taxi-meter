@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID: string
   readonly VITE_GOOGLE_MAPS_API_KEY: string
   readonly VITE_RESERVATION_API_BASE_URL: string
+  readonly VITE_ACCOUNTING_OCR_ENDPOINT?: string
+  readonly VITE_ACCOUNTING_OCR_API_KEY?: string
 }
 
 interface ImportMeta {
