@@ -19,7 +19,12 @@ import { uploadAccountingReceiptImage } from '../services/accountingReceipts'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
-import { tenantAccessScopeFromSessionSource, tenantScopeFromSession } from '../services/tenancy'
+import { tenantScopeFromSession } from '../services/tenancy'
+import {
+  formatAccountingQueryErrorMessage,
+  logAccountingQueryFailure,
+  resolveAccountingAccessScope,
+} from '../services/accountingTenant'
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
 import {
@@ -101,11 +106,18 @@ function ExpenseFareSalesWarning({ visible }: { visible: boolean }) {
 
 export function AccountingPage() {
   const workSession = useWorkSession()
-  const authSession = loadAuthStaffSession()
-  const sessionSource = workSession.currentSession ?? authSession
-  const accessScope = tenantAccessScopeFromSessionSource(sessionSource)
-  const tenantScope = tenantScopeFromSession(sessionSource)
+  const authSession = useMemo(() => loadAuthStaffSession(), [])
+  const sessionSource = useMemo(() => {
+    if (authSession && (authSession.role === 'owner' || authSession.role === 'hq_admin')) {
+      return authSession
+    }
+
+    return workSession.currentSession ?? authSession
+  }, [authSession, workSession.currentSession])
+  const accessScope = useMemo(() => resolveAccountingAccessScope(sessionSource), [sessionSource])
+  const tenantScope = useMemo(() => tenantScopeFromSession(sessionSource), [sessionSource])
   const role = (accessScope.role ?? '') as StaffRole | ''
+  const accessScopeKey = `${accessScope.role ?? ''}|${accessScope.franchiseeId ?? ''}|${accessScope.storeId ?? ''}|${accessScope.staffId ?? ''}`
   const staffId = accessScope.staffId ?? authSession?.id ?? workSession.currentSession?.staffId ?? ''
   const staffName =
     authSession?.name ?? workSession.currentSession?.staffName ?? '経理担当'
@@ -141,34 +153,47 @@ export function AccountingPage() {
       setIsLoading(true)
       setErrorMessage('')
 
+      const monthRange = getMonthRangeInJapan(new Date(`${targetYearMonth}-01T00:00:00+09:00`))
+      const loadErrors: string[] = []
+      let records: StoredCaseRecord[] = []
+      let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
+      let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
+
       try {
-        const monthRange = getMonthRangeInJapan(new Date(`${targetYearMonth}-01T00:00:00+09:00`))
-        const [records, expenseRows, adjustmentRows] = await Promise.all([
-          fetchCaseRecordsInClosedAtRange({
-            startIso: monthRange.startIso,
-            endIso: monthRange.endIso,
-            scope: accessScope,
-          }),
-          fetchAccountingExpenses(accessScope),
-          fetchAccountingAdjustments(accessScope),
-        ])
-
-        if (cancelled) {
-          return
-        }
-
-        setCaseRecords(records)
-        setExpenses(expenseRows)
-        setAdjustments(adjustmentRows)
+        records = await fetchCaseRecordsInClosedAtRange({
+          startIso: monthRange.startIso,
+          endIso: monthRange.endIso,
+          scope: accessScope,
+        })
       } catch (error) {
-        if (!cancelled) {
-          setErrorMessage(error instanceof Error ? error.message : '経理データの取得に失敗しました。')
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
+        logAccountingQueryFailure('caseRecords', accessScope, error, {
+          startIso: monthRange.startIso,
+          endIso: monthRange.endIso,
+        })
+        loadErrors.push(formatAccountingQueryErrorMessage('caseRecords', error))
       }
+
+      try {
+        expenseRows = await fetchAccountingExpenses(accessScope)
+      } catch (error) {
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenses', error))
+      }
+
+      try {
+        adjustmentRows = await fetchAccountingAdjustments(accessScope)
+      } catch (error) {
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
+      }
+
+      if (cancelled) {
+        return
+      }
+
+      setCaseRecords(records)
+      setExpenses(expenseRows)
+      setAdjustments(adjustmentRows)
+      setErrorMessage(loadErrors.join(' / '))
+      setIsLoading(false)
     }
 
     void loadData()
@@ -176,7 +201,7 @@ export function AccountingPage() {
     return () => {
       cancelled = true
     }
-  }, [accessScope, canAccess, targetYearMonth])
+  }, [accessScopeKey, canAccess, targetYearMonth])
 
   useEffect(() => {
     if (!canAccess || expenseForm) {

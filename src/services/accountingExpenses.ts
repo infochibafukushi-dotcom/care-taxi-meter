@@ -18,7 +18,11 @@ import type {
 } from '../types/accounting'
 import { canConfirmExpense, isExpenseCategorySelected } from '../types/accounting'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
-import { createAccountingTenantConstraints, resolveAccountingTenantFields } from './accountingTenant'
+import {
+  createAccountingTenantConstraints,
+  logAccountingQueryFailure,
+  resolveAccountingTenantFields,
+} from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
@@ -72,15 +76,21 @@ export async function fetchAccountingExpenses(scope?: TenantAccessScope) {
   }
 
   const db = getFirestore(getFirebaseApp())
-  const snapshots = await getDocs(
-    query(
-      collection(db, collectionName),
-      ...createAccountingTenantConstraints(scope),
-      orderBy('transactionDate', 'desc'),
-    ),
-  )
 
-  return snapshots.docs.map(toStoredExpense).filter((expense) => matchesTenantScope(expense, scope))
+  try {
+    const snapshots = await getDocs(
+      query(
+        collection(db, collectionName),
+        ...createAccountingTenantConstraints(scope),
+        orderBy('transactionDate', 'desc'),
+      ),
+    )
+
+    return snapshots.docs.map(toStoredExpense).filter((expense) => matchesTenantScope(expense, scope))
+  } catch (error) {
+    logAccountingQueryFailure(collectionName, scope, error)
+    throw error
+  }
 }
 
 export async function fetchAccountingExpensesByYearMonth({
@@ -215,15 +225,21 @@ export async function fetchAccountingExpensesForMonthQuery(scope: TenantAccessSc
   const db = getFirestore(getFirebaseApp())
   const startDate = `${targetYearMonth}-01`
   const endDate = `${targetYearMonth}-99`
-  const snapshots = await getDocs(
-    query(
-      collection(db, collectionName),
-      ...createAccountingTenantConstraints(scope),
-      where('transactionDate', '>=', startDate),
-      where('transactionDate', '<=', endDate),
-      orderBy('transactionDate', 'desc'),
-    ),
-  )
 
-  return snapshots.docs.map(toStoredExpense).filter((expense) => matchesTenantScope(expense, scope))
+  try {
+    const snapshots = await getDocs(
+      query(
+        collection(db, collectionName),
+        ...createAccountingTenantConstraints(scope),
+        where('transactionDate', '>=', startDate),
+        where('transactionDate', '<=', endDate),
+        orderBy('transactionDate', 'desc'),
+      ),
+    )
+
+    return snapshots.docs.map(toStoredExpense).filter((expense) => matchesTenantScope(expense, scope))
+  } catch (error) {
+    logAccountingQueryFailure(collectionName, scope, error, { targetYearMonth })
+    throw error
+  }
 }

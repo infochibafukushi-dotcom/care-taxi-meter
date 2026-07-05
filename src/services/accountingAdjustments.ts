@@ -17,7 +17,7 @@ import type {
 } from '../types/accounting'
 import { isExpenseCategorySelected } from '../types/accounting'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
-import { createAccountingTenantConstraints } from './accountingTenant'
+import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
@@ -56,15 +56,21 @@ export async function fetchAccountingAdjustments(scope?: TenantAccessScope) {
   }
 
   const db = getFirestore(getFirebaseApp())
-  const snapshots = await getDocs(
-    query(
-      collection(db, collectionName),
-      ...createAccountingTenantConstraints(scope),
-      orderBy('targetYearMonth', 'desc'),
-    ),
-  )
 
-  return snapshots.docs.map(toStoredAdjustment).filter((adjustment) => matchesTenantScope(adjustment, scope))
+  try {
+    const snapshots = await getDocs(
+      query(
+        collection(db, collectionName),
+        ...createAccountingTenantConstraints(scope),
+        orderBy('targetYearMonth', 'desc'),
+      ),
+    )
+
+    return snapshots.docs.map(toStoredAdjustment).filter((adjustment) => matchesTenantScope(adjustment, scope))
+  } catch (error) {
+    logAccountingQueryFailure(collectionName, scope, error)
+    throw error
+  }
 }
 
 export async function createAccountingAdjustment(input: AccountingAdjustmentInput) {
