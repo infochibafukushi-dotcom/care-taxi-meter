@@ -12,9 +12,12 @@ import {
   reviewDemoPreFixedFareReservationSummary,
   REVIEW_DEMO_ASSIST_FEE_YEN,
   REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+  REVIEW_DEMO_SCHEDULED_AT,
   REVIEW_DEMO_TOTAL_FARE_YEN,
 } from '../src/fixtures/reviewDemoPreFixedFare'
-import { buildReviewDemoFixedFareBreakdown } from '../src/utils/reviewDemoFare'
+import { buildReviewDemoFixedFareBreakdown, resolveReceiptServiceDateIso } from '../src/utils/reviewDemoFare'
+import { formatThermalReceiptDateTime } from '../src/utils/thermalReceiptCanvas'
+import { formatCaseDateTime } from '../src/utils/caseRecords'
 import { buildFixedFareBreakdown } from '../src/services/fare'
 import { generateCaseNumber, recordReceiptReissue, saveCaseRecord } from '../src/services/caseRecords'
 import {
@@ -76,6 +79,31 @@ describe('review demo fixed fare breakdown', () => {
       { label: '介助料金', amountYen: 1100 },
     ])
     expect(breakdown.careOptionFareYen).toBe(1100)
+  })
+})
+
+describe('review demo receipt service date', () => {
+  it('uses the demo reservation scheduled time on receipts', () => {
+    const demoRecord = {
+      id: 'review-demo-DEMO-001',
+      closedAt: '2026-07-05T07:00:00+09:00',
+    } as never
+
+    expect(resolveReceiptServiceDateIso(demoRecord)).toBe(REVIEW_DEMO_SCHEDULED_AT)
+    expect(formatThermalReceiptDateTime(resolveReceiptServiceDateIso(demoRecord))).toBe(
+      '2026/09/01 10:00',
+    )
+    expect(formatCaseDateTime(resolveReceiptServiceDateIso(demoRecord))).toContain('2026')
+    expect(formatCaseDateTime(resolveReceiptServiceDateIso(demoRecord))).toContain('10:00')
+  })
+
+  it('keeps production case records on closedAt', () => {
+    const productionRecord = {
+      id: 'case-001',
+      closedAt: '2026-07-05T07:00:00+09:00',
+    } as never
+
+    expect(resolveReceiptServiceDateIso(productionRecord)).toBe('2026-07-05T07:00:00+09:00')
   })
 })
 

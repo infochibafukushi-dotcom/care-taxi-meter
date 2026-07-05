@@ -4,7 +4,7 @@ import type { MeterSettings } from '../services/meterSettings'
 import type { Company } from '../types/work'
 import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime, createPrimaryFareReceiptLines } from './caseRecords'
-import { isReviewDemoCaseRecord } from './reviewDemoFare'
+import { isReviewDemoCaseRecord, resolveReceiptServiceDateIso } from './reviewDemoFare'
 import {
   createPdfFileName,
   drawPdfLine,
@@ -39,6 +39,7 @@ const normalizeReceiptTitle = (value: string) =>
   value.trim() || defaultMeterSettings.receipt.receiptDefault
 
 function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
+  const serviceDateIso = resolveReceiptServiceDateIso(caseRecord)
   const additionalCareFareYen = Math.max(Math.round(caseRecord.additionalCareFareYen ?? 0), 0)
   const isFixedMeter = caseRecord.meterMode === 'fixed'
   const hasFixedExtras =
@@ -115,7 +116,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
     return [
       { label: '案件番号', value: caseRecord.caseNumber },
       { label: '宛名', value: caseRecord.receiptName || '未入力' },
-      { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
+      { label: '利用日時', value: formatCaseDateTime(serviceDateIso) },
       { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
       ...createPrimaryFareReceiptLines(caseRecord),
       {
@@ -135,7 +136,7 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
   return [
     { label: '案件番号', value: caseRecord.caseNumber },
     { label: '宛名', value: caseRecord.receiptName || '未入力' },
-    { label: '利用日時', value: formatCaseDateTime(caseRecord.closedAt) },
+    { label: '利用日時', value: formatCaseDateTime(serviceDateIso) },
     { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
     ...createPrimaryFareReceiptLines(caseRecord),
     { label: '待機料金', value: `${formatFareYen(caseRecord.waitingFareYen)}円` },

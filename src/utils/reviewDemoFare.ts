@@ -1,7 +1,9 @@
+import type { StoredCaseRecord } from '../services/caseRecords'
 import type { FareBreakdown } from '../services/fare'
 import {
   REVIEW_DEMO_ASSIST_FEE_YEN,
   REVIEW_DEMO_PRE_FIXED_FARE_YEN,
+  REVIEW_DEMO_SCHEDULED_AT,
   REVIEW_DEMO_TOTAL_FARE_YEN,
 } from '../fixtures/reviewDemoPreFixedFare'
 
@@ -10,6 +12,11 @@ export const REVIEW_DEMO_FARE_COMPOSITION_NOTE =
 
 export const isReviewDemoCaseRecord = (caseRecord: { id: string }) =>
   caseRecord.id.startsWith('review-demo-')
+
+/** 審査用デモ領収書の利用日は予約日時、通常モードは案件終了日時 */
+export function resolveReceiptServiceDateIso(caseRecord: StoredCaseRecord): string {
+  return isReviewDemoCaseRecord(caseRecord) ? REVIEW_DEMO_SCHEDULED_AT : caseRecord.closedAt
+}
 
 export function buildReviewDemoFixedFareBreakdown(
   baseBreakdown: FareBreakdown,

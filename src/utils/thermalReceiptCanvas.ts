@@ -3,6 +3,7 @@ import type { MeterSettings } from '../services/meterSettings'
 import { formatFareYen } from '../services/fare'
 import { createPrimaryFareReceiptLines } from './caseRecords'
 import { drawPdfText } from './pdfDrawing'
+import { resolveReceiptServiceDateIso } from './reviewDemoFare'
 import { calculateCaseOperatingSeconds } from './workSessionMetrics'
 import type { ExpenseItem } from '../types/case'
 
@@ -574,7 +575,7 @@ export function createThermalReceiptCanvas(
   y = drawDivider(context, canvas, y)
 
   y = drawInlineLine(context, y, `発行日 ${formatThermalReceiptDateTime(new Date().toISOString())}`, THERMAL_FONTS.meta, LINE.meta)
-  y = drawInlineLine(context, y, `利用日 ${formatThermalReceiptDateTime(caseRecord.closedAt)}`, THERMAL_FONTS.meta, LINE.meta)
+  y = drawInlineLine(context, y, `利用日 ${formatThermalReceiptDateTime(resolveReceiptServiceDateIso(caseRecord))}`, THERMAL_FONTS.meta, LINE.meta)
   y = drawInlineLine(context, y, `案件番号 ${caseRecord.caseNumber}`, THERMAL_FONTS.meta, LINE.meta)
 
   y += LINE.section
