@@ -357,6 +357,78 @@ service cloud.firestore {
       allow write: if isHqAdmin();
     }
 
+    function isAccountingUser() {
+      return isHqAdmin() || isFranchiseeOwner();
+    }
+    function canReadAccounting(data) {
+      return isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(data));
+    }
+    function canWriteAccountingData(data) {
+      return hasTenant(data) && (isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(data)));
+    }
+    function validConfirmedExpenseCategory() {
+      return request.resource.data.confirmationStatus != '確認済み'
+        || (
+          request.resource.data.expenseCategory is string
+          && request.resource.data.expenseCategory.size() > 0
+          && request.resource.data.expenseCategory != ''
+        );
+    }
+
+    match /accountingExpenses/{expenseId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser()
+        && canWriteAccountingData(request.resource.data)
+        && validConfirmedExpenseCategory();
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data)
+        && validConfirmedExpenseCategory();
+      allow delete: if false;
+    }
+
+    match /accountingAdjustments/{adjustmentId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /accountingReceipts/{receiptId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /accountingExports/{exportId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /accountingFixedCosts/{fixedCostId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /accountingSales/{salesEntryId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if false;
+    }
+
     match /appSettings/{settingsId} {
       allow read: if signedIn();
       allow write: if isHqAdmin();

@@ -153,6 +153,55 @@
         { "fieldPath": "staffId", "order": "ASCENDING" },
         { "fieldPath": "clockOutAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "accountingExpenses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingExpenses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingAdjustments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "targetYearMonth", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingExports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingFixedCosts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "startYearMonth", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingSales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "targetYearMonth", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

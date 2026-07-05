@@ -12,6 +12,7 @@ import { ObdPocPage } from './pages/ObdPocPage'
 import { PrinterPocPage } from './pages/PrinterPocPage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
 import { ReservationListPage } from './pages/ReservationListPage'
+import { AccountingPage } from './pages/AccountingPage'
 import { SalesAnalyticsPage } from './pages/SalesAnalyticsPage'
 import { ReviewDemoCasePage } from './pages/ReviewDemoCasePage'
 import { ReviewDemoCaseStartPage } from './pages/ReviewDemoCaseStartPage'
@@ -79,6 +80,10 @@ const router = createBrowserRouter([
       {
         path: 'admin/analytics',
         element: <SalesAnalyticsPage />,
+      },
+      {
+        path: 'accounting',
+        element: <AccountingPage />,
       },
       {
         path: 'superadmin',

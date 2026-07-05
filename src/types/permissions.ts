@@ -21,6 +21,9 @@ export const roleHomePaths: Record<StaffRole, string> = {
 
 export const managementRoles: StaffRole[] = ['manager', 'owner', 'hq_admin']
 
+export const canAccessAccounting = (role: StaffRole | '') =>
+  role === 'owner' || role === 'hq_admin'
+
 export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) => {
   if (role === 'hq_admin') {
     return false

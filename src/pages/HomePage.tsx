@@ -10,7 +10,7 @@ import type { ActiveTripSnapshot } from '../services/activeTripSnapshot'
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import type { StaffMember, Store, WorkSession } from '../types/work'
-import { canAccessAdminSection, roleHomePaths } from '../types/permissions'
+import { canAccessAccounting, canAccessAdminSection, roleHomePaths } from '../types/permissions'
 import { saveAuthStaffSession, clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
 import { signOutFirebaseAuth, waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import type { AuthStaffSession } from '../services/authSession'
@@ -283,6 +283,7 @@ export function HomePage() {
   const isHqAdmin = dashboardRole === 'hq_admin'
   const canOpenManagement = !isHqAdmin && canAccessAdminSection(dashboardRole, 'staff')
   const canOpenAnalytics = canAccessAdminSection(dashboardRole, 'analytics')
+  const canOpenAccounting = canAccessAccounting(dashboardRole)
   const hasActiveTripSnapshot = Boolean(activeTripSnapshot)
   const currentSessionCompanyId = currentSession?.companyId ?? ''
   const currentSessionFranchiseeId = currentSession?.franchiseeId ?? ''
@@ -872,6 +873,15 @@ export function HomePage() {
               onClick={() => logNavigationClick({ label: '売上分析', to: '/admin/analytics' })}
             >
               売上分析
+            </Link>
+          ) : null}
+          {canOpenAccounting ? (
+            <Link
+              className="secondary-action"
+              to="/accounting"
+              onClick={() => logNavigationClick({ label: '経理', to: '/accounting' })}
+            >
+              経理
             </Link>
           ) : null}
           {!currentSession ? (

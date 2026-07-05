@@ -1475,6 +1475,11 @@ export function AdminPage() {
             >
               売上分析
             </Link>
+            {currentRole === 'owner' ? (
+              <Link className="primary-action" to="/accounting">
+                経理
+              </Link>
+            ) : null}
             <Link className="text-link" to="/">
               ホームへ戻る
             </Link>

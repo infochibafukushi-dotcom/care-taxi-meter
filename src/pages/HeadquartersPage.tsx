@@ -460,6 +460,7 @@ export function HeadquartersPage() {
         </div>
         <div className="hq-hero-actions">
           <span>管理者：{authSession?.name || workSession.currentSession?.staffName || '未設定'}</span>
+          <Link className="secondary-action" to="/accounting">経理</Link>
           <button className="secondary-action" type="button" onClick={handleLogout}>ログアウト</button>
           <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>開発データリセット</button>
         </div>

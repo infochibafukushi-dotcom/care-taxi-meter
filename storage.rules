@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function role() {
+      return signedIn() ? request.auth.token.role : null;
+    }
+    function franchiseeId() {
+      return signedIn()
+        ? (request.auth.token.franchiseeId != null
+          ? request.auth.token.franchiseeId
+          : request.auth.token.companyId)
+        : null;
+    }
+    function isHqAdmin() {
+      return role() == 'hq_admin' || role() == 'superAdmin';
+    }
+    function isFranchiseeOwner() {
+      return role() == 'franchisee_owner' || role() == 'owner';
+    }
+    function sameFranchiseeFromPath(pathFranchiseeId) {
+      return franchiseeId() == pathFranchiseeId
+        || request.auth.token.companyId == pathFranchiseeId;
+    }
+
+    match /accounting/{pathFranchiseeId}/{storeId}/receipts/{receiptId}/{fileName} {
+      allow read: if isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId));
+      allow write: if isHqAdmin()
+        || (isFranchiseeOwner()
+          && sameFranchiseeFromPath(pathFranchiseeId)
+          && request.resource.size < 10 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*'));
+      allow delete: if false;
+    }
+  }
+}
