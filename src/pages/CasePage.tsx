@@ -4370,7 +4370,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   onConnect={handleObdConnectFabClick}
                 />
               )}
-              hideTotal={meterMode !== 'fixed'}
+              hideTotal
             />
           </section>
 

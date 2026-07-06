@@ -6936,10 +6936,6 @@ html:not(.route-meter) .page--home {
   display: none;
 }
 
-html.route-meter.pre-fixed-meter .pre-fixed-breakdown-panel .fare-breakdown__total {
-  display: flex;
-}
-
 .route-address-heading {
   display: flex;
   align-items: baseline;
@@ -8318,10 +8314,13 @@ html.route-meter.pre-fixed-meter .pre-fixed-breakdown-panel .fare-breakdown div 
   flex-shrink: 0;
 }
 
-html.route-meter.pre-fixed-meter .pre-fixed-breakdown-panel .fare-breakdown__total {
-  display: flex;
-  flex-shrink: 0;
-  margin-top: clamp(4px, 0.6vh, 8px);
+html.route-meter.pre-fixed-meter .fixed-fare-status-chip--agreed {
+  display: none;
+}
+
+html.route-meter.pre-fixed-meter .pre-fixed-main-action--arrive,
+html.route-meter.pre-fixed-meter .pre-fixed-main-action--end {
+  display: none;
 }
 
 html.route-meter.pre-fixed-meter .pre-fixed-status-stack {
@@ -8506,7 +8505,63 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
   }
 
   html.route-meter.pre-fixed-meter .r9-left-panel {
-    grid-template-rows: minmax(0, 43fr) minmax(0, 47fr) auto;
+    grid-template-rows: minmax(0, 48fr) minmax(0, 52fr) auto;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-actions {
+    gap: clamp(4px, 0.8vh, 8px);
+    min-height: 0;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto;
+    gap: clamp(6px, 1vh, 8px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-action {
+    min-height: clamp(44px, 8.5vh, 60px);
+    padding: clamp(6px, 1vh, 10px);
+    border-radius: clamp(10px, 1.4vw, 14px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary {
+    gap: clamp(4px, 0.7vh, 6px);
+    min-height: 0;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary > div {
+    padding: clamp(5px, 0.9vh, 8px) clamp(8px, 1vw, 10px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: clamp(0.66rem, 1.45vh, 0.8rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-breakdown-panel .fare-breakdown {
+    padding-bottom: clamp(4px, 0.8vh, 8px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child dt::after {
+    content: '：';
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child dd {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: keep-all;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-fare-amount strong {
@@ -8533,7 +8588,9 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
 
   html.route-meter.pre-fixed-meter .pre-fixed-status-stack {
     height: 100%;
-    grid-template-rows: repeat(7, minmax(0, 1fr));
+    grid-template-rows: unset;
+    grid-auto-rows: minmax(0, 1fr);
+    align-content: stretch;
   }
 }
 
