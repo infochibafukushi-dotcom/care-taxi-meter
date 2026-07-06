@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -10,7 +11,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseApp } from '../lib/firebase'
 import type {
   AccountingReceiptCandidateFields,
@@ -30,6 +31,14 @@ import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
 const collectionName = 'accountingReceipts'
+
+const isStorageObjectNotFound = (error: unknown) => {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return String((error as { code: string }).code) === 'storage/object-not-found'
+  }
+
+  return false
+}
 
 const removeUndefinedFields = <T extends Record<string, unknown>>(data: T) =>
   Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T
@@ -309,7 +318,33 @@ export async function deleteAccountingReceipt(receiptId: string) {
   }
 
   const db = getFirestore(getFirebaseApp())
-  await deleteDoc(doc(db, collectionName, receiptId))
+  const receiptRef = doc(db, collectionName, receiptId)
+  const snapshot = await getDoc(receiptRef)
+
+  if (!snapshot.exists()) {
+    return
+  }
+
+  const receipt = toStoredReceipt(snapshot)
+
+  if (receipt.status !== 'unorganized') {
+    throw new Error('未整理の領収書のみ削除できます。')
+  }
+
+  const storagePath = receipt.storagePath.trim()
+  if (storagePath) {
+    try {
+      const storage = getStorage(getFirebaseApp())
+      await deleteObject(ref(storage, storagePath))
+    } catch (error) {
+      if (!isStorageObjectNotFound(error)) {
+        const detail = error instanceof Error ? error.message : '不明なエラー'
+        throw new Error(`領収書画像の削除に失敗しました。${detail}`)
+      }
+    }
+  }
+
+  await deleteDoc(receiptRef)
 }
 
 export async function resolveAccountingReceiptDownloadUrl({

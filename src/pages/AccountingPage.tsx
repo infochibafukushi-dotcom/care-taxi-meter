@@ -346,17 +346,6 @@ export function AccountingPage() {
 
   const hasFormReceiptImage = Boolean(expenseForm && hasAccountingFormReceiptImage(expenseForm))
 
-  useEffect(() => {
-    document.documentElement.classList.add('route-accounting')
-
-    const screenOrientation = screen.orientation as ScreenOrientation & { unlock?: () => Promise<void> }
-    void screenOrientation?.unlock?.()
-
-    return () => {
-      document.documentElement.classList.remove('route-accounting')
-    }
-  }, [])
-
   const buildFreshExpenseForm = () =>
     buildEmptyExpenseInput({
       franchiseeId: tenantScope.franchiseeId,
@@ -710,7 +699,7 @@ export function AccountingPage() {
 
   const handleDeleteUnorganizedReceipt = async (receiptId: string) => {
     const confirmed = window.confirm(
-      'この未整理の領収書データを削除します。画像ファイルは削除されません。よろしいですか？',
+      'この未整理の領収書データとアップロード画像を削除します。元に戻せません。削除してよろしいですか？',
     )
     if (!confirmed) {
       return
@@ -723,7 +712,7 @@ export function AccountingPage() {
         resetExpenseFormToNew()
       }
 
-      setStatusMessage('未整理領収書を削除しました。')
+      setStatusMessage('未整理領収書とアップロード画像を削除しました。')
       await reloadUnorganizedReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '未整理領収書の削除に失敗しました。')
