@@ -8230,21 +8230,61 @@ html.route-meter .r9-fare-unit {
   }
 
   html.route-meter .r9-meter-console {
-    grid-template-rows: minmax(0, 1fr) minmax(44px, min(20vh, calc(var(--app-height, 100dvh) * 0.2)));
+    grid-template-rows: minmax(0, 1fr) minmax(34px, min(48px, calc(var(--app-height, 100dvh) * 0.13)));
     gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
   }
 
   html.route-meter {
-    --meter-address-row-min: 44px;
-    --meter-address-row-max: min(20vh, calc(var(--app-height, 100dvh) * 0.2));
+    --meter-address-row-min: 34px;
+    --meter-address-row-max: min(48px, calc(var(--app-height, 100dvh) * 0.13));
   }
 
   html.route-meter .route-address-panel {
-    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px) 0;
+    padding: clamp(3px, 0.55vh, 5px) clamp(6px, 1.2vw, 12px) 0;
   }
 
   html.route-meter .route-address-grid {
     padding-bottom: 0;
+    gap: clamp(6px, 1vw, 10px);
+    align-items: stretch;
+  }
+
+  html.route-meter .route-address-grid > div {
+    min-height: 0;
+    align-items: start;
+    gap: clamp(4px, 0.55vw, 7px);
+    padding-right: clamp(4px, 0.8vw, 10px);
+  }
+
+  html.route-meter .route-address-icon,
+  html.route-meter .route-address-icon--flag {
+    width: clamp(20px, 4.2vh, 26px);
+    height: clamp(20px, 4.2vh, 26px);
+    font-size: clamp(0.75rem, 2.2vh, 1rem);
+    flex-shrink: 0;
+  }
+
+  html.route-meter .route-address-content {
+    min-height: 0;
+    gap: 2px;
+    overflow: hidden;
+  }
+
+  html.route-meter .route-address-heading {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.route-meter .route-address-heading span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.15;
+  }
+
+  html.route-meter .r9-left-panel {
+    grid-template-rows: minmax(0, 38fr) minmax(0, 52fr) auto;
   }
 
   html.route-meter .r9-meter-shell {
@@ -8314,13 +8354,21 @@ html.route-meter .r9-fare-unit {
   }
 
   html.route-meter .route-address-grid span:not(.route-address-icon) {
-    font-size: clamp(0.62rem, 1.6vh, 0.9rem);
+    font-size: clamp(0.58rem, 1.45vh, 0.82rem);
     line-height: 1.15;
   }
 
   html.route-meter .route-address-grid strong {
-    font-size: clamp(0.58rem, 1.45vh, 0.82rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: calc(2 * 1.2em);
     line-height: 1.2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-overflow: unset;
+    -webkit-overflow-scrolling: touch;
+    font-size: clamp(0.56rem, 1.35vh, 0.78rem);
   }
 }
 
