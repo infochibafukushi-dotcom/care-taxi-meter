@@ -4,12 +4,13 @@ const getScreenOrientation = () => {
   }
 
   return window.screen.orientation as ScreenOrientation & {
-    lock?: (orientation: OrientationLockType) => Promise<void>
     unlock?: () => Promise<void>
   }
 }
 
-/** メーター以外（および起動時）で向き固定を解除する */
+/**
+ * 向き固定を解除する。orientation.lock は一切呼ばない（PWA で横向き固定が再発するため）。
+ */
 export const unlockScreenOrientation = async () => {
   const orientation = getScreenOrientation()
 
@@ -18,18 +19,6 @@ export const unlockScreenOrientation = async () => {
       await orientation.unlock()
     } catch {
       // Some browsers reject unlock when nothing is locked.
-    }
-  }
-
-  // lock('landscape-primary') 残留時: any → unlock の順で解除を試みる
-  if (orientation?.lock) {
-    try {
-      await orientation.lock('any')
-      if (orientation.unlock) {
-        await orientation.unlock()
-      }
-    } catch {
-      // unsupported / permission denied
     }
   }
 

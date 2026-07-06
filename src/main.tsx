@@ -46,7 +46,9 @@ const updateSW = registerSW({
       controller: Boolean(navigator.serviceWorker?.controller),
       controllerState: navigator.serviceWorker?.controller?.state ?? null,
     })
-    void updateSW(true)
+    void updateSW(true).then(() => {
+      window.location.reload()
+    })
   },
   onOfflineReady() {
     logDiagnostic('service worker offline ready', {

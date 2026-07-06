@@ -15,6 +15,26 @@
 
     <script>
       ;(() => {
+        const releaseOrientation = () => {
+          try {
+            screen.orientation?.unlock?.()
+          } catch {
+            // ignore
+          }
+          try {
+            screen.unlockOrientation?.()
+          } catch {
+            // ignore
+          }
+        }
+
+        releaseOrientation()
+        window.addEventListener('pageshow', releaseOrientation)
+      })()
+    </script>
+
+    <script>
+      ;(() => {
         const basePath = '%BASE_URL%'
         const params = new URLSearchParams(window.location.search)
         const redirectPath = params.get('redirect')
