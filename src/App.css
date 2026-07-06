@@ -8240,7 +8240,62 @@ html.route-meter .r9-fare-unit {
   }
 
   html.route-meter .route-address-panel {
-    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px);
+    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px) clamp(6px, 1.1vh, 10px);
+  }
+
+  html.route-meter .route-address-grid {
+    padding-bottom: clamp(4px, 0.9vh, 8px);
+  }
+
+  html.route-meter .r9-meter-shell {
+    padding-bottom: max(clamp(8px, 1.2vh, 14px), env(safe-area-inset-bottom));
+  }
+
+  html.route-meter .r9-top-return-fab {
+    bottom: max(clamp(14px, 2.8vh, 24px), calc(env(safe-area-inset-bottom) + 6px));
+  }
+
+  html.route-meter .r9-fare-screen {
+    padding-bottom: clamp(6px, 1vh, 10px);
+  }
+
+  html.route-meter .r9-fare-amount {
+    align-items: baseline;
+    padding-top: 0.18em;
+    transform: translateY(0.06em);
+  }
+
+  html.route-meter .r9-fare-screen strong {
+    line-height: 1.05;
+    align-self: baseline;
+  }
+
+  html.route-meter .r9-fare-unit {
+    margin-top: 0;
+    align-self: baseline;
+    padding-bottom: 0.14em;
+  }
+
+  html.route-meter .r9-right-panel {
+    padding: clamp(5px, 0.9vh, 8px);
+  }
+
+  html.route-meter .r9-status-stack {
+    gap: clamp(6px, 1vh, 10px);
+  }
+
+  html.route-meter .r9-status-button {
+    gap: clamp(5px, 0.9vh, 9px);
+    padding: clamp(6px, 1.1vh, 9px) clamp(4px, 0.7vw, 7px);
+    align-content: center;
+  }
+
+  html.route-meter .r9-status-button span {
+    line-height: 1;
+  }
+
+  html.route-meter .r9-status-button strong {
+    line-height: 1.22;
   }
 
   html.route-meter .route-address-grid span:not(.route-address-icon) {
@@ -8251,11 +8306,6 @@ html.route-meter .r9-fare-unit {
   html.route-meter .route-address-grid strong {
     font-size: clamp(0.58rem, 1.45vh, 0.82rem);
     line-height: 1.2;
-  }
-
-  html.route-meter .r9-fare-screen strong,
-  html.route-meter .r9-fare-unit {
-    margin-top: 0;
   }
 }
 
