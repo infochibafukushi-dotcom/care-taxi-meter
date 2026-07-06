@@ -1,5 +1,12 @@
 import type { AssistItem } from '../services/fare'
 
+/**
+ * 事前確定Mの現場作成セッション。
+ *
+ * UI / CasePage の meterMode は既存互換のため `"fixed"` を使用する。
+ * 監査・帳票・案件保存の fareMode は `"pre_fixed_fare"`（@see preFixedFare.ts）。
+ */
+
 /** 事前確定Mの送迎タイプ */
 export type PreFixedTripType = 'one_way' | 'round_trip' | 'with_stops'
 

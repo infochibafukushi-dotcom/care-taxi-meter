@@ -31,8 +31,10 @@ import {
   calculateFareIncreaseProgress,
   calculateTimeFareIncreaseProgress,
   careOptionMaster,
+  dispatchMenuMaster,
   escortFareSettings,
   formatFareYen,
+  specialVehicleMenuMaster,
   waitingFareSettings,
 } from '../services/fare'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
@@ -57,8 +59,11 @@ import { readReservationTripContext, clearReservationTripContext } from '../serv
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import {
   buildTripContextFromPreFixedSession,
+  clearPreFixedMeterSession,
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
+import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
+import type { PreFixedRouteCandidateId } from '../types/preFixedMeterSession'
 import {
   buildConfirmedRouteStops,
   buildConfirmedRouteView,
@@ -1565,6 +1570,57 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     )
   }, [reservationTripContext, restoredTripSnapshot])
 
+  useEffect(() => {
+    if (!reservationTripContext || restoredTripSnapshot) {
+      return
+    }
+
+    const isManualSession = reservationTripContext.reservationId.startsWith('manual-')
+    if (!isManualSession) {
+      return
+    }
+
+    const serviceFees = reservationTripContext.quoteSnapshot.serviceFees ?? []
+    if (serviceFees.length === 0) {
+      return
+    }
+
+    const nextCareOptions: SelectedCareOption[] = []
+    const nextDispatchCharges: SelectedCareOption[] = []
+    const nextSpecialVehicleCharges: SelectedCareOption[] = []
+
+    for (const fee of serviceFees) {
+      if (!Number.isFinite(fee.amount) || fee.amount <= 0) {
+        continue
+      }
+
+      const entry: SelectedCareOption = {
+        amountYen: Math.round(fee.amount),
+        id: createId(fee.key),
+        masterId: fee.key,
+        name: fee.label || fee.key,
+      }
+
+      if (dispatchMenuMaster.some((item) => item.id === fee.key)) {
+        nextDispatchCharges.push(entry)
+      } else if (specialVehicleMenuMaster.some((item) => item.id === fee.key)) {
+        nextSpecialVehicleCharges.push(entry)
+      } else {
+        nextCareOptions.push(entry)
+      }
+    }
+
+    if (nextCareOptions.length > 0) {
+      setSelectedCareOptions(nextCareOptions)
+    }
+    if (nextDispatchCharges.length > 0) {
+      setSelectedDispatchCharges(nextDispatchCharges)
+    }
+    if (nextSpecialVehicleCharges.length > 0) {
+      setSelectedSpecialVehicleCharges(nextSpecialVehicleCharges)
+    }
+  }, [reservationTripContext, restoredTripSnapshot])
+
   useEffect(() => subscribeReverseGeocodeDiagnostic(setReverseGeocodeDiagnostic), [])
 
   useEffect(() => {
@@ -1712,6 +1768,24 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     () => buildConfirmedRouteView(reservationTripContext),
     [reservationTripContext],
   )
+  const preFixedSelectedRouteLabel = useMemo(() => {
+    const routeId = reservationTripContext?.quoteSnapshot?.selectedRouteId?.trim().toUpperCase() ?? ''
+    if (routeId === 'A' || routeId === 'B' || routeId === 'C' || routeId === 'D') {
+      const id = routeId as PreFixedRouteCandidateId
+      return `${id} ${preFixedRouteCandidateLabels[id]}`
+    }
+    return reservationTripContext?.quoteSnapshot?.selectedRouteId || '—'
+  }, [reservationTripContext])
+  const preFixedBillingTotalYen = useMemo(() => {
+    if (
+      reservationTripContext &&
+      Number.isFinite(reservationTripContext.fixedFareTotalYen) &&
+      reservationTripContext.fixedFareTotalYen > 0
+    ) {
+      return Math.max(Math.round(reservationTripContext.fixedFareTotalYen), 0)
+    }
+    return settlementBreakdown.totalFareYen
+  }, [reservationTripContext, settlementBreakdown.totalFareYen])
   const currentSegmentStops = useMemo(
     () => getCurrentSegmentStops(preFixedOverallStops, preFixedSegmentIndex),
     [preFixedOverallStops, preFixedSegmentIndex],
@@ -2759,6 +2833,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       }
       clearPersistedActiveTripSnapshot()
       clearReservationTripContext()
+      clearPreFixedMeterSession()
       setFixedCompleteState('done')
       setCaseSaveMessage(
         options?.isPassengerChange
@@ -4731,6 +4806,18 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </dd>
                 </div>
                 <div>
+                  <dt>選択ルート</dt>
+                  <dd>{preFixedSelectedRouteLabel}</dd>
+                </div>
+                <div>
+                  <dt>事前確定運賃</dt>
+                  <dd>{formatFareYen(resolvedConfirmedFareYen)}円</dd>
+                </div>
+                <div>
+                  <dt>請求予定合計</dt>
+                  <dd>{formatFareYen(preFixedBillingTotalYen)}円</dd>
+                </div>
+                <div>
                   <dt>同意日時</dt>
                   <dd>
                     {reservationTripContext?.consentAt
@@ -4741,15 +4828,21 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               </dl>
               <div className="pre-fixed-reservation-bar__route">
                 <div>
-                  <span>迎車</span>
+                  <span>お迎え地 S</span>
                   <strong>
                     {reservationTripContext?.pickupAddress ||
                       pickupLocation.address ||
                       '—'}
                   </strong>
                 </div>
+                {confirmedRouteView && confirmedRouteView.viaAddresses.length > 0 ? (
+                  <div>
+                    <span>立ち寄り</span>
+                    <strong>{confirmedRouteView.viaAddresses.join(' / ')}</strong>
+                  </div>
+                ) : null}
                 <div>
-                  <span>降車</span>
+                  <span>目的地 G</span>
                   <strong>
                     {reservationTripContext?.dropoffAddress ||
                       dropoffLocation.address ||

@@ -31,6 +31,9 @@ export default defineConfig(({ mode }) => {
 
   return {
   base: githubPagesBase,
+  build: {
+    outDir: process.env.CARE_TAXI_METER_OUT_DIR?.trim() || 'dist',
+  },
   define: {
     'import.meta.env.VITE_APP_BUILD_VERSION': JSON.stringify(
       process.env.VITE_APP_BUILD_VERSION ?? new Date().toISOString(),
