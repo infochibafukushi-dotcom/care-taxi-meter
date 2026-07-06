@@ -3001,7 +3001,7 @@ html:not(.route-meter) .page--home {
   .r9-meter-console {
     min-height: 0;
     grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.72fr) clamp(76px, 13vw, 112px);
-    grid-template-rows: minmax(0, 1fr) minmax(0, min(22vh, calc(var(--app-height, 100dvh) * 0.24)));
+    grid-template-rows: minmax(0, 1fr) minmax(52px, min(28vh, calc(var(--app-height, 100dvh) * 0.28)));
     gap: 5px;
     overflow: hidden;
   }
@@ -3139,8 +3139,8 @@ html:not(.route-meter) .page--home {
   .route-address-panel {
     grid-column: 1 / -1;
     grid-row: 2;
-    min-height: 0;
-    max-height: min(22vh, calc(var(--app-height, 100dvh) * 0.24));
+    min-height: 52px;
+    max-height: min(28vh, calc(var(--app-height, 100dvh) * 0.28));
     overflow: hidden;
     gap: 4px;
     padding: 6px;
@@ -6459,7 +6459,8 @@ html:not(.route-meter) .page--home {
 
 /* Screenshot-matched meter UI refinements */
 .r9-meter-page {
-  width: 100vw;
+  width: 100%;
+  max-width: 100vw;
   height: var(--app-height, 100dvh);
   min-height: var(--app-height, 100dvh);
   max-height: var(--app-height, 100dvh);
@@ -8147,20 +8148,31 @@ html.route-meter .r9-meter-shell {
   min-height: 0;
 }
 
+html.route-meter {
+  --meter-address-row-min: 52px;
+  --meter-address-row-max: min(28vh, calc(var(--app-height, 100dvh) * 0.28));
+}
+
+html.route-meter .r9-meter-page {
+  width: 100%;
+  max-width: 100vw;
+}
+
 html.route-meter .r9-meter-console {
   height: 100%;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) minmax(0, min(22vh, calc(var(--app-height, 100dvh) * 0.24)));
+  grid-template-rows: minmax(0, 1fr) minmax(var(--meter-address-row-min), var(--meter-address-row-max));
 }
 
 html.route-meter .route-address-panel {
   grid-column: 1 / -1;
   grid-row: 2;
-  min-height: 0;
-  max-height: min(22vh, calc(var(--app-height, 100dvh) * 0.24));
+  min-height: var(--meter-address-row-min);
+  max-height: var(--meter-address-row-max);
   overflow: hidden;
   display: grid;
   align-content: stretch;
+  flex-shrink: 0;
 }
 
 html.route-meter .route-address-grid {
@@ -8191,12 +8203,16 @@ html.route-meter .route-address-grid strong {
   }
 
   html.route-meter .r9-meter-console {
-    grid-template-rows: minmax(0, 1fr) minmax(0, min(20vh, calc(var(--app-height, 100dvh) * 0.22)));
+    grid-template-rows: minmax(0, 1fr) minmax(48px, min(26vh, calc(var(--app-height, 100dvh) * 0.26)));
     gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
   }
 
+  html.route-meter {
+    --meter-address-row-min: 48px;
+    --meter-address-row-max: min(26vh, calc(var(--app-height, 100dvh) * 0.26));
+  }
+
   html.route-meter .route-address-panel {
-    max-height: min(20vh, calc(var(--app-height, 100dvh) * 0.22));
     padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px);
   }
 
@@ -8209,4 +8225,62 @@ html.route-meter .route-address-grid strong {
     font-size: clamp(0.58rem, 1.45vh, 0.82rem);
     line-height: 1.2;
   }
+}
+
+.debug-layout-panel {
+  position: fixed;
+  top: max(6px, env(safe-area-inset-top));
+  right: max(6px, env(safe-area-inset-right));
+  z-index: 2147483000;
+  width: min(92vw, 360px);
+  max-height: min(72vh, calc(var(--app-height, 100dvh) - 12px));
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid rgb(15 23 42 / 28%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 8px 28px rgb(15 23 42 / 22%);
+  color: #0f172a;
+  font-size: 10px;
+  line-height: 1.35;
+  pointer-events: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.debug-layout-panel strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.debug-layout-panel dl {
+  margin: 0;
+}
+
+.debug-layout-panel dl > div {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 6px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgb(148 163 184 / 28%);
+}
+
+.debug-layout-panel dt {
+  margin: 0;
+  color: #475569;
+  font-weight: 700;
+}
+
+.debug-layout-panel dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.debug-layout-panel__note {
+  margin: 8px 0 0;
+  color: #b45309;
+  font-size: 9px;
+  line-height: 1.4;
 }

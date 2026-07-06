@@ -6,8 +6,9 @@ import {
   clearAccountingRouteLayout,
   isAccountingPath,
 } from '../utils/accountingRouteLayout'
+import { DebugLayoutPanel } from '../components/DebugLayoutPanel'
 import { bindAppViewportHeight } from '../utils/appViewportHeight'
-import { isDevScreenshotMode } from '../utils/devScreenshotMode'
+import { isDebugLayoutMode, isMeterLandscapeNoticeBypass } from '../utils/debugLayoutMode'
 import { logDiagnostic } from '../utils/diagnostics'
 import {
   applyMeterRouteLayout,
@@ -21,7 +22,8 @@ export function AppLayout() {
   const location = useLocation()
   const navigationType = useNavigationType()
   const outletKey = `${location.pathname}${location.search}`
-  const devScreenshot = isDevScreenshotMode(location.search)
+  const debugLayout = isDebugLayoutMode(location.search)
+  const devScreenshot = isMeterLandscapeNoticeBypass(location.search)
   const onAccountingRoute = isAccountingPath(location.pathname)
   const onMeterRoute = isMeterOperationPath(location.pathname)
   const showReviewDemoBanner = isReviewDemoActive({
@@ -68,6 +70,7 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       {showReviewDemoBanner ? <ReviewDemoBanner /> : null}
+      {debugLayout ? <DebugLayoutPanel /> : null}
       <Outlet key={outletKey} />
     </div>
   )
