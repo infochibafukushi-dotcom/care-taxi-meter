@@ -8162,10 +8162,16 @@ html.route-meter .r9-meter-page {
   max-width: 100vw;
 }
 
-html.route-meter .r9-meter-console {
+html.route-meter:has(.route-address-panel) .r9-meter-console {
   height: 100%;
   min-height: 0;
   grid-template-rows: minmax(0, 1fr) minmax(var(--meter-address-row-min), var(--meter-address-row-max));
+}
+
+html.route-meter:has(.pre-fixed-reservation-bar) .r9-meter-console {
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) minmax(54px, min(14vh, calc(var(--app-height, 100dvh) * 0.15)));
 }
 
 html.route-meter .route-address-panel {
@@ -8199,27 +8205,50 @@ html.route-meter .route-address-grid strong {
   text-overflow: unset;
 }
 
-/* メーター画面: 合計金額を金額表示エリアの上下中央に配置 */
-html.route-meter .r9-fare-screen {
+/* 通常メーター: 合計金額を金額表示エリアの上下中央に配置 */
+html.route-meter:has(.fare-increase-stack) .r9-fare-screen {
   align-content: stretch;
 }
 
-html.route-meter .r9-fare-amount {
+html.route-meter:has(.fare-increase-stack) .r9-fare-amount {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-html.route-meter .r9-fare-screen strong {
+html.route-meter:has(.fare-increase-stack) .r9-fare-screen strong {
   margin-top: 0;
   line-height: 1;
   align-self: center;
 }
 
-html.route-meter .r9-fare-unit {
+html.route-meter:has(.fare-increase-stack) .r9-fare-unit {
   margin-top: 0;
   margin-bottom: 0;
   align-self: center;
+}
+
+/* 事前確定M: 予約バーはメーター用ダークテーマ */
+html.route-meter .pre-fixed-reservation-bar.reservation-detail-section {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  padding: clamp(6px, 1vh, 12px) clamp(8px, 1.2vw, 16px);
+  border: 1px solid rgb(59 130 246 / 78%);
+  border-radius: clamp(8px, 1.1vw, 12px);
+  background:
+    radial-gradient(circle at top left, rgb(30 64 175 / 28%), transparent 46%),
+    linear-gradient(135deg, #071426 0%, #03101b 52%, #010711 100%);
+  color: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+}
+
+html.route-meter .pre-fixed-reservation-bar .reservation-detail-dl dt {
+  color: #94a3b8;
+}
+
+html.route-meter .pre-fixed-reservation-bar .reservation-detail-dl dd {
+  color: #f8fafc;
 }
 
 @media (orientation: landscape) and (max-height: 760px) {
@@ -8229,53 +8258,53 @@ html.route-meter .r9-fare-unit {
     max-height: var(--app-height, 100dvh);
   }
 
-  html.route-meter .r9-meter-console {
+  html.route-meter:has(.route-address-panel) .r9-meter-console {
     grid-template-rows: minmax(0, 1fr) minmax(34px, min(48px, calc(var(--app-height, 100dvh) * 0.13)));
     gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
   }
 
-  html.route-meter {
+  html.route-meter:has(.route-address-panel) {
     --meter-address-row-min: 34px;
     --meter-address-row-max: min(48px, calc(var(--app-height, 100dvh) * 0.13));
   }
 
-  html.route-meter .route-address-panel {
+  html.route-meter:has(.route-address-panel) .route-address-panel {
     padding: clamp(3px, 0.55vh, 5px) clamp(6px, 1.2vw, 12px) 0;
   }
 
-  html.route-meter .route-address-grid {
+  html.route-meter:has(.route-address-panel) .route-address-grid {
     padding-bottom: 0;
     gap: clamp(6px, 1vw, 10px);
     align-items: stretch;
   }
 
-  html.route-meter .route-address-grid > div {
+  html.route-meter:has(.route-address-panel) .route-address-grid > div {
     min-height: 0;
     align-items: start;
     gap: clamp(4px, 0.55vw, 7px);
     padding-right: clamp(4px, 0.8vw, 10px);
   }
 
-  html.route-meter .route-address-icon,
-  html.route-meter .route-address-icon--flag {
+  html.route-meter:has(.route-address-panel) .route-address-icon,
+  html.route-meter:has(.route-address-panel) .route-address-icon--flag {
     width: clamp(20px, 4.2vh, 26px);
     height: clamp(20px, 4.2vh, 26px);
     font-size: clamp(0.75rem, 2.2vh, 1rem);
     flex-shrink: 0;
   }
 
-  html.route-meter .route-address-content {
+  html.route-meter:has(.route-address-panel) .route-address-content {
     min-height: 0;
     gap: 2px;
     overflow: hidden;
   }
 
-  html.route-meter .route-address-heading {
+  html.route-meter:has(.route-address-panel) .route-address-heading {
     min-height: 0;
     overflow: hidden;
   }
 
-  html.route-meter .route-address-heading span {
+  html.route-meter:has(.route-address-panel) .route-address-heading span {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -8283,7 +8312,7 @@ html.route-meter .r9-fare-unit {
     line-height: 1.15;
   }
 
-  html.route-meter .r9-left-panel {
+  html.route-meter:has(.route-address-panel) .r9-left-panel {
     grid-template-rows: minmax(0, 38fr) minmax(0, 52fr) auto;
   }
 
@@ -8295,16 +8324,16 @@ html.route-meter .r9-fare-unit {
     bottom: max(clamp(10px, 2vh, 18px), calc(env(safe-area-inset-bottom) + 4px));
   }
 
-  html.route-meter .r9-fare-card {
+  html.route-meter:has(.fare-increase-stack) .r9-fare-card {
     grid-template-rows: minmax(0, 72fr) minmax(0, 28fr);
   }
 
-  html.route-meter .r9-fare-screen {
+  html.route-meter:has(.fare-increase-stack) .r9-fare-screen {
     padding-bottom: clamp(4px, 0.5vh, 6px);
     overflow: hidden;
   }
 
-  html.route-meter .r9-fare-amount {
+  html.route-meter:has(.fare-increase-stack) .r9-fare-amount {
     align-items: center;
     justify-content: center;
     gap: clamp(3px, 0.5vw, 8px);
@@ -8314,7 +8343,7 @@ html.route-meter .r9-fare-unit {
     transform: none;
   }
 
-  html.route-meter .r9-fare-screen strong {
+  html.route-meter:has(.fare-increase-stack) .r9-fare-screen strong {
     width: auto;
     margin-top: 0;
     text-align: inherit;
@@ -8323,7 +8352,7 @@ html.route-meter .r9-fare-unit {
     flex: 0 0 auto;
   }
 
-  html.route-meter .r9-fare-unit {
+  html.route-meter:has(.fare-increase-stack) .r9-fare-unit {
     margin-top: 0;
     margin-bottom: 0;
     padding: 0;
@@ -8331,34 +8360,34 @@ html.route-meter .r9-fare-unit {
     flex: 0 0 auto;
   }
 
-  html.route-meter .r9-right-panel {
+  html.route-meter:has(.route-address-panel) .r9-right-panel {
     padding: clamp(5px, 0.9vh, 8px);
   }
 
-  html.route-meter .r9-status-stack {
+  html.route-meter:has(.route-address-panel) .r9-status-stack {
     gap: clamp(6px, 1vh, 10px);
   }
 
-  html.route-meter .r9-status-button {
+  html.route-meter:has(.route-address-panel) .r9-status-button {
     gap: clamp(5px, 0.9vh, 9px);
     padding: clamp(6px, 1.1vh, 9px) clamp(4px, 0.7vw, 7px);
     align-content: center;
   }
 
-  html.route-meter .r9-status-button span {
+  html.route-meter:has(.route-address-panel) .r9-status-button span {
     line-height: 1;
   }
 
-  html.route-meter .r9-status-button strong {
+  html.route-meter:has(.route-address-panel) .r9-status-button strong {
     line-height: 1.22;
   }
 
-  html.route-meter .route-address-grid span:not(.route-address-icon) {
+  html.route-meter:has(.route-address-panel) .route-address-grid span:not(.route-address-icon) {
     font-size: clamp(0.58rem, 1.45vh, 0.82rem);
     line-height: 1.15;
   }
 
-  html.route-meter .route-address-grid strong {
+  html.route-meter:has(.route-address-panel) .route-address-grid strong {
     overflow-x: hidden;
     overflow-y: auto;
     max-height: calc(2 * 1.2em);
@@ -8369,6 +8398,72 @@ html.route-meter .r9-fare-unit {
     text-overflow: unset;
     -webkit-overflow-scrolling: touch;
     font-size: clamp(0.56rem, 1.35vh, 0.78rem);
+  }
+
+  /* 事前確定M: 通常メーター用の横画面調整を適用しない */
+  html.route-meter:has(.pre-fixed-reservation-bar) .r9-meter-console {
+    grid-template-rows: minmax(0, 1fr) minmax(52px, min(13.5vh, calc(var(--app-height, 100dvh) * 0.14)));
+    gap: clamp(6px, 1vh, 10px) clamp(6px, 1vw, 10px);
+  }
+
+  html.route-meter:has(.pre-fixed-reservation-bar) .pre-fixed-reservation-bar {
+    max-height: min(13.5vh, calc(var(--app-height, 100dvh) * 0.14));
+    overflow: hidden;
+  }
+
+  html.route-meter:has(.pre-fixed-status-stack) .r9-left-panel {
+    grid-template-rows: minmax(0, 43fr) minmax(0, 47fr) auto;
+  }
+
+  html.route-meter:has(.fixed-fare-status-row) .r9-fare-card {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  html.route-meter:has(.fixed-fare-status-row) .r9-fare-screen {
+    overflow: visible;
+    padding-bottom: clamp(8px, 1vh, 12px);
+  }
+
+  html.route-meter:has(.fixed-fare-status-row) .r9-fare-screen strong {
+    width: 100%;
+    margin-top: 0;
+    text-align: center;
+    line-height: 0.95;
+    align-self: auto;
+    flex: initial;
+  }
+
+  html.route-meter:has(.fixed-fare-status-row) .r9-fare-amount {
+    gap: clamp(8px, 1.2vw, 16px);
+    max-height: none;
+  }
+
+  html.route-meter:has(.fixed-fare-status-row) .r9-fare-unit {
+    margin: 0 0 0.14em;
+    padding-right: 0;
+  }
+
+  html.route-meter:has(.pre-fixed-status-stack) .r9-right-panel {
+    padding: 6px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  html.route-meter:has(.pre-fixed-status-stack) .r9-status-stack {
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: repeat(7, minmax(0, 1fr));
+  }
+
+  html.route-meter:has(.pre-fixed-status-stack) .r9-status-button {
+    gap: 12px;
+    padding: 12px 8px;
+    align-content: center;
+  }
+
+  html.route-meter:has(.pre-fixed-status-stack) .r9-status-button strong {
+    line-height: 1.1;
   }
 }
 
