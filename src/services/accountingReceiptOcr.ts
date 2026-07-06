@@ -1,4 +1,5 @@
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
+import { OCR_NOT_CONFIGURED_MESSAGE } from '../utils/accountingExpenseForm'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 
 type RunAccountingReceiptOcrInput = {
@@ -52,6 +53,7 @@ export async function runAccountingReceiptOcr(
         taxRate: 10,
         consumptionTaxAmount: 100,
         invoiceNumber: 'T1234567890123',
+        invoiceRegisteredName: 'デモ登録事業者',
       },
       suggestedExpenseCategory: '',
     }
@@ -61,8 +63,7 @@ export async function runAccountingReceiptOcr(
   if (!endpoint) {
     return {
       status: 'not_configured',
-      message:
-        'OCR API が未設定です。VITE_ACCOUNTING_OCR_ENDPOINT に Cloud Functions 等の OCR エンドポイントを設定してください。',
+      message: OCR_NOT_CONFIGURED_MESSAGE,
       parsed: {},
     }
   }

@@ -202,6 +202,15 @@
         { "fieldPath": "franchiseeId", "order": "ASCENDING" },
         { "fieldPath": "targetYearMonth", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

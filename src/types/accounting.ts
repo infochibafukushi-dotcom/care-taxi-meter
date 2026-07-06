@@ -53,9 +53,16 @@ export const INVOICE_CHECK_STATUSES = ['未確認', '登録あり', '登録な�
 
 export type InvoiceCheckStatus = (typeof INVOICE_CHECK_STATUSES)[number]
 
-export const RECEIPT_STATUSES = ['active', 'invalidated'] as const
+/** 領収書データの整理状態 */
+export const RECEIPT_STATUSES = ['unorganized', 'linked', 'invalid'] as const
 
 export type ReceiptStatus = (typeof RECEIPT_STATUSES)[number]
+
+export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
+  unorganized: '未整理',
+  linked: '経費紐付け済み',
+  invalid: '無効',
+}
 
 export type OcrParsedFields = {
   transactionDate?: string
@@ -67,6 +74,8 @@ export type OcrParsedFields = {
   taxRate?: number
   consumptionTaxAmount?: number
   invoiceNumber?: string
+  invoiceRegisteredName?: string
+  invoiceCheckStatus?: InvoiceCheckStatus
 }
 
 export type AccountingOcrData = {
@@ -142,21 +151,35 @@ export type StoredAccountingAdjustment = AccountingAdjustmentInput & {
   updatedAt?: string
 }
 
-export type AccountingReceiptInput = AccountingTenantFields & {
-  storagePath: string
-  downloadUrl: string
-  mimeType: string
-  fileName: string
-  fileSizeBytes: number
-  status: ReceiptStatus
-  linkedExpenseId?: string
-  uploadedBy: string
-  uploadedByName: string
+export type AccountingReceiptCandidateFields = {
+  memo?: string
+  receiptDate?: string
+  vendorNameCandidate?: string
+  invoiceNumberCandidate?: string
+  invoiceRegisteredNameCandidate?: string
+  amountTotalCandidate?: number
+  taxAmountCandidate?: number
+  taxRateCandidate?: number
 }
+
+export type AccountingReceiptInput = AccountingTenantFields &
+  AccountingReceiptCandidateFields &
+  AccountingOcrData & {
+    storagePath: string
+    downloadUrl: string
+    mimeType: string
+    fileName: string
+    fileSizeBytes: number
+    status: ReceiptStatus
+    linkedExpenseId?: string
+    uploadedBy: string
+    uploadedByName: string
+  }
 
 export type StoredAccountingReceipt = AccountingReceiptInput & {
   id: string
   createdAt?: string
+  updatedAt?: string
   invalidatedAt?: string
 }
 
@@ -220,6 +243,23 @@ export type MonthlyProfitLoss = {
   operatingProfitYen: number
   caseRecordCount: number
   confirmedExpenseCount: number
+}
+
+export const normalizeReceiptStatus = (value: unknown, linkedExpenseId?: string): ReceiptStatus => {
+  if (value === 'linked') {
+    return 'linked'
+  }
+  if (value === 'invalid' || value === 'invalidated') {
+    return 'invalid'
+  }
+  if (value === 'unorganized') {
+    return 'unorganized'
+  }
+  // 旧 status: active は linkedExpenseId の有無で解釈
+  if (value === 'active') {
+    return linkedExpenseId ? 'linked' : 'unorganized'
+  }
+  return linkedExpenseId ? 'linked' : 'unorganized'
 }
 
 export const normalizePlTreatment = (value: unknown): PlTreatment => {

@@ -16,7 +16,14 @@ import {
   fetchAccountingAdjustments,
   invalidateAccountingAdjustment,
 } from '../services/accountingAdjustments'
-import { uploadAccountingReceiptImage } from '../services/accountingReceipts'
+import {
+  applyOcrCandidatesToAccountingReceipt,
+  fetchUnorganizedAccountingReceipts,
+  invalidateAccountingReceipt,
+  saveReceiptOnly,
+  uploadAccountingReceiptImage,
+  type StoredAccountingReceipt,
+} from '../services/accountingReceipts'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
@@ -38,6 +45,7 @@ import {
   PAYMENT_METHODS,
   PL_TREATMENTS,
   PL_TREATMENT_LABELS,
+  RECEIPT_STATUS_LABELS,
   SALES_CATEGORIES,
   getExpensePostingDate,
   getExpenseReceiptDate,
@@ -72,8 +80,13 @@ import {
 import { formatCaseDateTime } from '../utils/caseRecords'
 import {
   applyAccountingReceiptOcrToExpense,
+  buildExpenseFormFromReceipt,
+  buildReceiptCandidateFieldsFromExpense,
+  formatReceiptSavedAt,
   formatYenInputDisplay,
+  OCR_NOT_CONFIGURED_MESSAGE,
   parseYenInput,
+  validateInvoiceNumberCandidate,
 } from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
@@ -155,8 +168,12 @@ export function AccountingPage() {
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false)
   const [isRunningOcr, setIsRunningOcr] = useState(false)
+  const [ocrRunningReceiptId, setOcrRunningReceiptId] = useState('')
   const [isConsumptionTaxManual, setIsConsumptionTaxManual] = useState(false)
   const [ocrCandidateNotice, setOcrCandidateNotice] = useState('')
+  const [invoiceNumberWarning, setInvoiceNumberWarning] = useState('')
+  const [unorganizedReceipts, setUnorganizedReceipts] = useState<StoredAccountingReceipt[]>([])
+  const [isSavingReceiptOnly, setIsSavingReceiptOnly] = useState(false)
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
 
@@ -193,6 +210,7 @@ export function AccountingPage() {
       let records: StoredCaseRecord[] = []
       let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
       let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
+      let unorganizedRows: StoredAccountingReceipt[] = []
 
       if (!authValidationError) {
         try {
@@ -213,6 +231,12 @@ export function AccountingPage() {
         } catch (error) {
           loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
         }
+
+        try {
+          unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope)
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
+        }
       }
 
       if (cancelled) {
@@ -223,6 +247,7 @@ export function AccountingPage() {
       setCaseRecords(records)
       setExpenses(expenseRows)
       setAdjustments(adjustmentRows)
+      setUnorganizedReceipts(unorganizedRows)
       setErrorMessage(loadErrors.join(' / '))
       setIsLoading(false)
     }
@@ -309,6 +334,11 @@ export function AccountingPage() {
   )
   const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他'] > 0
 
+  const visibleUnorganizedReceipts = useMemo(
+    () => unorganizedReceipts.filter((receipt) => receipt.id !== expenseForm?.receiptId),
+    [expenseForm?.receiptId, unorganizedReceipts],
+  )
+
   const buildFreshExpenseForm = () =>
     buildEmptyExpenseInput({
       franchiseeId: tenantScope.franchiseeId,
@@ -321,7 +351,18 @@ export function AccountingPage() {
     setEditingExpenseId('')
     setIsConsumptionTaxManual(false)
     setOcrCandidateNotice('')
+    setInvoiceNumberWarning('')
     setExpenseForm(buildFreshExpenseForm())
+  }
+
+  const reloadUnorganizedReceipts = async () => {
+    const rows = await fetchUnorganizedAccountingReceipts(accessScope)
+    setUnorganizedReceipts(rows)
+  }
+
+  const reloadExpensesAdjustmentsAndReceipts = async () => {
+    await reloadExpensesAndAdjustments()
+    await reloadUnorganizedReceipts()
   }
 
   const isNewExpenseEntry = !editingExpenseId
@@ -351,6 +392,11 @@ export function AccountingPage() {
 
       if (key === 'receiptDate') {
         next.receiptDate = String(value)
+      }
+
+      if (key === 'invoiceNumber') {
+        const validation = validateInvoiceNumberCandidate(String(value))
+        setInvoiceNumberWarning(validation.warning)
       }
 
       if (key === 'confirmationStatus' && value === '確認済み' && !next.expenseCategory) {
@@ -471,7 +517,7 @@ export function AccountingPage() {
       })
 
       if (result.status === 'not_configured') {
-        setStatusMessage(result.message ?? 'OCR API が未設定です。手入力で続行できます。')
+        setStatusMessage(OCR_NOT_CONFIGURED_MESSAGE)
         return
       }
 
@@ -484,6 +530,10 @@ export function AccountingPage() {
         current ? applyAccountingReceiptOcrToExpense(current, result) : current,
       )
       setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
+      if (result.parsed.invoiceNumber) {
+        const validation = validateInvoiceNumberCandidate(result.parsed.invoiceNumber)
+        setInvoiceNumberWarning(validation.warning)
+      }
       setOcrCandidateNotice(
         'OCR候補をフォームに反映しました。日付・金額・仕入先等を確認し、経費科目は必ず手動で選択してから保存してください。',
       )
@@ -492,6 +542,125 @@ export function AccountingPage() {
       setErrorMessage(error instanceof Error ? error.message : 'OCR の実行に失敗しました。')
     } finally {
       setIsRunningOcr(false)
+    }
+  }
+
+  const handleSaveReceiptOnly = async () => {
+    if (!expenseForm?.receiptId || !expenseForm.receiptImageUrl) {
+      setErrorMessage('先に領収書画像をアップロードしてください。')
+      return
+    }
+
+    setIsSavingReceiptOnly(true)
+    setErrorMessage('')
+    setStatusMessage('')
+
+    try {
+      await saveReceiptOnly({
+        receiptId: expenseForm.receiptId,
+        memo: expenseForm.memo,
+        candidateFields: buildReceiptCandidateFieldsFromExpense(expenseForm),
+        updatedBy: staffId,
+        updatedByName: staffName,
+      })
+      setStatusMessage('領収書を未整理として保存しました。あとで「経費として登録」できます。')
+      resetExpenseFormToNew()
+      await reloadUnorganizedReceipts()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '領収書の保存に失敗しました。')
+    } finally {
+      setIsSavingReceiptOnly(false)
+    }
+  }
+
+  const handleRegisterReceiptAsExpense = (receipt: StoredAccountingReceipt) => {
+    const form = buildExpenseFormFromReceipt({
+      receipt,
+      franchiseeId: tenantScope.franchiseeId,
+      storeId: tenantScope.storeId,
+      staffId,
+      staffName,
+    })
+    setEditingExpenseId('')
+    setIsConsumptionTaxManual(
+      form.consumptionTaxAmount !==
+        calculateConsumptionTaxFromIncluded(form.taxIncludedAmount, form.taxRate),
+    )
+    setOcrCandidateNotice(
+      '未整理領収書から経費入力フォームへ引き継ぎました。内容と経費科目を確認してから保存してください。',
+    )
+    setInvoiceNumberWarning(
+      form.invoiceNumber ? validateInvoiceNumberCandidate(form.invoiceNumber).warning : '',
+    )
+    setExpenseForm(form)
+    setActiveTab('expenses')
+    setStatusMessage('未整理領収書を経費入力フォームへ読み込みました。')
+  }
+
+  const handleRunOcrOnUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
+    if (!receipt.downloadUrl) {
+      setErrorMessage('証憑画像URLがありません。')
+      return
+    }
+
+    setOcrRunningReceiptId(receipt.id)
+    setErrorMessage('')
+    setStatusMessage('')
+
+    try {
+      const result = await runAccountingReceiptOcr({
+        downloadUrl: receipt.downloadUrl,
+        receiptId: receipt.id,
+        fileName: receipt.fileName,
+      })
+
+      if (result.status === 'not_configured') {
+        setStatusMessage(OCR_NOT_CONFIGURED_MESSAGE)
+        return
+      }
+
+      if (result.status === 'error') {
+        setErrorMessage(result.message ?? 'OCR の実行に失敗しました。')
+        return
+      }
+
+      await applyOcrCandidatesToAccountingReceipt({ receiptId: receipt.id, ocr: result })
+      await reloadUnorganizedReceipts()
+
+      if (expenseForm?.receiptId === receipt.id) {
+        setExpenseForm((current) =>
+          current ? applyAccountingReceiptOcrToExpense(current, result) : current,
+        )
+        setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
+        if (result.parsed.invoiceNumber) {
+          setInvoiceNumberWarning(validateInvoiceNumberCandidate(result.parsed.invoiceNumber).warning)
+        }
+        setOcrCandidateNotice('OCR候補を反映しました。内容と経費科目を確認してから保存してください。')
+      }
+
+      setStatusMessage(result.message ?? 'OCR候補を領収書データに反映しました。')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'OCR の実行に失敗しました。')
+    } finally {
+      setOcrRunningReceiptId('')
+    }
+  }
+
+  const handleInvalidateUnorganizedReceipt = async (receiptId: string) => {
+    const confirmed = window.confirm('この未整理領収書を無効化します。画像は削除せず、一覧から除外します。')
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await invalidateAccountingReceipt({ receiptId })
+      if (expenseForm?.receiptId === receiptId) {
+        resetExpenseFormToNew()
+      }
+      setStatusMessage('未整理領収書を無効化しました。')
+      await reloadUnorganizedReceipts()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '未整理領収書の無効化に失敗しました。')
     }
   }
 
@@ -529,7 +698,7 @@ export function AccountingPage() {
 
       setEditingExpenseId('')
       resetExpenseFormToNew()
-      await reloadExpensesAndAdjustments()
+      await reloadExpensesAdjustmentsAndReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
     } finally {
@@ -549,6 +718,9 @@ export function AccountingPage() {
         calculateConsumptionTaxFromIncluded(expense.taxIncludedAmount, expense.taxRate),
     )
     setOcrCandidateNotice('')
+    setInvoiceNumberWarning(
+      expense.invoiceNumber ? validateInvoiceNumberCandidate(expense.invoiceNumber).warning : '',
+    )
     setExpenseForm({
       ...expense,
       receiptDate: getExpenseReceiptDate(expense),
@@ -1161,6 +1333,8 @@ export function AccountingPage() {
               <h3>領収書から入力</h3>
               <p className="accounting-note">
                 撮影または画像選択 → OCR読取（候補） → 内容確認 → 経費科目を手動選択 → 保存
+                <br />
+                忙しい時は「領収書だけ保存」で画像だけ先に残せます。
               </p>
               <div className="accounting-receipt-actions">
                 <label className="accounting-receipt-upload-button primary-action">
@@ -1192,6 +1366,14 @@ export function AccountingPage() {
                 >
                   {isRunningOcr ? 'OCR読取中…' : 'OCR読取（候補を反映）'}
                 </button>
+                <button
+                  className="primary-action accounting-save-receipt-only-button"
+                  disabled={!expenseForm.receiptImageUrl || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
+                  type="button"
+                  onClick={() => void handleSaveReceiptOnly()}
+                >
+                  {isSavingReceiptOnly ? '保存中…' : '領収書だけ保存'}
+                </button>
               </div>
               {isUploadingReceipt ? <p className="accounting-note">証憑画像をアップロード中…</p> : null}
               {expenseForm.receiptImageUrl ? (
@@ -1203,6 +1385,161 @@ export function AccountingPage() {
               {expenseForm.ocrConfidence != null ? (
                 <p className="accounting-note">OCR信頼度（参考）: {(expenseForm.ocrConfidence * 100).toFixed(0)}%</p>
               ) : null}
+            </section>
+
+            <section className="accounting-unorganized-panel" aria-label="未整理の領収書">
+              <h3>未整理の領収書 ({visibleUnorganizedReceipts.length})</h3>
+              <p className="accounting-note">
+                領収書だけ保存したデータです。PLには反映されません。「経費として登録」で入力フォームへ引き継げます。
+              </p>
+              {visibleUnorganizedReceipts.length > 0 ? (
+                <>
+                  <div className="accounting-unorganized-cards">
+                    {visibleUnorganizedReceipts.map((receipt) => (
+                      <article key={receipt.id} className="accounting-unorganized-card">
+                        {receipt.downloadUrl ? (
+                          <img
+                            alt="領収書サムネイル"
+                            className="accounting-unorganized-thumb"
+                            src={receipt.downloadUrl}
+                          />
+                        ) : (
+                          <div className="accounting-unorganized-thumb accounting-unorganized-thumb--empty">
+                            画像なし
+                          </div>
+                        )}
+                        <div className="accounting-unorganized-body">
+                          <header>
+                            <strong>{receipt.vendorNameCandidate || '（仕入先候補なし）'}</strong>
+                            <span>{RECEIPT_STATUS_LABELS[receipt.status]}</span>
+                          </header>
+                          <dl>
+                            <div>
+                              <dt>保存日</dt>
+                              <dd>{formatReceiptSavedAt(receipt)}</dd>
+                            </div>
+                            <div>
+                              <dt>証憑日候補</dt>
+                              <dd>{receipt.receiptDate || '―'}</dd>
+                            </div>
+                            <div>
+                              <dt>金額候補</dt>
+                              <dd>
+                                {receipt.amountTotalCandidate != null
+                                  ? formatFareYen(receipt.amountTotalCandidate)
+                                  : '―'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>インボイス候補</dt>
+                              <dd>{receipt.invoiceNumberCandidate || '―'}</dd>
+                            </div>
+                            <div>
+                              <dt>メモ</dt>
+                              <dd>{receipt.memo || '―'}</dd>
+                            </div>
+                          </dl>
+                          <div className="accounting-unorganized-actions">
+                            <button
+                              className="primary-action"
+                              type="button"
+                              onClick={() => handleRegisterReceiptAsExpense(receipt)}
+                            >
+                              経費として登録
+                            </button>
+                            <button
+                              className="secondary-action"
+                              disabled={ocrRunningReceiptId === receipt.id}
+                              type="button"
+                              onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
+                            >
+                              {ocrRunningReceiptId === receipt.id ? 'OCR読取中…' : 'OCR読取'}
+                            </button>
+                            <button
+                              className="secondary-action"
+                              type="button"
+                              onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
+                            >
+                              無効化
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="accounting-table-wrap accounting-table-wrap--desktop accounting-unorganized-table-wrap">
+                    <table className="accounting-table accounting-table--desktop">
+                      <thead>
+                        <tr>
+                          <th>画像</th>
+                          <th>保存日</th>
+                          <th>証憑日候補</th>
+                          <th>仕入先候補</th>
+                          <th>金額候補</th>
+                          <th>インボイス候補</th>
+                          <th>メモ</th>
+                          <th>状態</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleUnorganizedReceipts.map((receipt) => (
+                          <tr key={receipt.id}>
+                            <td>
+                              {receipt.downloadUrl ? (
+                                <img
+                                  alt="領収書サムネイル"
+                                  className="accounting-unorganized-table-thumb"
+                                  src={receipt.downloadUrl}
+                                />
+                              ) : (
+                                '―'
+                              )}
+                            </td>
+                            <td>{formatReceiptSavedAt(receipt)}</td>
+                            <td>{receipt.receiptDate || '―'}</td>
+                            <td>{receipt.vendorNameCandidate || '―'}</td>
+                            <td>
+                              {receipt.amountTotalCandidate != null
+                                ? formatFareYen(receipt.amountTotalCandidate)
+                                : '―'}
+                            </td>
+                            <td>{receipt.invoiceNumberCandidate || '―'}</td>
+                            <td>{receipt.memo || '―'}</td>
+                            <td>{RECEIPT_STATUS_LABELS[receipt.status]}</td>
+                            <td>
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => handleRegisterReceiptAsExpense(receipt)}
+                              >
+                                経費として登録
+                              </button>
+                              <button
+                                className="secondary-action"
+                                disabled={ocrRunningReceiptId === receipt.id}
+                                type="button"
+                                onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
+                              >
+                                OCR読取
+                              </button>
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
+                              >
+                                無効化
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="accounting-note">未整理の領収書はありません。</p>
+              )}
             </section>
 
             <div className="accounting-form-grid">
@@ -1343,6 +1680,11 @@ export function AccountingPage() {
                   onChange={(event) => handleExpenseFieldChange('invoiceNumber', event.target.value)}
                 />
               </label>
+              {invoiceNumberWarning ? (
+                <p className="accounting-warning accounting-form-span-2" role="alert">
+                  {invoiceNumberWarning}
+                </p>
+              ) : null}
               <label>
                 インボイス確認
                 <select
@@ -1448,7 +1790,7 @@ export function AccountingPage() {
                 <button
                   className="primary-action"
                   type="button"
-                  disabled={isSavingExpense || isUploadingReceipt || isRunningOcr}
+                  disabled={isSavingExpense || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
                   onClick={() => void handleSaveExpense()}
                 >
                   {editingExpenseId ? '経費を更新' : '経費を登録'}

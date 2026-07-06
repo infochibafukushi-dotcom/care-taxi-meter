@@ -26,6 +26,7 @@ import {
   normalizePlTreatment,
 } from '../types/accounting'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
+import { linkAccountingReceiptToExpense } from './accountingReceipts'
 import {
   createAccountingTenantConstraints,
   logAccountingQueryFailure,
@@ -145,6 +146,13 @@ export async function createAccountingExpense(input: AccountingExpenseInput) {
     }),
   )
 
+  if (normalizedInput.receiptId) {
+    await linkAccountingReceiptToExpense({
+      receiptId: normalizedInput.receiptId,
+      expenseId: document.id,
+    })
+  }
+
   return document.id
 }
 
@@ -176,6 +184,13 @@ export async function updateAccountingExpense(
       updatedAt: serverTimestamp(),
     }),
   )
+
+  if (normalizedPatch.receiptId) {
+    await linkAccountingReceiptToExpense({
+      receiptId: normalizedPatch.receiptId,
+      expenseId,
+    })
+  }
 }
 
 export async function invalidateAccountingExpense({
