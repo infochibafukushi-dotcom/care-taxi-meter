@@ -2904,6 +2904,31 @@ html:not(.route-meter) .admin-card {
   box-sizing: border-box;
 }
 
+html:not(.route-meter) .landscape-notice {
+  display: none !important;
+}
+
+html:not(.route-meter) .page--login,
+html:not(.route-meter) .page--home {
+  min-height: var(--app-height, 100dvh);
+  height: auto;
+  max-height: none;
+}
+
+@media (max-width: 640px) and (orientation: landscape) {
+  html:not(.route-meter) .page--home:not(.page--login) {
+    min-height: var(--app-height, 100dvh);
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  html:not(.route-meter) .page--home:not(.page--login) > .hero-card {
+    min-height: 0;
+    overflow: visible;
+  }
+}
+
 @media (max-width: 1100px) and (orientation: landscape) {
   .r9-meter-console {
     grid-template-columns: minmax(0, 1.14fr) minmax(0, 0.76fr) clamp(92px, 15vw, 140px);
@@ -3293,35 +3318,6 @@ html:not(.route-meter) .admin-card {
     padding: 4px 3px;
     border-radius: 8px;
     font-size: clamp(0.62rem, 1.45vw, 0.82rem);
-  }
-}
-
-
-@media (orientation: landscape) and (max-height: 760px) and (max-width: 1500px) {
-  .r9-meter-page {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  .r9-meter-shell {
-    --meter-landscape-scale: 0.74;
-    width: calc(100% / var(--meter-landscape-scale));
-    height: calc(100dvh / var(--meter-landscape-scale));
-    min-height: 0;
-    transform: scale(var(--meter-landscape-scale));
-    transform-origin: top left;
-  }
-}
-
-@media (orientation: landscape) and (max-height: 680px) and (max-width: 1500px) {
-  .r9-meter-shell {
-    --meter-landscape-scale: 0.68;
-  }
-}
-
-@media (orientation: landscape) and (max-height: 620px) and (max-width: 1500px) {
-  .r9-meter-shell {
-    --meter-landscape-scale: 0.66;
   }
 }
 
@@ -8119,4 +8115,74 @@ html:not(.route-meter) .admin-card {
   width: min(100%, 760px);
   margin: 12px auto 0;
   padding: 0 20px;
+}
+
+/* メーター画面のみ: visualViewport 高さ内に収め、住所ログは内部スクロール */
+html.route-meter .r9-meter-page,
+html.route-meter .r9-meter-shell {
+  height: var(--app-height, 100dvh);
+  min-height: var(--app-height, 100dvh);
+  max-height: var(--app-height, 100dvh);
+}
+
+html.route-meter .r9-meter-console {
+  grid-template-rows: minmax(0, 1fr) minmax(0, min(22vh, calc(var(--app-height, 100dvh) * 0.24)));
+}
+
+html.route-meter .route-address-panel {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  max-height: min(22vh, calc(var(--app-height, 100dvh) * 0.24));
+  overflow: hidden;
+  display: grid;
+  align-content: stretch;
+}
+
+html.route-meter .route-address-grid {
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+}
+
+html.route-meter .route-address-grid > div {
+  min-height: 0;
+}
+
+html.route-meter .route-address-grid strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: unset;
+}
+
+@media (orientation: landscape) and (max-height: 760px) {
+  html.route-meter .r9-meter-page,
+  html.route-meter .r9-meter-shell {
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
+  }
+
+  html.route-meter .r9-meter-console {
+    grid-template-rows: minmax(0, 1fr) minmax(0, min(20vh, calc(var(--app-height, 100dvh) * 0.22)));
+    gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
+  }
+
+  html.route-meter .route-address-panel {
+    max-height: min(20vh, calc(var(--app-height, 100dvh) * 0.22));
+    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px);
+  }
+
+  html.route-meter .route-address-grid span:not(.route-address-icon) {
+    font-size: clamp(0.62rem, 1.6vh, 0.9rem);
+    line-height: 1.15;
+  }
+
+  html.route-meter .route-address-grid strong {
+    font-size: clamp(0.58rem, 1.45vh, 0.82rem);
+    line-height: 1.2;
+  }
 }

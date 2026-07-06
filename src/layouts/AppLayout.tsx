@@ -5,7 +5,6 @@ import {
   applyAccountingRouteLayout,
   clearAccountingRouteLayout,
   isAccountingPath,
-  unlockScreenOrientation,
 } from '../utils/accountingRouteLayout'
 import { bindAppViewportHeight } from '../utils/appViewportHeight'
 import { isDevScreenshotMode } from '../utils/devScreenshotMode'
@@ -15,6 +14,7 @@ import {
   clearMeterRouteLayout,
   isMeterOperationPath,
 } from '../utils/meterRouteLayout'
+import { bindFlexibleOrientationGuard } from '../utils/screenOrientation'
 import { isReviewDemoActive } from '../utils/reviewDemo'
 
 export function AppLayout() {
@@ -30,21 +30,10 @@ export function AppLayout() {
   })
 
   useEffect(() => {
-    const cleanupViewport =
-      onMeterRoute || onAccountingRoute ? bindAppViewportHeight() : () => undefined
-
-    if (onAccountingRoute) {
-      clearMeterRouteLayout()
-      applyAccountingRouteLayout()
-      return () => {
-        clearAccountingRouteLayout()
-        cleanupViewport()
-      }
-    }
-
-    clearAccountingRouteLayout()
+    const cleanupViewport = bindAppViewportHeight()
 
     if (onMeterRoute) {
+      clearAccountingRouteLayout()
       applyMeterRouteLayout({ devScreenshot })
       return () => {
         clearMeterRouteLayout()
@@ -53,8 +42,22 @@ export function AppLayout() {
     }
 
     clearMeterRouteLayout()
-    void unlockScreenOrientation()
-    return cleanupViewport
+
+    if (onAccountingRoute) {
+      applyAccountingRouteLayout()
+    } else {
+      clearAccountingRouteLayout()
+    }
+
+    const cleanupOrientation = bindFlexibleOrientationGuard()
+
+    return () => {
+      cleanupOrientation()
+      if (onAccountingRoute) {
+        clearAccountingRouteLayout()
+      }
+      cleanupViewport()
+    }
   }, [devScreenshot, onAccountingRoute, onMeterRoute])
 
   logDiagnostic('AppLayout location', {

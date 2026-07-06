@@ -1,4 +1,7 @@
-import { unlockScreenOrientation } from './accountingRouteLayout'
+import {
+  lockMeterLandscapeOrientation,
+  unlockScreenOrientation,
+} from './screenOrientation'
 
 const METER_ROUTE_CLASS = 'route-meter'
 const DEV_SCREENSHOT_CLASS = 'route-dev-screenshot'
@@ -6,40 +9,12 @@ const DEV_SCREENSHOT_CLASS = 'route-dev-screenshot'
 export const isMeterOperationPath = (pathname: string) => {
   const normalized = pathname.replace(/\/+$/, '') || '/'
 
-  if (normalized === '/accounting' || normalized.endsWith('/accounting')) {
-    return false
-  }
-
   return (
     normalized === '/case' ||
     normalized.endsWith('/case/start') ||
     normalized.endsWith('/review-demo/case') ||
     normalized.endsWith('/review-demo/case/start')
   )
-}
-
-const getScreenOrientation = () => {
-  if (!('screen' in window) || !window.screen.orientation) {
-    return null
-  }
-
-  return window.screen.orientation as ScreenOrientation & {
-    lock?: (orientation: OrientationLockType) => Promise<void>
-    unlock?: () => Promise<void>
-  }
-}
-
-const applyMeterScreenOrientation = async () => {
-  const orientation = getScreenOrientation()
-  if (!orientation?.lock) {
-    return
-  }
-
-  try {
-    await orientation.lock('landscape-primary')
-  } catch {
-    // Browser / permission / unsupported: continue without locking.
-  }
 }
 
 const setMeterRouteClasses = (enabled: boolean, devScreenshot: boolean) => {
@@ -64,7 +39,7 @@ export const applyMeterRouteLayout = ({ devScreenshot }: { devScreenshot: boolea
     return
   }
 
-  void applyMeterScreenOrientation()
+  void lockMeterLandscapeOrientation()
 }
 
 export const clearMeterRouteLayout = () => {
