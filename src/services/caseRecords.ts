@@ -29,8 +29,11 @@ import {
   getFranchiseeId,
   getStoreId,
   matchesTenantScope,
+  mergeTenantAccessScopes,
+  normalizeTenantRole,
 } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
+import { readFirebaseAuthTokenClaims } from './accountingTenant'
 import type {
   CompletionReason,
   FareMode,
@@ -1024,17 +1027,59 @@ export async function saveCaseRecord({
   return addDoc(getCaseRecordsCollection(), record)
 }
 
+/** Firestore rules と一致する list 用 scope（token claims を優先） */
+export async function resolveCaseRecordsQueryScope(
+  scope?: TenantAccessScope,
+): Promise<TenantAccessScope | undefined> {
+  const tokenClaims = await readFirebaseAuthTokenClaims()
+  const mergedScope = mergeTenantAccessScopes(scope, {
+    franchiseeId: tokenClaims?.franchiseeId || tokenClaims?.companyId,
+    storeId: tokenClaims?.storeId,
+    staffId: tokenClaims?.staffId,
+    role: normalizeTenantRole(tokenClaims?.role),
+  })
+
+  if (!mergedScope.role && !tokenClaims?.role) {
+    return scope
+  }
+
+  const role = normalizeTenantRole(mergedScope.role || tokenClaims?.role)
+  if (role === 'hq_admin') {
+    return { role }
+  }
+
+  const franchiseeId =
+    tokenClaims?.franchiseeId ||
+    tokenClaims?.companyId ||
+    mergedScope.franchiseeId ||
+    ''
+
+  if (!franchiseeId) {
+    throw new Error(
+      '案件一覧の取得に必要な加盟店情報がありません。一度ログアウトしてから再ログインしてください。',
+    )
+  }
+
+  return {
+    franchiseeId,
+    storeId: mergedScope.storeId || tokenClaims?.storeId || undefined,
+    role,
+    staffId: mergedScope.staffId || tokenClaims?.staffId || undefined,
+  }
+}
+
 
 export async function fetchCaseRecords(scope?: TenantAccessScope) {
+  const queryScope = await resolveCaseRecordsQueryScope(scope)
   const snapshots = await getDocs(
     query(
       getCaseRecordsCollection(),
-      ...createTenantQueryConstraints(scope),
+      ...createTenantQueryConstraints(queryScope),
       orderBy('closedAt', 'desc'),
     ),
   )
 
-  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, scope))
+  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, queryScope))
 }
 
 export async function fetchCaseRecordsInClosedAtRange({
@@ -1046,17 +1091,18 @@ export async function fetchCaseRecordsInClosedAtRange({
   startIso: string
   scope?: TenantAccessScope
 }) {
+  const queryScope = await resolveCaseRecordsQueryScope(scope)
   const snapshots = await getDocs(
     query(
       getCaseRecordsCollection(),
-      ...createTenantQueryConstraints(scope),
+      ...createTenantQueryConstraints(queryScope),
       where('closedAt', '>=', startIso),
       where('closedAt', '<', endIso),
       orderBy('closedAt', 'desc'),
     ),
   )
 
-  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, scope))
+  return snapshots.docs.map(toStoredCaseRecord).filter((record) => matchesTenantScope(record, queryScope))
 }
 
 export async function fetchCaseRecord(caseRecordId: string) {

@@ -5,7 +5,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { loadAuthStaffSession } from '../services/authSession'
-import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
+import { tenantAccessScopeFromSessionSource, mergeTenantAccessScopes } from '../services/tenancy'
 import { canManageCaseRecord } from '../types/permissions'
 import {
   calculateTodayCaseSummary,
@@ -38,10 +38,13 @@ type CaseRecordsState = {
 export function CaseListPage() {
   const workSession = useWorkSession()
   const authSession = useMemo(() => loadAuthStaffSession(), [])
-  const sessionSource = workSession.currentSession ?? authSession
   const accessScope = useMemo(
-    () => tenantAccessScopeFromSessionSource(sessionSource),
-    [sessionSource],
+    () =>
+      mergeTenantAccessScopes(
+        tenantAccessScopeFromSessionSource(workSession.currentSession),
+        tenantAccessScopeFromSessionSource(authSession),
+      ),
+    [workSession.currentSession, authSession],
   )
   const currentRole = accessScope.role ?? ''
   const canViewDeleted = canManageCaseRecord(currentRole)

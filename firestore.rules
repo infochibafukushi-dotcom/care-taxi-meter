@@ -272,11 +272,14 @@ service cloud.firestore {
     match /caseRecords/{caseRecordId} {
       allow read, write: if isHqAdmin();
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
+      allow list: if isFranchiseeOwner() && sameFranchisee(resource.data);
       allow create, update: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
       allow read: if isStoreManager() && sameStore(resource.data);
+      allow list: if isStoreManager() && sameStore(resource.data);
       allow create, update: if isStoreManager() && sameStore(request.resource.data) && hasTenant(request.resource.data);
       allow update: if ((isFranchiseeOwner() && sameFranchisee(request.resource.data)) || (isStoreManager() && sameStore(request.resource.data))) && isLogicalDelete();
       allow read: if isDriver() && ownStaffData(resource.data);
+      allow list: if isDriver() && ownStaffData(resource.data);
       allow create: if isDriver() && ownStaffData(request.resource.data) && hasTenant(request.resource.data);
       allow update: if isDriverCancel(resource.data);
       allow update: if isDriverSettlementAdjustment(resource.data);
