@@ -196,6 +196,32 @@ export function calculateTimeFareYen(
   );
 }
 
+/** 事前確定M: 往復は最初の30分無料、片道は通常の時間料金ルール */
+export const PRE_FIXED_ROUND_TRIP_FREE_SECONDS = 30 * 60;
+
+export function calculatePreFixedWaitingEscortFareYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+  isRoundTrip: boolean,
+) {
+  if (elapsedSeconds <= 0) {
+    return 0;
+  }
+
+  if (!isRoundTrip) {
+    return calculateTimeFareYen(elapsedSeconds, settings);
+  }
+
+  if (elapsedSeconds <= PRE_FIXED_ROUND_TRIP_FREE_SECONDS) {
+    return 0;
+  }
+
+  return calculateTimeFareYen(
+    elapsedSeconds - PRE_FIXED_ROUND_TRIP_FREE_SECONDS,
+    settings,
+  );
+}
+
 export function calculateMeterTimeFareYen(
   elapsedSeconds: number,
   settings: TimeFareSettings,
@@ -520,6 +546,7 @@ export function buildFixedFareBreakdown({
   expenses,
   waitingSeconds = 0,
   escortSeconds = 0,
+  isRoundTrip = true,
   isDisabilityDiscount = false,
   taxiTickets = [],
   settings = {},
@@ -536,6 +563,8 @@ export function buildFixedFareBreakdown({
   expenses: Array<{ amountYen: number }>;
   waitingSeconds?: number;
   escortSeconds?: number;
+  /** 往復の場合は最初の30分を無料扱い（事前確定M専用） */
+  isRoundTrip?: boolean;
   isDisabilityDiscount?: boolean;
   taxiTickets?: Array<{ amount: number }>;
   settings?: {
@@ -547,13 +576,15 @@ export function buildFixedFareBreakdown({
   const originalConfirmedFareYen = Math.max(Math.round(confirmedFareYen), 0);
   const routeFareYen = Math.max(Math.round(additionalRouteFareYen), 0);
   const manualAdditionalCareFareYen = Math.max(Math.round(additionalCareFareYen), 0);
-  const waitingFareYen = calculateTimeFareYen(
+  const waitingFareYen = calculatePreFixedWaitingEscortFareYen(
     waitingSeconds,
     settings.waitingFare ?? waitingFareSettings,
+    isRoundTrip,
   );
-  const escortFareYen = calculateTimeFareYen(
+  const escortFareYen = calculatePreFixedWaitingEscortFareYen(
     escortSeconds,
     settings.escortFare ?? escortFareSettings,
+    isRoundTrip,
   );
   // 追加介助料は元の事前確定運賃に含まれる介助とは別明細。選択介助・その他・ルート変更分を合算する。
   const customFeeFareYen = calculateCustomFeeTotalYen(customFees);

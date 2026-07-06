@@ -60,6 +60,7 @@ import {
   buildConfirmedRouteView,
   formatRoutePathLabel,
   getCurrentSegmentStops,
+  isPreFixedFareRoundTrip,
   openGoogleMapsNavigation,
 } from '../services/preFixedFareRoute'
 import { completeFixedFareRun } from '../services/reservationApi'
@@ -574,21 +575,6 @@ const buildPreFixedFarePassengerChangeException = (
   note: PRE_FIXED_FARE_PASSENGER_CHANGE_NOTE,
 })
 
-/** 事前確定M: 運行中に追加する介助オプション（元の確定運賃内の介助とは別明細） */
-const PRE_FIXED_ADDITIONAL_CARE_PRESETS = [
-  { id: 'additional-boarding', name: '追加乗降介助' },
-  { id: 'store-escort', name: '店内付き添い' },
-  { id: 'hospital-escort', name: '院内付き添い' },
-  { id: 'stretcher-extra', name: 'ストレッチャー追加作業' },
-] as const
-
-const PRE_FIXED_EXPENSE_QUICK_PRESETS = [
-  { id: 'parking', name: '駐車場代' },
-  { id: 'toll', name: '有料道路代' },
-  { id: 'facility', name: '施設利用料' },
-  { id: 'other-advance', name: 'その他立替金' },
-] as const
-
 export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -1054,10 +1040,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const canStartFixedTrip =
     meterMode === 'fixed' &&
     Boolean(reservationTripContext) &&
-    !isTripStarted &&
+    !fixedFareRun &&
     Boolean(workSession.currentSession) &&
     Boolean(selectedVehicleId) &&
-    status === '空車'
+    (status === '空車' || status === '待機中' || status === '院内付き添い中')
   const canStartTrip =
     meterMode === 'fixed'
       ? canStartFixedTrip
@@ -1065,9 +1051,17 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         Boolean(workSession.currentSession) &&
         Boolean(selectedVehicleId) &&
         (status === '空車' || isTimeMeterInitialWaiting)
-  const canStartWaiting = status === '走行中' && caseSaveState !== 'saving'
+  const canStartWaiting =
+    meterMode === 'fixed'
+      ? caseSaveState !== 'saving' &&
+        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext)))
+      : status === '走行中' && caseSaveState !== 'saving'
   const canEndWaiting = status === '待機中' && caseSaveState !== 'saving' && billableTimeStarted.waiting
-  const canStartAccompanying = status === '走行中' && caseSaveState !== 'saving'
+  const canStartAccompanying =
+    meterMode === 'fixed'
+      ? caseSaveState !== 'saving' &&
+        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext)))
+      : status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中' && meterMode !== 'fixed'
   const canEndFixedTrip =
@@ -1117,6 +1111,17 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const isFixedClosed =
     meterMode === 'fixed' &&
     (status === '案件終了' || Boolean(savedCaseRecord) || caseSaveState === 'saved')
+  const isFixedPreTrip =
+    meterMode === 'fixed' &&
+    !fixedFareRun &&
+    !isFixedClosed &&
+    Boolean(reservationTripContext) &&
+    (status === '空車' || status === '待機中' || status === '院内付き添い中')
+  const showFixedLeftPanelOps =
+    meterMode === 'fixed' &&
+    !isFixedClosed &&
+    !isFixedPassengerChangePreSettlement &&
+    (isFixedInOperation || isFixedPreTrip)
   const canEditCharges =
     meterMode === 'fixed'
       ? isFixedInOperation || (isFixedPreSettlement && !hasPassengerChangeTermination)
@@ -1124,7 +1129,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   /** 事前確定M: 運行中・通常精算前は追加介助を編集可。旅客都合途中終了後は無効 */
   const canAddAssistCharge =
     meterMode === 'fixed'
-      ? isFixedInOperation || (isFixedPreSettlement && !hasPassengerChangeTermination)
+      ? !isFixedClosed &&
+        !hasPassengerChangeTermination &&
+        (isFixedInOperation || isFixedPreSettlement || isFixedPreTrip)
       : canEditCharges
   /**
    * 事前確定M: 運行前・運行中・精算前で実費追加可。
@@ -1614,6 +1621,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     return 0
   }, [fixedFareRun, reservationTripContext])
 
+  const isPreFixedRoundTrip = useMemo(
+    () => isPreFixedFareRoundTrip(reservationTripContext),
+    [reservationTripContext],
+  )
+
   const settlementBreakdown = useMemo(() => {
     // 事前確定Mでは距離加算の通常内訳を使わず、予約確定運賃ベースの内訳のみ表示する。
     if (meterMode === 'fixed') {
@@ -1628,6 +1640,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         expenses,
         waitingSeconds: waitingFareSeconds,
         escortSeconds: escortFareSeconds,
+        isRoundTrip: isPreFixedRoundTrip,
         isDisabilityDiscount,
         taxiTickets,
         settings: {
@@ -1653,6 +1666,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     expenses,
     fareBreakdown,
     isDisabilityDiscount,
+    isPreFixedRoundTrip,
     meterMode,
     resolvedConfirmedFareYen,
     reviewDemoMode,
@@ -2180,11 +2194,24 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
 
     const allowedTransitions: Record<OperationStatus, OperationStatus[]> = {
-      空車: ['走行中'],
+      空車:
+        meterMode === 'fixed'
+          ? ['走行中', '待機中', '院内付き添い中']
+          : ['走行中'],
       走行中: ['待機中', '院内付き添い中', '精算前'],
       // 事前確定Mは待機・付き添い中から直接精算確認へ進める。
-      待機中: meterMode === 'fixed' ? ['走行中', '精算前'] : ['走行中'],
-      院内付き添い中: meterMode === 'fixed' ? ['走行中', '精算前'] : ['走行中'],
+      待機中:
+        meterMode === 'fixed'
+          ? fixedFareRun
+            ? ['走行中', '精算前']
+            : ['走行中', '空車']
+          : ['走行中'],
+      院内付き添い中:
+        meterMode === 'fixed'
+          ? fixedFareRun
+            ? ['走行中', '精算前']
+            : ['走行中', '空車']
+          : ['走行中'],
       精算前: ['精算修正', '走行中', '案件終了'],
       精算修正: ['精算前'],
       案件終了: [],
@@ -3048,11 +3075,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       }
     }
 
-    if (nextStatus === '待機中' && status === '走行中') {
+    if (nextStatus === '待機中' && (status === '走行中' || (meterMode === 'fixed' && status === '空車'))) {
       nextBillableTimeStarted = { ...nextBillableTimeStarted, waiting: true }
     }
 
-    if (nextStatus === '院内付き添い中') {
+    if (
+      nextStatus === '院内付き添い中' &&
+      (status === '走行中' || (meterMode === 'fixed' && status === '空車'))
+    ) {
       nextBillableTimeStarted = { ...nextBillableTimeStarted, accompanying: true }
     }
 
@@ -4005,6 +4035,20 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     savedCaseRecord?.preFixedFareException ?? pendingPassengerChangeException,
   )
 
+  const resolveFixedWaitingToggleStatus = (): OperationStatus =>
+    status === '待機中'
+      ? fixedFareRun
+        ? '走行中'
+        : '空車'
+      : '待機中'
+
+  const resolveFixedEscortToggleStatus = (): OperationStatus =>
+    status === '院内付き添い中'
+      ? fixedFareRun
+        ? '走行中'
+        : '空車'
+      : '院内付き添い中'
+
   return (
     <main
       className={`r9-meter-page r9-meter-page--${statusToneMap[status]}${meterMode === 'fixed' ? ' pre-fixed-meter' : ''}`}
@@ -4052,39 +4096,28 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     ) : null}
                   </span>
                 </h1>
-                <div className={`r9-fare-amount${meterMode === 'fixed' ? ' pre-fixed-fare-amount' : ''}`}>
-                  <strong>
-                    {formatFareYen(
-                      meterMode === 'fixed'
-                        ? settlementBreakdown.totalFareYen
-                        : fareBreakdown.totalFareYen,
-                    )}
-                  </strong>
-                  <span className="r9-fare-unit">円</span>
-                </div>
-                {meterMode === 'fixed' ? (
-                  <div className="fixed-fare-status-row">
-                    <span className="fixed-fare-status-chip fixed-fare-status-chip--confirmed">
-                      確定運賃
-                    </span>
-                    {reservationTripContext?.consentAt ? (
-                      <span className="fixed-fare-status-chip fixed-fare-status-chip--agreed">
-                        お客様同意済み
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {meterMode === 'fixed' && resolvedConfirmedFareYen > 0 ? (
-                  reviewDemoMode ? (
-                    <p className="fixed-fare-running-label">{REVIEW_DEMO_FARE_COMPOSITION_NOTE}</p>
+                <div className={`r9-fare-amount${meterMode === 'fixed' ? ' pre-fixed-fare-amount pre-fixed-fare-amount--inline' : ''}`}>
+                  {meterMode === 'fixed' ? (
+                    <>
+                      <span className="pre-fixed-fare-main-line__label">確定運賃</span>
+                      <strong>
+                        {formatFareYen(
+                          settlementBreakdown.totalFareYen,
+                        )}
+                      </strong>
+                      <span className="r9-fare-unit">円</span>
+                    </>
                   ) : (
-                    <p className="fixed-fare-running-label">
-                      事前確定運賃 {formatFareYen(resolvedConfirmedFareYen)}円
-                      {additionalRouteFareYen > 0
-                        ? ` ＋ 追加区間 ${formatFareYen(additionalRouteFareYen)}円`
-                        : ''}
-                    </p>
-                  )
+                    <>
+                      <strong>
+                        {formatFareYen(fareBreakdown.totalFareYen)}
+                      </strong>
+                      <span className="r9-fare-unit">円</span>
+                    </>
+                  )}
+                </div>
+                {meterMode === 'fixed' && reservationTripContext?.consentAt ? (
+                  <p className="fixed-fare-consent-note">お客様同意済み</p>
                 ) : null}
               </div>
 
@@ -4166,33 +4199,43 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 </div>
               ) : null}
 
-              {meterMode === 'fixed' && isFixedInOperation ? (
+              {meterMode === 'fixed' && showFixedLeftPanelOps && isFixedInOperation ? (
                 <div className="pre-fixed-time-fare-rates" aria-label="待機料・付き添い料">
                   <div>
                     <strong>待機料</strong>
-                    <p>初期30分 一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    {isPreFixedRoundTrip ? (
+                      <p>往復：最初の30分は無料</p>
+                    ) : (
+                      <p>初期30分 一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    )}
                     <p>30分1秒以降 30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
                     <small>計測中 {waitingClockLabel}</small>
                   </div>
                   <div>
                     <strong>付き添い料</strong>
-                    <p>初期30分 一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    {isPreFixedRoundTrip ? (
+                      <p>往復：最初の30分は無料</p>
+                    ) : (
+                      <p>初期30分 一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    )}
                     <p>30分1秒以降 30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
                     <small>計測中 {accompanyingClockLabel}</small>
                   </div>
                 </div>
               ) : null}
 
-              {meterMode === 'fixed' && isFixedInOperation ? (
+              {meterMode === 'fixed' && showFixedLeftPanelOps ? (
                 <div className="pre-fixed-route-summary" aria-label="ルート情報">
                   <div>
                     <span>全体ルート</span>
                     <strong>{overallRouteLabel || '—'}</strong>
                   </div>
-                  <div>
-                    <span>現在区間</span>
-                    <strong>{currentSegmentLabel || '—'}</strong>
-                  </div>
+                  {isFixedInOperation ? (
+                    <div>
+                      <span>現在区間</span>
+                      <strong>{currentSegmentLabel || '—'}</strong>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -4250,21 +4293,23 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     </button>
                   </div>
                 </div>
-              ) : meterMode === 'fixed' && isFixedInOperation ? (
+              ) : meterMode === 'fixed' && showFixedLeftPanelOps ? (
                 <div
                   className="pre-fixed-main-actions"
                   aria-label={reviewDemoMode ? '事前確定運賃 メイン操作' : '事前確定M メイン操作'}
                 >
-                  <div className="r9-timer-display">
-                    <span>運行時間</span>
-                    <strong>{drivingClockLabel}</strong>
-                  </div>
-                  <div className="pre-fixed-main-action-grid">
+                  {isFixedInOperation ? (
+                    <div className="r9-timer-display">
+                      <span>運行時間</span>
+                      <strong>{drivingClockLabel}</strong>
+                    </div>
+                  ) : null}
+                  <div className={`pre-fixed-main-action-grid${isFixedPreTrip ? ' pre-fixed-main-action-grid--pretrip' : ''}`}>
                     <button
                       className={`pre-fixed-main-action ${status === '待機中' ? 'pre-fixed-main-action--active' : ''}`}
                       type="button"
                       disabled={status === '待機中' ? !canEndWaiting : !canStartWaiting}
-                      onClick={() => handleStatusChange(status === '待機中' ? '走行中' : '待機中')}
+                      onClick={() => handleStatusChange(resolveFixedWaitingToggleStatus())}
                     >
                       <strong>{waitingToggleLabel}</strong>
                       <small>{waitingClockLabel}</small>
@@ -4273,29 +4318,33 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       className={`pre-fixed-main-action pre-fixed-main-action--escort ${status === '院内付き添い中' ? 'pre-fixed-main-action--active' : ''}`}
                       type="button"
                       disabled={status === '院内付き添い中' ? !canEndAccompanying : !canStartAccompanying}
-                      onClick={() => handleStatusChange(status === '院内付き添い中' ? '走行中' : '院内付き添い中')}
+                      onClick={() => handleStatusChange(resolveFixedEscortToggleStatus())}
                     >
                       <strong>{accompanyingToggleLabel}</strong>
                       <small>{accompanyingClockLabel}</small>
                     </button>
-                    <button
-                      className="pre-fixed-main-action pre-fixed-main-action--arrive"
-                      type="button"
-                      disabled={!canArriveFixedSegment}
-                      onClick={handleFixedSegmentArrive}
-                    >
-                      <strong>到着</strong>
-                      <small>現在区間</small>
-                    </button>
-                    <button
-                      className="pre-fixed-main-action pre-fixed-main-action--end"
-                      type="button"
-                      disabled={caseSaveState === 'saving' || !canEndFixedTrip}
-                      onClick={() => { handleFixedTripEnd() }}
-                    >
-                      <strong>運行終了</strong>
-                      <small>精算・領収書発行へ</small>
-                    </button>
+                    {isFixedInOperation ? (
+                      <>
+                        <button
+                          className="pre-fixed-main-action pre-fixed-main-action--arrive"
+                          type="button"
+                          disabled={!canArriveFixedSegment}
+                          onClick={handleFixedSegmentArrive}
+                        >
+                          <strong>到着</strong>
+                          <small>現在区間</small>
+                        </button>
+                        <button
+                          className="pre-fixed-main-action pre-fixed-main-action--end"
+                          type="button"
+                          disabled={caseSaveState === 'saving' || !canEndFixedTrip}
+                          onClick={() => { handleFixedTripEnd() }}
+                        >
+                          <strong>運行終了</strong>
+                          <small>精算・領収書発行へ</small>
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                   {canUndoRecentActivity && activeActivity ? (
                     <button className="r9-time-action r9-time-action--undo" type="button" onClick={() => { void undoRecentActivity() }}>
@@ -4444,27 +4493,27 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     <small>精算・領収書発行へ</small>
                   </button>
                 ) : null}
+                {!isFixedClosed && !isFixedPassengerChangePreSettlement ? (
+                  <button
+                    className="r9-status-button r9-status-button--assist"
+                    type="button"
+                    disabled={!canAddAssistCharge}
+                    onClick={() => setIsCareModalOpen(true)}
+                  >
+                    <span aria-hidden="true">♿</span>
+                    <strong>介助</strong>
+                  </button>
+                ) : null}
                 {!isFixedClosed ? (
-                  <div className="pre-fixed-secondary-actions" aria-label="付帯操作">
-                    {!isFixedPassengerChangePreSettlement ? (
-                      <button
-                        type="button"
-                        disabled={!canAddAssistCharge}
-                        onClick={() => setIsCareModalOpen(true)}
-                      >
-                        <span aria-hidden="true">♿</span>
-                        介助
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={!canAddExpenseCharge}
-                      onClick={() => setIsExpenseModalOpen(true)}
-                    >
-                      <span aria-hidden="true">￥</span>
-                      実費
-                    </button>
-                  </div>
+                  <button
+                    className="r9-status-button r9-status-button--expense"
+                    type="button"
+                    disabled={!canAddExpenseCharge}
+                    onClick={() => setIsExpenseModalOpen(true)}
+                  >
+                    <span aria-hidden="true">￥</span>
+                    <strong>実費</strong>
+                  </button>
                 ) : null}
               </div>
             ) : (
@@ -4890,9 +4939,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             <header className="settings-header">
               <div>
                 <span>ASSIST</span>
-                <h2 id="care-modal-title">
-                  {meterMode === 'fixed' ? '介助オプション編集' : '介助'}
-                </h2>
+                <h2 id="care-modal-title">介助</h2>
               </div>
               <button type="button" onClick={() => setIsCareModalOpen(false)}>
                 閉じる
@@ -4907,9 +4954,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             <div className="r9-operation-sections">
               <section className="r9-operation-section" aria-labelledby="care-items-title">
                 <div className="r9-operation-section__header">
-                  <h3 id="care-items-title">
-                    {meterMode === 'fixed' ? '追加介助料' : '介助項目'}
-                  </h3>
+                  <h3 id="care-items-title">介助項目</h3>
                   <strong>
                     {formatFareYen(
                       meterMode === 'fixed'
@@ -4918,60 +4963,24 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     )}円
                   </strong>
                 </div>
-                {meterMode === 'fixed' ? (
-                  <p className="empty-note">
-                    元の事前確定運賃に含まれる介助料は変更しません。追加介助が発生した場合のみ加算してください。初期値は0円です。
-                  </p>
-                ) : null}
                 <div className="r9-modal-button-grid r9-modal-button-grid--care">
-                  {meterMode === 'fixed'
-                    ? PRE_FIXED_ADDITIONAL_CARE_PRESETS.map((preset) => {
-                        const masterMatch = enabledCareOptions.find(
-                          (item) => item.name === preset.name || item.id === preset.id,
-                        )
-                        const defaultAmountYen = masterMatch?.amount ?? 0
+                  {enabledCareOptions.map((item) => {
+                    const isSelected = selectedCareOptionIds.has(item.id)
 
-                        return (
-                          <button
-                            className="r9-modal-choice"
-                            key={preset.id}
-                            type="button"
-                            disabled={!canAddAssistCharge}
-                            onClick={() =>
-                              setKeypadTarget({
-                                amountYen: defaultAmountYen,
-                                mode: 'care',
-                                name: preset.name,
-                                sourceId: masterMatch?.id ?? preset.id,
-                              })
-                            }
-                          >
-                            <span>{preset.name}</span>
-                            <strong>
-                              {defaultAmountYen > 0
-                                ? `${formatFareYen(defaultAmountYen)}円`
-                                : '金額入力'}
-                            </strong>
-                          </button>
-                        )
-                      })
-                    : enabledCareOptions.map((item) => {
-                        const isSelected = selectedCareOptionIds.has(item.id)
-
-                        return (
-                          <button
-                            className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
-                            key={item.id}
-                            type="button"
-                            aria-pressed={isSelected}
-                            disabled={!canAddAssistCharge}
-                            onClick={() => toggleCareOption(item)}
-                          >
-                            <span>{isSelected ? '✓ ' : ''}{item.name}</span>
-                            <strong>{formatFareYen(item.amount)}円</strong>
-                          </button>
-                        )
-                      })}
+                    return (
+                      <button
+                        className={`r9-modal-choice ${isSelected ? 'r9-modal-choice--selected' : ''}`}
+                        key={item.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        disabled={!canAddAssistCharge}
+                        onClick={() => toggleCareOption(item)}
+                      >
+                        <span>{isSelected ? '✓ ' : ''}{item.name}</span>
+                        <strong>{formatFareYen(item.amount)}円</strong>
+                      </button>
+                    )
+                  })}
                   <button
                     className="r9-modal-choice"
                     type="button"
@@ -4979,9 +4988,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     onClick={() =>
                       setKeypadTarget({
                         amountYen: 0,
-                        mode: meterMode === 'fixed' ? 'care' : 'customFee',
-                        name: meterMode === 'fixed' ? 'その他' : '',
-                        sourceId: meterMode === 'fixed' ? 'additional-care-other' : undefined,
+                        mode: 'customFee',
+                        name: '',
                       })
                     }
                   >
@@ -4991,9 +4999,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 </div>
                 <div className="r9-summary-card r9-summary-card--modal">
                   {selectedCareOptions.length === 0 && customFees.length === 0 ? (
-                    <p className="empty-note">
-                      {meterMode === 'fixed' ? '追加介助料は0円です。' : '介助料金は未追加です。'}
-                    </p>
+                    <p className="empty-note">介助料金は未追加です。</p>
                   ) : (
                     <div className="r9-summary-list">
                       {selectedCareOptions.map((option) => (
@@ -5116,7 +5122,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             <header className="settings-header">
               <div>
                 <span>COST</span>
-                <h2 id="expense-modal-title">{meterMode === 'fixed' ? '実費追加' : '実費'}</h2>
+                <h2 id="expense-modal-title">実費</h2>
               </div>
               <button type="button" onClick={() => setIsExpenseModalOpen(false)}>
                 閉じる
@@ -5125,37 +5131,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
             <div className="r9-operation-section">
               <div className="r9-operation-section__header">
-                <h3>{meterMode === 'fixed' ? '実費' : '実費ワンタッチ'}</h3>
+                <h3>実費ワンタッチ</h3>
                 <strong>{formatFareYen(expenseTotalYen)}円</strong>
               </div>
-              {meterMode === 'fixed' ? (
-                <p className="empty-note">
-                  駐車場代・有料道路代・立替金などを複数件追加できます。初期値は0円です。
-                </p>
-              ) : null}
               <div className="r9-modal-button-grid r9-modal-button-grid--expense">
-                {(meterMode === 'fixed'
-                  ? PRE_FIXED_EXPENSE_QUICK_PRESETS.map((preset) => {
-                      const settingsPreset = currentExpensePresets.find(
-                        (item) =>
-                          item.name === preset.name ||
-                          item.name.includes(preset.name.replace(/代$/, '')) ||
-                          item.id === preset.id,
-                      )
-                      return {
-                        id: preset.id,
-                        name: preset.name,
-                        defaultAmountYen: settingsPreset?.defaultAmountYen ?? 0,
-                      }
-                    })
-                  : currentExpensePresets
-                      .filter((preset) => preset.name.trim())
-                      .map((preset) => ({
-                        id: preset.id,
-                        name: preset.name,
-                        defaultAmountYen: preset.defaultAmountYen,
-                      }))
-                ).map((preset) => (
+                {currentExpensePresets
+                  .filter((preset) => preset.name.trim())
+                  .map((preset) => (
                   <button
                     className="r9-modal-choice r9-modal-choice--expense"
                     key={preset.id}
@@ -5177,23 +5159,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     </strong>
                   </button>
                 ))}
-                {meterMode === 'fixed' ? (
-                  <button
-                    className="r9-modal-choice r9-modal-choice--expense"
-                    type="button"
-                    disabled={!canAddExpenseCharge}
-                    onClick={() =>
-                      setKeypadTarget({
-                        amountYen: 0,
-                        mode: 'expense',
-                        name: '',
-                      })
-                    }
-                  >
-                    <span>項目を追加</span>
-                    <strong>名称・金額入力</strong>
-                  </button>
-                ) : null}
               </div>
               <div className="r9-summary-card r9-summary-card--modal">
                 {expenses.length === 0 ? (

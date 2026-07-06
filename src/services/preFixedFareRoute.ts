@@ -104,19 +104,31 @@ const readRoutePlanStops = (routePlan: unknown): PreFixedFareRouteStop[] => {
   return []
 }
 
-const isLikelyRoundTrip = (context: ReservationTripContext) => {
-  const usage = context.quoteSnapshot
-  const summary = Array.isArray((context as { usageSummary?: string[] }).usageSummary)
-    ? ((context as { usageSummary?: string[] }).usageSummary ?? [])
-    : []
+/** 事前確定Mの往復判定。専用フラグはなく trip.usageSummary と routePlan から推定する。 */
+export const isPreFixedFareRoundTrip = (context: ReservationTripContext | null) => {
+  if (!context) {
+    return true
+  }
+
+  const summary = context.usageSummary ?? []
   const joined = summary.join(' ')
+  if (joined.includes('片道')) {
+    return false
+  }
   if (joined.includes('往復') || joined.includes('帰宅')) {
     return true
   }
 
+  const fromPlan = readRoutePlanStops(context.routePlan)
+  if (fromPlan.length >= 3) {
+    return true
+  }
+  if (fromPlan.length === 2) {
+    return false
+  }
+
   // 介護タクシー予約は自宅→施設→自宅の往復が多いため、
   // ルート計画が無い場合は往復として扱う。
-  void usage
   return true
 }
 
@@ -147,7 +159,7 @@ export const buildConfirmedRouteStops = (
     address: context.dropoffAddress,
   }
 
-  if (isLikelyRoundTrip(context)) {
+  if (isPreFixedFareRoundTrip(context)) {
     return [
       start,
       goal,

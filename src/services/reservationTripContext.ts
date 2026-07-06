@@ -15,6 +15,8 @@ export type ReservationTripContext = {
   consentAt: string
   pickupAddress: string
   dropoffAddress: string
+  /** 予約 trip.usageSummary（往復/片道判定に使用） */
+  usageSummary: string[]
   quoteSnapshot: QuoteSnapshot
   routePlan: unknown | null
   consent: ReservationConsent
@@ -33,6 +35,9 @@ export const buildReservationTripContext = (
   consentAt: reservation.consent.consentAt,
   pickupAddress: reservation.trip.pickupAddress,
   dropoffAddress: reservation.trip.destinationAddress,
+  usageSummary: Array.isArray(reservation.trip.usageSummary)
+    ? reservation.trip.usageSummary
+    : [],
   quoteSnapshot: reservation.quoteSnapshot,
   routePlan: reservation.routePlan,
   consent: reservation.consent,
