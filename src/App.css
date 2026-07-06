@@ -8344,6 +8344,10 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
   font-size: clamp(1rem, min(4vh, 2.2vw), 1.8rem);
 }
 
+html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--settlement:has(small) > span[aria-hidden='true'] {
+  display: none;
+}
+
 @media (orientation: landscape) and (max-height: 760px) {
   html.route-meter .r9-meter-page,
   html.route-meter .r9-meter-shell {
@@ -8495,22 +8499,103 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
 
   /* 事前確定M: 横画面コンパクト調整 */
   html.route-meter.pre-fixed-meter .r9-meter-console {
-    grid-template-rows: minmax(0, 1fr) minmax(52px, min(13.5vh, calc(var(--app-height, 100dvh) * 0.14)));
-    gap: clamp(6px, 1vh, 10px) clamp(6px, 1vw, 10px);
+    grid-template-rows: minmax(0, 1fr) minmax(24px, min(8vh, calc(var(--app-height, 100dvh) * 0.09)));
+    gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar.reservation-detail-section {
+    display: flex;
+    align-items: center;
+    grid-template-columns: 1fr;
+    padding: clamp(3px, 0.65vh, 6px) clamp(8px, 1.2vw, 12px);
+    max-height: min(28px, 8vh);
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar {
-    max-height: min(13.5vh, calc(var(--app-height, 100dvh) * 0.14));
+    max-height: min(28px, 8vh);
     overflow: hidden;
   }
 
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__route {
+    display: none;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: clamp(10px, 2vw, 20px);
+    width: 100%;
+    min-width: 0;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dt::after {
+    content: '：';
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dt,
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dd {
+    font-size: clamp(0.62rem, 1.35vh, 0.78rem);
+    line-height: 1.2;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dd {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: keep-all;
+  }
+
   html.route-meter.pre-fixed-meter .r9-left-panel {
-    grid-template-rows: minmax(0, 48fr) minmax(0, 52fr) auto;
+    grid-template-rows: minmax(0, 40fr) minmax(0, 60fr);
+  }
+
+  html.route-meter.pre-fixed-meter .r9-fare-screen {
+    padding: clamp(4px, 0.75vh, 8px) clamp(10px, 1.4vw, 14px) clamp(2px, 0.35vh, 4px);
+    gap: clamp(2px, 0.35vh, 4px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-fare-amount {
+    min-height: clamp(2rem, 9.5vh, 3.8rem);
+  }
+
+  html.route-meter.pre-fixed-meter .fixed-fare-status-row {
+    margin-top: 0;
+    padding-bottom: 0;
+  }
+
+  html.route-meter.pre-fixed-meter .r9-driving-card {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: clamp(4px, 0.65vh, 6px);
+    min-height: 0;
+    overflow: hidden;
+    padding: clamp(4px, 0.75vh, 8px) clamp(6px, 1vw, 10px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-time-fare-rates {
+    display: none;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary > div:last-child {
+    display: none;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-main-actions {
-    gap: clamp(4px, 0.8vh, 8px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: clamp(3px, 0.55vh, 5px);
     min-height: 0;
+    overflow: hidden;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-main-action-grid {
@@ -8520,48 +8605,64 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-main-action {
-    min-height: clamp(44px, 8.5vh, 60px);
-    padding: clamp(6px, 1vh, 10px);
-    border-radius: clamp(10px, 1.4vw, 14px);
+    min-height: clamp(36px, 7vh, 48px);
+    padding: clamp(4px, 0.75vh, 8px);
+    border-radius: clamp(8px, 1.2vw, 12px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-action strong {
+    font-size: clamp(0.72rem, 1.6vh, 0.88rem);
+    line-height: 1.1;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-action small {
+    font-size: clamp(0.56rem, 1.1vh, 0.68rem);
+    line-height: 1.1;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-route-summary {
-    gap: clamp(4px, 0.7vh, 6px);
+    gap: clamp(2px, 0.45vh, 4px);
     min-height: 0;
+    flex-shrink: 0;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-route-summary > div {
-    padding: clamp(5px, 0.9vh, 8px) clamp(8px, 1vw, 10px);
+    padding: clamp(3px, 0.55vh, 5px) clamp(6px, 0.9vw, 8px);
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-route-summary strong {
+    display: -webkit-box;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: clamp(0.66rem, 1.45vh, 0.8rem);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.2;
+    font-size: clamp(0.62rem, 1.35vh, 0.76rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary span {
+    font-size: clamp(0.58rem, 1.2vh, 0.72rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-actions .r9-timer-display {
+    min-height: 0;
+    padding: clamp(2px, 0.4vh, 4px) 0;
+    gap: clamp(2px, 0.35vh, 4px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-actions .r9-timer-display span,
+  html.route-meter.pre-fixed-meter .pre-fixed-main-actions .r9-timer-display strong {
+    line-height: 1.1;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-main-actions .r9-timer-display strong {
+    font-size: clamp(0.95rem, 2.4vh, 1.2rem);
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-breakdown-panel .fare-breakdown {
     padding-bottom: clamp(4px, 0.8vh, 8px);
-  }
-
-  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child {
-    display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 0;
-    min-width: 0;
-    white-space: nowrap;
-  }
-
-  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child dt::after {
-    content: '：';
-  }
-
-  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div:first-child dd {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    word-break: keep-all;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-fare-amount strong {
@@ -8581,16 +8682,52 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span 
   }
 
   html.route-meter.pre-fixed-meter .r9-right-panel {
-    padding: 6px;
+    padding: 4px;
     min-height: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-status-stack {
-    height: 100%;
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    gap: clamp(3px, 0.55vh, 5px);
     grid-template-rows: unset;
-    grid-auto-rows: minmax(0, 1fr);
-    align-content: stretch;
+    grid-auto-rows: minmax(0, auto);
+    align-content: start;
+    overflow: hidden;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button {
+    padding: clamp(3px, 0.55vh, 6px) clamp(3px, 0.5vw, 5px);
+    gap: clamp(2px, 0.4vh, 4px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button strong {
+    font-size: clamp(0.64rem, min(2.2vh, 1.2vw), 0.92rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button span {
+    font-size: clamp(0.9rem, min(3.2vh, 1.8vw), 1.45rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button small {
+    font-size: clamp(0.52rem, 1.1vh, 0.65rem);
+    line-height: 1.1;
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-secondary-actions {
+    flex-shrink: 0;
+    margin-top: clamp(2px, 0.4vh, 4px);
+    gap: clamp(4px, 0.7vh, 6px);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-secondary-actions button {
+    min-height: clamp(26px, 5.2vh, 34px);
+    padding: clamp(2px, 0.45vh, 4px) clamp(4px, 0.6vw, 6px);
+    font-size: clamp(0.62rem, 1.25vh, 0.75rem);
   }
 }
 
