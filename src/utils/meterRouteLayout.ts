@@ -11,6 +11,9 @@ export const isMeterOperationPath = (pathname: string) => {
   return (
     normalized === '/case' ||
     normalized.endsWith('/case/start') ||
+    normalized.endsWith('/case/pre-fixed') ||
+    normalized.endsWith('/case/pre-fixed/reservations') ||
+    normalized.endsWith('/case/pre-fixed/create') ||
     normalized.endsWith('/review-demo/case') ||
     normalized.endsWith('/review-demo/case/start')
   )

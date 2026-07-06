@@ -56,6 +56,10 @@ import {
 import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import {
+  buildTripContextFromPreFixedSession,
+  readPreFixedMeterSession,
+} from '../services/preFixedMeterSession'
+import {
   buildConfirmedRouteStops,
   buildConfirmedRouteView,
   formatRoutePathLabel,
@@ -582,15 +586,30 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const meterModeFromQuery = searchParams.get('meterMode')
   const reservationIdFromQuery =
     searchParams.get('reservationId')?.trim() ?? (reviewDemoMode ? REVIEW_DEMO_RESERVATION_ID : '')
+  const preFixedSessionIdFromQuery = searchParams.get('preFixedSessionId')?.trim() ?? ''
   const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
   const [reservationTripContext] = useState<ReservationTripContext | null>(() => {
-    if (!reservationIdFromQuery) {
-      return null
+    if (reservationIdFromQuery) {
+      return reviewDemoMode
+        ? readReviewDemoReservationTripContext(reservationIdFromQuery)
+        : readReservationTripContext(reservationIdFromQuery)
     }
 
-    return reviewDemoMode
-      ? readReviewDemoReservationTripContext(reservationIdFromQuery)
-      : readReservationTripContext(reservationIdFromQuery)
+    if (preFixedSessionIdFromQuery) {
+      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
+      if (session && session.consent.status === 'agreed') {
+        return buildTripContextFromPreFixedSession(session)
+      }
+    }
+
+    const storedContext = reviewDemoMode
+      ? null
+      : readReservationTripContext()
+    if (storedContext?.reservationId.startsWith('manual-')) {
+      return storedContext
+    }
+
+    return storedContext
   })
   const [restoredTripState] = useState(() => {
     const postSettlementLock = reviewDemoMode
@@ -635,6 +654,17 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         reservationId: reservationTripContext.reservationId,
         confirmedFareYen: reservationTripContext.confirmedFareYen,
         snapshotHash: reservationTripContext.snapshotHash,
+      }
+    }
+
+    if (preFixedSessionIdFromQuery) {
+      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
+      if (session) {
+        return {
+          reservationId: session.reservationId ?? `manual-${session.id}`,
+          confirmedFareYen: session.fare.fixedFareYen,
+          snapshotHash: `manual-${session.id}`,
+        }
       }
     }
 
@@ -2271,7 +2301,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             : !selectedVehicleId
               ? '案件車両を選択してください。'
               : !reservationTripContext
-                ? '予約連携情報が見つかりません。予約詳細から再度開始してください。'
+                ? '事前確定運賃の連携情報が見つかりません。事前確定運賃メニューから再度開始してください。'
                 : '現在の状態では固定運賃で運行開始できません。'
         setCaseSaveState('error')
         setCaseSaveMessage(message)
@@ -2720,10 +2750,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
 
     try {
-      const completionPayload = buildCompleteFixedFareRunPayload(
-        options?.preFixedFareException ?? null,
-      )
-      await completeFixedFareRun(reservationId, completionPayload)
+      const isManualPreFixedSession = reservationId.startsWith('manual-')
+      if (!isManualPreFixedSession) {
+        const completionPayload = buildCompleteFixedFareRunPayload(
+          options?.preFixedFareException ?? null,
+        )
+        await completeFixedFareRun(reservationId, completionPayload)
+      }
       clearPersistedActiveTripSnapshot()
       clearReservationTripContext()
       setFixedCompleteState('done')

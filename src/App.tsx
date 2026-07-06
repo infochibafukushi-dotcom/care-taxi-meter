@@ -18,6 +18,9 @@ import { ReviewDemoCasePage } from './pages/ReviewDemoCasePage'
 import { ReviewDemoCaseStartPage } from './pages/ReviewDemoCaseStartPage'
 import { ReviewDemoReservationDetailPage } from './pages/ReviewDemoReservationDetailPage'
 import { ReviewDemoReservationListPage } from './pages/ReviewDemoReservationListPage'
+import { PreFixedMeterMenuPage } from './pages/PreFixedMeterMenuPage'
+import { PreFixedReservationFlowPage } from './pages/PreFixedReservationFlowPage'
+import { PreFixedCreatePage } from './pages/PreFixedCreatePage'
 
 const routerBaseName =
   import.meta.env.BASE_URL === '/'
@@ -36,6 +39,18 @@ const router = createBrowserRouter([
       {
         path: 'case/start',
         element: <CaseStartPage />,
+      },
+      {
+        path: 'case/pre-fixed',
+        element: <PreFixedMeterMenuPage />,
+      },
+      {
+        path: 'case/pre-fixed/reservations',
+        element: <PreFixedReservationFlowPage />,
+      },
+      {
+        path: 'case/pre-fixed/create',
+        element: <PreFixedCreatePage />,
       },
       {
         path: 'case',

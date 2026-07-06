@@ -173,7 +173,7 @@ export function CaseStartPage() {
   )
 
   const allowedMeterModes = useMemo(
-    () => getAllowedMeterModes(meterPermissions),
+    () => [...getAllowedMeterModes(meterPermissions), 'fixed' as const],
     [meterPermissions],
   )
 
@@ -190,7 +190,7 @@ export function CaseStartPage() {
 
   const selectedMeterModeValue: MeterMode = isReservationStart
     ? 'fixed'
-    : allowedMeterModes.includes(selectedMeterMode as 'gps' | 'time' | 'obd')
+    : allowedMeterModes.includes(selectedMeterMode)
       ? selectedMeterMode
       : allowedMeterModes[0] ?? 'gps'
 
@@ -247,6 +247,13 @@ export function CaseStartPage() {
       })
       if (isReservationStart) {
         query.set('reservationId', reservationId)
+        navigate(`/case?${query.toString()}`)
+        return
+      }
+
+      if (selectedMeterModeValue === 'fixed') {
+        navigate(`/case/pre-fixed?vehicleId=${encodeURIComponent(selectedVehicleValue)}`)
+        return
       }
 
       navigate(`/case?${query.toString()}`)
@@ -394,7 +401,7 @@ export function CaseStartPage() {
               void handleStartCase()
             }}
           >
-            {isStartingCase ? '確認中...' : 'メーター画面へ進む'}
+            {isStartingCase ? '確認中...' : selectedMeterModeValue === 'fixed' && !isReservationStart ? '事前確定運賃メニューへ' : 'メーター画面へ進む'}
           </button>
           <Link className="secondary-action" to="/">
             TOPに戻る
