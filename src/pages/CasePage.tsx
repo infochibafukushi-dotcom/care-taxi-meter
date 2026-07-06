@@ -654,25 +654,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       }
     }
 
-    if (reservationTripContext) {
-      return {
-        reservationId: reservationTripContext.reservationId,
-        confirmedFareYen: reservationTripContext.confirmedFareYen,
-        snapshotHash: reservationTripContext.snapshotHash,
-      }
-    }
-
-    if (preFixedSessionIdFromQuery) {
-      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
-      if (session) {
-        return {
-          reservationId: session.reservationId ?? `manual-${session.id}`,
-          confirmedFareYen: session.fare.fixedFareYen,
-          snapshotHash: `manual-${session.id}`,
-        }
-      }
-    }
-
     return null
   })
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
@@ -1516,22 +1497,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     if (!reservationTripContext) {
       return
     }
-
-    setFixedFareRun((current) => {
-      if (current?.reservationId === reservationTripContext.reservationId) {
-        return {
-          ...current,
-          confirmedFareYen: reservationTripContext.confirmedFareYen,
-          snapshotHash: reservationTripContext.snapshotHash,
-        }
-      }
-
-      return {
-        reservationId: reservationTripContext.reservationId,
-        confirmedFareYen: reservationTripContext.confirmedFareYen,
-        snapshotHash: reservationTripContext.snapshotHash,
-      }
-    })
 
     if (!restoredTripSnapshot) {
       setCaseSaveState('idle')
