@@ -42,15 +42,16 @@ export default defineConfig(({ mode }) => {
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa.svg'],
       manifest: {
+        id: `${githubPagesBase}`,
         name: '介護タクシー専用メーター',
         short_name: '介護タクシー',
         description: '介護タクシー専用メーターアプリのPWA初期設定',
         theme_color: '#020617',
         background_color: '#020617',
         display: 'standalone',
-        orientation: 'any',
         start_url: githubPagesBase,
         scope: githubPagesBase,
+        lang: 'ja',
         icons: [
           {
             src: `${githubPagesBase}pwa.svg`,
@@ -64,7 +65,7 @@ export default defineConfig(({ mode }) => {
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
-        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         navigateFallback: `${githubPagesBase}index.html`,
       },
     }),
