@@ -2326,7 +2326,7 @@ h1 {
 .r9-fare-amount {
   min-height: 0;
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: center;
   gap: clamp(12px, 2vw, 24px);
 }
@@ -8199,6 +8199,29 @@ html.route-meter .route-address-grid strong {
   text-overflow: unset;
 }
 
+/* メーター画面: 合計金額を金額表示エリアの上下中央に配置 */
+html.route-meter .r9-fare-screen {
+  align-content: stretch;
+}
+
+html.route-meter .r9-fare-amount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html.route-meter .r9-fare-screen strong {
+  margin-top: 0;
+  line-height: 1;
+  align-self: center;
+}
+
+html.route-meter .r9-fare-unit {
+  margin-top: 0;
+  margin-bottom: 0;
+  align-self: center;
+}
+
 @media (orientation: landscape) and (max-height: 760px) {
   html.route-meter .r9-meter-page,
   html.route-meter .r9-meter-shell {
@@ -8228,6 +8251,11 @@ html.route-meter .route-address-grid strong {
   html.route-meter .route-address-grid strong {
     font-size: clamp(0.58rem, 1.45vh, 0.82rem);
     line-height: 1.2;
+  }
+
+  html.route-meter .r9-fare-screen strong,
+  html.route-meter .r9-fare-unit {
+    margin-top: 0;
   }
 }
 
