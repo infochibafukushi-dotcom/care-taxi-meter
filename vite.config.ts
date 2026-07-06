@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
         description: '介護タクシー専用メーターアプリのPWA初期設定',
         theme_color: '#020617',
         background_color: '#020617',
-        display: 'standalone',
+        display: 'fullscreen',
         start_url: githubPagesBase,
         scope: githubPagesBase,
         lang: 'ja',
