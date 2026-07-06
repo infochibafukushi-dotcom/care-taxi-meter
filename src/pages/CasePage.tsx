@@ -696,6 +696,20 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [areMeterPermissionsLoaded, setAreMeterPermissionsLoaded] = useState(false)
   const [meterModeToast, setMeterModeToast] = useState('')
+  useEffect(() => {
+    const targets = [document.documentElement, document.body, document.getElementById('root')]
+    const enabled = meterMode === 'fixed'
+
+    for (const target of targets) {
+      target?.classList.toggle('pre-fixed-meter', enabled)
+    }
+
+    return () => {
+      for (const target of targets) {
+        target?.classList.toggle('pre-fixed-meter', false)
+      }
+    }
+  }, [meterMode])
   const [tripStartNotice, setTripStartNotice] = useState('')
   const [isFixedCompleteLoading, setIsFixedCompleteLoading] = useState(false)
   const [fixedCompleteState, setFixedCompleteState] = useState<'idle' | 'done' | 'error'>('idle')
@@ -3993,7 +4007,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
   return (
     <main
-      className={`r9-meter-page r9-meter-page--${statusToneMap[status]}`}
+      className={`r9-meter-page r9-meter-page--${statusToneMap[status]}${meterMode === 'fixed' ? ' pre-fixed-meter' : ''}`}
       aria-label="業務用メーター"
     >
       <div className="landscape-notice" role="status">
@@ -4022,7 +4036,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           <section className="r9-left-panel" aria-label="料金メーター">
             <section
               aria-label="現在料金"
-              className="r9-fare-card"
+              className={`r9-fare-card${meterMode === 'fixed' ? ' pre-fixed-fare' : ''}`}
             >
               <div className="r9-fare-screen">
                 <h1>
@@ -4038,7 +4052,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     ) : null}
                   </span>
                 </h1>
-                <div className="r9-fare-amount">
+                <div className={`r9-fare-amount${meterMode === 'fixed' ? ' pre-fixed-fare-amount' : ''}`}>
                   <strong>
                     {formatFareYen(
                       meterMode === 'fixed'
@@ -4328,7 +4342,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
           </section>
 
-          <section className="r9-center-panel" aria-label="料金内訳">
+          <section
+            className={`r9-center-panel${meterMode === 'fixed' ? ' pre-fixed-breakdown-panel' : ''}`}
+            aria-label="料金内訳"
+          >
             <MeterFareBreakdownPanel
               breakdown={settlementBreakdown}
               title={
