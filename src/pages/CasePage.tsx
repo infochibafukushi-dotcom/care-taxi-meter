@@ -3997,8 +3997,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       aria-label="業務用メーター"
     >
       <div className="landscape-notice" role="status">
-        <strong>スマホ表示に対応しました</strong>
-        <span>縦画面でも横スクロールせず操作できます。</span>
+        <strong>メーター画面は横向きでご利用ください</strong>
+        <span>端末を横向きにしてください。</span>
       </div>
 
       {isPostSettlementAwaitingNewCase ? (

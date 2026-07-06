@@ -6,30 +6,54 @@ import {
   clearAccountingRouteLayout,
   isAccountingPath,
 } from '../utils/accountingRouteLayout'
+import { bindAppViewportHeight } from '../utils/appViewportHeight'
+import { isDevScreenshotMode } from '../utils/devScreenshotMode'
 import { logDiagnostic } from '../utils/diagnostics'
+import {
+  applyMeterRouteLayout,
+  clearMeterRouteLayout,
+  isMeterOperationPath,
+} from '../utils/meterRouteLayout'
 import { isReviewDemoActive } from '../utils/reviewDemo'
 
 export function AppLayout() {
   const location = useLocation()
   const navigationType = useNavigationType()
   const outletKey = `${location.pathname}${location.search}`
+  const devScreenshot = isDevScreenshotMode(location.search)
   const onAccountingRoute = isAccountingPath(location.pathname)
+  const onMeterRoute = isMeterOperationPath(location.pathname)
   const showReviewDemoBanner = isReviewDemoActive({
     pathname: location.pathname,
     search: location.search,
   })
 
   useEffect(() => {
+    const cleanupViewport =
+      onMeterRoute || onAccountingRoute ? bindAppViewportHeight() : () => undefined
+
     if (onAccountingRoute) {
+      clearMeterRouteLayout()
       applyAccountingRouteLayout()
       return () => {
         clearAccountingRouteLayout()
+        cleanupViewport()
       }
     }
 
     clearAccountingRouteLayout()
-    return undefined
-  }, [onAccountingRoute])
+
+    if (onMeterRoute) {
+      applyMeterRouteLayout({ devScreenshot })
+      return () => {
+        clearMeterRouteLayout()
+        cleanupViewport()
+      }
+    }
+
+    clearMeterRouteLayout()
+    return cleanupViewport
+  }, [devScreenshot, onAccountingRoute, onMeterRoute])
 
   logDiagnostic('AppLayout location', {
     pathname: location.pathname,

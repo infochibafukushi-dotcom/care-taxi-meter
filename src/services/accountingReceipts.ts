@@ -40,6 +40,19 @@ const isStorageObjectNotFound = (error: unknown) => {
   return false
 }
 
+const isPermissionDenied = (error: unknown) => {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String((error as { code: string }).code)
+    return code === 'permission-denied' || code === 'storage/unauthorized'
+  }
+
+  return false
+}
+
+export type DeleteAccountingReceiptResult = {
+  storageImageWasMissing?: boolean
+}
+
 const removeUndefinedFields = <T extends Record<string, unknown>>(data: T) =>
   Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T
 
@@ -312,17 +325,29 @@ export async function invalidateAccountingReceipt({
   })
 }
 
-export async function deleteAccountingReceipt(receiptId: string) {
+export async function deleteAccountingReceipt(receiptId: string): Promise<DeleteAccountingReceiptResult> {
   if (isReviewDemoRuntimeEnabled()) {
-    return
+    return {}
   }
 
   const db = getFirestore(getFirebaseApp())
   const receiptRef = doc(db, collectionName, receiptId)
-  const snapshot = await getDoc(receiptRef)
+
+  let snapshot
+  try {
+    snapshot = await getDoc(receiptRef)
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      throw new Error('未整理領収書データの読み取り権限がありません。Firestore rules を確認してください。')
+    }
+
+    throw new Error(
+      error instanceof Error ? `未整理領収書データの取得に失敗しました。${error.message}` : '未整理領収書データの取得に失敗しました。',
+    )
+  }
 
   if (!snapshot.exists()) {
-    return
+    return {}
   }
 
   const receipt = toStoredReceipt(snapshot)
@@ -331,20 +356,37 @@ export async function deleteAccountingReceipt(receiptId: string) {
     throw new Error('未整理の領収書のみ削除できます。')
   }
 
+  let storageImageWasMissing = false
   const storagePath = receipt.storagePath.trim()
   if (storagePath) {
     try {
       const storage = getStorage(getFirebaseApp())
       await deleteObject(ref(storage, storagePath))
     } catch (error) {
-      if (!isStorageObjectNotFound(error)) {
+      if (isStorageObjectNotFound(error)) {
+        storageImageWasMissing = true
+      } else if (isPermissionDenied(error)) {
+        throw new Error('領収書画像の削除権限がありません。Storage rules を確認してください。')
+      } else {
         const detail = error instanceof Error ? error.message : '不明なエラー'
         throw new Error(`領収書画像の削除に失敗しました。${detail}`)
       }
     }
   }
 
-  await deleteDoc(receiptRef)
+  try {
+    await deleteDoc(receiptRef)
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      throw new Error('未整理領収書データの削除権限がありません。Firestore rules を確認してください。')
+    }
+
+    throw new Error(
+      error instanceof Error ? `未整理領収書データの削除に失敗しました。${error.message}` : '未整理領収書データの削除に失敗しました。',
+    )
+  }
+
+  return { storageImageWasMissing }
 }
 
 export async function resolveAccountingReceiptDownloadUrl({

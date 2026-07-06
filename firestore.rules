@@ -402,7 +402,7 @@ service cloud.firestore {
       allow update: if isAccountingUser()
         && canReadAccounting(resource.data)
         && canWriteAccountingData(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAccountingUser() && canReadAccounting(resource.data);
     }
 
     match /accountingExports/{exportId} {

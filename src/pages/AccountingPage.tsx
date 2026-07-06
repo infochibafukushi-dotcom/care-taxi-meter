@@ -706,13 +706,17 @@ export function AccountingPage() {
     }
 
     try {
-      await deleteAccountingReceipt(receiptId)
+      const result = await deleteAccountingReceipt(receiptId)
 
       if (expenseForm?.receiptId === receiptId) {
         resetExpenseFormToNew()
       }
 
-      setStatusMessage('未整理領収書とアップロード画像を削除しました。')
+      setStatusMessage(
+        result.storageImageWasMissing
+          ? '画像ファイルは既に存在しません。未整理データのみ削除しました。'
+          : '未整理領収書とアップロード画像を削除しました。',
+      )
       await reloadUnorganizedReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '未整理領収書の削除に失敗しました。')
