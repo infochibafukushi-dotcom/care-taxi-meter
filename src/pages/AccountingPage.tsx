@@ -18,8 +18,10 @@ import {
 } from '../services/accountingAdjustments'
 import {
   applyOcrCandidatesToAccountingReceipt,
+  deleteAccountingReceipt,
   fetchUnorganizedAccountingReceipts,
   invalidateAccountingReceipt,
+  resolveAccountingReceiptDownloadUrl,
   saveReceiptOnly,
   uploadAccountingReceiptImage,
   type StoredAccountingReceipt,
@@ -84,8 +86,11 @@ import {
   buildReceiptCandidateFieldsFromExpense,
   formatReceiptSavedAt,
   formatYenInputDisplay,
+  hasAccountingFormReceiptImage,
+  hasStoredAccountingReceiptImage,
   OCR_NOT_CONFIGURED_MESSAGE,
   parseYenInput,
+  RECEIPT_IMAGE_REQUIRED_MESSAGE,
   validateInvoiceNumberCandidate,
 } from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
@@ -339,6 +344,19 @@ export function AccountingPage() {
     [expenseForm?.receiptId, unorganizedReceipts],
   )
 
+  const hasFormReceiptImage = Boolean(expenseForm && hasAccountingFormReceiptImage(expenseForm))
+
+  useEffect(() => {
+    document.documentElement.classList.add('route-accounting')
+
+    const screenOrientation = screen.orientation as ScreenOrientation & { unlock?: () => Promise<void> }
+    void screenOrientation?.unlock?.()
+
+    return () => {
+      document.documentElement.classList.remove('route-accounting')
+    }
+  }, [])
+
   const buildFreshExpenseForm = () =>
     buildEmptyExpenseInput({
       franchiseeId: tenantScope.franchiseeId,
@@ -500,8 +518,8 @@ export function AccountingPage() {
   }
 
   const handleRunReceiptOcr = async () => {
-    if (!expenseForm?.receiptImageUrl) {
-      setErrorMessage('先に領収書画像をアップロードしてください。')
+    if (!expenseForm || !hasAccountingFormReceiptImage(expenseForm)) {
+      setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
       return
     }
 
@@ -511,8 +529,24 @@ export function AccountingPage() {
     setOcrCandidateNotice('')
 
     try {
-      const result = await runAccountingReceiptOcr({
+      const downloadUrl = await resolveAccountingReceiptDownloadUrl({
         downloadUrl: expenseForm.receiptImageUrl,
+        storagePath: expenseForm.receiptStoragePath,
+      })
+
+      if (!downloadUrl) {
+        setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
+        return
+      }
+
+      if (downloadUrl !== expenseForm.receiptImageUrl) {
+        setExpenseForm((current) =>
+          current ? { ...current, receiptImageUrl: downloadUrl } : current,
+        )
+      }
+
+      const result = await runAccountingReceiptOcr({
+        downloadUrl,
         receiptId: expenseForm.receiptId,
       })
 
@@ -546,8 +580,8 @@ export function AccountingPage() {
   }
 
   const handleSaveReceiptOnly = async () => {
-    if (!expenseForm?.receiptId || !expenseForm.receiptImageUrl) {
-      setErrorMessage('先に領収書画像をアップロードしてください。')
+    if (!expenseForm?.receiptId || !hasAccountingFormReceiptImage(expenseForm)) {
+      setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
       return
     }
 
@@ -598,8 +632,8 @@ export function AccountingPage() {
   }
 
   const handleRunOcrOnUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
-    if (!receipt.downloadUrl) {
-      setErrorMessage('証憑画像URLがありません。')
+    if (!hasStoredAccountingReceiptImage(receipt)) {
+      setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
       return
     }
 
@@ -608,8 +642,18 @@ export function AccountingPage() {
     setStatusMessage('')
 
     try {
-      const result = await runAccountingReceiptOcr({
+      const downloadUrl = await resolveAccountingReceiptDownloadUrl({
         downloadUrl: receipt.downloadUrl,
+        storagePath: receipt.storagePath,
+      })
+
+      if (!downloadUrl) {
+        setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
+        return
+      }
+
+      const result = await runAccountingReceiptOcr({
+        downloadUrl,
         receiptId: receipt.id,
         fileName: receipt.fileName,
       })
@@ -661,6 +705,28 @@ export function AccountingPage() {
       await reloadUnorganizedReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '未整理領収書の無効化に失敗しました。')
+    }
+  }
+
+  const handleDeleteUnorganizedReceipt = async (receiptId: string) => {
+    const confirmed = window.confirm(
+      'この未整理の領収書データを削除します。画像ファイルは削除されません。よろしいですか？',
+    )
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await deleteAccountingReceipt(receiptId)
+
+      if (expenseForm?.receiptId === receiptId) {
+        resetExpenseFormToNew()
+      }
+
+      setStatusMessage('未整理領収書を削除しました。')
+      await reloadUnorganizedReceipts()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '未整理領収書の削除に失敗しました。')
     }
   }
 
@@ -1360,7 +1426,7 @@ export function AccountingPage() {
                 </label>
                 <button
                   className="secondary-action"
-                  disabled={!expenseForm.receiptImageUrl || isUploadingReceipt || isRunningOcr}
+                  disabled={!hasFormReceiptImage || isUploadingReceipt || isRunningOcr}
                   type="button"
                   onClick={() => void handleRunReceiptOcr()}
                 >
@@ -1368,7 +1434,7 @@ export function AccountingPage() {
                 </button>
                 <button
                   className="primary-action accounting-save-receipt-only-button"
-                  disabled={!expenseForm.receiptImageUrl || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
+                  disabled={!hasFormReceiptImage || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
                   type="button"
                   onClick={() => void handleSaveReceiptOnly()}
                 >
@@ -1381,6 +1447,8 @@ export function AccountingPage() {
                   <img alt="証憑プレビュー" src={expenseForm.receiptImageUrl} />
                   <p>{expenseForm.receiptStoragePath}</p>
                 </div>
+              ) : expenseForm.receiptStoragePath ? (
+                <p className="accounting-note">証憑画像をアップロード済みです（{expenseForm.receiptStoragePath}）。OCR読取を実行できます。</p>
               ) : null}
               {expenseForm.ocrConfidence != null ? (
                 <p className="accounting-note">OCR信頼度（参考）: {(expenseForm.ocrConfidence * 100).toFixed(0)}%</p>
@@ -1449,7 +1517,7 @@ export function AccountingPage() {
                             </button>
                             <button
                               className="secondary-action"
-                              disabled={ocrRunningReceiptId === receipt.id}
+                              disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
                               type="button"
                               onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
                             >
@@ -1461,6 +1529,13 @@ export function AccountingPage() {
                               onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
                             >
                               無効化
+                            </button>
+                            <button
+                              className="secondary-action"
+                              type="button"
+                              onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
+                            >
+                              削除
                             </button>
                           </div>
                         </div>
@@ -1517,7 +1592,7 @@ export function AccountingPage() {
                               </button>
                               <button
                                 className="secondary-action"
-                                disabled={ocrRunningReceiptId === receipt.id}
+                                disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
                                 type="button"
                                 onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
                               >
@@ -1529,6 +1604,13 @@ export function AccountingPage() {
                                 onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
                               >
                                 無効化
+                              </button>
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
+                              >
+                                削除
                               </button>
                             </td>
                           </tr>

@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   getFirestore,
@@ -300,6 +301,36 @@ export async function invalidateAccountingReceipt({
     invalidatedAt: new Date().toISOString(),
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function deleteAccountingReceipt(receiptId: string) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  await deleteDoc(doc(db, collectionName, receiptId))
+}
+
+export async function resolveAccountingReceiptDownloadUrl({
+  downloadUrl,
+  storagePath,
+}: {
+  downloadUrl?: string
+  storagePath?: string
+}) {
+  const normalizedUrl = downloadUrl?.trim() ?? ''
+  if (normalizedUrl) {
+    return normalizedUrl
+  }
+
+  const normalizedPath = storagePath?.trim() ?? ''
+  if (!normalizedPath || isReviewDemoRuntimeEnabled()) {
+    return ''
+  }
+
+  const storage = getStorage(getFirebaseApp())
+  return getDownloadURL(ref(storage, normalizedPath))
 }
 
 export type { AccountingReceiptInput, StoredAccountingReceipt }

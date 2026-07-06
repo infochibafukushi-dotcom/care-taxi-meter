@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
         theme_color: '#020617',
         background_color: '#020617',
         display: 'fullscreen',
-        orientation: 'landscape',
+        orientation: 'any',
         start_url: githubPagesBase,
         scope: githubPagesBase,
         icons: [

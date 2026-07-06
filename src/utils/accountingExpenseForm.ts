@@ -39,6 +39,16 @@ export type AccountingReceiptOcrResult = {
 export const OCR_NOT_CONFIGURED_MESSAGE =
   'OCR APIが未設定です。手入力で登録できます。'
 
+export const RECEIPT_IMAGE_REQUIRED_MESSAGE = '先に領収書画像をアップロードしてください。'
+
+export const hasAccountingFormReceiptImage = (
+  form: Pick<AccountingExpenseInput, 'receiptImageUrl' | 'receiptStoragePath' | 'receiptId'>,
+) => Boolean(form.receiptImageUrl?.trim() || form.receiptStoragePath?.trim() || form.receiptId?.trim())
+
+export const hasStoredAccountingReceiptImage = (
+  receipt: Pick<StoredAccountingReceipt, 'downloadUrl' | 'storagePath'>,
+) => Boolean(receipt.downloadUrl?.trim() || receipt.storagePath?.trim())
+
 /** T + 13桁（合計14文字）の簡易チェック */
 export const validateInvoiceNumberCandidate = (value: string) => {
   const normalized = value.trim().toUpperCase()

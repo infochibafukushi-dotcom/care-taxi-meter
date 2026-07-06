@@ -1,6 +1,12 @@
 .accounting-page .accounting-card {
   display: grid;
   gap: 1rem;
+  width: min(100%, 1100px);
+}
+
+.accounting-page {
+  align-items: start;
+  overflow-x: hidden;
 }
 
 .accounting-toolbar {
@@ -478,7 +484,7 @@
   margin: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1100px) {
   .accounting-page {
     overflow-x: hidden;
   }
@@ -515,6 +521,7 @@
   .accounting-receipt-actions .secondary-action,
   .accounting-receipt-upload-button,
   .accounting-expense-card-actions .secondary-action,
+  .accounting-unorganized-actions .secondary-action,
   .accounting-recalc-tax-button {
     min-height: 2.75rem;
     font-size: 1rem;
@@ -570,7 +577,7 @@
   }
 }
 
-@media (min-width: 769px) {
+@media (min-width: 1101px) {
   .accounting-expense-cards {
     display: none;
   }
