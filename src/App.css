@@ -8131,9 +8131,13 @@ html:not(.route-meter) .page--home {
 }
 
 /* メーター画面のみ: visualViewport 高さ内に収め、住所ログは内部スクロール */
-html.route-meter,
-html.route-meter body {
+html.route-meter {
   overflow: hidden;
+}
+
+html.route-meter body {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 html.route-meter .r9-meter-page,
