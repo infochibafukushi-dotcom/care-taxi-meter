@@ -4,6 +4,9 @@ import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
 import { appBuildVersion, logDiagnostic } from './utils/diagnostics'
+import { unlockScreenOrientation } from './utils/screenOrientation'
+
+void unlockScreenOrientation()
 
 logDiagnostic('app boot', {
   buildVersion: appBuildVersion,

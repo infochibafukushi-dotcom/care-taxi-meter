@@ -1,5 +1,4 @@
 import {
-  lockMeterLandscapeOrientation,
   unlockScreenOrientation,
 } from './screenOrientation'
 
@@ -33,13 +32,7 @@ const setMeterRouteClasses = (enabled: boolean, devScreenshot: boolean) => {
 
 export const applyMeterRouteLayout = ({ devScreenshot }: { devScreenshot: boolean }) => {
   setMeterRouteClasses(true, devScreenshot)
-
-  if (devScreenshot) {
-    void unlockScreenOrientation()
-    return
-  }
-
-  void lockMeterLandscapeOrientation()
+  // 横向き運用は CSS（route-meter + landscape-notice）のみ。API lock は使わない。
 }
 
 export const clearMeterRouteLayout = () => {

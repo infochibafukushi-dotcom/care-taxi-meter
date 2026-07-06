@@ -9,29 +9,38 @@ const getScreenOrientation = () => {
   }
 }
 
+/** メーター以外（および起動時）で向き固定を解除する */
 export const unlockScreenOrientation = async () => {
   const orientation = getScreenOrientation()
-  if (!orientation?.unlock) {
-    return
+
+  if (orientation?.unlock) {
+    try {
+      await orientation.unlock()
+    } catch {
+      // Some browsers reject unlock when nothing is locked.
+    }
+  }
+
+  // lock('landscape-primary') 残留時: any → unlock の順で解除を試みる
+  if (orientation?.lock) {
+    try {
+      await orientation.lock('any')
+      if (orientation.unlock) {
+        await orientation.unlock()
+      }
+    } catch {
+      // unsupported / permission denied
+    }
+  }
+
+  const legacyScreen = window.screen as Screen & {
+    unlockOrientation?: () => void
   }
 
   try {
-    await orientation.unlock()
+    legacyScreen.unlockOrientation?.()
   } catch {
-    // Some browsers reject unlock when nothing is locked.
-  }
-}
-
-export const lockMeterLandscapeOrientation = async () => {
-  const orientation = getScreenOrientation()
-  if (!orientation?.lock) {
-    return
-  }
-
-  try {
-    await orientation.lock('landscape-primary')
-  } catch {
-    // Browser / permission / unsupported: continue without locking.
+    // legacy API unavailable
   }
 }
 
@@ -44,10 +53,14 @@ export const bindFlexibleOrientationGuard = () => {
   ensureFlexible()
 
   window.addEventListener('pageshow', ensureFlexible)
+  window.addEventListener('focus', ensureFlexible)
+  window.addEventListener('popstate', ensureFlexible)
   document.addEventListener('visibilitychange', ensureFlexible)
 
   return () => {
     window.removeEventListener('pageshow', ensureFlexible)
+    window.removeEventListener('focus', ensureFlexible)
+    window.removeEventListener('popstate', ensureFlexible)
     document.removeEventListener('visibilitychange', ensureFlexible)
   }
 }

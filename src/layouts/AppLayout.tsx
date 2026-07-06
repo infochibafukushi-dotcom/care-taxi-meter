@@ -14,7 +14,7 @@ import {
   clearMeterRouteLayout,
   isMeterOperationPath,
 } from '../utils/meterRouteLayout'
-import { bindFlexibleOrientationGuard } from '../utils/screenOrientation'
+import { bindFlexibleOrientationGuard, unlockScreenOrientation } from '../utils/screenOrientation'
 import { isReviewDemoActive } from '../utils/reviewDemo'
 
 export function AppLayout() {
@@ -37,6 +37,7 @@ export function AppLayout() {
       applyMeterRouteLayout({ devScreenshot })
       return () => {
         clearMeterRouteLayout()
+        void unlockScreenOrientation()
         cleanupViewport()
       }
     }
