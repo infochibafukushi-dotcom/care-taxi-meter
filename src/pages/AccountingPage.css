@@ -564,7 +564,8 @@ body.route-accounting,
   margin: 0;
 }
 
-@media (max-width: 1100px), ((hover: none) and (pointer: coarse)) {
+/* タッチ端末・狭い画面: テーブルよりカード優先 */
+@media (max-width: 767px), ((hover: none) and (pointer: coarse) and (max-width: 1199px)) {
   .accounting-page {
     overflow-x: hidden;
     padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
@@ -578,6 +579,31 @@ body.route-accounting,
     border-radius: 18px;
   }
 
+  .accounting-table-wrap--desktop,
+  .accounting-unorganized-table-wrap {
+    display: none;
+  }
+
+  .accounting-expense-cards,
+  .accounting-unorganized-cards {
+    display: grid;
+  }
+
+  .accounting-receipt-preview img,
+  .accounting-unorganized-thumb {
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+  }
+
+  .accounting-diagnostics-list div {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* スマホ縦・狭い画面: 1カラム・全幅ボタン */
+@media (max-width: 767px), ((max-width: 900px) and (orientation: portrait) and (hover: none) and (pointer: coarse)) {
   .accounting-page h1 {
     font-size: clamp(1.35rem, 5vw, 1.85rem);
     overflow-wrap: anywhere;
@@ -608,7 +634,10 @@ body.route-accounting,
     min-width: 0;
   }
 
-  .accounting-pl-grid {
+  .accounting-pl-grid,
+  .accounting-form-grid,
+  .accounting-unorganized-cards,
+  .accounting-expense-cards {
     grid-template-columns: 1fr;
   }
 
@@ -625,10 +654,6 @@ body.route-accounting,
   .accounting-form-grid label,
   .accounting-tax-field {
     width: 100%;
-  }
-
-  .accounting-form-grid {
-    grid-template-columns: 1fr;
   }
 
   .accounting-form-span-2 {
@@ -654,7 +679,9 @@ body.route-accounting,
   .accounting-save-receipt-only-button,
   .accounting-form-actions .primary-action,
   .accounting-form-actions .secondary-action,
-  .accounting-receipt-actions .secondary-action {
+  .accounting-receipt-actions .secondary-action,
+  .accounting-unorganized-actions .primary-action,
+  .accounting-unorganized-actions .secondary-action {
     width: 100%;
   }
 
@@ -666,37 +693,109 @@ body.route-accounting,
   .accounting-recalc-tax-button {
     width: 100%;
   }
+}
 
-  .accounting-table-wrap--desktop {
-    display: none;
+/* スマホ横: 横スクロールなし・コンパクト2カラム入力 */
+@media (max-width: 900px) and (orientation: landscape) and (hover: none) and (pointer: coarse) {
+  .accounting-page {
+    padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
   }
 
-  .accounting-unorganized-table-wrap {
-    display: none;
+  .accounting-page .accounting-card {
+    padding: clamp(12px, 2.5vw, 18px);
   }
 
+  .accounting-pl-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-form-span-2 {
+    grid-column: 1 / -1;
+  }
+
+  .accounting-unorganized-cards,
   .accounting-expense-cards {
-    display: grid;
+    grid-template-columns: 1fr;
   }
 
-  .accounting-unorganized-cards {
-    display: grid;
+  .accounting-form-actions,
+  .accounting-receipt-actions,
+  .accounting-expense-card-actions,
+  .accounting-unorganized-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
+  .accounting-form-actions .primary-action,
+  .accounting-form-actions .secondary-action,
+  .accounting-receipt-actions .secondary-action,
   .accounting-unorganized-actions .primary-action,
   .accounting-unorganized-actions .secondary-action {
-    width: 100%;
-    min-height: 2.75rem;
-    font-size: 1rem;
+    width: auto;
+    flex: 1 1 calc(50% - 0.5rem);
+    min-width: min(100%, 10rem);
   }
 
-  .accounting-receipt-preview img {
-    max-width: 100%;
-    height: auto;
+  .accounting-receipt-preview img,
+  .accounting-unorganized-thumb {
+    max-height: min(40vh, 200px);
   }
+}
 
-  .accounting-diagnostics-list div {
+/* タブレット縦: 1カラム・余白抑えめ */
+@media (min-width: 768px) and (max-width: 1199px) and (orientation: portrait) and (hover: none) and (pointer: coarse) {
+  .accounting-pl-grid,
+  .accounting-form-grid,
+  .accounting-unorganized-cards,
+  .accounting-expense-cards {
     grid-template-columns: 1fr;
+  }
+
+  .accounting-form-actions,
+  .accounting-unorganized-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* タブレット横: 横幅を活かす2カラム */
+@media (min-width: 768px) and (max-width: 1199px) and (orientation: landscape) and (hover: none) and (pointer: coarse) {
+  .accounting-pl-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-form-span-2 {
+    grid-column: 1 / -1;
+  }
+
+  .accounting-unorganized-cards,
+  .accounting-expense-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-form-actions,
+  .accounting-receipt-actions,
+  .accounting-expense-card-actions,
+  .accounting-unorganized-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .accounting-form-actions .primary-action,
+  .accounting-form-actions .secondary-action,
+  .accounting-unorganized-actions .primary-action,
+  .accounting-unorganized-actions .secondary-action {
+    width: auto;
+    flex: 0 1 auto;
   }
 }
 
@@ -705,10 +804,7 @@ body.route-accounting,
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 
-  .accounting-expense-cards {
-    display: none;
-  }
-
+  .accounting-expense-cards,
   .accounting-unorganized-cards {
     display: none;
   }

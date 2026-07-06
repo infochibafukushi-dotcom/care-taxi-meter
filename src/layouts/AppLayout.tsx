@@ -5,6 +5,7 @@ import {
   applyAccountingRouteLayout,
   clearAccountingRouteLayout,
   isAccountingPath,
+  unlockScreenOrientation,
 } from '../utils/accountingRouteLayout'
 import { bindAppViewportHeight } from '../utils/appViewportHeight'
 import { isDevScreenshotMode } from '../utils/devScreenshotMode'
@@ -52,6 +53,7 @@ export function AppLayout() {
     }
 
     clearMeterRouteLayout()
+    void unlockScreenOrientation()
     return cleanupViewport
   }, [devScreenshot, onAccountingRoute, onMeterRoute])
 

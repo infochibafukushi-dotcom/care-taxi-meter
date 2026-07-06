@@ -28,24 +28,9 @@ export const unlockScreenOrientation = async () => {
   }
 }
 
-/** 経理画面では縦向き利用を優先（PWA の旧 landscape 固定の解除を試みる） */
+/** 経理画面では向き固定しない（メーター画面の landscape 固定を解除するのみ） */
 export const applyAccountingScreenOrientation = async () => {
-  const orientation = getScreenOrientation()
-  if (!orientation) {
-    return
-  }
-
   await unlockScreenOrientation()
-
-  if (!orientation.lock) {
-    return
-  }
-
-  try {
-    await orientation.lock('portrait-primary')
-  } catch {
-    // Fullscreen / permission / unsupported: unlock のみで続行
-  }
 }
 
 const setRouteAccountingClass = (enabled: boolean) => {

@@ -2875,58 +2875,33 @@ html.route-dev-screenshot.route-meter .r9-meter-shell {
   }
 }
 
-@media (orientation: portrait) {
-  .r9-meter-page {
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
+/* メーター画面以外は縦横どちらでも自然に表示（横スクロール抑制） */
+html:not(.route-meter),
+html:not(.route-meter) body,
+html:not(.route-meter) #root,
+html:not(.route-meter) .app-shell {
+  width: 100%;
+  max-width: 100vw;
+  min-width: 0;
+  overflow-x: hidden;
+}
 
-  html:not(.route-meter) .landscape-notice {
-    display: grid;
-    gap: 6px;
-    padding: 16px;
-    color: #fff;
-    background: #991b1b;
-    text-align: center;
-  }
+html:not(.route-meter) .page,
+html:not(.route-meter) .admin-page,
+html:not(.route-meter) .page--home {
+  width: 100%;
+  max-width: 100vw;
+  min-width: 0;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
 
-  html:not(.route-meter) .r9-meter-shell {
-    width: 100%;
-    min-width: 0;
-    height: auto;
-    min-height: 100dvh;
-    border-radius: 18px;
-  }
-
-  html:not(.route-meter) .r9-header-strip,
-  html:not(.route-meter) .r9-header-status {
-    display: grid;
-    gap: 8px;
-  }
-
-  html:not(.route-meter) .r9-header-strip {
-    padding: 12px 18px;
-  }
-
-  html:not(.route-meter) .r9-meter-console {
-    grid-template-columns: 1fr;
-  }
-
-  html:not(.route-meter) .r9-metrics-grid,
-  html:not(.route-meter) .route-address-grid,
-  html:not(.route-meter) .r9-modal-button-grid--care,
-  html:not(.route-meter) .r9-modal-button-grid--expense,
-  html:not(.route-meter) .r9-modal-button-grid--dispatch,
-  html:not(.route-meter) .r9-modal-button-grid--special-vehicle,
-  html:not(.route-meter) .r9-time-toggle-grid,
-  html:not(.route-meter) .r9-address-capture--modal,
-  html:not(.route-meter) .r9-settlement-steps {
-    grid-template-columns: 1fr;
-  }
-
-  html:not(.route-meter) .r9-side-tools {
-    grid-template-columns: 1fr;
-  }
+html:not(.route-meter) .content-card,
+html:not(.route-meter) .hero-card,
+html:not(.route-meter) .admin-card {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1100px) and (orientation: landscape) {
