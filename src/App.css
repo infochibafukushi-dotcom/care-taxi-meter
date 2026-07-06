@@ -8230,50 +8230,65 @@ html.route-meter .r9-fare-unit {
   }
 
   html.route-meter .r9-meter-console {
-    grid-template-rows: minmax(0, 1fr) minmax(48px, min(26vh, calc(var(--app-height, 100dvh) * 0.26)));
+    grid-template-rows: minmax(0, 1fr) minmax(44px, min(20vh, calc(var(--app-height, 100dvh) * 0.2)));
     gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
   }
 
   html.route-meter {
-    --meter-address-row-min: 48px;
-    --meter-address-row-max: min(26vh, calc(var(--app-height, 100dvh) * 0.26));
+    --meter-address-row-min: 44px;
+    --meter-address-row-max: min(20vh, calc(var(--app-height, 100dvh) * 0.2));
   }
 
   html.route-meter .route-address-panel {
-    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px) clamp(6px, 1.1vh, 10px);
+    padding: clamp(4px, 0.8vh, 8px) clamp(6px, 1.2vw, 12px) 0;
   }
 
   html.route-meter .route-address-grid {
-    padding-bottom: clamp(4px, 0.9vh, 8px);
+    padding-bottom: 0;
   }
 
   html.route-meter .r9-meter-shell {
-    padding-bottom: max(clamp(8px, 1.2vh, 14px), env(safe-area-inset-bottom));
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
 
   html.route-meter .r9-top-return-fab {
-    bottom: max(clamp(14px, 2.8vh, 24px), calc(env(safe-area-inset-bottom) + 6px));
+    bottom: max(clamp(10px, 2vh, 18px), calc(env(safe-area-inset-bottom) + 4px));
+  }
+
+  html.route-meter .r9-fare-card {
+    grid-template-rows: minmax(0, 72fr) minmax(0, 28fr);
   }
 
   html.route-meter .r9-fare-screen {
-    padding-bottom: clamp(6px, 1vh, 10px);
+    padding-bottom: clamp(4px, 0.5vh, 6px);
+    overflow: hidden;
   }
 
   html.route-meter .r9-fare-amount {
-    align-items: baseline;
-    padding-top: 0.18em;
-    transform: translateY(0.06em);
+    align-items: center;
+    justify-content: center;
+    gap: clamp(3px, 0.5vw, 8px);
+    min-height: 0;
+    max-height: 100%;
+    padding-top: 0;
+    transform: none;
   }
 
   html.route-meter .r9-fare-screen strong {
-    line-height: 1.05;
-    align-self: baseline;
+    width: auto;
+    margin-top: 0;
+    text-align: inherit;
+    line-height: 1;
+    align-self: center;
+    flex: 0 0 auto;
   }
 
   html.route-meter .r9-fare-unit {
     margin-top: 0;
-    align-self: baseline;
-    padding-bottom: 0.14em;
+    margin-bottom: 0;
+    padding: 0;
+    align-self: center;
+    flex: 0 0 auto;
   }
 
   html.route-meter .r9-right-panel {
