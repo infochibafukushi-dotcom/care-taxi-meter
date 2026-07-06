@@ -33,6 +33,7 @@ const setMeterRouteClasses = (enabled: boolean, devScreenshot: boolean) => {
 export const applyMeterRouteLayout = ({ devScreenshot }: { devScreenshot: boolean }) => {
   setMeterRouteClasses(true, devScreenshot)
   // 横向き運用は CSS（route-meter + landscape-notice）のみ。API lock は使わない。
+  void unlockScreenOrientation()
 }
 
 export const clearMeterRouteLayout = () => {

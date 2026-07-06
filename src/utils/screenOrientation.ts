@@ -44,12 +44,14 @@ export const bindFlexibleOrientationGuard = () => {
   window.addEventListener('pageshow', ensureFlexible)
   window.addEventListener('focus', ensureFlexible)
   window.addEventListener('popstate', ensureFlexible)
+  window.addEventListener('orientationchange', ensureFlexible)
   document.addEventListener('visibilitychange', ensureFlexible)
 
   return () => {
     window.removeEventListener('pageshow', ensureFlexible)
     window.removeEventListener('focus', ensureFlexible)
     window.removeEventListener('popstate', ensureFlexible)
+    window.removeEventListener('orientationchange', ensureFlexible)
     document.removeEventListener('visibilitychange', ensureFlexible)
   }
 }

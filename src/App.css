@@ -2849,7 +2849,10 @@ html.route-dev-screenshot.route-meter .r9-meter-shell {
   }
 
   html.route-meter:not(.route-dev-screenshot) .landscape-notice {
-    display: grid;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 6px;
     padding: 16px;
     color: #fff;
@@ -2862,16 +2865,13 @@ html.route-dev-screenshot.route-meter .r9-meter-shell {
   }
 }
 
-@media (orientation: landscape) and (max-height: 520px) {
-  html.route-meter:not(.route-dev-screenshot) .r9-meter-page {
-    overflow-y: auto;
-    overflow-x: hidden;
+@media (orientation: landscape) {
+  html.route-meter:not(.route-dev-screenshot) .landscape-notice {
+    display: none;
   }
 
   html.route-meter:not(.route-dev-screenshot) .r9-meter-shell {
-    height: auto;
-    min-height: min(100%, var(--app-height, 100dvh));
-    max-height: none;
+    display: grid;
   }
 }
 
@@ -2956,13 +2956,14 @@ html:not(.route-meter) .page--home {
 
 @media (orientation: landscape) and (max-height: 760px) {
   .r9-meter-page {
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
   }
 
   .r9-meter-shell {
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
     min-height: 0;
-    grid-template-rows: minmax(0, 1fr);
     gap: 6px;
     padding: 6px 8px max(6px, env(safe-area-inset-bottom));
     border-width: 4px;
@@ -3000,8 +3001,9 @@ html:not(.route-meter) .page--home {
   .r9-meter-console {
     min-height: 0;
     grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.72fr) clamp(76px, 13vw, 112px);
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, min(22vh, calc(var(--app-height, 100dvh) * 0.24)));
     gap: 5px;
+    overflow: hidden;
   }
 
   .r9-left-panel,
@@ -3135,12 +3137,22 @@ html:not(.route-meter) .page--home {
   }
 
   .route-address-panel {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-height: 0;
+    max-height: min(22vh, calc(var(--app-height, 100dvh) * 0.24));
+    overflow: hidden;
     gap: 4px;
     padding: 6px;
   }
 
   .route-address-grid {
     gap: 5px;
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .route-address-grid div {
@@ -8118,14 +8130,26 @@ html:not(.route-meter) .page--home {
 }
 
 /* メーター画面のみ: visualViewport 高さ内に収め、住所ログは内部スクロール */
+html.route-meter,
+html.route-meter body {
+  overflow: hidden;
+}
+
 html.route-meter .r9-meter-page,
 html.route-meter .r9-meter-shell {
   height: var(--app-height, 100dvh);
-  min-height: var(--app-height, 100dvh);
+  min-height: 0;
   max-height: var(--app-height, 100dvh);
 }
 
+html.route-meter .r9-meter-shell {
+  display: grid;
+  min-height: 0;
+}
+
 html.route-meter .r9-meter-console {
+  height: 100%;
+  min-height: 0;
   grid-template-rows: minmax(0, 1fr) minmax(0, min(22vh, calc(var(--app-height, 100dvh) * 0.24)));
 }
 
