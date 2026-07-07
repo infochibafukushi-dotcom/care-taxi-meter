@@ -18,10 +18,20 @@ import {
   calculatePreFixedRouteCandidates,
   formatRouteDurationLabel,
 } from '../services/preFixedRouteQuote'
+import { fetchDriverReservation, startFixedFareRun } from '../services/reservationApi'
 import { saveReservationTripContext } from '../services/reservationTripContext'
-import type { PreFixedRouteCandidate, PreFixedRouteCandidateId, PreFixedTripType, RoutePoint } from '../types/preFixedMeterSession'
-import { preFixedTripTypeLabels } from '../types/preFixedMeterSession'
+import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
+import type { DriverReservationDetail } from '../types/reservation'
+import type { ReservationServiceFee } from '../types/reservation'
+import type {
+  PreFixedRouteCandidate,
+  PreFixedRouteCandidateId,
+  PreFixedSourceFlow,
+  PreFixedTripType,
+  RoutePoint,
+} from '../types/preFixedMeterSession'
 import { captureAddressLocationFromCoordinates } from '../utils/reverseGeocode'
+import { resolveReservationCategory } from '../utils/reservationCategory'
 
 type CreateStep =
   | 'trip-type'
@@ -30,6 +40,16 @@ type CreateStep =
   | 'destinations'
   | 'routes'
   | 'consent'
+
+type TripTypeChoice = 'one_way' | 'round_or_via'
+
+const tripTypeChoiceLabels: Record<TripTypeChoice, string> = {
+  one_way: '片道',
+  round_or_via: '往復・経由地あり',
+}
+
+const mapTripTypeChoice = (choice: TripTypeChoice): PreFixedTripType =>
+  choice === 'one_way' ? 'one_way' : 'with_stops'
 
 const createEmptyStop = (): RoutePoint =>
   createRoutePoint({ label: '', address: '', source: 'manual' })
@@ -57,28 +77,65 @@ const buildAssistItemList = (): AssistItem[] => [
   },
 ]
 
+const buildAssistItemsFromReservation = (serviceFees: ReservationServiceFee[]): AssistItem[] => {
+  const baseItems = buildAssistItemList()
+  const matchedKeys = new Set<string>()
+
+  const merged = baseItems.map((item) => {
+    const fee = serviceFees.find((entry) => entry.key === item.id && entry.amount > 0)
+    if (!fee) {
+      return item
+    }
+    matchedKeys.add(fee.key)
+    return {
+      ...item,
+      enabled: true,
+      amount: fee.amount,
+      name: fee.label.trim() || item.name,
+    }
+  })
+
+  const extraFees = serviceFees
+    .filter((fee) => fee.amount > 0 && !matchedKeys.has(fee.key))
+    .map((fee, index) => ({
+      id: fee.key,
+      name: fee.label.trim() || fee.key,
+      amount: fee.amount,
+      enabled: true,
+      sortOrder: 100 + index,
+    }))
+
+  return [...merged, ...extraFees]
+}
+
+const resolveSourceFlow = (reservation: DriverReservationDetail | null): PreFixedSourceFlow => {
+  if (!reservation) {
+    return 'manual'
+  }
+  return resolveReservationCategory(reservation) === 'phone'
+    ? 'phone_reservation'
+    : 'normal_reservation'
+}
+
 export function PreFixedCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
-  const reservationPickup = searchParams.get('reservationPickup')?.trim() ?? ''
-  const reservationPickupBlocked = searchParams.get('pickupBlocked') === '1'
-  const reservationFacilityOnly = searchParams.get('facilityOnly') === '1'
+  const reservationId = searchParams.get('reservationId')?.trim() ?? ''
+  const isFromReservation = reservationId.length > 0
   const menuPath = vehicleId
     ? `/case/pre-fixed?vehicleId=${encodeURIComponent(vehicleId)}`
     : '/case/pre-fixed'
+  const listPath = vehicleId
+    ? `/case/pre-fixed/reservations?vehicleId=${encodeURIComponent(vehicleId)}`
+    : '/case/pre-fixed/reservations'
 
   const [step, setStep] = useState<CreateStep>('trip-type')
+  const [tripTypeChoice, setTripTypeChoice] = useState<TripTypeChoice>('one_way')
   const [tripType, setTripType] = useState<PreFixedTripType>('one_way')
   const [assistItems, setAssistItems] = useState<AssistItem[]>(buildAssistItemList)
   const [pickup, setPickup] = useState<RoutePoint>(() =>
-    reservationPickup
-      ? createRoutePoint({
-          address: reservationPickup,
-          label: reservationPickup,
-          source: 'reservation',
-        })
-      : createRoutePoint({ address: '', label: '', source: 'manual' }),
+    createRoutePoint({ address: '', label: '', source: 'manual' }),
   )
   const [stops, setStops] = useState<RoutePoint[]>([])
   const [destination, setDestination] = useState<RoutePoint>(createEmptyStop)
@@ -92,18 +149,58 @@ export function PreFixedCreatePage() {
   const [consentChecked, setConsentChecked] = useState(false)
   const [consentError, setConsentError] = useState('')
   const [stepError, setStepError] = useState('')
+  const [isStarting, setIsStarting] = useState(false)
+  const [linkedReservation, setLinkedReservation] = useState<DriverReservationDetail | null>(null)
+  const [reservationLoadError, setReservationLoadError] = useState('')
+  const [isLoadingReservation, setIsLoadingReservation] = useState(isFromReservation)
 
   useEffect(() => {
-    if (reservationPickupBlocked) {
-      setPickupMessage(
-        'お迎え住所は事業所側の設定により表示されていません。事前確定運賃を作成するには、お迎え住所を入力してください。',
-      )
-    } else if (reservationFacilityOnly) {
-      setPickupMessage('施設名のみ取得されています。正確な住所を確認して入力してください。')
-    } else if (!reservationPickup) {
-      setPickupMessage('お迎え住所が予約データから取得できません。住所を手入力してください。')
+    if (!isFromReservation) {
+      return
     }
-  }, [reservationFacilityOnly, reservationPickup, reservationPickupBlocked])
+
+    let isMounted = true
+    setIsLoadingReservation(true)
+    setReservationLoadError('')
+
+    fetchDriverReservation(reservationId)
+      .then((detail) => {
+        if (!isMounted) {
+          return
+        }
+        setLinkedReservation(detail)
+        const pickupAddress = detail.trip.pickupAddress.trim()
+        if (pickupAddress) {
+          setPickup(
+            createRoutePoint({
+              address: pickupAddress,
+              label: pickupAddress,
+              source: 'reservation',
+            }),
+          )
+        } else {
+          setPickupMessage('お迎え住所が予約データから取得できません。住所を手入力してください。')
+        }
+        setAssistItems(buildAssistItemsFromReservation(detail.quoteSnapshot.serviceFees))
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return
+        }
+        setReservationLoadError(
+          error instanceof Error ? error.message : '予約詳細の取得に失敗しました。',
+        )
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingReservation(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [isFromReservation, reservationId])
 
   const selectedRoute = useMemo(
     () => routeCandidates.find((route) => route.id === selectedRouteId) ?? routeCandidates[0],
@@ -215,25 +312,13 @@ export function PreFixedCreatePage() {
     }
 
     setStepError('')
-    if (tripType === 'round_trip') {
-      setDestination(
-        createRoutePoint({
-          ...pickup,
-          label: pickup.label || pickup.address,
-          source: pickup.source,
-        }),
-      )
-      return
-    }
-
-    setStops((current) => [
-      ...current,
+    setDestination(
       createRoutePoint({
         ...pickup,
         label: pickup.label || pickup.address,
         source: pickup.source,
       }),
-    ])
+    )
   }
 
   const validatePickup = () => {
@@ -291,7 +376,7 @@ export function PreFixedCreatePage() {
     }
   }
 
-  const handleAgreeAndProceed = () => {
+  const handleAgreeAndProceed = async () => {
     if (!consentChecked) {
       setConsentError('ルートと金額への同意を確認してください。')
       return
@@ -302,53 +387,155 @@ export function PreFixedCreatePage() {
       return
     }
 
-    const session = createPreFixedMeterSession({
-      sourceFlow: 'manual',
-      tripType,
-      pickup,
-      stops,
-      destination,
-      selectedServiceItems: assistItems.filter((item) => item.enabled),
-      routeCandidates,
-      selectedRouteId,
-    })
-
-    const agreedSession = agreePreFixedMeterSession(session)
-    savePreFixedMeterSession(agreedSession)
-    saveReservationTripContext(buildTripContextFromPreFixedSession(agreedSession))
-
-    const query = new URLSearchParams({
-      meterMode: 'fixed',
-      preFixedSessionId: agreedSession.id,
-    })
-    if (vehicleId) {
-      query.set('vehicleId', vehicleId)
+    if (readActiveTripSnapshot()) {
+      setConsentError(
+        '未終了の運行があります。開始前にメーター画面で運行を終了または復元してください。',
+      )
+      return
     }
 
-    navigate(`/case?${query.toString()}`)
+    setIsStarting(true)
+    setConsentError('')
+
+    try {
+      const session = createPreFixedMeterSession({
+        sourceFlow: resolveSourceFlow(linkedReservation),
+        tripType,
+        pickup,
+        stops,
+        destination,
+        selectedServiceItems: assistItems.filter((item) => item.enabled),
+        routeCandidates,
+        selectedRouteId,
+        reservationId: linkedReservation?.reservationId,
+      })
+
+      const agreedSession = agreePreFixedMeterSession(session)
+      savePreFixedMeterSession(agreedSession)
+      saveReservationTripContext(
+        buildTripContextFromPreFixedSession(
+          agreedSession,
+          linkedReservation
+            ? {
+                estimateNo: linkedReservation.estimateNo,
+                customerName: linkedReservation.customer.name,
+                scheduledAt: linkedReservation.scheduledAt,
+              }
+            : undefined,
+        ),
+      )
+
+      if (linkedReservation) {
+        try {
+          await startFixedFareRun(linkedReservation.reservationId)
+        } catch {
+          // 予約APIが未対応でも、同意済みセッションでメーター開始を継続する。
+        }
+
+        const query = new URLSearchParams({
+          reservationId: linkedReservation.reservationId,
+          meterMode: 'fixed',
+          preFixedSessionId: agreedSession.id,
+        })
+        if (vehicleId) {
+          query.set('vehicleId', vehicleId)
+        }
+        navigate(`/case?${query.toString()}`)
+        return
+      }
+
+      const query = new URLSearchParams({
+        meterMode: 'fixed',
+        preFixedSessionId: agreedSession.id,
+      })
+      if (vehicleId) {
+        query.set('vehicleId', vehicleId)
+      }
+
+      navigate(`/case?${query.toString()}`)
+    } finally {
+      setIsStarting(false)
+    }
   }
 
-  const renderTripTypeStep = () => (
-  <section className="content-card pre-fixed-flow-card">
+  const handleTripTypeNext = () => {
+    if (isFromReservation && !pickup.address.trim()) {
+      setStepError('予約のお迎え地が取得できません。予約内容を確認してください。')
+      return
+    }
+    setStepError('')
+    setStep(isFromReservation ? 'destinations' : 'assist-items')
+  }
+
+  const renderBackLink = () => {
+    if (isFromReservation) {
+      return (
+        <Link className="text-link" to={listPath}>
+          ← 予約一覧に戻る
+        </Link>
+      )
+    }
+    return (
       <Link className="text-link" to={menuPath}>
         ← 事前確定運賃メニューへ
       </Link>
+    )
+  }
+
+  const renderTripTypeStep = () => (
+    <section className="content-card pre-fixed-flow-card">
+      {renderBackLink()}
       <p className="eyebrow">Trip Type</p>
-      <h1>送迎タイプを選択</h1>
+      <h1>{isFromReservation ? 'ルート種別を選択' : '送迎タイプを選択'}</h1>
+
+      {isLoadingReservation ? <p className="empty-note">予約情報を読み込み中です。</p> : null}
+      {reservationLoadError ? (
+        <p className="case-error" role="alert">
+          {reservationLoadError}
+        </p>
+      ) : null}
+
+      {linkedReservation ? (
+        <dl className="pre-fixed-detail-grid">
+          <div>
+            <dt>利用者名</dt>
+            <dd>{linkedReservation.customer.name || '未設定'}</dd>
+          </div>
+          <div>
+            <dt>お迎え地 S</dt>
+            <dd>{pickup.address || '未設定'}</dd>
+          </div>
+        </dl>
+      ) : null}
+
       <div className="pre-fixed-choice-list">
-        {(Object.keys(preFixedTripTypeLabels) as PreFixedTripType[]).map((type) => (
+        {(Object.keys(tripTypeChoiceLabels) as TripTypeChoice[]).map((choice) => (
           <button
-            key={type}
-            className={`pre-fixed-choice-button${tripType === type ? ' is-selected' : ''}`}
+            key={choice}
+            className={`pre-fixed-choice-button${tripTypeChoice === choice ? ' is-selected' : ''}`}
             type="button"
-            onClick={() => setTripType(type)}
+            onClick={() => {
+              setTripTypeChoice(choice)
+              setTripType(mapTripTypeChoice(choice))
+              if (choice === 'one_way') {
+                setStops([])
+              }
+            }}
           >
-            {preFixedTripTypeLabels[type]}
+            {tripTypeChoiceLabels[choice]}
           </button>
         ))}
       </div>
+
+      {stepError ? <p className="case-error" role="alert">{stepError}</p> : null}
+
       <div className="pre-fixed-flow-actions">
-        <button className="primary-action" type="button" onClick={() => setStep('assist-items')}>
+        <button
+          className="primary-action"
+          type="button"
+          disabled={isFromReservation && (isLoadingReservation || Boolean(reservationLoadError))}
+          onClick={handleTripTypeNext}
+        >
           次へ
         </button>
       </div>
@@ -393,24 +580,6 @@ export function PreFixedCreatePage() {
       {pickupMessage ? <p className="save-note" role="status">{pickupMessage}</p> : null}
 
       <div className="pre-fixed-inline-actions">
-        {reservationPickup ? (
-          <button
-            className="secondary-action"
-            type="button"
-            onClick={() => {
-              setPickup(
-                createRoutePoint({
-                  address: reservationPickup,
-                  label: reservationPickup,
-                  source: 'reservation',
-                }),
-              )
-              setPickupMessage('')
-            }}
-          >
-            予約住所から取得
-          </button>
-        ) : null}
         <button
           className="secondary-action"
           type="button"
@@ -477,8 +646,12 @@ export function PreFixedCreatePage() {
 
   const renderDestinationsStep = () => (
     <section className="content-card pre-fixed-flow-card">
-      <button className="text-link" type="button" onClick={() => setStep('pickup')}>
-        ← お迎え地に戻る
+      <button
+        className="text-link"
+        type="button"
+        onClick={() => setStep(isFromReservation ? 'trip-type' : 'pickup')}
+      >
+        {isFromReservation ? '← ルート種別に戻る' : '← お迎え地に戻る'}
       </button>
       <p className="eyebrow">Route</p>
       <h1>目的地・立ち寄り</h1>
@@ -491,7 +664,7 @@ export function PreFixedCreatePage() {
         <p><strong>G</strong> {destination.label || destination.address || '未入力'}</p>
       </div>
 
-      {(tripType === 'with_stops' || tripType === 'round_trip') && stops.map((stop, index) => (
+      {tripType === 'with_stops' && stops.map((stop, index) => (
         <fieldset key={`stop-${index}`} className="pre-fixed-destination-fieldset">
           <legend>立ち寄り {index + 1}</legend>
           <label className="pre-fixed-full-width">
@@ -543,11 +716,11 @@ export function PreFixedCreatePage() {
           type="button"
           onClick={() => setStops((current) => [...current, createEmptyStop()])}
         >
-          ＋ 立ち寄りを追加
+          ＋ 経由地を追加
         </button>
       ) : null}
 
-      {(tripType === 'round_trip' || tripType === 'with_stops') ? (
+      {tripType === 'with_stops' ? (
         <button
           className="secondary-action"
           type="button"
@@ -693,8 +866,15 @@ export function PreFixedCreatePage() {
       {consentError ? <p className="case-error" role="alert">{consentError}</p> : null}
 
       <div className="pre-fixed-flow-actions">
-        <button className="primary-action" type="button" onClick={handleAgreeAndProceed}>
-          同意してメーターへ進む
+        <button
+          className="primary-action"
+          type="button"
+          disabled={isStarting}
+          onClick={() => {
+            void handleAgreeAndProceed()
+          }}
+        >
+          {isStarting ? '開始処理中...' : '同意してメーターへ進む'}
         </button>
       </div>
     </section>

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { UnifiedReservationCard } from '../components/preFixed/UnifiedReservationCard'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import { formatFareYen } from '../services/fare'
 import {
@@ -11,12 +12,17 @@ import {
   buildReservationTripContext,
   saveReservationTripContext,
 } from '../services/reservationTripContext'
-import type { DriverReservationDetail, DriverReservationSummary } from '../types/reservation'
+import type { DriverReservationDetail } from '../types/reservation'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { getDatePartsInJapan } from '../utils/japanDate'
 import { buildConfirmedRouteView } from '../services/preFixedFareRoute'
 import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
 import type { PreFixedRouteCandidateId } from '../types/preFixedMeterSession'
+import type { DriverReservationSummary } from '../types/reservation'
+import {
+  isPreFixedReservationReady,
+  resolveReservationCategory,
+} from '../utils/reservationCategory'
 
 const formatJapanDateInputValue = (date = new Date()) => {
   const { year, month, day } = getDatePartsInJapan(date)
@@ -34,26 +40,13 @@ const resolveRouteLabel = (routeId: string) => {
   return routeId || '未設定'
 }
 
-const hasConfirmedRoute = (reservation: DriverReservationDetail) => {
-  if (reservation.routePlan && typeof reservation.routePlan === 'object') {
-    const plan = reservation.routePlan as Record<string, unknown>
-    if (Array.isArray(plan.stops) && plan.stops.length >= 2) {
-      return true
-    }
-  }
-  return (
-    reservation.trip.pickupAddress.trim().length > 0 &&
-    reservation.trip.destinationAddress.trim().length > 0 &&
-    reservation.fixedFare.confirmedFareYen > 0
-  )
-}
-
 type FlowStep = 'list' | 'detail' | 'consent'
 
 export function PreFixedReservationFlowPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
+  const autoOpenReservationId = searchParams.get('reservationId')?.trim() ?? ''
   const menuPath = vehicleId
     ? `/case/pre-fixed?vehicleId=${encodeURIComponent(vehicleId)}`
     : '/case/pre-fixed'
@@ -70,20 +63,16 @@ export function PreFixedReservationFlowPage() {
   const [consentError, setConsentError] = useState('')
   const [isStarting, setIsStarting] = useState(false)
   const [actionError, setActionError] = useState('')
+  const autoOpenHandledRef = useRef(false)
 
   const loadReservations = useCallback(async (date: string) => {
     setIsLoadingList(true)
     setListError('')
     try {
       const result = await fetchDriverReservations(date)
-      const filtered = result.reservations.filter(
-        (item) => item.preFixedFareConfirmable && item.confirmedFareYen > 0,
-      )
-      setReservations(filtered)
+      setReservations(result.reservations)
     } catch (error) {
-      setListError(
-        error instanceof Error ? error.message : '事前確定予約一覧の取得に失敗しました。',
-      )
+      setListError(error instanceof Error ? error.message : '予約一覧の取得に失敗しました。')
       setReservations([])
     } finally {
       setIsLoadingList(false)
@@ -123,42 +112,63 @@ export function PreFixedReservationFlowPage() {
   const specialVehicleTotal = specialVehicleFees.reduce((sum, fee) => sum + fee.amount, 0)
   const billingTotal = reservationDetail?.fixedFare.fixedFareTotalYen ?? 0
 
-  const consentStatusLabel = reservationDetail?.consent.consentAt
-    ? '同意済み'
-    : '要確認'
+  const consentStatusLabel = reservationDetail?.consent.consentAt ? '同意済み' : '要確認'
 
-  const handleSelectReservation = async (reservationId: string) => {
-    setStep('detail')
-    setIsLoadingDetail(true)
-    setDetailError('')
-    setConsentChecked(false)
-    setConsentError('')
-    setActionError('')
-
-    try {
-      const detail = await fetchDriverReservation(reservationId)
-      if (!hasConfirmedRoute(detail)) {
-        setDetailError(
-          '予約時のルート情報が不足しています。通常予約・電話予約から作成してください。',
-        )
-      }
-      setReservationDetail(detail)
-    } catch (error) {
-      setDetailError(error instanceof Error ? error.message : '予約詳細の取得に失敗しました。')
-      setReservationDetail(null)
-    } finally {
-      setIsLoadingDetail(false)
+  const buildCreatePath = (reservationId: string) => {
+    const query = new URLSearchParams({ reservationId })
+    if (vehicleId) {
+      query.set('vehicleId', vehicleId)
     }
+    return `/case/pre-fixed/create?${query.toString()}`
   }
+
+  const handleSelectReservation = useCallback(
+    async (targetReservationId: string) => {
+      setDetailError('')
+      setActionError('')
+
+      const summary = reservations.find((item) => item.reservationId === targetReservationId)
+      if (summary && resolveReservationCategory(summary) !== 'pre_fixed') {
+        navigate(buildCreatePath(targetReservationId))
+        return
+      }
+
+      setStep('detail')
+      setIsLoadingDetail(true)
+      setConsentChecked(false)
+      setConsentError('')
+
+      try {
+        const detail = await fetchDriverReservation(targetReservationId)
+        if (!isPreFixedReservationReady(detail)) {
+          navigate(buildCreatePath(targetReservationId))
+          return
+        }
+        setReservationDetail(detail)
+      } catch (error) {
+        setDetailError(error instanceof Error ? error.message : '予約詳細の取得に失敗しました。')
+        setReservationDetail(null)
+      } finally {
+        setIsLoadingDetail(false)
+      }
+    },
+    [navigate, reservations, vehicleId],
+  )
+
+  useEffect(() => {
+    if (!autoOpenReservationId || isLoadingList || autoOpenHandledRef.current) {
+      return
+    }
+    autoOpenHandledRef.current = true
+    void handleSelectReservation(autoOpenReservationId)
+  }, [autoOpenReservationId, handleSelectReservation, isLoadingList])
 
   const handleProceedToConsent = () => {
     if (!reservationDetail) {
       return
     }
-    if (!hasConfirmedRoute(reservationDetail)) {
-      setDetailError(
-        '予約時のルート情報が不足しています。通常予約・電話予約から作成してください。',
-      )
+    if (!isPreFixedReservationReady(reservationDetail)) {
+      navigate(buildCreatePath(reservationDetail.reservationId))
       return
     }
     setStep('consent')
@@ -218,8 +228,11 @@ export function PreFixedReservationFlowPage() {
           <Link className="text-link" to={menuPath}>
             ← 事前確定運賃メニューへ
           </Link>
-          <p className="eyebrow">Pre-Fixed Reservation</p>
-          <h1 id="pre-fixed-reservation-list-title">事前確定予約一覧</h1>
+          <p className="eyebrow">Reservations</p>
+          <h1 id="pre-fixed-reservation-list-title">予約一覧</h1>
+          <p className="save-note">
+            通常予約・電話予約・事前確定予約をまとめて表示しています。
+          </p>
 
           <div className="pre-fixed-flow-controls">
             <label>
@@ -240,40 +253,18 @@ export function PreFixedReservationFlowPage() {
           ) : null}
 
           {!isLoadingList && !listError && reservations.length === 0 ? (
-            <p className="empty-note">表示対象の事前確定予約はありません。</p>
+            <p className="empty-note">表示対象の予約はありません。</p>
           ) : null}
 
           <div className="pre-fixed-reservation-list">
             {reservations.map((reservation) => (
-              <button
+              <UnifiedReservationCard
                 key={reservation.reservationId}
-                className="pre-fixed-reservation-row"
-                type="button"
-                onClick={() => {
-                  void handleSelectReservation(reservation.reservationId)
+                reservation={reservation}
+                onSelect={(reservationId) => {
+                  void handleSelectReservation(reservationId)
                 }}
-              >
-                <span>
-                  <small>利用者</small>
-                  <strong>{reservation.customerName || '未設定'}</strong>
-                </span>
-                <span>
-                  <small>予約日時</small>
-                  <strong>{formatCaseDateTime(reservation.scheduledAt)}</strong>
-                </span>
-                <span>
-                  <small>お迎え地</small>
-                  <strong>{formatAddress(reservation.pickupAddress)}</strong>
-                </span>
-                <span>
-                  <small>目的地</small>
-                  <strong>{formatAddress(reservation.destinationAddress)}</strong>
-                </span>
-                <span>
-                  <small>請求予定合計</small>
-                  <strong>{formatFareYen(reservation.fixedFareTotalYen)}円</strong>
-                </span>
-              </button>
+              />
             ))}
           </div>
         </section>
@@ -327,7 +318,9 @@ export function PreFixedReservationFlowPage() {
             </div>
             <div>
               <dt>事前確定運賃</dt>
-              <dd className="pre-fixed-amount">{formatFareYen(reservationDetail.fixedFare.confirmedFareYen)}円</dd>
+              <dd className="pre-fixed-amount">
+                {formatFareYen(reservationDetail.fixedFare.confirmedFareYen)}円
+              </dd>
             </div>
             <div>
               <dt>介助料金</dt>
@@ -468,20 +461,11 @@ export function PreFixedReservationFlowPage() {
               </div>
             </dl>
 
-            {!hasConfirmedRoute(reservationDetail) ? (
-              <Link
-                className="primary-action"
-                to={`/case/pre-fixed/create${vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''}`}
-              >
-                通常予約・電話予約から作成へ
-              </Link>
-            ) : (
-              <div className="pre-fixed-flow-actions">
-                <button className="primary-action" type="button" onClick={handleProceedToConsent}>
-                  同意確認へ進む
-                </button>
-              </div>
-            )}
+            <div className="pre-fixed-flow-actions">
+              <button className="primary-action" type="button" onClick={handleProceedToConsent}>
+                同意確認へ進む
+              </button>
+            </div>
           </>
         ) : null}
       </section>

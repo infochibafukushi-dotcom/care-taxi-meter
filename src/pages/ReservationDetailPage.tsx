@@ -4,12 +4,9 @@ import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
 import {
   fetchDriverReservation,
   resetFixedFareRun,
-  startFixedFareRun,
 } from '../services/reservationApi'
 import {
-  buildReservationTripContext,
   clearReservationTripContext,
-  saveReservationTripContext,
 } from '../services/reservationTripContext'
 import { PreFixedFarePassengerChangeDetailSection } from '../components/case/PreFixedFarePassengerChangeDetailSection'
 import type { DriverReservationDetail, ReservationServiceFee } from '../types/reservation'
@@ -168,45 +165,18 @@ export function ReservationDetailPage() {
     }
   }, [loadReservation, reservationId])
 
-  const handleStartFixedFareRun = async () => {
-    if (!reservationId || state.isActionLoading) {
+  const handleStartFixedFareRun = () => {
+    if (!reservationId || !state.reservation) {
       return
     }
 
-    if (readActiveTripSnapshot()) {
-      setState((current) => ({
-        ...current,
-        actionErrorMessage:
-          '未終了の運行があります。予約連携を開始する前に、メーター画面で運行を終了または復元してください。',
-      }))
-      return
+    const query = new URLSearchParams()
+    if (listDate) {
+      query.set('date', listDate)
     }
-
-    setState((current) => ({
-      ...current,
-      actionErrorMessage: '',
-      isActionLoading: true,
-    }))
-
-    try {
-      await startFixedFareRun(reservationId)
-      const reservation = await loadReservation(reservationId)
-      saveReservationTripContext(buildReservationTripContext(reservation))
-      navigate(`/case/start?reservationId=${encodeURIComponent(reservationId)}`)
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        actionErrorMessage:
-          error instanceof Error
-            ? error.message
-            : '事前確定Mの開始に失敗しました。',
-      }))
-    } finally {
-      setState((current) => ({
-        ...current,
-        isActionLoading: false,
-      }))
-    }
+    query.set('reservationId', reservationId)
+    query.set('autoOpen', '1')
+    navigate(`/case/pre-fixed/reservations?${query.toString()}`)
   }
 
   const handleReturnToActiveMeter = () => {

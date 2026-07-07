@@ -69,6 +69,11 @@ const buildRoutePlanFromSession = (session: PreFixedMeterSession) => {
 
 export const buildTripContextFromPreFixedSession = (
   session: PreFixedMeterSession,
+  reservationMeta?: {
+    estimateNo?: string
+    customerName?: string
+    scheduledAt?: string
+  },
 ): ReservationTripContext => {
   const selectedRoute = session.routeCandidates.find((route) => route.id === session.selectedRouteId)
   const serviceFees = session.selectedServiceItems
@@ -81,7 +86,9 @@ export const buildTripContextFromPreFixedSession = (
 
   return {
     reservationId: session.reservationId ?? `manual-${session.id}`,
-    estimateNo: session.reservationId ? '' : `現場-${session.id.slice(-8)}`,
+    estimateNo:
+      reservationMeta?.estimateNo?.trim() ||
+      (session.reservationId ? '' : `現場-${session.id.slice(-8)}`),
     confirmedFareYen: session.fare.fixedFareYen,
     fixedFareTotalYen: session.fare.totalYen,
     snapshotHash: `manual-${session.id}`,
@@ -107,8 +114,8 @@ export const buildTripContextFromPreFixedSession = (
       quotedFareYen: session.fare.totalYen,
       source: session.sourceFlow,
     },
-    customerName: '',
-    scheduledAt: session.createdAt,
+    customerName: reservationMeta?.customerName?.trim() ?? '',
+    scheduledAt: reservationMeta?.scheduledAt?.trim() || session.createdAt,
   }
 }
 

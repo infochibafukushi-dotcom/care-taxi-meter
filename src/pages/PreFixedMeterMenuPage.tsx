@@ -20,19 +20,13 @@ export function PreFixedMeterMenuPage() {
             className="primary-action pre-fixed-menu-action"
             to={`/case/pre-fixed/reservations${querySuffix}`}
           >
-            事前確定予約から開始
+            予約一覧から開始
           </Link>
           <Link
             className="primary-action pre-fixed-menu-action"
             to={`/case/pre-fixed/create${querySuffix}`}
           >
-            通常予約・電話予約から作成
-          </Link>
-          <Link
-            className="secondary-action pre-fixed-menu-action"
-            to={`/reservations${vehicleId ? `?from=pre-fixed&vehicleId=${encodeURIComponent(vehicleId)}` : ''}`}
-          >
-            予約一覧
+            新規入力開始（予約なし）
           </Link>
         </div>
       </section>

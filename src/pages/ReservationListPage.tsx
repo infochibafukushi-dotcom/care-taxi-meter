@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { fetchDriverReservations } from '../services/reservationApi'
 import type { DriverReservationSummary } from '../types/reservation'
 import {
@@ -31,6 +31,8 @@ type ReservationListState = {
 
 export function ReservationListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const fromPreFixed = searchParams.get('from') === 'pre-fixed'
+  const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
   const initialDate = searchParams.get('date') || formatJapanDateInputValue()
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [state, setState] = useState<ReservationListState>({
@@ -58,6 +60,10 @@ export function ReservationListPage() {
   }
 
   useEffect(() => {
+    if (fromPreFixed) {
+      return undefined
+    }
+
     let isMounted = true
 
     setState((currentState) => ({
@@ -99,12 +105,17 @@ export function ReservationListPage() {
     return () => {
       isMounted = false
     }
-  }, [selectedDate])
+  }, [fromPreFixed, selectedDate])
 
   const reservationCountLabel = useMemo(
     () => `${state.reservations.length}件`,
     [state.reservations.length],
   )
+
+  if (fromPreFixed) {
+    const redirectQuery = vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''
+    return <Navigate to={`/case/pre-fixed/reservations${redirectQuery}`} replace />
+  }
 
   return (
     <main className="page reservation-list-page" aria-labelledby="reservation-list-title">
