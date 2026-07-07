@@ -68,17 +68,17 @@ const resolveSourceFlow = (
   return 'normal_reservation'
 }
 
-const sourceFlowToCategory = (sourceFlow: PreFixedSourceFlow): ReservationCategory | undefined => {
+const sourceFlowToCategory = (sourceFlow: PreFixedSourceFlow): ReservationCategory => {
   if (sourceFlow === 'phone_reservation') {
     return 'phone'
   }
   if (sourceFlow === 'normal_reservation') {
     return 'normal'
   }
-  if (sourceFlow === 'fixed_reservation') {
+  if (sourceFlow === 'manual') {
     return 'pre_fixed'
   }
-  return undefined
+  return 'pre_fixed'
 }
 
 const sumAssistFareYen = (context: ReservationTripContext) =>
@@ -108,16 +108,19 @@ export const buildPreFixedFareCaseContext = ({
   const selectedRouteId = tripContext.quoteSnapshot.selectedRouteId?.trim() ?? ''
   const consentAt = tripContext.consentAt.trim() || tripContext.consent.consentAt.trim()
 
+  const estimateNo = tripContext.estimateNo.trim()
+  const consentTermsVersion = tripContext.consent.consentTextVersion.trim()
+
   return {
     sourceFlow,
     reservationCategory: sourceFlowToCategory(sourceFlow),
     reservationId: tripContext.reservationId,
-    estimateNo: tripContext.estimateNo.trim() || undefined,
+    ...(estimateNo ? { estimateNo } : {}),
     pickupAddress: tripContext.pickupAddress,
     dropoffAddress: tripContext.dropoffAddress,
     viaAddresses: readViaAddresses(tripContext.routePlan),
     selectedRouteId,
-    selectedRouteLabel: selectedRouteId ? resolveRouteLabel(selectedRouteId) : undefined,
+    ...(selectedRouteId ? { selectedRouteLabel: resolveRouteLabel(selectedRouteId) } : {}),
     preFixedFareYen: Math.max(Math.round(tripContext.confirmedFareYen), 0),
     assistFareYen: assistFareYen ?? sumAssistFareYen(tripContext),
     otherFareYen: otherFareYen ?? sumOtherFareYen(tripContext),
@@ -128,7 +131,7 @@ export const buildPreFixedFareCaseContext = ({
         : Math.round(tripContext.confirmedFareYen)),
     consentAt,
     consentAgreed: consentAt.length > 0,
-    consentTermsVersion: tripContext.consent.consentTextVersion.trim() || undefined,
+    ...(consentTermsVersion ? { consentTermsVersion } : {}),
     meterMode: 'fixed',
     fareMode: FARE_MODE_PRE_FIXED,
   }

@@ -9063,6 +9063,39 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .pre-fixed-routes-step {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+}
+
+.pre-fixed-route-map-panel {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.pre-fixed-return-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-weight: 600;
+}
+
+@media (min-width: 768px) {
+  .pre-fixed-route-map-panel {
+    min-height: 280px;
+  }
+
+  .pre-fixed-routes-step .pre-fixed-route-card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .pre-fixed-unified-reservation-card {

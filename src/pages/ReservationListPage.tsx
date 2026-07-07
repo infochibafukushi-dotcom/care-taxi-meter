@@ -6,6 +6,10 @@ import {
   formatMeterRunStatus,
   formatReservationStatus,
 } from '../types/reservation'
+import {
+  reservationCategoryLabels,
+  resolveReservationCategory,
+} from '../utils/reservationCategory'
 import { formatFareYen } from '../services/fare'
 import { getDatePartsInJapan } from '../utils/japanDate'
 import { formatCaseDateTime } from '../utils/caseRecords'
@@ -127,6 +131,7 @@ export function ReservationListPage() {
             </Link>
             <p className="eyebrow">Reservations</p>
             <h1 id="reservation-list-title">運行予約一覧</h1>
+            <p className="save-note">通常予約・電話予約・事前確定予約をまとめて表示しています。</p>
           </div>
         </div>
 
@@ -159,13 +164,19 @@ export function ReservationListPage() {
         ) : null}
 
         <div className="reservation-record-list" aria-label="運行予約一覧">
-          {state.reservations.map((reservation) => (
+          {state.reservations.map((reservation) => {
+            const category = resolveReservationCategory(reservation)
+            return (
             <Link
               className="reservation-record-row"
               key={reservation.reservationId}
               to={`/reservations/${reservation.reservationId}`}
               state={{ listDate: selectedDate }}
             >
+              <span>
+                <small>種別</small>
+                <strong>{reservationCategoryLabels[category]}</strong>
+              </span>
               <span>
                 <small>予約ID</small>
                 <strong>{reservation.reservationId}</strong>
@@ -215,7 +226,8 @@ export function ReservationListPage() {
                 <strong>{reservation.preFixedFareConfirmable ? '対象' : '対象外'}</strong>
               </span>
             </Link>
-          ))}
+            )
+          })}
         </div>
       </section>
     </main>

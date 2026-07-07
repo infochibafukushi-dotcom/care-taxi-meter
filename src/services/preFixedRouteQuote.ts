@@ -88,6 +88,7 @@ export async function calculatePreFixedRouteCandidates({
       serviceFeesYen,
       totalYen: fixedFareYen + serviceFeesYen,
       tollIncluded: source.useToll,
+      polyline: source.encodedPolyline,
     } satisfies PreFixedRouteCandidate
   })
 }
@@ -96,3 +97,6 @@ export const formatRouteDurationLabel = (durationSeconds: number) => {
   const minutes = Math.max(Math.round(durationSeconds / 60), 1)
   return `約${minutes}分`
 }
+
+export const formatRouteDistanceLabel = (distanceMeters: number) =>
+  `${(Math.max(distanceMeters, 0) / 1000).toFixed(1)}km`

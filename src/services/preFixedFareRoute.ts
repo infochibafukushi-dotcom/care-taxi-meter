@@ -107,12 +107,12 @@ const readRoutePlanStops = (routePlan: unknown): PreFixedFareRouteStop[] => {
 /** 事前確定Mの往復判定。専用フラグはなく trip.usageSummary と routePlan から推定する。 */
 export const isPreFixedFareRoundTrip = (context: ReservationTripContext | null) => {
   if (!context) {
-    return true
+    return false
   }
 
   const summary = context.usageSummary ?? []
   const joined = summary.join(' ')
-  if (joined.includes('片道')) {
+  if (joined.includes('片道') || joined.includes('立ち寄り')) {
     return false
   }
   if (joined.includes('往復') || joined.includes('帰宅')) {
@@ -121,15 +121,21 @@ export const isPreFixedFareRoundTrip = (context: ReservationTripContext | null) 
 
   const fromPlan = readRoutePlanStops(context.routePlan)
   if (fromPlan.length >= 3) {
-    return true
+    const first = fromPlan[0]
+    const last = fromPlan[fromPlan.length - 1]
+    if (
+      first?.address?.trim() &&
+      last?.address?.trim() &&
+      first.address.trim() === last.address.trim()
+    ) {
+      return true
+    }
   }
   if (fromPlan.length === 2) {
     return false
   }
 
-  // 介護タクシー予約は自宅→施設→自宅の往復が多いため、
-  // ルート計画が無い場合は往復として扱う。
-  return true
+  return false
 }
 
 export const buildConfirmedRouteStops = (
@@ -316,6 +322,7 @@ type GoogleDirectionsResult = {
       distance?: { value: number }
       duration?: { value: number }
     }>
+    overview_polyline?: { points?: string }
     summary?: string
   }>
 }
@@ -471,7 +478,7 @@ export async function calculateAdditionalRouteCandidates({
     return buildFallbackCandidates(origin, waypoints, destination, fareSettings)
   }
 
-  const candidates = result.routes.slice(0, 3).map((route, index) => {
+  const candidates = result.routes.slice(0, 4).map((route, index) => {
     const distanceMeters = route.legs.reduce(
       (total, leg) => total + (leg.distance?.value ?? 0),
       0,
@@ -481,7 +488,7 @@ export async function calculateAdditionalRouteCandidates({
       0,
     )
     const distanceKm = Math.max(distanceMeters / 1000, 0.1)
-    const labels = ['ルートA', 'ルートB', 'ルートC']
+    const labels = ['ルートA', 'ルートB', 'ルートC', 'ルートD']
     const pathPoints = [origin, ...waypoints, destination]
       .map((point) => point.address.trim() || '地点')
       .join(' → ')
@@ -494,18 +501,20 @@ export async function calculateAdditionalRouteCandidates({
       additionalFareYen: calculateBasicFareYen(distanceKm, fareSettings),
       summary: route.summary ? `${pathPoints}（${route.summary}）` : pathPoints,
       useToll: false,
+      encodedPolyline: route.overview_polyline?.points,
     } satisfies PreFixedFareRouteCandidate
   })
 
-  if (candidates.length === 1) {
-    const only = candidates[0]
+  while (candidates.length < 2 && candidates[0]) {
+    const baseIndex = candidates.length
+    const base = candidates[0]
     candidates.push({
-      ...only,
-      id: 'route-2',
-      label: 'ルートB',
-      distanceKm: Number((only.distanceKm * 1.12).toFixed(1)),
-      durationSeconds: Math.round(only.durationSeconds * 1.12),
-      additionalFareYen: calculateBasicFareYen(only.distanceKm * 1.12, fareSettings),
+      ...base,
+      id: `route-${baseIndex + 1}`,
+      label: ['ルートA', 'ルートB', 'ルートC', 'ルートD'][baseIndex] ?? `ルート${baseIndex + 1}`,
+      distanceKm: Number((base.distanceKm * (1 + baseIndex * 0.08)).toFixed(1)),
+      durationSeconds: Math.round(base.durationSeconds * (1 + baseIndex * 0.08)),
+      additionalFareYen: calculateBasicFareYen(base.distanceKm * (1 + baseIndex * 0.08), fareSettings),
     })
   }
 

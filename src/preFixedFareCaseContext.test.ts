@@ -73,6 +73,41 @@ describe('buildPreFixedFareCaseContext', () => {
     expect(result.reservationCategory).toBe('pre_fixed')
     expect(result.consentAt).toBe(fixedContext.consentAt)
   })
+
+  it('maps manual pre-fixed session to pre_fixed reservation category', () => {
+    const manualContext: ReservationTripContext = {
+      ...baseContext,
+      reservationId: 'manual-pfm-test',
+      consent: {
+        ...baseContext.consent,
+        source: 'manual',
+      },
+    }
+
+    const result = buildPreFixedFareCaseContext({
+      tripContext: manualContext,
+      session: {
+        id: 'pfm-test',
+        meterMode: 'fixed',
+        sourceFlow: 'manual',
+        tripType: 'one_way',
+        pickup: { label: '自宅', address: '自宅', source: 'manual' },
+        stops: [],
+        destination: { label: '病院', address: '病院', source: 'manual' },
+        selectedServiceItems: [],
+        routeCandidates: [],
+        selectedRouteId: 'A',
+        fare: { fixedFareYen: 1000, serviceFeesYen: 0, actualExpensesYen: 0, totalYen: 1000 },
+        consent: { status: 'agreed', termsVersion: 'v1', agreedAt: '2026-07-07T09:00:00+09:00' },
+        status: 'agreed',
+        createdAt: '2026-07-07T09:00:00+09:00',
+        updatedAt: '2026-07-07T09:00:00+09:00',
+      },
+    })
+
+    expect(result.sourceFlow).toBe('manual')
+    expect(result.reservationCategory).toBe('pre_fixed')
+  })
 })
 
 describe('buildReservationTripContextForMeterStart', () => {

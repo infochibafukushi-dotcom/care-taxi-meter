@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
-import { readPostSettlementLock } from '../services/postSettlementLock'
+import { clearStalePreFixedStateForNormalCaseStart } from '../services/preFixedFareCleanup'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
 import { readReservationTripContext } from '../services/reservationTripContext'
 import {
@@ -50,19 +50,23 @@ export function CaseStartPage() {
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false)
   const [isStartingCase, setIsStartingCase] = useState(false)
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
-  const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(
-    () => (isReservationStart ? 'fixed' : readStoredMeterMode()),
-  )
+  const [selectedMeterMode, setSelectedMeterMode] = useState<MeterMode>(() => {
+    if (isReservationStart) {
+      return 'fixed'
+    }
+    const stored = readStoredMeterMode()
+    return stored === 'fixed' ? 'gps' : stored
+  })
   const [meterPermissions, setMeterPermissions] = useState<MeterPermissions>(defaultMeterPermissions)
   const [message, setMessage] = useState('稼働中車両を読み込み中です。')
   const [activeTripSnapshot] = useState(readActiveTripSnapshot)
-  const [postSettlementLock] = useState(readPostSettlementLock)
 
   useEffect(() => {
-    if (postSettlementLock) {
-      navigate('/case', { replace: true })
+    if (isReservationStart) {
+      return
     }
-  }, [navigate, postSettlementLock])
+    clearStalePreFixedStateForNormalCaseStart()
+  }, [isReservationStart])
 
   useEffect(() => {
     logDiagnostic('CaseStartPage mount')
@@ -173,7 +177,7 @@ export function CaseStartPage() {
   )
 
   const allowedMeterModes = useMemo(
-    () => [...getAllowedMeterModes(meterPermissions), 'fixed' as const],
+    () => getAllowedMeterModes(meterPermissions),
     [meterPermissions],
   )
 
@@ -190,9 +194,13 @@ export function CaseStartPage() {
 
   const selectedMeterModeValue: MeterMode = isReservationStart
     ? 'fixed'
-    : allowedMeterModes.includes(selectedMeterMode)
-      ? selectedMeterMode
-      : allowedMeterModes[0] ?? 'gps'
+    : (() => {
+        const normalizedMode =
+          selectedMeterMode === 'fixed' ? 'gps' : selectedMeterMode
+        return allowedMeterModes.includes(normalizedMode)
+          ? normalizedMode
+          : allowedMeterModes[0] ?? 'gps'
+      })()
 
   const handleStartCase = async () => {
     if (isStartingCase) {
@@ -248,11 +256,6 @@ export function CaseStartPage() {
       if (isReservationStart) {
         query.set('reservationId', reservationId)
         navigate(`/case?${query.toString()}`)
-        return
-      }
-
-      if (selectedMeterModeValue === 'fixed') {
-        navigate(`/case/pre-fixed?vehicleId=${encodeURIComponent(selectedVehicleValue)}`)
         return
       }
 
@@ -401,7 +404,7 @@ export function CaseStartPage() {
               void handleStartCase()
             }}
           >
-            {isStartingCase ? '確認中...' : selectedMeterModeValue === 'fixed' && !isReservationStart ? '事前確定運賃メニューへ' : 'メーター画面へ進む'}
+            {isStartingCase ? '確認中...' : 'メーター画面へ進む'}
           </button>
           <Link className="secondary-action" to="/">
             TOPに戻る

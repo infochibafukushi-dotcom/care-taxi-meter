@@ -55,14 +55,14 @@ import {
   readPostSettlementLock,
   writePostSettlementLock,
 } from '../services/postSettlementLock'
-import { readReservationTripContext, clearReservationTripContext } from '../services/reservationTripContext'
+import { readReservationTripContext } from '../services/reservationTripContext'
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import {
   buildTripContextFromPreFixedSession,
-  clearPreFixedMeterSession,
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
 import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
+import { clearPreFixedFareLocalSessionState } from '../services/preFixedFareCleanup'
 import {
   buildPreFixedFareStartPersistKey,
   shouldPersistPreFixedFareStartAtMeterEntry,
@@ -612,14 +612,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       }
     }
 
-    const storedContext = reviewDemoMode
-      ? null
-      : readReservationTripContext()
-    if (storedContext?.reservationId.startsWith('manual-')) {
-      return storedContext
-    }
-
-    return storedContext
+    return null
   })
   const [restoredTripState] = useState(() => {
     const postSettlementLock = reviewDemoMode
@@ -1790,16 +1783,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
     return reservationTripContext?.quoteSnapshot?.selectedRouteId || '—'
   }, [reservationTripContext])
-  const preFixedBillingTotalYen = useMemo(() => {
-    if (
-      reservationTripContext &&
-      Number.isFinite(reservationTripContext.fixedFareTotalYen) &&
-      reservationTripContext.fixedFareTotalYen > 0
-    ) {
-      return Math.max(Math.round(reservationTripContext.fixedFareTotalYen), 0)
-    }
-    return settlementBreakdown.totalFareYen
-  }, [reservationTripContext, settlementBreakdown.totalFareYen])
+  const preFixedBillingTotalYen = settlementBreakdown.totalFareYen
   const currentSegmentStops = useMemo(
     () => getCurrentSegmentStops(preFixedOverallStops, preFixedSegmentIndex),
     [preFixedOverallStops, preFixedSegmentIndex],
@@ -2808,8 +2792,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
   const handleStartRegularMeterTrip = () => {
     clearPostSettlementLock()
-    clearPersistedActiveTripSnapshot()
-    clearReservationTripContext()
+    clearPreFixedFareLocalSessionState()
     navigate('/case/start')
   }
 
@@ -2846,8 +2829,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         await completeFixedFareRun(reservationId, completionPayload)
       }
       clearPersistedActiveTripSnapshot()
-      clearReservationTripContext()
-      clearPreFixedMeterSession()
+      clearPreFixedFareLocalSessionState()
       setFixedCompleteState('done')
       setCaseSaveMessage(
         options?.isPassengerChange
@@ -3670,9 +3652,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         }
       }
 
-      if (meterMode !== 'fixed') {
-        clearPersistedActiveTripSnapshot()
-      }
+      clearPersistedActiveTripSnapshot()
+      clearPreFixedFareLocalSessionState()
 
       const workSessionId = workSession.currentSession?.id
       if (workSessionId && selectedVehicle.id) {
@@ -3982,6 +3963,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     obdRestoreConnectAttemptedRef.current = false
     obdIdleConnectAttemptedRef.current = false
     clearPersistedActiveTripSnapshot()
+    clearPreFixedFareLocalSessionState()
     clearPostSettlementLock()
     setPostSettlementLock(null)
 

@@ -43,6 +43,7 @@ export type PreFixedFareRouteCandidate = {
   additionalFareYen: number
   summary: string
   useToll: boolean
+  encodedPolyline?: string
 }
 
 export type PreFixedFareRouteChangeLocation = {

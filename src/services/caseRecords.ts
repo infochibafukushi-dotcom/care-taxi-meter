@@ -41,6 +41,7 @@ import type {
   PreFixedFareException,
 } from '../types/preFixedFare'
 import type { PreFixedFareRouteChangeLog } from '../types/preFixedFareRouteChange'
+import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 
 export type CaseRecordInput = {
   caseNumber: string
@@ -1068,7 +1069,9 @@ export async function saveCaseRecord({
       ? { additionalCareFareYen: Math.max(Math.round(additionalCareFareYen), 0) }
       : {}),
     ...(routeChangeLogs && routeChangeLogs.length > 0 ? { routeChangeLogs } : {}),
-    ...(preFixedFareContext ? { preFixedFareContext } : {}),
+    ...(preFixedFareContext
+      ? { preFixedFareContext: removeUndefinedFields(preFixedFareContext) }
+      : {}),
     savedAt: serverTimestamp(),
   }
 

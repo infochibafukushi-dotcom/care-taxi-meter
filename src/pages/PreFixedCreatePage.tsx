@@ -20,8 +20,10 @@ import {
 } from '../services/preFixedMeterSession'
 import {
   calculatePreFixedRouteCandidates,
+  formatRouteDistanceLabel,
   formatRouteDurationLabel,
 } from '../services/preFixedRouteQuote'
+import { PreFixedRouteMapPanel } from '../components/preFixed/PreFixedRouteMapPanel'
 import { fetchDriverReservation, startFixedFareRun } from '../services/reservationApi'
 import { saveReservationTripContext } from '../services/reservationTripContext'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
@@ -52,8 +54,71 @@ const tripTypeChoiceLabels: Record<TripTypeChoice, string> = {
   round_or_via: '往復・経由地あり',
 }
 
-const mapTripTypeChoice = (choice: TripTypeChoice): PreFixedTripType =>
-  choice === 'one_way' ? 'one_way' : 'with_stops'
+const createInitialVisitDestination = (): RoutePoint => createEmptyStop()
+
+const buildRouteSegments = ({
+  pickup,
+  visitDestinations,
+  returnToPickup,
+}: {
+  pickup: RoutePoint
+  visitDestinations: RoutePoint[]
+  returnToPickup: boolean
+}) => {
+  const visits = visitDestinations
+    .map((point) => ({
+      ...point,
+      address: point.address.trim(),
+      label: point.label.trim() || point.address.trim(),
+    }))
+    .filter((point) => point.address.length > 0)
+
+  if (visits.length === 0) {
+    return null
+  }
+
+  if (returnToPickup) {
+    return {
+      stops: visits,
+      destination: createRoutePoint({
+        ...pickup,
+        label: pickup.label.trim() || pickup.address.trim() || 'お迎え地',
+        address: pickup.address.trim(),
+        source: pickup.source,
+      }),
+    }
+  }
+
+  if (visits.length === 1) {
+    return {
+      stops: [] as RoutePoint[],
+      destination: visits[0],
+    }
+  }
+
+  return {
+    stops: visits.slice(0, -1),
+    destination: visits[visits.length - 1],
+  }
+}
+
+const resolveTripTypeForSession = ({
+  tripTypeChoice,
+  returnToPickup,
+  visitCount,
+}: {
+  tripTypeChoice: TripTypeChoice
+  returnToPickup: boolean
+  visitCount: number
+}): PreFixedTripType => {
+  if (tripTypeChoice === 'one_way') {
+    return 'one_way'
+  }
+  if (returnToPickup) {
+    return 'round_trip'
+  }
+  return visitCount > 1 ? 'with_stops' : 'one_way'
+}
 
 const createEmptyStop = (): RoutePoint =>
   createRoutePoint({ label: '', address: '', source: 'manual' })
@@ -172,7 +237,6 @@ export function PreFixedCreatePage() {
 
   const [step, setStep] = useState<CreateStep>('trip-type')
   const [tripTypeChoice, setTripTypeChoice] = useState<TripTypeChoice>('one_way')
-  const [tripType, setTripType] = useState<PreFixedTripType>('one_way')
   const [assistItemSources, setAssistItemSources] = useState<AssistItemSources>(defaultAssistItemSources)
   const [currentBasicFareSettings, setCurrentBasicFareSettings] = useState(basicFareSettings)
   const [assistItems, setAssistItems] = useState<AssistItem[]>(() => buildAssistItemList())
@@ -181,8 +245,10 @@ export function PreFixedCreatePage() {
   const [pickup, setPickup] = useState<RoutePoint>(() =>
     createRoutePoint({ address: '', label: '', source: 'manual' }),
   )
-  const [stops, setStops] = useState<RoutePoint[]>([])
-  const [destination, setDestination] = useState<RoutePoint>(createEmptyStop)
+  const [visitDestinations, setVisitDestinations] = useState<RoutePoint[]>([
+    createInitialVisitDestination(),
+  ])
+  const [returnToPickup, setReturnToPickup] = useState(false)
   const [facilitySearchText, setFacilitySearchText] = useState('')
   const [pickupMessage, setPickupMessage] = useState('')
   const [isLocating, setIsLocating] = useState(false)
@@ -323,7 +389,7 @@ export function PreFixedCreatePage() {
     )
   }
 
-  const captureCurrentLocation = useCallback(async (target: 'pickup' | 'destination') => {
+  const captureCurrentLocation = useCallback(async (target: 'pickup' | 'visit', visitIndex = 0) => {
     if (!('geolocation' in navigator)) {
       setStepError('この端末では現在地取得を利用できません。')
       return
@@ -353,7 +419,9 @@ export function PreFixedCreatePage() {
             setPickup(point)
             setPickupMessage('')
           } else {
-            setDestination(point)
+            setVisitDestinations((current) =>
+              current.map((visit, index) => (index === visitIndex ? point : visit)),
+            )
           }
         } catch {
           setStepError('住所の取得に失敗しました。手入力してください。')
@@ -369,7 +437,7 @@ export function PreFixedCreatePage() {
     )
   }, [])
 
-  const applyFacilitySearch = (target: 'pickup' | 'stop' | 'destination', stopIndex?: number) => {
+  const applyFacilitySearch = (target: 'pickup' | 'visit', visitIndex = 0) => {
     const query = facilitySearchText.trim()
     if (!query) {
       setStepError('施設名を入力してください。')
@@ -386,31 +454,13 @@ export function PreFixedCreatePage() {
     if (target === 'pickup') {
       setPickup(point)
       setPickupMessage('施設名のみ取得されています。正確な住所を確認して入力してください。')
-    } else if (target === 'destination') {
-      setDestination(point)
-    } else if (typeof stopIndex === 'number') {
-      setStops((current) =>
-        current.map((stop, index) => (index === stopIndex ? point : stop)),
+    } else {
+      setVisitDestinations((current) =>
+        current.map((visit, index) => (index === visitIndex ? point : visit)),
       )
     }
 
     setStepError('')
-  }
-
-  const handleReturnToPickup = () => {
-    if (!pickup.address.trim()) {
-      setStepError('先にお迎え地Sを入力してください。')
-      return
-    }
-
-    setStepError('')
-    setDestination(
-      createRoutePoint({
-        ...pickup,
-        label: pickup.label || pickup.address,
-        source: pickup.source,
-      }),
-    )
   }
 
   const validatePickup = () => {
@@ -423,12 +473,17 @@ export function PreFixedCreatePage() {
   }
 
   const validateDestinations = () => {
-    if (!destination.address.trim()) {
-      setStepError('目的地Gを入力してください。')
+    const segments = buildRouteSegments({ pickup, visitDestinations, returnToPickup })
+    if (!segments) {
+      setStepError('訪問先を1件以上入力してください。')
       return false
     }
-    if (stops.some((stop) => !stop.address.trim())) {
-      setStepError('立ち寄り先の住所を入力してください。')
+    if (visitDestinations.some((visit) => !visit.address.trim())) {
+      setStepError('訪問先の住所を入力してください。')
+      return false
+    }
+    if (returnToPickup && !pickup.address.trim()) {
+      setStepError('お迎え地へ戻る場合は、先にお迎え地Sを入力してください。')
       return false
     }
     setStepError('')
@@ -440,14 +495,19 @@ export function PreFixedCreatePage() {
       return
     }
 
+    const segments = buildRouteSegments({ pickup, visitDestinations, returnToPickup })
+    if (!segments) {
+      return
+    }
+
     setIsCalculatingRoutes(true)
     setRouteError('')
 
     try {
       const candidates = await calculatePreFixedRouteCandidates({
         pickup,
-        stops,
-        destination,
+        stops: segments.stops,
+        destination: segments.destination,
         serviceItems: assistItems,
         basicFare: currentBasicFareSettings,
       })
@@ -491,12 +551,24 @@ export function PreFixedCreatePage() {
     setConsentError('')
 
     try {
+      const segments = buildRouteSegments({ pickup, visitDestinations, returnToPickup })
+      if (!segments) {
+        setConsentError('訪問先を確認してください。')
+        return
+      }
+
+      const resolvedTripType = resolveTripTypeForSession({
+        tripTypeChoice,
+        returnToPickup,
+        visitCount: segments.stops.length + 1,
+      })
+
       const session = createPreFixedMeterSession({
         sourceFlow: resolveSourceFlow(linkedReservation),
-        tripType,
+        tripType: resolvedTripType,
         pickup,
-        stops,
-        destination,
+        stops: segments.stops,
+        destination: segments.destination,
         selectedServiceItems: assistItems.filter((item) => item.enabled),
         routeCandidates,
         selectedRouteId,
@@ -609,9 +681,8 @@ export function PreFixedCreatePage() {
             type="button"
             onClick={() => {
               setTripTypeChoice(choice)
-              setTripType(mapTripTypeChoice(choice))
               if (choice === 'one_way') {
-                setStops([])
+                setReturnToPickup(false)
               }
             }}
           >
@@ -737,7 +808,10 @@ export function PreFixedCreatePage() {
     </section>
   )
 
-  const renderDestinationsStep = () => (
+  const renderDestinationsStep = () => {
+    const pickupLabel = pickup.label || pickup.address || 'お迎え地'
+
+    return (
     <section className="content-card pre-fixed-flow-card">
       <button
         className="text-link"
@@ -747,26 +821,35 @@ export function PreFixedCreatePage() {
         {isFromReservation ? '← ルート種別に戻る' : '← お迎え地に戻る'}
       </button>
       <p className="eyebrow">Route</p>
-      <h1>目的地・立ち寄り</h1>
+      <h1>訪問先</h1>
 
       <div className="pre-fixed-route-visual">
         <p><strong>S</strong> {pickup.label || pickup.address || '未入力'}</p>
-        {stops.map((stop, index) => (
-          <p key={`stop-preview-${index}`}><strong>{index + 1}.</strong> {stop.label || stop.address || '未入力'}</p>
+        {visitDestinations.map((visit, index) => (
+          <p key={`visit-preview-${index}`}>
+            <strong>訪問先{index + 1}</strong> {visit.label || visit.address || '未入力'}
+          </p>
         ))}
-        <p><strong>G</strong> {destination.label || destination.address || '未入力'}</p>
+        {returnToPickup ? (
+          <p><strong>戻り</strong> {pickupLabel}へ戻る</p>
+        ) : null}
       </div>
 
-      {tripType === 'with_stops' && stops.map((stop, index) => (
-        <fieldset key={`stop-${index}`} className="pre-fixed-destination-fieldset">
-          <legend>立ち寄り {index + 1}</legend>
+      <fieldset className="pre-fixed-destination-fieldset">
+        <legend>お迎え地 S</legend>
+        <p className="save-note">{pickup.address || '未入力'}</p>
+      </fieldset>
+
+      {visitDestinations.map((visit, index) => (
+        <fieldset key={`visit-${index}`} className="pre-fixed-destination-fieldset">
+          <legend>訪問先 {index + 1}</legend>
           <label className="pre-fixed-full-width">
             住所または施設名
             <input
-              value={stop.address}
+              value={visit.address}
               onChange={(event) => {
                 const value = event.target.value
-                setStops((current) =>
+                setVisitDestinations((current) =>
                   current.map((item, itemIndex) =>
                     itemIndex === index
                       ? createRoutePoint({ address: value, label: value, source: 'manual' })
@@ -776,52 +859,37 @@ export function PreFixedCreatePage() {
               }}
             />
           </label>
+          <button
+            className="secondary-action"
+            type="button"
+            disabled={isLocating}
+            onClick={() => {
+              void captureCurrentLocation('visit', index)
+            }}
+          >
+            住所取得（現在地）
+          </button>
         </fieldset>
       ))}
 
-      <fieldset className="pre-fixed-destination-fieldset">
-        <legend>目的地 G</legend>
-        <label className="pre-fixed-full-width">
-          住所または施設名を入力
+      <button
+        className="secondary-action"
+        type="button"
+        onClick={() => setVisitDestinations((current) => [...current, createInitialVisitDestination()])}
+      >
+        ＋ 目的地を追加
+      </button>
+
+      {tripTypeChoice === 'round_or_via' ? (
+        <label className="pre-fixed-return-checkbox">
           <input
-            value={destination.address}
-            onChange={(event) => {
-              const value = event.target.value
-              setDestination(createRoutePoint({ address: value, label: value, source: 'manual' }))
-            }}
+            type="checkbox"
+            checked={returnToPickup}
+            onChange={(event) => setReturnToPickup(event.target.checked)}
+            disabled={!pickup.address.trim()}
           />
+          <span>最後にお迎え地へ戻る</span>
         </label>
-        <button
-          className="secondary-action"
-          type="button"
-          disabled={isLocating}
-          onClick={() => {
-            void captureCurrentLocation('destination')
-          }}
-        >
-          住所取得（現在地）
-        </button>
-      </fieldset>
-
-      {tripType === 'with_stops' ? (
-        <button
-          className="secondary-action"
-          type="button"
-          onClick={() => setStops((current) => [...current, createEmptyStop()])}
-        >
-          ＋ 経由地を追加
-        </button>
-      ) : null}
-
-      {tripType === 'with_stops' ? (
-        <button
-          className="secondary-action"
-          type="button"
-          disabled={!pickup.address.trim()}
-          onClick={handleReturnToPickup}
-        >
-          お迎え地に戻る
-        </button>
       ) : null}
 
       {stepError ? <p className="case-error" role="alert">{stepError}</p> : null}
@@ -840,15 +908,18 @@ export function PreFixedCreatePage() {
         </button>
       </div>
     </section>
-  )
+    )
+  }
 
   const renderRoutesStep = () => (
-    <section className="content-card pre-fixed-flow-card">
+    <section className="content-card pre-fixed-flow-card pre-fixed-routes-step">
       <button className="text-link" type="button" onClick={() => setStep('destinations')}>
-        ← 目的地入力に戻る
+        ← 訪問先入力に戻る
       </button>
       <p className="eyebrow">Routes</p>
       <h1>ルート候補</h1>
+
+      <PreFixedRouteMapPanel candidates={routeCandidates} selectedRouteId={selectedRouteId} />
 
       <div className="pre-fixed-route-card-list">
         {routeCandidates.map((route) => (
@@ -862,7 +933,11 @@ export function PreFixedCreatePage() {
               <strong>{route.id} {route.label}</strong>
               <span className="pre-fixed-amount">{formatFareYen(route.totalYen)}円</span>
             </div>
-            <p>{formatRouteDurationLabel(route.durationSeconds)}</p>
+            <p>
+              {formatRouteDurationLabel(route.durationSeconds)}
+              {' / '}
+              {formatRouteDistanceLabel(route.distanceMeters)}
+            </p>
             <dl className="pre-fixed-route-card__breakdown">
               <div>
                 <dt>事前確定運賃</dt>
@@ -908,16 +983,18 @@ export function PreFixedCreatePage() {
           <dt>お迎え地</dt>
           <dd>{pickup.address}</dd>
         </div>
-        {stops.length > 0 ? (
+        {visitDestinations.filter((visit) => visit.address.trim()).map((visit, index) => (
+          <div key={`consent-visit-${index}`}>
+            <dt>訪問先{index + 1}</dt>
+            <dd>{visit.address}</dd>
+          </div>
+        ))}
+        {returnToPickup ? (
           <div>
-            <dt>立ち寄り</dt>
-            <dd>{stops.map((stop) => stop.address).join('\n')}</dd>
+            <dt>戻り</dt>
+            <dd>{pickup.address}（お迎え地へ戻る）</dd>
           </div>
         ) : null}
-        <div>
-          <dt>目的地</dt>
-          <dd>{destination.address}</dd>
-        </div>
         <div>
           <dt>選択ルート</dt>
           <dd>{selectedRoute ? `${selectedRoute.id} ${selectedRoute.label}` : '—'}</dd>

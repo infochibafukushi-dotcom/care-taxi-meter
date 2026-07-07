@@ -20,6 +20,7 @@ import { getFranchiseeId, getStoreId, isHqRole, matchesTenantScope } from './ten
 import type { TenantAccessScope } from './tenancy'
 import type { QueryConstraint } from 'firebase/firestore'
 import type { WorkLocation } from '../utils/workLocation'
+import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 
 const workSessionsCollectionName = 'workSessions'
 const staffAttendanceCollectionName = 'staffAttendance'
@@ -483,7 +484,7 @@ export async function saveWorkSessionPreFixedFareContext({
   }
 
   await updateDoc(getWorkSessionRef(normalizedWorkSessionId), {
-    activePreFixedFareContext: preFixedFareContext,
+    activePreFixedFareContext: removeUndefinedFields(preFixedFareContext),
     activePreFixedFareContextSavedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
