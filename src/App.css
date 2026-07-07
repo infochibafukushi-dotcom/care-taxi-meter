@@ -9157,3 +9157,134 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   }
 }
 
+/* route-meter 下の事前確定フロー: 縦スクロール可能にする */
+html.route-meter:has(.pre-fixed-flow-page) {
+  height: var(--app-height, 100dvh);
+  overflow: hidden;
+}
+
+html.route-meter:has(.pre-fixed-flow-page) body {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.route-meter:has(.pre-fixed-flow-page) #root,
+html.route-meter:has(.pre-fixed-flow-page) .app-shell {
+  min-height: 100%;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+html.route-meter .pre-fixed-flow-page {
+  display: block;
+  width: 100%;
+  max-width: 100vw;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  padding: max(8px, env(safe-area-inset-top)) 12px
+    max(20px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+@media (max-width: 640px) {
+  html.route-meter .pre-fixed-flow-page .content-card.pre-fixed-flow-card {
+    gap: 10px;
+    padding: clamp(12px, 4vw, 18px);
+    border-radius: 16px;
+  }
+
+  html.route-meter .pre-fixed-flow-page .eyebrow {
+    margin-bottom: 4px;
+    font-size: 0.68rem;
+    line-height: 1.1;
+  }
+
+  html.route-meter .pre-fixed-flow-page h1 {
+    font-size: clamp(1.35rem, 6.5vw, 1.85rem);
+    line-height: 1.1;
+  }
+
+  html.route-meter .pre-fixed-flow-page .save-note {
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  html.route-meter .pre-fixed-flow-page .text-link {
+    min-height: 36px;
+    margin-top: 0;
+    padding: 0 12px;
+    font-size: 0.88rem;
+  }
+
+  .pre-fixed-reservation-list {
+    gap: 6px;
+  }
+
+  .pre-fixed-unified-reservation-card {
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  .pre-fixed-unified-reservation-card__header {
+    gap: 4px;
+  }
+
+  .pre-fixed-unified-reservation-card__datetime {
+    font-size: 0.78rem;
+  }
+
+  .pre-fixed-reservation-badge {
+    padding: 2px 8px;
+    font-size: 0.7rem;
+  }
+
+  .pre-fixed-unified-reservation-card__grid {
+    gap: 5px 8px;
+  }
+
+  .pre-fixed-unified-reservation-card__field small {
+    font-size: 0.66rem;
+    line-height: 1.15;
+  }
+
+  .pre-fixed-unified-reservation-card__field strong {
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .pre-fixed-unified-reservation-card__field--detail-only {
+    display: none;
+  }
+
+  .pre-fixed-assist-list {
+    gap: 6px;
+  }
+
+  .pre-fixed-assist-item {
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+  }
+
+  .pre-fixed-assist-item strong {
+    font-size: 0.84rem;
+  }
+
+  .pre-fixed-flow-actions {
+    gap: 8px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pre-fixed-flow-actions .primary-action {
+    min-height: 44px;
+  }
+}
+

@@ -1,4 +1,4 @@
-import { basicFareSettings, calculateBasicFareYen, type AssistItem } from './fare'
+import { basicFareSettings, calculateBasicFareYen, type AssistItem, type BasicFareSettings } from './fare'
 import { calculateAdditionalRouteCandidates } from './preFixedFareRoute'
 import type { RoutePoint, PreFixedRouteCandidate, PreFixedRouteCandidateId } from '../types/preFixedMeterSession'
 import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
@@ -27,11 +27,13 @@ export async function calculatePreFixedRouteCandidates({
   stops,
   destination,
   serviceItems,
+  basicFare = basicFareSettings,
 }: {
   pickup: RoutePoint
   stops: RoutePoint[]
   destination: RoutePoint
   serviceItems: AssistItem[]
+  basicFare?: BasicFareSettings
 }): Promise<PreFixedRouteCandidate[]> {
   const origin = toWaypointInput(pickup)
   const waypoints = stops.map(toWaypointInput)
@@ -42,7 +44,7 @@ export async function calculatePreFixedRouteCandidates({
     origin,
     waypoints,
     destination: dest,
-    fareSettings: basicFareSettings,
+    fareSettings: basicFare,
   })
 
   const sortedByDistance = [...rawCandidates].sort((a, b) => a.distanceKm - b.distanceKm)
@@ -75,7 +77,7 @@ export async function calculatePreFixedRouteCandidates({
     const source = sourceMap[index] ?? rawCandidates[0]
     const distanceMeters = Math.round(Math.max(source.distanceKm, 0.1) * 1000)
     const durationSeconds = Math.max(source.durationSeconds, 60)
-    const fixedFareYen = calculateBasicFareYen(source.distanceKm, basicFareSettings)
+    const fixedFareYen = calculateBasicFareYen(source.distanceKm, basicFare)
 
     return {
       id,

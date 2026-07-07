@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
+  basicFareSettings,
   careOptionMaster,
   dispatchMenuMaster,
   formatFareYen,
   specialVehicleMenuMaster,
   type AssistItem,
 } from '../services/fare'
+import { subscribeMeterSettings } from '../services/meterSettings'
+import { useWorkSession } from '../hooks/useWorkSession'
+import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import {
   agreePreFixedMeterSession,
   buildTripContextFromPreFixedSession,
@@ -57,10 +61,22 @@ const createEmptyStop = (): RoutePoint =>
 const cloneAssistItems = (items: AssistItem[]) =>
   items.map((item) => ({ ...item, enabled: false }))
 
-const buildAssistItemList = (): AssistItem[] => [
-  ...cloneAssistItems(careOptionMaster.filter((item) => item.enabled)),
-  ...cloneAssistItems(dispatchMenuMaster.filter((item) => item.enabled)),
-  ...cloneAssistItems(specialVehicleMenuMaster.filter((item) => item.enabled)),
+type AssistItemSources = {
+  assistItems: AssistItem[]
+  dispatchMenuItems: AssistItem[]
+  specialVehicleMenuItems: AssistItem[]
+}
+
+const defaultAssistItemSources = (): AssistItemSources => ({
+  assistItems: careOptionMaster,
+  dispatchMenuItems: dispatchMenuMaster,
+  specialVehicleMenuItems: specialVehicleMenuMaster,
+})
+
+const buildAssistItemList = (sources: AssistItemSources = defaultAssistItemSources()): AssistItem[] => [
+  ...cloneAssistItems(sources.assistItems.filter((item) => item.enabled)),
+  ...cloneAssistItems(sources.dispatchMenuItems.filter((item) => item.enabled)),
+  ...cloneAssistItems(sources.specialVehicleMenuItems.filter((item) => item.enabled)),
   {
     id: 'escortPlanned',
     name: '付き添い予定あり',
@@ -77,8 +93,28 @@ const buildAssistItemList = (): AssistItem[] => [
   },
 ]
 
-const buildAssistItemsFromReservation = (serviceFees: ReservationServiceFee[]): AssistItem[] => {
-  const baseItems = buildAssistItemList()
+const mergeAssistItemSelections = (
+  nextItems: AssistItem[],
+  previousItems: AssistItem[],
+): AssistItem[] => {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]))
+  return nextItems.map((item) => {
+    const previous = previousById.get(item.id)
+    if (!previous) {
+      return item
+    }
+    return {
+      ...item,
+      enabled: previous.enabled,
+    }
+  })
+}
+
+const buildAssistItemsFromReservation = (
+  serviceFees: ReservationServiceFee[],
+  sources: AssistItemSources = defaultAssistItemSources(),
+): AssistItem[] => {
+  const baseItems = buildAssistItemList(sources)
   const matchedKeys = new Set<string>()
 
   const merged = baseItems.map((item) => {
@@ -90,7 +126,6 @@ const buildAssistItemsFromReservation = (serviceFees: ReservationServiceFee[]): 
     return {
       ...item,
       enabled: true,
-      amount: fee.amount,
       name: fee.label.trim() || item.name,
     }
   })
@@ -120,6 +155,11 @@ const resolveSourceFlow = (reservation: DriverReservationDetail | null): PreFixe
 export function PreFixedCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const workSession = useWorkSession()
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(workSession.currentSession),
+    [workSession.currentSession],
+  )
   const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
   const reservationId = searchParams.get('reservationId')?.trim() ?? ''
   const isFromReservation = reservationId.length > 0
@@ -133,7 +173,11 @@ export function PreFixedCreatePage() {
   const [step, setStep] = useState<CreateStep>('trip-type')
   const [tripTypeChoice, setTripTypeChoice] = useState<TripTypeChoice>('one_way')
   const [tripType, setTripType] = useState<PreFixedTripType>('one_way')
-  const [assistItems, setAssistItems] = useState<AssistItem[]>(buildAssistItemList)
+  const [assistItemSources, setAssistItemSources] = useState<AssistItemSources>(defaultAssistItemSources)
+  const [currentBasicFareSettings, setCurrentBasicFareSettings] = useState(basicFareSettings)
+  const [assistItems, setAssistItems] = useState<AssistItem[]>(() => buildAssistItemList())
+  const linkedReservationRef = useRef<DriverReservationDetail | null>(null)
+  const assistItemSourcesRef = useRef(assistItemSources)
   const [pickup, setPickup] = useState<RoutePoint>(() =>
     createRoutePoint({ address: '', label: '', source: 'manual' }),
   )
@@ -153,6 +197,41 @@ export function PreFixedCreatePage() {
   const [linkedReservation, setLinkedReservation] = useState<DriverReservationDetail | null>(null)
   const [reservationLoadError, setReservationLoadError] = useState('')
   const [isLoadingReservation, setIsLoadingReservation] = useState(isFromReservation)
+
+  useEffect(() => {
+    linkedReservationRef.current = linkedReservation
+  }, [linkedReservation])
+
+  useEffect(() => {
+    assistItemSourcesRef.current = assistItemSources
+  }, [assistItemSources])
+
+  useEffect(() => {
+    const unsubscribe = subscribeMeterSettings(
+      {
+        franchiseeId: accessScope.franchiseeId,
+        storeId: accessScope.storeId,
+      },
+      (settings) => {
+        const sources: AssistItemSources = {
+          assistItems: settings.assistItems,
+          dispatchMenuItems: settings.dispatchMenuItems,
+          specialVehicleMenuItems: settings.specialVehicleMenuItems,
+        }
+        setAssistItemSources(sources)
+        setCurrentBasicFareSettings(settings.basicFare)
+        setAssistItems((current) => {
+          const reservation = linkedReservationRef.current
+          if (reservation) {
+            return buildAssistItemsFromReservation(reservation.quoteSnapshot.serviceFees, sources)
+          }
+          return mergeAssistItemSelections(buildAssistItemList(sources), current)
+        })
+      },
+    )
+
+    return unsubscribe
+  }, [accessScope.franchiseeId, accessScope.storeId])
 
   useEffect(() => {
     if (!isFromReservation) {
@@ -181,7 +260,12 @@ export function PreFixedCreatePage() {
         } else {
           setPickupMessage('お迎え住所が予約データから取得できません。住所を手入力してください。')
         }
-        setAssistItems(buildAssistItemsFromReservation(detail.quoteSnapshot.serviceFees))
+        setAssistItems(
+          buildAssistItemsFromReservation(
+            detail.quoteSnapshot.serviceFees,
+            assistItemSourcesRef.current,
+          ),
+        )
       })
       .catch((error) => {
         if (!isMounted) {
@@ -202,6 +286,11 @@ export function PreFixedCreatePage() {
     }
   }, [isFromReservation, reservationId])
 
+  const specialVehicleItemIds = useMemo(
+    () => new Set(assistItemSources.specialVehicleMenuItems.map((item) => item.id)),
+    [assistItemSources.specialVehicleMenuItems],
+  )
+
   const selectedRoute = useMemo(
     () => routeCandidates.find((route) => route.id === selectedRouteId) ?? routeCandidates[0],
     [routeCandidates, selectedRouteId],
@@ -215,9 +304,9 @@ export function PreFixedCreatePage() {
   const specialVehicleTotal = useMemo(
     () =>
       assistItems
-        .filter((item) => item.enabled && specialVehicleMenuMaster.some((master) => master.id === item.id))
+        .filter((item) => item.enabled && specialVehicleItemIds.has(item.id))
         .reduce((sum, item) => sum + item.amount, 0),
-    [assistItems],
+    [assistItems, specialVehicleItemIds],
   )
 
   const assistFeeTotal = useMemo(
@@ -357,6 +446,7 @@ export function PreFixedCreatePage() {
         stops,
         destination,
         serviceItems: assistItems,
+        basicFare: currentBasicFareSettings,
       })
 
       if (candidates.length === 0) {
