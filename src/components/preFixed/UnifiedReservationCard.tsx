@@ -10,12 +10,7 @@ import {
   type ReservationCategory,
 } from '../../utils/reservationCategory'
 
-const formatConfirmedFare = (confirmedFareYen: number) =>
-  confirmedFareYen > 0 ? `${formatFareYen(confirmedFareYen)}円` : '未設定'
-
 const formatAddress = (address: string) => (address.trim() ? address : '住所未取得')
-
-const formatOptionalText = (value: string) => (value.trim() ? value : '未設定')
 
 const categoryBadgeClass: Record<ReservationCategory, string> = {
   pre_fixed: 'pre-fixed-reservation-badge pre-fixed-reservation-badge--pre-fixed',
@@ -23,16 +18,39 @@ const categoryBadgeClass: Record<ReservationCategory, string> = {
   phone: 'pre-fixed-reservation-badge pre-fixed-reservation-badge--phone',
 }
 
+const resolveFareSummary = (
+  category: ReservationCategory,
+  reservation: DriverReservationSummary,
+): string | null => {
+  if (category === 'pre_fixed') {
+    if (reservation.fixedFareTotalYen > 0) {
+      return `請求予定 ${formatFareYen(reservation.fixedFareTotalYen)}円`
+    }
+    const preFixedLabel = formatPreFixedFareLabel(reservation)
+    return preFixedLabel !== '未確定' ? `確定運賃 ${preFixedLabel}` : null
+  }
+
+  if (reservation.confirmedFareYen > 0) {
+    return `確定運賃 ${formatFareYen(reservation.confirmedFareYen)}円`
+  }
+
+  return null
+}
+
 type UnifiedReservationCardProps = {
   reservation: DriverReservationSummary
   onSelect: (reservationId: string) => void
+  actionLabel?: string
 }
 
-export function UnifiedReservationCard({ reservation, onSelect }: UnifiedReservationCardProps) {
+export function UnifiedReservationCard({
+  reservation,
+  onSelect,
+  actionLabel = '詳細',
+}: UnifiedReservationCardProps) {
   const category = resolveReservationCategory(reservation)
-  const destination = reservation.destinationAddress.trim()
-  const billingTotal =
-    reservation.fixedFareTotalYen > 0 ? formatFareYen(reservation.fixedFareTotalYen) : null
+  const customerName = reservation.customerName.trim() || '未設定'
+  const fareSummary = resolveFareSummary(category, reservation)
 
   return (
     <button
@@ -49,49 +67,36 @@ export function UnifiedReservationCard({ reservation, onSelect }: UnifiedReserva
         </span>
       </div>
 
-      <div className="pre-fixed-unified-reservation-card__grid">
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>予約ID</small>
-          <strong>{reservation.reservationId}</strong>
+      <p className="pre-fixed-unified-reservation-card__customer">{customerName}</p>
+
+      <div className="pre-fixed-unified-reservation-card__route">
+        <p className="pre-fixed-unified-reservation-card__route-line">
+          <span className="pre-fixed-unified-reservation-card__route-label">乗</span>
+          <span className="pre-fixed-unified-reservation-card__route-text">
+            {formatAddress(reservation.pickupAddress)}
+          </span>
+        </p>
+        <p className="pre-fixed-unified-reservation-card__route-line">
+          <span className="pre-fixed-unified-reservation-card__route-label">降</span>
+          <span className="pre-fixed-unified-reservation-card__route-text">
+            {formatAddress(reservation.destinationAddress)}
+          </span>
+        </p>
+      </div>
+
+      <div className="pre-fixed-unified-reservation-card__footer">
+        <div className="pre-fixed-unified-reservation-card__status-group">
+          <span className="pre-fixed-unified-reservation-card__status">
+            {formatReservationStatus(reservation.status)}
+          </span>
+          <span className="pre-fixed-unified-reservation-card__meter-status">
+            {formatMeterRunStatusForList(reservation.meterRunStatus)}
+          </span>
         </div>
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>利用者名</small>
-          <strong>{formatOptionalText(reservation.customerName)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>電話番号</small>
-          <strong>{formatOptionalText(reservation.customerPhone)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field pre-fixed-unified-reservation-card__field--wide">
-          <small>迎車地 / S地点</small>
-          <strong>{formatAddress(reservation.pickupAddress)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field pre-fixed-unified-reservation-card__field--wide">
-          <small>目的地 / G地点</small>
-          <strong>{formatAddress(destination)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>確定運賃</small>
-          <strong>{formatConfirmedFare(reservation.confirmedFareYen)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>事前確定運賃</small>
-          <strong>{formatPreFixedFareLabel(reservation)}</strong>
-        </div>
-        {billingTotal ? (
-          <div className="pre-fixed-unified-reservation-card__field">
-            <small>請求予定合計</small>
-            <strong className="pre-fixed-amount-line">{billingTotal}円</strong>
-          </div>
+        {fareSummary ? (
+          <span className="pre-fixed-unified-reservation-card__fare">{fareSummary}</span>
         ) : null}
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>メーター状態</small>
-          <strong>{formatMeterRunStatusForList(reservation.meterRunStatus)}</strong>
-        </div>
-        <div className="pre-fixed-unified-reservation-card__field">
-          <small>ステータス</small>
-          <strong>{formatReservationStatus(reservation.status)}</strong>
-        </div>
+        <span className="pre-fixed-unified-reservation-card__action">{actionLabel}</span>
       </div>
     </button>
   )

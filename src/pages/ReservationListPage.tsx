@@ -1,30 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { UnifiedReservationCard } from '../components/preFixed/UnifiedReservationCard'
 import { fetchDriverReservations } from '../services/reservationApi'
 import type { DriverReservationSummary } from '../types/reservation'
-import {
-  formatMeterRunStatus,
-  formatReservationStatus,
-} from '../types/reservation'
-import {
-  reservationCategoryLabels,
-  resolveReservationCategory,
-} from '../utils/reservationCategory'
-import { formatFareYen } from '../services/fare'
 import { getDatePartsInJapan } from '../utils/japanDate'
-import { formatCaseDateTime } from '../utils/caseRecords'
 import { logDiagnostic } from '../utils/diagnostics'
+import { resolveReservationCategory } from '../utils/reservationCategory'
 
 const formatJapanDateInputValue = (date = new Date()) => {
   const { year, month, day } = getDatePartsInJapan(date)
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
-
-const formatAddress = (address: string) =>
-  address.trim() ? address : '住所未取得'
-
-const formatOptionalText = (value: string) =>
-  value.trim() ? value : '未設定'
 
 type ReservationListState = {
   date: string
@@ -34,6 +20,7 @@ type ReservationListState = {
 }
 
 export function ReservationListPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const fromPreFixed = searchParams.get('from') === 'pre-fixed'
   const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
@@ -60,7 +47,14 @@ export function ReservationListPage() {
 
   const handleDateChange = (nextDate: string) => {
     setSelectedDate(nextDate)
-    setSearchParams(nextDate ? { date: nextDate } : {}, { replace: true })
+    const nextParams: Record<string, string> = {}
+    if (nextDate) {
+      nextParams.date = nextDate
+    }
+    if (vehicleId) {
+      nextParams.vehicleId = vehicleId
+    }
+    setSearchParams(nextParams, { replace: true })
   }
 
   useEffect(() => {
@@ -110,6 +104,32 @@ export function ReservationListPage() {
       isMounted = false
     }
   }, [fromPreFixed, selectedDate])
+
+  const handleSelectReservation = useCallback(
+    (reservationId: string) => {
+      const summary = state.reservations.find((item) => item.reservationId === reservationId)
+      const query = new URLSearchParams()
+      if (vehicleId) {
+        query.set('vehicleId', vehicleId)
+      }
+
+      if (summary && resolveReservationCategory(summary) === 'pre_fixed') {
+        query.set('reservationId', reservationId)
+        query.set('autoOpen', '1')
+        if (selectedDate) {
+          query.set('date', selectedDate)
+        }
+        navigate(`/case/pre-fixed/reservations?${query.toString()}`)
+        return
+      }
+
+      navigate(
+        `/reservations/${encodeURIComponent(reservationId)}${query.toString() ? `?${query.toString()}` : ''}`,
+        { state: { listDate: selectedDate } },
+      )
+    },
+    [navigate, selectedDate, state.reservations, vehicleId],
+  )
 
   const reservationCountLabel = useMemo(
     () => `${state.reservations.length}件`,
@@ -163,71 +183,14 @@ export function ReservationListPage() {
           <p className="empty-note">表示対象の予約はありません。</p>
         ) : null}
 
-        <div className="reservation-record-list" aria-label="運行予約一覧">
-          {state.reservations.map((reservation) => {
-            const category = resolveReservationCategory(reservation)
-            return (
-            <Link
-              className="reservation-record-row"
+        <div className="pre-fixed-reservation-list" aria-label="運行予約一覧">
+          {state.reservations.map((reservation) => (
+            <UnifiedReservationCard
               key={reservation.reservationId}
-              to={`/reservations/${reservation.reservationId}`}
-              state={{ listDate: selectedDate }}
-            >
-              <span>
-                <small>種別</small>
-                <strong>{reservationCategoryLabels[category]}</strong>
-              </span>
-              <span>
-                <small>予約ID</small>
-                <strong>{reservation.reservationId}</strong>
-              </span>
-              <span>
-                <small>見積番号</small>
-                <strong>{formatOptionalText(reservation.estimateNo)}</strong>
-              </span>
-              <span>
-                <small>予約日時</small>
-                <strong>{formatCaseDateTime(reservation.scheduledAt)}</strong>
-              </span>
-              <span>
-                <small>利用者</small>
-                <strong>{formatOptionalText(reservation.customerName)}</strong>
-              </span>
-              <span>
-                <small>電話</small>
-                <strong>{formatOptionalText(reservation.customerPhone)}</strong>
-              </span>
-              <span className="reservation-record-address">
-                <small>迎車</small>
-                <strong>{formatAddress(reservation.pickupAddress)}</strong>
-              </span>
-              <span className="reservation-record-address">
-                <small>降車</small>
-                <strong>{formatAddress(reservation.destinationAddress)}</strong>
-              </span>
-              <span>
-                <small>ステータス</small>
-                <strong>{formatReservationStatus(reservation.status)}</strong>
-              </span>
-              <span>
-                <small>メーター状態</small>
-                <strong>{formatMeterRunStatus(reservation.meterRunStatus)}</strong>
-              </span>
-              <span>
-                <small>確定運賃</small>
-                <strong>{formatFareYen(reservation.confirmedFareYen)}円</strong>
-              </span>
-              <span>
-                <small>事前確定運賃</small>
-                <strong>{formatFareYen(reservation.fixedFareTotalYen)}円</strong>
-              </span>
-              <span>
-                <small>事前確定M</small>
-                <strong>{reservation.preFixedFareConfirmable ? '対象' : '対象外'}</strong>
-              </span>
-            </Link>
-            )
-          })}
+              reservation={reservation}
+              onSelect={handleSelectReservation}
+            />
+          ))}
         </div>
       </section>
     </main>

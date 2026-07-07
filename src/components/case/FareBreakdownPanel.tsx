@@ -29,7 +29,9 @@ export function FareBreakdownPanel({
         {headerEnd}
       </div>
       <dl>
-        {breakdown.lineItems.map((item) => (
+        {breakdown.lineItems
+          .filter((item) => item.amountYen !== 0)
+          .map((item) => (
           <div key={item.label}>
             <dt>{item.label}</dt>
             <dd>{formatFareYen(item.amountYen)}円</dd>

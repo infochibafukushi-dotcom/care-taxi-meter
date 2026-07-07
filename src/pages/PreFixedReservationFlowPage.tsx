@@ -130,7 +130,13 @@ export function PreFixedReservationFlowPage() {
 
       const summary = reservations.find((item) => item.reservationId === targetReservationId)
       if (summary && resolveReservationCategory(summary) !== 'pre_fixed') {
-        navigate(buildCreatePath(targetReservationId))
+        const query = new URLSearchParams({ date: selectedDate })
+        if (vehicleId) {
+          query.set('vehicleId', vehicleId)
+        }
+        navigate(`/reservations/${encodeURIComponent(targetReservationId)}?${query.toString()}`, {
+          state: { listDate: selectedDate },
+        })
         return
       }
 
@@ -153,7 +159,7 @@ export function PreFixedReservationFlowPage() {
         setIsLoadingDetail(false)
       }
     },
-    [navigate, reservations, vehicleId],
+    [navigate, reservations, selectedDate, vehicleId],
   )
 
   useEffect(() => {

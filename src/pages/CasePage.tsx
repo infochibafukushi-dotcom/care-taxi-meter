@@ -62,6 +62,7 @@ import {
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
 import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
+import { buildPreFixedMeterDisplayBreakdown } from '../services/preFixedMeterDisplayBreakdown'
 import { clearPreFixedFareLocalSessionState } from '../services/preFixedFareCleanup'
 import {
   buildPreFixedFareStartPersistKey,
@@ -1771,6 +1772,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     waitingFareSeconds,
   ])
 
+  const preFixedDisplayBreakdown = useMemo(() => {
+    if (meterMode !== 'fixed') {
+      return settlementBreakdown
+    }
+
+    return buildPreFixedMeterDisplayBreakdown(reservationTripContext, settlementBreakdown)
+  }, [meterMode, reservationTripContext, settlementBreakdown])
+
   const confirmedRouteView = useMemo(
     () => buildConfirmedRouteView(reservationTripContext),
     [reservationTripContext],
@@ -1788,17 +1797,25 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     const serviceFees = reservationTripContext?.quoteSnapshot?.serviceFees ?? []
     let assistTotal = 0
     let specialVehicleTotal = 0
+    const lines: Array<{ label: string; amountYen: number }> = []
+
     for (const fee of serviceFees) {
       if (!Number.isFinite(fee.amount) || fee.amount <= 0) {
         continue
       }
+
+      const amountYen = Math.round(fee.amount)
+      const label = fee.label.trim() || (fee.key === 'specialVehicleFee' ? '特殊車両使用料' : fee.key)
+      lines.push({ label, amountYen })
+
       if (fee.key === 'specialVehicleFee') {
-        specialVehicleTotal += fee.amount
+        specialVehicleTotal += amountYen
       } else {
-        assistTotal += fee.amount
+        assistTotal += amountYen
       }
     }
-    return { assistTotal, specialVehicleTotal }
+
+    return { assistTotal, specialVehicleTotal, lines }
   }, [reservationTripContext])
   const preFixedExpenseTotalYen = useMemo(
     () => expenses.reduce((sum, expense) => sum + Math.max(Math.round(expense.amountYen) || 0, 0), 0),
@@ -4264,12 +4281,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     </>
                   )}
                 </div>
-                {meterMode === 'fixed' && reservationTripContext?.consentAt ? (
-                  <p className="fixed-fare-consent-note">お客様同意済み</p>
-                ) : null}
+                {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
               </div>
-
-              {meterModeToast ? <div className="meter-mode-toast" role="status">{meterModeToast}</div> : null}
 
               {meterMode !== 'fixed' ? (
               <div className="fare-increase-stack" aria-label="加算インジケーター">
@@ -4400,22 +4413,16 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       {formatFareYen(resolvedConfirmedFareYen)}円
                     </strong>
                   </div>
-                  <div>
-                    <span>追加介助料</span>
+                {preFixedServiceFeeSummary.lines.map((feeLine) => (
+                  <div key={feeLine.label}>
+                    <span>{feeLine.label}</span>
                     <strong className="pre-fixed-amount-line">
-                      {formatFareYen(preFixedServiceFeeSummary.assistTotal)}円
+                      {formatFareYen(feeLine.amountYen)}円
                     </strong>
                   </div>
-                  {preFixedServiceFeeSummary.specialVehicleTotal > 0 ? (
-                    <div>
-                      <span>車両使用料</span>
-                      <strong className="pre-fixed-amount-line">
-                        {formatFareYen(preFixedServiceFeeSummary.specialVehicleTotal)}円
-                      </strong>
-                    </div>
-                  ) : null}
-                  <div>
-                    <span>実費</span>
+                ))}
+                <div>
+                  <span>実費</span>
                     <strong className="pre-fixed-amount-line">
                       {formatFareYen(preFixedExpenseTotalYen)}円
                     </strong>
@@ -4614,7 +4621,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             aria-label="料金内訳"
           >
             <MeterFareBreakdownPanel
-              breakdown={settlementBreakdown}
+              breakdown={preFixedDisplayBreakdown}
               title={
                 meterMode === 'fixed'
                   ? reviewDemoMode
@@ -4945,20 +4952,12 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   <dt>事前確定運賃</dt>
                   <dd className="pre-fixed-amount-line">{formatFareYen(resolvedConfirmedFareYen)}円</dd>
                 </div>
-                <div>
-                  <dt>追加介助料</dt>
-                  <dd className="pre-fixed-amount-line">
-                    {formatFareYen(preFixedServiceFeeSummary.assistTotal)}円
-                  </dd>
-                </div>
-                {preFixedServiceFeeSummary.specialVehicleTotal > 0 ? (
-                  <div>
-                    <dt>車両使用料</dt>
-                    <dd className="pre-fixed-amount-line">
-                      {formatFareYen(preFixedServiceFeeSummary.specialVehicleTotal)}円
-                    </dd>
+                {preFixedServiceFeeSummary.lines.map((feeLine) => (
+                  <div key={feeLine.label}>
+                    <dt>{feeLine.label}</dt>
+                    <dd className="pre-fixed-amount-line">{formatFareYen(feeLine.amountYen)}円</dd>
                   </div>
-                ) : null}
+                ))}
                 <div>
                   <dt>実費</dt>
                   <dd className="pre-fixed-amount-line">{formatFareYen(preFixedExpenseTotalYen)}円</dd>
