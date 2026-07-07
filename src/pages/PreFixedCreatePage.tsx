@@ -8,7 +8,7 @@ import {
   specialVehicleMenuMaster,
   type AssistItem,
 } from '../services/fare'
-import { subscribeMeterSettings } from '../services/meterSettings'
+import { subscribeMeterSettings, type MeterSettings } from '../services/meterSettings'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { tenantAccessScopeFromSessionSource } from '../services/tenancy'
 import {
@@ -207,12 +207,15 @@ export function PreFixedCreatePage() {
   }, [assistItemSources])
 
   useEffect(() => {
+    const franchiseeId = accessScope.franchiseeId
+    const storeId = accessScope.storeId
+    if (!franchiseeId || !storeId) {
+      return
+    }
+
     const unsubscribe = subscribeMeterSettings(
-      {
-        franchiseeId: accessScope.franchiseeId,
-        storeId: accessScope.storeId,
-      },
-      (settings) => {
+      { franchiseeId, storeId },
+      (settings: MeterSettings) => {
         const sources: AssistItemSources = {
           assistItems: settings.assistItems,
           dispatchMenuItems: settings.dispatchMenuItems,
