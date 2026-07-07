@@ -37,6 +37,7 @@ import { readFirebaseAuthTokenClaims } from './accountingTenant'
 import type {
   CompletionReason,
   FareMode,
+  PreFixedFareCaseContext,
   PreFixedFareException,
 } from '../types/preFixedFare'
 import type { PreFixedFareRouteChangeLog } from '../types/preFixedFareRouteChange'
@@ -82,6 +83,7 @@ export type CaseRecordInput = {
   additionalRouteFareYen?: number
   additionalCareFareYen?: number
   routeChangeLogs?: PreFixedFareRouteChangeLog[]
+  preFixedFareContext?: PreFixedFareCaseContext
   recordStatus?: CaseRecordStatus
 }
 
@@ -258,6 +260,7 @@ export type CaseRecordDocument = {
   additionalRouteFareYen?: number
   additionalCareFareYen?: number
   routeChangeLogs?: PreFixedFareRouteChangeLog[]
+  preFixedFareContext?: PreFixedFareCaseContext
   savedAt: FieldValue
 }
 
@@ -510,6 +513,48 @@ const toStringArray = (value: unknown, fallback: string[]) =>
     ? value.filter((item): item is string => typeof item === 'string')
     : fallback
 
+const toPreFixedFareCaseContext = (value: unknown): PreFixedFareCaseContext | undefined => {
+  const source = toObject(value)
+  const sourceFlow = toString(source.sourceFlow)
+  const reservationId = toString(source.reservationId)
+  const pickupAddress = toString(source.pickupAddress)
+  const dropoffAddress = toString(source.dropoffAddress)
+  const selectedRouteId = toString(source.selectedRouteId)
+
+  if (!sourceFlow || !reservationId || !pickupAddress || !dropoffAddress) {
+    return undefined
+  }
+
+  const reservationCategory = toString(source.reservationCategory)
+  const normalizedCategory =
+    reservationCategory === 'pre_fixed' ||
+    reservationCategory === 'normal' ||
+    reservationCategory === 'phone'
+      ? reservationCategory
+      : undefined
+
+  return {
+    sourceFlow,
+    reservationCategory: normalizedCategory,
+    reservationId,
+    estimateNo: toString(source.estimateNo) || undefined,
+    pickupAddress,
+    dropoffAddress,
+    viaAddresses: toStringArray(source.viaAddresses, []).map((address) => address.trim()).filter(Boolean),
+    selectedRouteId,
+    selectedRouteLabel: toString(source.selectedRouteLabel) || undefined,
+    preFixedFareYen: Math.max(Math.round(toNumber(source.preFixedFareYen)), 0),
+    assistFareYen: Math.max(Math.round(toNumber(source.assistFareYen)), 0),
+    otherFareYen: Math.max(Math.round(toNumber(source.otherFareYen)), 0),
+    billingTotalYen: Math.max(Math.round(toNumber(source.billingTotalYen)), 0),
+    consentAt: toString(source.consentAt),
+    consentAgreed: source.consentAgreed === true,
+    consentTermsVersion: toString(source.consentTermsVersion) || undefined,
+    meterMode: 'fixed',
+    fareMode: 'pre_fixed_fare',
+  }
+}
+
 const toBasicFareSnapshot = (value: unknown): BasicFareSettings | null => {
   const source = toObject(value)
   const initialDistanceKm = toNumber(source.initialDistanceKm)
@@ -760,6 +805,7 @@ const toStoredCaseRecord = (
     routeChangeLogs: Array.isArray(data.routeChangeLogs)
       ? (data.routeChangeLogs as PreFixedFareRouteChangeLog[])
       : undefined,
+    preFixedFareContext: toPreFixedFareCaseContext(data.preFixedFareContext),
   }
 }
 
@@ -877,6 +923,7 @@ export async function saveCaseRecord({
   additionalRouteFareYen,
   additionalCareFareYen,
   routeChangeLogs,
+  preFixedFareContext,
   recordStatus = 'completed',
 }: CaseRecordInput) {
   if (isReviewDemoRuntimeEnabled()) {
@@ -1021,6 +1068,7 @@ export async function saveCaseRecord({
       ? { additionalCareFareYen: Math.max(Math.round(additionalCareFareYen), 0) }
       : {}),
     ...(routeChangeLogs && routeChangeLogs.length > 0 ? { routeChangeLogs } : {}),
+    ...(preFixedFareContext ? { preFixedFareContext } : {}),
     savedAt: serverTimestamp(),
   }
 

@@ -45,6 +45,29 @@ export const buildReservationTripContext = (
   scheduledAt: reservation.scheduledAt,
 })
 
+/** 既存の同意日時がある場合は上書きせず、未同意時のみ現場同意日時を付与する */
+export const buildReservationTripContextForMeterStart = (
+  reservation: DriverReservationDetail,
+  consentChecked: boolean,
+): ReservationTripContext => {
+  const baseContext = buildReservationTripContext(reservation)
+  const existingConsentAt = baseContext.consentAt.trim()
+
+  if (existingConsentAt || !consentChecked) {
+    return baseContext
+  }
+
+  const agreedAt = new Date().toISOString()
+  return {
+    ...baseContext,
+    consentAt: agreedAt,
+    consent: {
+      ...baseContext.consent,
+      consentAt: agreedAt,
+    },
+  }
+}
+
 const isReservationTripContext = (value: unknown): value is ReservationTripContext => {
   if (!value || typeof value !== 'object') {
     return false

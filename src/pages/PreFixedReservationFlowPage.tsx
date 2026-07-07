@@ -10,6 +10,7 @@ import {
 } from '../services/reservationApi'
 import {
   buildReservationTripContext,
+  buildReservationTripContextForMeterStart,
   saveReservationTripContext,
 } from '../services/reservationTripContext'
 import type { DriverReservationDetail } from '../types/reservation'
@@ -199,7 +200,9 @@ export function PreFixedReservationFlowPage() {
 
     try {
       await startFixedFareRun(reservationDetail.reservationId)
-      saveReservationTripContext(buildReservationTripContext(reservationDetail))
+      saveReservationTripContext(
+        buildReservationTripContextForMeterStart(reservationDetail, consentChecked),
+      )
 
       const query = new URLSearchParams({
         reservationId: reservationDetail.reservationId,

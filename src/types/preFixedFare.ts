@@ -144,3 +144,25 @@ export const isPreFixedFarePassengerChangeCompletion = (
   indicators.fixedFareCompletionStatus === 'completed_with_passenger_change' ||
   indicators.fixedFareCompletionReason === 'passenger_requested_route_change' ||
   indicators.preFixedFareException != null
+
+/** Firestore caseRecords に永続化する事前確定M開始コンテキスト */
+export type PreFixedFareCaseContext = {
+  sourceFlow: string
+  reservationCategory?: 'pre_fixed' | 'normal' | 'phone'
+  reservationId: string
+  estimateNo?: string
+  pickupAddress: string
+  dropoffAddress: string
+  viaAddresses: string[]
+  selectedRouteId: string
+  selectedRouteLabel?: string
+  preFixedFareYen: number
+  assistFareYen: number
+  otherFareYen: number
+  billingTotalYen: number
+  consentAt: string
+  consentAgreed: boolean
+  consentTermsVersion?: string
+  meterMode: 'fixed'
+  fareMode: typeof FARE_MODE_PRE_FIXED
+}

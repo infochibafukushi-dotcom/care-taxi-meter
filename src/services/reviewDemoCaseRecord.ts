@@ -3,7 +3,7 @@ import type { CaseNumberAssignment, FareSnapshot, StoredCaseRecord, CaseRecordSt
 import type { WorkSession } from '../types/work'
 import type { Vehicle } from '../types/work'
 import type { CapturedAddressLocation } from '../utils/reverseGeocode'
-import type { PreFixedFareException, CompletionReason } from '../types/preFixedFare'
+import type { PreFixedFareCaseContext, PreFixedFareException, CompletionReason } from '../types/preFixedFare'
 import type { PreFixedFareRouteChangeLog } from '../types/preFixedFareRouteChange'
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import {
@@ -75,6 +75,7 @@ export type BuildReviewDemoSavedCaseRecordInput = {
     preFixedFareException?: PreFixedFareException
     recordStatus?: CaseRecordStatus
   }
+  preFixedFareContext?: PreFixedFareCaseContext
   pickupLocation: CapturedAddressLocation
   dropoffLocation: CapturedAddressLocation
   drivingSeconds: number
@@ -99,6 +100,7 @@ export const buildReviewDemoSavedCaseRecord = ({
   additionalCareFareYen,
   routeChangeLogs,
   preFixedFareSaveExtras,
+  preFixedFareContext,
   pickupLocation,
   dropoffLocation,
   drivingSeconds,
@@ -212,5 +214,6 @@ export const buildReviewDemoSavedCaseRecord = ({
     fareMode: preFixedFareSaveExtras.fareMode ?? FARE_MODE_PRE_FIXED,
     preFixedFareException: preFixedFareSaveExtras.preFixedFareException,
     completionReason: preFixedFareSaveExtras.completionReason,
+    preFixedFareContext,
   }
 }

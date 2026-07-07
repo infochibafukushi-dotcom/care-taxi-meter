@@ -62,6 +62,7 @@ import {
   clearPreFixedMeterSession,
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
+import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
 import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
 import type { PreFixedRouteCandidateId } from '../types/preFixedMeterSession'
 import {
@@ -1537,11 +1538,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
   useEffect(() => {
     if (!reservationTripContext || restoredTripSnapshot) {
-      return
-    }
-
-    const isManualSession = reservationTripContext.reservationId.startsWith('manual-')
-    if (!isManualSession) {
       return
     }
 
@@ -3331,6 +3327,19 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               }
             : { fareMode: FARE_MODE_PRE_FIXED }
           : {}
+      const preFixedFareContext =
+        meterMode === 'fixed' && reservationTripContext
+          ? buildPreFixedFareCaseContext({
+              tripContext: reservationTripContext,
+              session: readPreFixedMeterSession(preFixedSessionIdFromQuery || undefined),
+              settlementTotalYen: settlementBreakdown.totalFareYen,
+              assistFareYen: settlementBreakdown.careOptionFareYen,
+              otherFareYen:
+                settlementBreakdown.specialVehicleFareYen +
+                settlementBreakdown.dispatchFareYen +
+                settlementBreakdown.expenseFareYen,
+            })
+          : undefined
       const comparisonFares =
         meterMode === 'fixed'
           ? {
@@ -3372,6 +3381,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           additionalCareFareYen,
           routeChangeLogs,
           preFixedFareSaveExtras,
+          preFixedFareContext,
           pickupLocation: pickupLocationRef.current,
           dropoffLocation: dropoffLocationRef.current,
           drivingSeconds: finalDrivingSeconds,
@@ -3436,6 +3446,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             }
           : {}),
         ...preFixedFareSaveExtras,
+        ...(preFixedFareContext ? { preFixedFareContext } : {}),
       })
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,
@@ -3563,6 +3574,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
             }
           : {}),
         ...preFixedFareSaveExtras,
+        ...(preFixedFareContext ? { preFixedFareContext } : {}),
       }
 
       let gpsRouteSaveFailed = false
