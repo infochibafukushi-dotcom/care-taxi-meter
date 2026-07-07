@@ -9,10 +9,12 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
   where,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
+import type { PreFixedFareCaseContext } from '../types/preFixedFare'
 import type { StaffMember, StaffRole, Store, WorkSession } from '../types/work'
 import { getFranchiseeId, getStoreId, isHqRole, matchesTenantScope } from './tenancy'
 import type { TenantAccessScope } from './tenancy'
@@ -461,5 +463,45 @@ export async function updateWorkSessionActiveTrip({
       activeTripCaseNumber: status ? caseNumber ?? '' : null,
       updatedAt: serverTimestamp(),
     })
+  })
+}
+
+export async function saveWorkSessionPreFixedFareContext({
+  preFixedFareContext,
+  workSessionId,
+}: {
+  preFixedFareContext: PreFixedFareCaseContext
+  workSessionId: string
+}) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const normalizedWorkSessionId = workSessionId.trim()
+  if (!normalizedWorkSessionId) {
+    return
+  }
+
+  await updateDoc(getWorkSessionRef(normalizedWorkSessionId), {
+    activePreFixedFareContext: preFixedFareContext,
+    activePreFixedFareContextSavedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function clearWorkSessionPreFixedFareContext(workSessionId: string) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const normalizedWorkSessionId = workSessionId.trim()
+  if (!normalizedWorkSessionId) {
+    return
+  }
+
+  await updateDoc(getWorkSessionRef(normalizedWorkSessionId), {
+    activePreFixedFareContext: null,
+    activePreFixedFareContextSavedAt: null,
+    updatedAt: serverTimestamp(),
   })
 }

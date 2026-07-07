@@ -1,3 +1,5 @@
+import type { PreFixedFareCaseContext } from './preFixedFare'
+
 export type StaffRole = 'hq_admin' | 'owner' | 'manager' | 'driver'
 
 export type CompanyStatus = 'screening' | 'preparing' | 'active' | 'suspended' | 'ending' | 'terminated' | 'archived'
@@ -163,6 +165,9 @@ export type WorkSession = {
   activeTripUpdatedAt?: string | null
   activeTripCaseNumber?: string | null
   activeTripVehicleId?: string | null
+  /** 事前確定Mメーター開始時の証跡（精算完了後は caseRecords へ移行しクリア） */
+  activePreFixedFareContext?: PreFixedFareCaseContext | null
+  activePreFixedFareContextSavedAt?: string | null
 }
 
 

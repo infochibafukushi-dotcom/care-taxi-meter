@@ -40,7 +40,7 @@ import {
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { saveGpsRoute } from '../services/gpsRoutes'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
-import { updateWorkSessionActiveTrip } from '../services/workSessions'
+import { updateWorkSessionActiveTrip, saveWorkSessionPreFixedFareContext, clearWorkSessionPreFixedFareContext } from '../services/workSessions'
 import { createAuditLog } from '../services/auditLogs'
 import {
   applyActiveTripRestoration,
@@ -63,6 +63,10 @@ import {
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
 import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
+import {
+  buildPreFixedFareStartPersistKey,
+  shouldPersistPreFixedFareStartAtMeterEntry,
+} from '../services/preFixedFareStartPersistence'
 import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
 import type { PreFixedRouteCandidateId } from '../types/preFixedMeterSession'
 import {
@@ -939,6 +943,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     clearActiveTripSnapshot()
   }
   const syncedActiveTripKeyRef = useRef('')
+  const preFixedStartPersistKeyRef = useRef('')
 
   useEffect(() => {
     if (!reviewDemoMode) {
@@ -1053,6 +1058,54 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       syncedActiveTripKeyRef.current = ''
     })
   }, [caseNumber, shouldPersistTripSnapshot, status, workSession.currentSession?.id])
+
+  useEffect(() => {
+    if (
+      !shouldPersistPreFixedFareStartAtMeterEntry({
+        meterMode,
+        consentAt: reservationTripContext?.consentAt ?? '',
+        workSessionId: workSession.currentSession?.id ?? '',
+        reviewDemoMode,
+      }) ||
+      !reservationTripContext
+    ) {
+      return
+    }
+
+    const workSessionId = workSession.currentSession!.id
+    const persistKey = buildPreFixedFareStartPersistKey({
+      workSessionId,
+      reservationId: reservationTripContext.reservationId,
+      snapshotHash: reservationTripContext.snapshotHash,
+    })
+
+    if (preFixedStartPersistKeyRef.current === persistKey) {
+      return
+    }
+
+    const preFixedFareContext = buildPreFixedFareCaseContext({
+      tripContext: reservationTripContext,
+      session: readPreFixedMeterSession(preFixedSessionIdFromQuery || undefined),
+    })
+
+    void saveWorkSessionPreFixedFareContext({
+      workSessionId,
+      preFixedFareContext,
+    })
+      .then(() => {
+        preFixedStartPersistKeyRef.current = persistKey
+      })
+      .catch((error) => {
+        console.warn('Failed to persist pre-fixed fare context at meter entry.', error)
+        preFixedStartPersistKeyRef.current = ''
+      })
+  }, [
+    meterMode,
+    preFixedSessionIdFromQuery,
+    reservationTripContext,
+    reviewDemoMode,
+    workSession.currentSession?.id,
+  ])
 
   const canStartFixedTrip =
     meterMode === 'fixed' &&
@@ -3630,6 +3683,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           })
         } catch (releaseError) {
           console.warn('Failed to release vehicle after case save.', releaseError)
+        }
+      }
+
+      if (meterMode === 'fixed' && workSessionId) {
+        try {
+          await clearWorkSessionPreFixedFareContext(workSessionId)
+        } catch (clearError) {
+          console.warn('Failed to clear pre-fixed fare context from work session.', clearError)
         }
       }
 
