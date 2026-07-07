@@ -164,7 +164,7 @@ export function PreFixedReservationFlowPage() {
     void handleSelectReservation(autoOpenReservationId)
   }, [autoOpenReservationId, handleSelectReservation, isLoadingList])
 
-  const handleProceedToConsent = () => {
+  const handleStartOperation = () => {
     if (!reservationDetail) {
       return
     }
@@ -172,17 +172,22 @@ export function PreFixedReservationFlowPage() {
       navigate(buildCreatePath(reservationDetail.reservationId))
       return
     }
+    if (reservationDetail.consent.consentAt) {
+      void handleStartMeter({ hasConsent: true })
+      return
+    }
     setStep('consent')
-    setConsentChecked(Boolean(reservationDetail.consent.consentAt))
+    setConsentChecked(false)
     setConsentError('')
   }
 
-  const handleStartMeter = async () => {
+  const handleStartMeter = async (options?: { hasConsent?: boolean }) => {
     if (!reservationDetail || isStarting) {
       return
     }
 
-    if (!consentChecked) {
+    const hasConsent = options?.hasConsent ?? consentChecked
+    if (!hasConsent) {
       setConsentError('ルートと金額への同意を確認してください。')
       return
     }
@@ -201,7 +206,7 @@ export function PreFixedReservationFlowPage() {
     try {
       await startFixedFareRun(reservationDetail.reservationId)
       saveReservationTripContext(
-        buildReservationTripContextForMeterStart(reservationDetail, consentChecked),
+        buildReservationTripContextForMeterStart(reservationDetail, hasConsent),
       )
 
       const query = new URLSearchParams({
@@ -465,10 +470,20 @@ export function PreFixedReservationFlowPage() {
             </dl>
 
             <div className="pre-fixed-flow-actions">
-              <button className="primary-action" type="button" onClick={handleProceedToConsent}>
-                同意確認へ進む
+              <button
+                className="primary-action"
+                type="button"
+                disabled={isStarting}
+                onClick={handleStartOperation}
+              >
+                {isStarting ? '開始処理中...' : '運行管理を開始'}
               </button>
             </div>
+            {actionError ? (
+              <p className="case-error" role="alert">
+                {actionError}
+              </p>
+            ) : null}
           </>
         ) : null}
       </section>

@@ -1784,6 +1784,26 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     return reservationTripContext?.quoteSnapshot?.selectedRouteId || '—'
   }, [reservationTripContext])
   const preFixedBillingTotalYen = settlementBreakdown.totalFareYen
+  const preFixedServiceFeeSummary = useMemo(() => {
+    const serviceFees = reservationTripContext?.quoteSnapshot?.serviceFees ?? []
+    let assistTotal = 0
+    let specialVehicleTotal = 0
+    for (const fee of serviceFees) {
+      if (!Number.isFinite(fee.amount) || fee.amount <= 0) {
+        continue
+      }
+      if (fee.key === 'specialVehicleFee') {
+        specialVehicleTotal += fee.amount
+      } else {
+        assistTotal += fee.amount
+      }
+    }
+    return { assistTotal, specialVehicleTotal }
+  }, [reservationTripContext])
+  const preFixedExpenseTotalYen = useMemo(
+    () => expenses.reduce((sum, expense) => sum + Math.max(Math.round(expense.amountYen) || 0, 0), 0),
+    [expenses],
+  )
   const currentSegmentStops = useMemo(
     () => getCurrentSegmentStops(preFixedOverallStops, preFixedSegmentIndex),
     [preFixedOverallStops, preFixedSegmentIndex],
@@ -4353,16 +4373,86 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               ) : null}
 
               {meterMode === 'fixed' && showFixedLeftPanelOps ? (
-                <div className="pre-fixed-route-summary" aria-label="ルート情報">
+                <div className="pre-fixed-route-summary" aria-label="事前確定運賃情報">
                   <div>
-                    <span>全体ルート</span>
-                    <strong>{overallRouteLabel || '—'}</strong>
+                    <span>迎車地</span>
+                    <strong>
+                      {reservationTripContext?.pickupAddress ||
+                        pickupLocation.address ||
+                        '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>目的地</span>
+                    <strong>
+                      {reservationTripContext?.dropoffAddress ||
+                        dropoffLocation.address ||
+                        '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>選択ルート</span>
+                    <strong>{preFixedSelectedRouteLabel}</strong>
+                  </div>
+                  <div>
+                    <span>事前確定運賃</span>
+                    <strong className="pre-fixed-amount-line">
+                      {formatFareYen(resolvedConfirmedFareYen)}円
+                    </strong>
+                  </div>
+                  <div>
+                    <span>追加介助料</span>
+                    <strong className="pre-fixed-amount-line">
+                      {formatFareYen(preFixedServiceFeeSummary.assistTotal)}円
+                    </strong>
+                  </div>
+                  {preFixedServiceFeeSummary.specialVehicleTotal > 0 ? (
+                    <div>
+                      <span>車両使用料</span>
+                      <strong className="pre-fixed-amount-line">
+                        {formatFareYen(preFixedServiceFeeSummary.specialVehicleTotal)}円
+                      </strong>
+                    </div>
+                  ) : null}
+                  <div>
+                    <span>実費</span>
+                    <strong className="pre-fixed-amount-line">
+                      {formatFareYen(preFixedExpenseTotalYen)}円
+                    </strong>
+                  </div>
+                  <div>
+                    <span>請求予定合計</span>
+                    <strong className="pre-fixed-amount-line">
+                      {formatFareYen(preFixedBillingTotalYen)}円
+                    </strong>
+                  </div>
+                  <div>
+                    <span>同意日時</span>
+                    <strong>
+                      {reservationTripContext?.consentAt
+                        ? formatCaseDateTime(reservationTripContext.consentAt)
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>予約ID</span>
+                    <strong>
+                      {fixedFareRun?.reservationId ??
+                        reservationTripContext?.reservationId ??
+                        '—'}
+                    </strong>
                   </div>
                   {isFixedInOperation ? (
-                    <div>
-                      <span>現在区間</span>
-                      <strong>{currentSegmentLabel || '—'}</strong>
-                    </div>
+                    <>
+                      <div>
+                        <span>全体ルート</span>
+                        <strong>{overallRouteLabel || '—'}</strong>
+                      </div>
+                      <div>
+                        <span>現在区間</span>
+                        <strong>{currentSegmentLabel || '—'}</strong>
+                      </div>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -4826,16 +4916,56 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </dd>
                 </div>
                 <div>
+                  <dt>迎車地</dt>
+                  <dd>
+                    {reservationTripContext?.pickupAddress ||
+                      pickupLocation.address ||
+                      '—'}
+                  </dd>
+                </div>
+                {confirmedRouteView && confirmedRouteView.viaAddresses.length > 0 ? (
+                  <div>
+                    <dt>立ち寄り</dt>
+                    <dd>{confirmedRouteView.viaAddresses.join(' / ')}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>目的地</dt>
+                  <dd>
+                    {reservationTripContext?.dropoffAddress ||
+                      dropoffLocation.address ||
+                      '—'}
+                  </dd>
+                </div>
+                <div>
                   <dt>選択ルート</dt>
                   <dd>{preFixedSelectedRouteLabel}</dd>
                 </div>
                 <div>
                   <dt>事前確定運賃</dt>
-                  <dd>{formatFareYen(resolvedConfirmedFareYen)}円</dd>
+                  <dd className="pre-fixed-amount-line">{formatFareYen(resolvedConfirmedFareYen)}円</dd>
                 </div>
                 <div>
+                  <dt>追加介助料</dt>
+                  <dd className="pre-fixed-amount-line">
+                    {formatFareYen(preFixedServiceFeeSummary.assistTotal)}円
+                  </dd>
+                </div>
+                {preFixedServiceFeeSummary.specialVehicleTotal > 0 ? (
+                  <div>
+                    <dt>車両使用料</dt>
+                    <dd className="pre-fixed-amount-line">
+                      {formatFareYen(preFixedServiceFeeSummary.specialVehicleTotal)}円
+                    </dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>実費</dt>
+                  <dd className="pre-fixed-amount-line">{formatFareYen(preFixedExpenseTotalYen)}円</dd>
+                </div>
+                <div className="pre-fixed-reservation-bar__total">
                   <dt>請求予定合計</dt>
-                  <dd>{formatFareYen(preFixedBillingTotalYen)}円</dd>
+                  <dd className="pre-fixed-amount-line">{formatFareYen(preFixedBillingTotalYen)}円</dd>
                 </div>
                 <div>
                   <dt>同意日時</dt>
@@ -4846,30 +4976,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </dd>
                 </div>
               </dl>
-              <div className="pre-fixed-reservation-bar__route">
-                <div>
-                  <span>お迎え地 S</span>
-                  <strong>
-                    {reservationTripContext?.pickupAddress ||
-                      pickupLocation.address ||
-                      '—'}
-                  </strong>
-                </div>
-                {confirmedRouteView && confirmedRouteView.viaAddresses.length > 0 ? (
-                  <div>
-                    <span>立ち寄り</span>
-                    <strong>{confirmedRouteView.viaAddresses.join(' / ')}</strong>
-                  </div>
-                ) : null}
-                <div>
-                  <span>目的地 G</span>
-                  <strong>
-                    {reservationTripContext?.dropoffAddress ||
-                      dropoffLocation.address ||
-                      '—'}
-                  </strong>
-                </div>
-              </div>
             </section>
           ) : null}
 

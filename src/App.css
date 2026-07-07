@@ -7824,14 +7824,28 @@ html:not(.route-meter) .page--home {
 }
 
 .pre-fixed-reservation-bar {
-  display: grid;
-  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr);
-  gap: 12px;
-  align-items: stretch;
+  display: block;
 }
 
 .pre-fixed-reservation-bar__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
   margin: 0;
+}
+
+.pre-fixed-reservation-bar__meta > div {
+  min-width: 0;
+}
+
+.pre-fixed-reservation-bar__total dd {
+  font-weight: 800;
+}
+
+.pre-fixed-amount-line {
+  display: inline-block;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .pre-fixed-reservation-bar__route {
@@ -7865,7 +7879,7 @@ html:not(.route-meter) .page--home {
 }
 
 @media (max-width: 860px) {
-  .pre-fixed-reservation-bar {
+  .pre-fixed-reservation-bar__meta {
     grid-template-columns: 1fr;
   }
 }
@@ -7901,6 +7915,8 @@ html:not(.route-meter) .page--home {
 .pre-fixed-route-summary {
   display: grid;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .pre-fixed-route-summary > div {
@@ -8273,11 +8289,12 @@ html.route-meter.pre-fixed-meter .pre-fixed-fare-amount {
   flex-direction: row;
   align-items: baseline;
   justify-content: center;
-  gap: 0.35em;
+  gap: 0.2em;
   min-height: clamp(2rem, 8vh, 3.2rem);
   flex: 0 0 auto;
   max-width: 100%;
-  overflow: hidden;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 html.route-meter.pre-fixed-meter .pre-fixed-fare-amount--inline .pre-fixed-fare-main-line__label {
@@ -8300,8 +8317,9 @@ html.route-meter.pre-fixed-meter .fixed-fare-consent-note {
 
 html.route-meter.pre-fixed-meter .pre-fixed-fare-amount strong {
   width: auto;
-  max-width: calc(100% - 6em);
+  max-width: none;
   flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   line-height: 0.95;
   text-align: center;
@@ -8311,6 +8329,7 @@ html.route-meter.pre-fixed-meter .pre-fixed-fare-amount strong {
 
 html.route-meter.pre-fixed-meter .pre-fixed-fare-amount .r9-fare-unit {
   flex: 0 0 auto;
+  flex-shrink: 0;
   margin: 0;
   padding: 0;
   align-self: baseline;
@@ -8521,44 +8540,36 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
 
   /* 事前確定M: 横画面コンパクト調整 */
   html.route-meter.pre-fixed-meter .r9-meter-console {
-    grid-template-rows: minmax(0, 1fr) minmax(24px, min(8vh, calc(var(--app-height, 100dvh) * 0.09)));
+    grid-template-rows: minmax(0, 1fr) minmax(48px, min(22vh, calc(var(--app-height, 100dvh) * 0.18)));
     gap: clamp(4px, 0.8vh, 8px) clamp(6px, 1vw, 10px);
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar.reservation-detail-section {
-    display: flex;
-    align-items: center;
-    grid-template-columns: 1fr;
+    display: block;
     padding: clamp(3px, 0.65vh, 6px) clamp(8px, 1.2vw, 12px);
-    max-height: min(28px, 8vh);
+    max-height: min(96px, 22vh);
+    overflow-y: auto;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar {
-    max-height: min(28px, 8vh);
-    overflow: hidden;
-  }
-
-  html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__route {
-    display: none;
+    max-height: min(96px, 22vh);
+    overflow-y: auto;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: clamp(10px, 2vw, 20px);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(2px, 0.45vh, 4px) clamp(8px, 1.4vw, 14px);
     width: 100%;
     min-width: 0;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div {
-    display: inline-flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: baseline;
-    gap: 0;
+    gap: 0 0.25em;
     min-width: 0;
-    white-space: nowrap;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dt::after {
@@ -8574,7 +8585,7 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar__meta > div dd {
     overflow: hidden;
     text-overflow: ellipsis;
-    word-break: keep-all;
+    white-space: nowrap;
   }
 
   html.route-meter.pre-fixed-meter .r9-left-panel {
@@ -8608,8 +8619,13 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
     display: none;
   }
 
-  html.route-meter.pre-fixed-meter .pre-fixed-route-summary > div:last-child {
-    display: none;
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(2px, 0.45vh, 4px);
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-main-actions {
@@ -8642,12 +8658,6 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
     line-height: 1.1;
   }
 
-  html.route-meter.pre-fixed-meter .pre-fixed-route-summary {
-    gap: clamp(2px, 0.45vh, 4px);
-    min-height: 0;
-    flex-shrink: 0;
-  }
-
   html.route-meter.pre-fixed-meter .pre-fixed-route-summary > div {
     padding: clamp(3px, 0.55vh, 5px) clamp(6px, 0.9vw, 8px);
   }
@@ -8662,6 +8672,13 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
     word-break: break-word;
     line-height: 1.2;
     font-size: clamp(0.62rem, 1.35vh, 0.76rem);
+  }
+
+  html.route-meter.pre-fixed-meter .pre-fixed-route-summary strong.pre-fixed-amount-line {
+    display: inline;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+    white-space: nowrap;
   }
 
   html.route-meter.pre-fixed-meter .pre-fixed-route-summary span {
@@ -9290,10 +9307,6 @@ html.route-meter .pre-fixed-flow-page {
   .pre-fixed-unified-reservation-card__field strong {
     font-size: 0.8rem;
     line-height: 1.25;
-  }
-
-  .pre-fixed-unified-reservation-card__field--detail-only {
-    display: none;
   }
 
   .pre-fixed-assist-list {

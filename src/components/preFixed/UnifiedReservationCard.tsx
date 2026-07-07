@@ -51,6 +51,10 @@ export function UnifiedReservationCard({ reservation, onSelect }: UnifiedReserva
 
       <div className="pre-fixed-unified-reservation-card__grid">
         <div className="pre-fixed-unified-reservation-card__field">
+          <small>予約ID</small>
+          <strong>{reservation.reservationId}</strong>
+        </div>
+        <div className="pre-fixed-unified-reservation-card__field">
           <small>利用者名</small>
           <strong>{formatOptionalText(reservation.customerName)}</strong>
         </div>
@@ -70,21 +74,21 @@ export function UnifiedReservationCard({ reservation, onSelect }: UnifiedReserva
           <small>確定運賃</small>
           <strong>{formatConfirmedFare(reservation.confirmedFareYen)}</strong>
         </div>
-        <div className="pre-fixed-unified-reservation-card__field pre-fixed-unified-reservation-card__field--detail-only">
+        <div className="pre-fixed-unified-reservation-card__field">
           <small>事前確定運賃</small>
           <strong>{formatPreFixedFareLabel(reservation)}</strong>
         </div>
         {billingTotal ? (
-          <div className="pre-fixed-unified-reservation-card__field pre-fixed-unified-reservation-card__field--detail-only">
+          <div className="pre-fixed-unified-reservation-card__field">
             <small>請求予定合計</small>
-            <strong>{billingTotal}円</strong>
+            <strong className="pre-fixed-amount-line">{billingTotal}円</strong>
           </div>
         ) : null}
         <div className="pre-fixed-unified-reservation-card__field">
           <small>メーター状態</small>
           <strong>{formatMeterRunStatusForList(reservation.meterRunStatus)}</strong>
         </div>
-        <div className="pre-fixed-unified-reservation-card__field pre-fixed-unified-reservation-card__field--detail-only">
+        <div className="pre-fixed-unified-reservation-card__field">
           <small>ステータス</small>
           <strong>{formatReservationStatus(reservation.status)}</strong>
         </div>
