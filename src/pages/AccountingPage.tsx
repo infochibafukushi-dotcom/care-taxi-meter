@@ -93,9 +93,11 @@ import {
   formatYenInputDisplay,
   hasAccountingFormReceiptImage,
   hasStoredAccountingReceiptImage,
+  OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD,
   OCR_NOT_CONFIGURED_MESSAGE,
   parseYenInput,
   RECEIPT_IMAGE_REQUIRED_MESSAGE,
+  shouldAutoApplyOcrCandidates,
   validateInvoiceNumberCandidate,
 } from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
@@ -576,8 +578,12 @@ export function AccountingPage() {
       const validation = validateInvoiceNumberCandidate(result.parsed.invoiceNumber)
       setInvoiceNumberWarning(validation.warning)
     }
+    const autoAppliedCategory =
+      shouldAutoApplyOcrCandidates(result.ocrConfidence) && Boolean(result.suggestedExpenseCategory)
     setOcrCandidateNotice(
-      'OCR候補をフォームに反映しました。日付・金額・仕入先等を確認し、経費科目は必ず手動で選択してから保存してください。',
+      autoAppliedCategory
+        ? `OCR候補をフォームに反映しました（信頼度${(OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%以上のため経費科目候補も自動入力）。内容を確認してから保存してください。`
+        : 'OCR候補をフォームに反映しました。日付・金額・内容・経費科目候補を確認してから保存してください。',
     )
   }
 
@@ -1691,6 +1697,22 @@ export function AccountingPage() {
                               </dd>
                             </div>
                             <div>
+                              <dt>消費税候補</dt>
+                              <dd>
+                                {receipt.taxAmountCandidate != null
+                                  ? formatFareYen(receipt.taxAmountCandidate)
+                                  : '―'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>内容候補</dt>
+                              <dd>{receipt.ocrParsedFields?.description || '―'}</dd>
+                            </div>
+                            <div>
+                              <dt>科目候補</dt>
+                              <dd>{receipt.suggestedExpenseCategory || '―'}</dd>
+                            </div>
+                            <div>
                               <dt>インボイス候補</dt>
                               <dd>{receipt.invoiceNumberCandidate || '―'}</dd>
                             </div>
@@ -1886,7 +1908,11 @@ export function AccountingPage() {
               </label>
               {expenseForm.suggestedExpenseCategory ? (
                 <p className="accounting-suggestion accounting-form-span-2">
-                  OCR/AI仮分類: {expenseForm.suggestedExpenseCategory}（自動確定しません）
+                  OCR/AI科目候補: {expenseForm.suggestedExpenseCategory}
+                  {shouldAutoApplyOcrCandidates(expenseForm.ocrConfidence) &&
+                  expenseForm.expenseCategory === expenseForm.suggestedExpenseCategory
+                    ? '（信頼度が高いため自動反映済み）'
+                    : '（参考値）'}
                 </p>
               ) : null}
               <label>

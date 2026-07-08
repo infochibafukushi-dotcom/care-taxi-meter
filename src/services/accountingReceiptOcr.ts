@@ -1,7 +1,10 @@
 import { createWorker, OEM } from 'tesseract.js'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
 import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
-import { parseAccountingReceiptOcrText } from '../utils/accountingReceiptOcrParse'
+import {
+  buildSuggestedExpenseCategory,
+  parseAccountingReceiptOcrText,
+} from '../utils/accountingReceiptOcrParse'
 import {
   getAccountingTesseractPaths,
   logAccountingTesseractPaths,
@@ -170,6 +173,7 @@ const hasParsedOcrCandidate = (parsed: AccountingReceiptOcrResult['parsed']) =>
   Boolean(
     parsed.receiptDate ||
       parsed.vendorName ||
+      parsed.description ||
       parsed.taxIncludedAmount ||
       parsed.consumptionTaxAmount ||
       parsed.invoiceNumber,
@@ -233,11 +237,15 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   reportProgress(input.onProgress, 'parsing')
   logOcrStep('parse-start', { textLength: ocrRawText.length })
   const parsed = parseAccountingReceiptOcrText(ocrRawText)
+  const suggestedExpenseCategory = buildSuggestedExpenseCategory(parsed)
   const parsedFields = {
     supplierName: parsed.vendorName,
     receiptDate: parsed.receiptDate,
     totalAmount: parsed.taxIncludedAmount,
+    consumptionTax: parsed.consumptionTaxAmount,
+    description: parsed.description,
     invoiceNumber: parsed.invoiceNumber,
+    suggestedExpenseCategory,
   }
   console.log(parsedFields)
   logOcrStep('parse-done', parsedFields)
@@ -252,7 +260,7 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
     ocrRawText,
     ocrConfidence,
     parsed,
-    suggestedExpenseCategory: '',
+    suggestedExpenseCategory,
   }
 }
 
@@ -292,13 +300,14 @@ export async function runAccountingReceiptOcr(
         receiptDate: '2025-10-10',
         postingDate: '2026-07-06',
         vendorName: 'デモ仕入先',
+        description: 'デモ商品',
         taxIncludedAmount: 1100,
         taxRate: 10,
         consumptionTaxAmount: 100,
         invoiceNumber: 'T1234567890123',
         invoiceRegisteredName: 'デモ登録事業者',
       },
-      suggestedExpenseCategory: '',
+      suggestedExpenseCategory: '消耗品費',
     }
   }
 

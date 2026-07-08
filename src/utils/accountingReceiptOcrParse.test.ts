@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildSuggestedExpenseCategory,
   extractConsumptionTaxAmount,
   extractInvoiceNumber,
+  extractProductDescription,
   extractReceiptDate,
   extractTaxIncludedAmount,
   extractTaxRate,
@@ -9,6 +11,7 @@ import {
   parseAccountingReceiptOcrText,
   toHalfWidthAscii,
 } from './accountingReceiptOcrParse'
+import { suggestExpenseCategoryFromReceiptText } from './accountingReceiptExpenseCategorySuggest'
 
 describe('toHalfWidthAscii', () => {
   it('converts full-width alphanumerics', () => {
@@ -53,11 +56,32 @@ describe('extractTaxIncludedAmount', () => {
     expect(extractTaxIncludedAmount('総合計 ¥1,100')).toBe(1100)
     expect(extractTaxIncludedAmount('お支払金額 1100円')).toBe(1100)
   })
+
+  it('reads amount on the next line after total keyword', () => {
+    expect(extractTaxIncludedAmount('合計\n￥995')).toBe(995)
+  })
+
+  it('matches spaced total keyword from OCR noise', () => {
+    expect(extractTaxIncludedAmount('合 計\n995')).toBe(995)
+  })
+
+  it('prefers お買上 and ご請求 keywords', () => {
+    expect(extractTaxIncludedAmount('お買上 995')).toBe(995)
+    expect(extractTaxIncludedAmount('ご請求額 ￥995')).toBe(995)
+  })
 })
 
 describe('extractConsumptionTaxAmount', () => {
   it('extracts tax near keyword', () => {
     expect(extractConsumptionTaxAmount('消費税 100円')).toBe(100)
+  })
+
+  it('reads tax on the next line', () => {
+    expect(extractConsumptionTaxAmount('消費税\n90', 995)).toBe(90)
+  })
+
+  it('extracts 内税額 keyword', () => {
+    expect(extractConsumptionTaxAmount('内税額 90', 995)).toBe(90)
   })
 })
 
@@ -104,13 +128,43 @@ describe('parseAccountingReceiptOcrText', () => {
     const parsed = parseAccountingReceiptOcrText(`
       Seria
       2026/07/08
+      ホッチキス 100
+      スマートブラシ 200
+      スタンプマット 300
       合計 995
+      消費税 90
       登録番号 T4200001013662
     `)
 
     expect(parsed.vendorName).toBe('Seria')
     expect(parsed.receiptDate).toBe('2026-07-08')
     expect(parsed.taxIncludedAmount).toBe(995)
+    expect(parsed.consumptionTaxAmount).toBe(90)
+    expect(parsed.description).toBe('ホッチキス・スマートブラシ・スタンプマット')
     expect(parsed.invoiceNumber).toBe('T4200001013662')
+    expect(buildSuggestedExpenseCategory(parsed)).toBe('消耗品費')
+  })
+})
+
+describe('extractProductDescription', () => {
+  it('joins product lines with middle dot', () => {
+    expect(
+      extractProductDescription(`
+        ホッチキス 100
+        スマートブラシ 200
+        合計 995
+      `),
+    ).toBe('ホッチキス・スマートブラシ')
+  })
+})
+
+describe('suggestExpenseCategoryFromReceiptText', () => {
+  it('maps stationery products to 消耗品費', () => {
+    expect(
+      suggestExpenseCategoryFromReceiptText({
+        description: 'ホッチキス・スタンプマット',
+        vendorName: 'Seria',
+      }),
+    ).toBe('消耗品費')
   })
 })

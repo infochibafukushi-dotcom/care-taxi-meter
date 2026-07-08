@@ -1,7 +1,26 @@
 import type { OcrParsedFields } from '../types/accounting'
+import { suggestExpenseCategoryFromReceiptText } from './accountingReceiptExpenseCategorySuggest'
 
-const AMOUNT_KEYWORDS = ['合計', '総合計', 'お支払金額', 'お支払い金額', '領収金額', '税込', '現計'] as const
-const TAX_KEYWORDS = ['消費税', '内税', '税額', 'うち消費税', 'うち税'] as const
+const AMOUNT_KEYWORDS = [
+  '合計',
+  '総合計',
+  'お支払金額',
+  'お支払い金額',
+  '領収金額',
+  '税込合計',
+  '税込み',
+  '税込',
+  '現計',
+  'お買上金額',
+  'お買い上げ',
+  'お買上げ',
+  'お買上',
+  'ご請求額',
+  'ご請求',
+] as const
+const TAX_KEYWORDS = ['消費税', '内税額', '内税', '税額', 'うち消費税', 'うち税'] as const
+const PRODUCT_LINE_SKIP =
+  /^(合計|小計|税|消費税|内税|お預かり|お預り|お釣り|釣り|登録番号|ポイント|レシート|領収|領収書|領収証|商品名|単価|数量|金額|店舗|店番|担当|tel|電話|〒|no\.|seria|セリア)/i
 
 /** 全角英数字・記号を半角に変換 */
 export const toHalfWidthAscii = (value: string) =>
@@ -13,6 +32,11 @@ export const toHalfWidthAscii = (value: string) =>
     .replace(/[ａ-ｚ]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
 
 const pad2 = (value: number) => String(value).padStart(2, '0')
+
+const normalizeLineForMatch = (line: string) => toHalfWidthAscii(line).replace(/\s+/g, '')
+
+const lineIncludesKeyword = (line: string, keyword: string) =>
+  normalizeLineForMatch(line).includes(keyword.replace(/\s+/g, ''))
 
 const isValidDateParts = (year: number, month: number, day: number) =>
   year >= 2000 &&
@@ -43,8 +67,9 @@ const isReasonableYenAmount = (amount: number) => amount > 0 && amount < 100_000
 
 const extractAmountsFromLine = (line: string) => {
   const amounts: number[] = []
+  const half = toHalfWidthAscii(line)
 
-  for (const match of line.matchAll(/(?:￥|¥)?\s*([\d,]+)\s*(?:円)?/g)) {
+  for (const match of half.matchAll(/(?:￥|¥|Y)?\s*([\d,]+)\s*(?:円)?/gi)) {
     const amount = parseYenAmountToken(match[0])
     if (isReasonableYenAmount(amount)) {
       amounts.push(amount)
@@ -52,6 +77,44 @@ const extractAmountsFromLine = (line: string) => {
   }
 
   return amounts
+}
+
+const extractAmountsNearLine = (lines: string[], lineIndex: number, span = 3) => {
+  const amounts: number[] = []
+
+  for (let index = lineIndex; index < Math.min(lineIndex + span, lines.length); index += 1) {
+    amounts.push(...extractAmountsFromLine(lines[index] ?? ''))
+  }
+
+  return amounts
+}
+
+const pickTotalAmount = (amounts: number[]) => {
+  if (amounts.length === 0) {
+    return undefined
+  }
+
+  return Math.max(...amounts)
+}
+
+const pickTaxAmount = (amounts: number[], totalAmount?: number) => {
+  const filtered = amounts.filter((amount) => {
+    if (amount <= 0 || amount >= 10_000_000) {
+      return false
+    }
+
+    if (totalAmount !== undefined && amount >= totalAmount) {
+      return false
+    }
+
+    return true
+  })
+
+  if (filtered.length === 0) {
+    return undefined
+  }
+
+  return Math.max(...filtered)
 }
 
 const isLikelyNoiseLine = (line: string) => {
@@ -132,18 +195,22 @@ export const extractTaxIncludedAmount = (text: string) => {
   let bestAmount: number | undefined
   let bestPriority = Number.POSITIVE_INFINITY
 
-  lines.forEach((line) => {
+  lines.forEach((line, lineIndex) => {
     AMOUNT_KEYWORDS.forEach((keyword, index) => {
-      if (!line.includes(keyword)) {
+      if (!lineIncludesKeyword(line, keyword)) {
         return
       }
 
-      const amounts = extractAmountsFromLine(line)
+      const amounts = extractAmountsNearLine(lines, lineIndex)
       if (amounts.length === 0) {
         return
       }
 
-      const candidate = Math.max(...amounts)
+      const candidate = pickTotalAmount(amounts)
+      if (candidate === undefined) {
+        return
+      }
+
       if (index < bestPriority || (index === bestPriority && candidate > (bestAmount ?? 0))) {
         bestPriority = index
         bestAmount = candidate
@@ -155,7 +222,9 @@ export const extractTaxIncludedAmount = (text: string) => {
     return bestAmount
   }
 
-  const fallbackAmounts = [...half.matchAll(/(?:￥|¥)?\s*([\d,]+)\s*円/g)]
+  const fallbackAmounts = [
+    ...half.matchAll(/(?:￥|¥|Y)?\s*([\d,]+)\s*(?:円)?/gi),
+  ]
     .map((match) => parseYenAmountToken(match[0]))
     .filter(isReasonableYenAmount)
 
@@ -167,18 +236,20 @@ export const extractTaxIncludedAmount = (text: string) => {
 }
 
 /** 消費税額候補を抽出 */
-export const extractConsumptionTaxAmount = (text: string) => {
+export const extractConsumptionTaxAmount = (text: string, totalAmount?: number) => {
   const half = toHalfWidthAscii(text)
   const lines = half.split(/\r?\n/)
 
-  for (const line of lines) {
-    if (!TAX_KEYWORDS.some((keyword) => line.includes(keyword))) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex] ?? ''
+    if (!TAX_KEYWORDS.some((keyword) => lineIncludesKeyword(line, keyword))) {
       continue
     }
 
-    const amounts = extractAmountsFromLine(line).filter((amount) => amount < 10_000_000)
-    if (amounts.length > 0) {
-      return Math.max(...amounts)
+    const amounts = extractAmountsNearLine(lines, lineIndex)
+    const candidate = pickTaxAmount(amounts, totalAmount)
+    if (candidate !== undefined) {
+      return candidate
     }
   }
 
@@ -230,19 +301,71 @@ export const extractVendorName = (text: string) => {
   return undefined
 }
 
+/** 商品名一覧を内容候補用テキストに整形 */
+export const extractProductDescription = (text: string) => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const products: string[] = []
+
+  for (const line of lines) {
+    const half = toHalfWidthAscii(line)
+    if (PRODUCT_LINE_SKIP.test(half) || isLikelyNoiseLine(line)) {
+      continue
+    }
+
+    if (/^T\d{13}$/i.test(half.replace(/\s+/g, ''))) {
+      continue
+    }
+
+    const productMatch =
+      half.match(/^(.+?)\s+(?:[@×x*＠]?\s*)?(?:￥|¥|Y)?(\d{1,7})(?:円)?\s*$/) ??
+      half.match(/^(.{2,40}?)(?:￥|¥|Y)?(\d{2,7})$/)
+    if (!productMatch) {
+      continue
+    }
+
+    const name = productMatch[1]
+      .replace(/[@×x*＠]\s*$/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const price = Number(productMatch[2])
+
+    if (name.length < 2 || price <= 0 || price >= 100_000) {
+      continue
+    }
+
+    if (/^[\d\s\-]+$/.test(name)) {
+      continue
+    }
+
+    products.push(name.slice(0, 40))
+  }
+
+  if (products.length === 0) {
+    return undefined
+  }
+
+  return [...new Set(products)].slice(0, 8).join('・')
+}
+
 /** OCR全文から経費入力候補を抽出 */
 export const parseAccountingReceiptOcrText = (text: string): OcrParsedFields => {
   const receiptDate = extractReceiptDate(text)
   const taxIncludedAmount = extractTaxIncludedAmount(text)
-  const consumptionTaxAmount = extractConsumptionTaxAmount(text)
+  const consumptionTaxAmount = extractConsumptionTaxAmount(text, taxIncludedAmount)
   const taxRate = extractTaxRate(text)
   const invoiceNumber = extractInvoiceNumber(text)
   const vendorName = extractVendorName(text)
+  const description = extractProductDescription(text)
 
   return {
     receiptDate,
     postingDate: receiptDate,
     vendorName,
+    description,
     taxIncludedAmount,
     taxRate,
     consumptionTaxAmount,
@@ -251,3 +374,9 @@ export const parseAccountingReceiptOcrText = (text: string): OcrParsedFields => 
     invoiceCheckStatus: invoiceNumber ? '未確認' : undefined,
   }
 }
+
+export const buildSuggestedExpenseCategory = (parsed: OcrParsedFields) =>
+  suggestExpenseCategoryFromReceiptText({
+    description: parsed.description,
+    vendorName: parsed.vendorName,
+  })

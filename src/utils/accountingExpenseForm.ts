@@ -39,6 +39,11 @@ export type AccountingReceiptOcrResult = {
 export const OCR_NOT_CONFIGURED_MESSAGE =
   'OCR APIが未設定です。手入力で登録できます。'
 
+export const OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.7
+
+export const shouldAutoApplyOcrCandidates = (confidence?: number) =>
+  (confidence ?? 0) >= OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD
+
 export const RECEIPT_IMAGE_REQUIRED_MESSAGE = '先に領収書画像をアップロードしてください。'
 
 export const hasAccountingFormReceiptImage = (
@@ -87,6 +92,9 @@ export const applyAccountingReceiptOcrToExpense = (
     (taxIncludedAmount > 0
       ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate)
       : expense.consumptionTaxAmount)
+  const suggestedExpenseCategory =
+    ocr.suggestedExpenseCategory ?? expense.suggestedExpenseCategory ?? ''
+  const autoApplyCandidates = shouldAutoApplyOcrCandidates(ocr.ocrConfidence)
 
   return {
     ...expense,
@@ -104,8 +112,11 @@ export const applyAccountingReceiptOcrToExpense = (
     ocrRawText: ocr.ocrRawText ?? expense.ocrRawText,
     ocrParsedFields: parsed,
     ocrConfidence: ocr.ocrConfidence ?? expense.ocrConfidence,
-    suggestedExpenseCategory: ocr.suggestedExpenseCategory ?? expense.suggestedExpenseCategory ?? '',
-    expenseCategory: expense.expenseCategory,
+    suggestedExpenseCategory,
+    expenseCategory:
+      autoApplyCandidates && suggestedExpenseCategory && !expense.expenseCategory
+        ? suggestedExpenseCategory
+        : expense.expenseCategory,
   }
 }
 
