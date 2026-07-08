@@ -1,5 +1,7 @@
+import type { Worker } from 'tesseract.js'
+import { createWorker } from 'tesseract.js'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
-import { OCR_NOT_CONFIGURED_MESSAGE } from '../utils/accountingExpenseForm'
+import { parseAccountingReceiptOcrText } from '../utils/accountingReceiptOcrParse'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 
 type RunAccountingReceiptOcrInput = {
@@ -8,25 +10,30 @@ type RunAccountingReceiptOcrInput = {
   fileName?: string
 }
 
-const ocrEndpoint = () => (import.meta.env.VITE_ACCOUNTING_OCR_ENDPOINT ?? '').trim()
-const ocrApiKey = () => (import.meta.env.VITE_ACCOUNTING_OCR_API_KEY ?? '').trim()
+let workerPromise: Promise<Worker> | null = null
+
+const getOcrWorker = async () => {
+  if (!workerPromise) {
+    workerPromise = createWorker('jpn+eng', undefined, {
+      logger: () => {},
+    })
+  }
+
+  return workerPromise
+}
+
+const loadReceiptImageBlob = async (downloadUrl: string) => {
+  const response = await fetch(downloadUrl)
+  if (!response.ok) {
+    throw new Error(`証憑画像の取得に失敗しました (${response.status})`)
+  }
+
+  return response.blob()
+}
 
 /**
  * 領収書 OCR（候補抽出）。
- *
- * 実 API 接続時の想定:
- * - VITE_ACCOUNTING_OCR_ENDPOINT: HTTPS エンドポイント（Cloud Functions / 外部 OCR API）
- * - VITE_ACCOUNTING_OCR_API_KEY: 任意（Bearer 認証）
- * - リクエスト: POST JSON { imageUrl, receiptId, fileName }
- * - レスポンス: AccountingReceiptOcrResult 互換 JSON
- *
- * 候補 API 例:
- * - Google Cloud Vision API + 自前パーサー（Cloud Functions 経由推奨）
- * - Azure AI Document Intelligence (Form Recognizer)
- * - OpenAI Vision / Gemini（領収書画像 → 構造化 JSON）
- *
- * フロントから直接 Vision API を呼ぶと API キー露出になるため、
- * Cloud Functions 等のバックエンド経由を推奨します。
+ * ブラウザ内 Tesseract.js で文字認識し、自前パーサーで日付・金額等を候補化します。
  */
 export async function runAccountingReceiptOcr(
   input: RunAccountingReceiptOcrInput,
@@ -59,50 +66,46 @@ export async function runAccountingReceiptOcr(
     }
   }
 
-  const endpoint = ocrEndpoint()
-  if (!endpoint) {
-    return {
-      status: 'not_configured',
-      message: OCR_NOT_CONFIGURED_MESSAGE,
-      parsed: {},
-    }
-  }
-
   try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    const apiKey = ocrApiKey()
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`
-    }
+    const [worker, imageBlob] = await Promise.all([
+      getOcrWorker(),
+      loadReceiptImageBlob(input.downloadUrl),
+    ])
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        imageUrl: input.downloadUrl,
-        receiptId: input.receiptId ?? '',
-        fileName: input.fileName ?? '',
-      }),
-    })
+    const { data } = await worker.recognize(imageBlob)
+    const ocrRawText = data.text?.trim() ?? ''
+    const ocrConfidence =
+      typeof data.confidence === 'number' && data.confidence > 0 ? data.confidence / 100 : undefined
 
-    if (!response.ok) {
+    if (!ocrRawText) {
       return {
-        status: 'error',
-        message: `OCR API エラー (${response.status})`,
+        status: 'success',
+        message: '文字を読み取れませんでした。手入力で登録できます。',
+        ocrRawText: '',
+        ocrConfidence: 0,
         parsed: {},
+        suggestedExpenseCategory: '',
       }
     }
 
-    const data = (await response.json()) as Partial<AccountingReceiptOcrResult>
+    const parsed = parseAccountingReceiptOcrText(ocrRawText)
+    const hasParsedCandidate = Boolean(
+      parsed.receiptDate ||
+        parsed.vendorName ||
+        parsed.taxIncludedAmount ||
+        parsed.consumptionTaxAmount ||
+        parsed.invoiceNumber,
+    )
+
     return {
-      status: data.status === 'error' ? 'error' : 'success',
-      message: data.message,
-      ocrRawText: data.ocrRawText,
-      ocrConfidence: data.ocrConfidence,
-      parsed: data.parsed ?? {},
-      suggestedExpenseCategory: data.suggestedExpenseCategory ?? '',
+      status: 'success',
+      message: hasParsedCandidate
+        ? 'OCR候補を反映しました。日付・金額等を確認してください。'
+        : 'テキストは読み取れましたが、日付・金額等を自動判定できませんでした。手入力してください。',
+      ocrRawText,
+      ocrConfidence,
+      parsed,
+      suggestedExpenseCategory: '',
     }
   } catch (error) {
     return {

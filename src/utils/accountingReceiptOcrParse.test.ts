@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest'
+import {
+  extractConsumptionTaxAmount,
+  extractInvoiceNumber,
+  extractReceiptDate,
+  extractTaxIncludedAmount,
+  extractTaxRate,
+  extractVendorName,
+  parseAccountingReceiptOcrText,
+  toHalfWidthAscii,
+} from './accountingReceiptOcrParse'
+
+describe('toHalfWidthAscii', () => {
+  it('converts full-width alphanumerics', () => {
+    expect(toHalfWidthAscii('Ｔ１２３４５６７８９０１２３')).toBe('T1234567890123')
+  })
+})
+
+describe('extractInvoiceNumber', () => {
+  it.each([
+    ['T1234567890123', 'T1234567890123'],
+    ['登録番号 T 1234 5678 9012 3', 'T1234567890123'],
+    ['T-1234-5678-9012-3', 'T1234567890123'],
+    ['Ｔ１２３４５６７８９０１２３', 'T1234567890123'],
+  ])('normalizes %s', (input, expected) => {
+    expect(extractInvoiceNumber(input)).toBe(expected)
+  })
+})
+
+describe('extractReceiptDate', () => {
+  it.each([
+    ['2026/07/08', '2026-07-08'],
+    ['2026-07-08', '2026-07-08'],
+    ['2026年7月8日', '2026-07-08'],
+    ['26/07/08', '2026-07-08'],
+  ])('parses %s', (input, expected) => {
+    expect(extractReceiptDate(input)).toBe(expected)
+  })
+})
+
+describe('extractTaxIncludedAmount', () => {
+  it('prefers total keywords', () => {
+    const text = `
+      小計 ￥1,000
+      合計 ￥1,100
+      お釣り ￥0
+    `
+
+    expect(extractTaxIncludedAmount(text)).toBe(1100)
+  })
+
+  it('supports yen formats', () => {
+    expect(extractTaxIncludedAmount('総合計 ¥1,100')).toBe(1100)
+    expect(extractTaxIncludedAmount('お支払金額 1100円')).toBe(1100)
+  })
+})
+
+describe('extractConsumptionTaxAmount', () => {
+  it('extracts tax near keyword', () => {
+    expect(extractConsumptionTaxAmount('消費税 100円')).toBe(100)
+  })
+})
+
+describe('extractTaxRate', () => {
+  it('defaults to 10', () => {
+    expect(extractTaxRate('合計 1,100円')).toBe(10)
+  })
+
+  it('detects 8 percent', () => {
+    expect(extractTaxRate('軽減税率 8%')).toBe(8)
+  })
+})
+
+describe('extractVendorName', () => {
+  it('finds company-like line', () => {
+    expect(extractVendorName('株式会社テスト薬局\n2026/07/08\n合計 1,100円')).toBe('株式会社テスト薬局')
+  })
+})
+
+describe('parseAccountingReceiptOcrText', () => {
+  it('builds parsed fields from receipt-like text', () => {
+    const parsed = parseAccountingReceiptOcrText(`
+      株式会社サンプル
+      2026年7月8日
+      合計 ￥1,100
+      消費税 100円
+      登録番号 T1234567890123
+    `)
+
+    expect(parsed.receiptDate).toBe('2026-07-08')
+    expect(parsed.vendorName).toBe('株式会社サンプル')
+    expect(parsed.taxIncludedAmount).toBe(1100)
+    expect(parsed.consumptionTaxAmount).toBe(100)
+    expect(parsed.taxRate).toBe(10)
+    expect(parsed.invoiceNumber).toBe('T1234567890123')
+  })
+})
