@@ -82,6 +82,7 @@ import { FixedCostManagementPanel } from '../components/accounting/FixedCostMana
 import { ExpenseAssetBranchPanel } from '../components/accounting/ExpenseAssetBranchPanel'
 import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedgerPanel'
 import { AuditMaterialsPanel } from '../components/accounting/AuditMaterialsPanel'
+import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPanel'
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
 import {
   buildFixedAssetInputFromDraft,
@@ -160,6 +161,7 @@ type AccountingTab =
   | 'fixed-costs'
   | 'fixed-assets'
   | 'audit'
+  | 'etax'
   | 'export'
   | 'sales'
 
@@ -172,6 +174,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'fixed-assets', label: '固定資産台帳' },
   { tab: 'audit', label: '監査資料' },
   { tab: 'export', label: 'CSV・PDF出力' },
+  { tab: 'etax', label: 'e-Tax入力用決算資料' },
 ]
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
@@ -2009,7 +2012,11 @@ export function AccountingPage() {
           {ACCOUNTING_MAIN_MENU.map(({ tab, label }) => (
             <button
               key={tab}
-              className={activeTab === tab ? 'accounting-main-menu-item is-active' : 'accounting-main-menu-item'}
+              className={
+                activeTab === tab
+                  ? `accounting-main-menu-item is-active${tab === 'etax' ? ' is-etax-featured' : ''}`
+                  : `accounting-main-menu-item${tab === 'etax' ? ' is-etax-featured' : ''}`
+              }
               type="button"
               onClick={() => setActiveTab(tab)}
             >
@@ -3276,6 +3283,22 @@ export function AccountingPage() {
             targetYearMonth={targetYearMonth}
             targetYear={targetYear}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+          />
+        ) : null}
+
+        {activeTab === 'etax' ? (
+          <ETaxSettlementPanel
+            franchiseeId={tenantScope.franchiseeId}
+            storeId={tenantScope.storeId}
+            targetYear={targetYear}
+            targetYearMonth={targetYearMonth}
+            caseRecords={caseRecords}
+            expenses={expenses}
+            adjustments={adjustments}
+            fixedCosts={fixedCosts}
+            fixedAssets={fixedAssets}
+            onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+            onError={setErrorMessage}
           />
         ) : null}
 

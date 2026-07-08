@@ -1677,3 +1677,182 @@ body.route-accounting,
     width: 100%;
   }
 }
+
+.accounting-main-menu-item.is-etax-featured {
+  grid-column: 1 / -1;
+  min-height: 3.5rem;
+  border-color: #1f6feb;
+  background: linear-gradient(180deg, rgba(31, 111, 235, 0.12), rgba(31, 111, 235, 0.04));
+  font-size: 1.05rem;
+}
+
+.accounting-main-menu-item.is-etax-featured.is-active {
+  background: linear-gradient(180deg, rgba(31, 111, 235, 0.2), rgba(31, 111, 235, 0.08));
+}
+
+.accounting-etax-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.accounting-etax-header-card {
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.accounting-etax-header-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0;
+}
+
+.accounting-etax-header-grid dt {
+  margin: 0;
+  color: #5b6472;
+  font-size: 0.85rem;
+}
+
+.accounting-etax-header-grid dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.accounting-etax-role-note {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #eef4ff;
+  color: #1f3b7a;
+  font-size: 0.9rem;
+}
+
+.accounting-etax-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.accounting-etax-menu-card {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 4.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.75rem;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.accounting-etax-menu-card strong {
+  font-size: 0.95rem;
+}
+
+.accounting-etax-menu-card span {
+  color: #5b6472;
+  font-size: 0.85rem;
+}
+
+.accounting-etax-menu-card.is-bulk {
+  border-color: #1f6feb;
+  background: rgba(31, 111, 235, 0.06);
+}
+
+.accounting-etax-menu-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.accounting-etax-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.accounting-etax-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.accounting-etax-lines {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.accounting-etax-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.accounting-etax-line dt {
+  margin: 0;
+  font-weight: 600;
+}
+
+.accounting-etax-line dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.accounting-etax-line.is-unset dd,
+.accounting-etax-line.is-planned dd {
+  color: #5b6472;
+  font-style: italic;
+}
+
+.accounting-etax-footer-note {
+  margin: 0.5rem 0 0;
+  color: #5b6472;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 480px) {
+  .accounting-etax-header-grid,
+  .accounting-etax-menu-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-etax-line {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-etax-line dd {
+    text-align: left;
+  }
+
+  .accounting-etax-section-actions {
+    width: 100%;
+  }
+
+  .accounting-etax-section-actions .secondary-action {
+    flex: 1 1 calc(50% - 0.25rem);
+  }
+}
+
+@media (min-width: 768px) {
+  .accounting-etax-menu-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .accounting-etax-header-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
