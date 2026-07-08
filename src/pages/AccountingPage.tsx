@@ -21,6 +21,7 @@ import {
   deleteAccountingReceipt,
   fetchUnorganizedAccountingReceipts,
   invalidateAccountingReceipt,
+  OCR_IMAGE_UNAVAILABLE_MESSAGE,
   resolveAccountingReceiptDownloadUrl,
   saveReceiptOnly,
   uploadAccountingReceiptImage,
@@ -84,6 +85,7 @@ import {
   applyAccountingReceiptOcrToExpense,
   buildExpenseFormFromReceipt,
   buildReceiptCandidateFieldsFromExpense,
+  formatOcrProcessedAt,
   formatReceiptSavedAt,
   formatYenInputDisplay,
   hasAccountingFormReceiptImage,
@@ -179,6 +181,9 @@ export function AccountingPage() {
   const [invoiceNumberWarning, setInvoiceNumberWarning] = useState('')
   const [unorganizedReceipts, setUnorganizedReceipts] = useState<StoredAccountingReceipt[]>([])
   const [isSavingReceiptOnly, setIsSavingReceiptOnly] = useState(false)
+  const [recentReceiptBlobs, setRecentReceiptBlobs] = useState<Record<string, Blob>>({})
+  const [ocrStatusByReceiptId, setOcrStatusByReceiptId] = useState<Record<string, string>>({})
+  const [ocrProgressMessage, setOcrProgressMessage] = useState('')
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
 
@@ -498,12 +503,51 @@ export function AccountingPage() {
             }
           : current,
       )
+      setRecentReceiptBlobs((current) => ({
+        ...current,
+        [uploaded.receiptId]: file,
+      }))
       setStatusMessage('証憑画像をアップロードしました。OCR読取で候補を反映できます。')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '証憑画像のアップロードに失敗しました。')
     } finally {
       setIsUploadingReceipt(false)
     }
+  }
+
+  const applyOcrResultToExpenseForm = (result: Awaited<ReturnType<typeof runAccountingReceiptOcr>>) => {
+    setExpenseForm((current) =>
+      current ? applyAccountingReceiptOcrToExpense(current, result) : current,
+    )
+    setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
+    if (result.parsed.invoiceNumber) {
+      const validation = validateInvoiceNumberCandidate(result.parsed.invoiceNumber)
+      setInvoiceNumberWarning(validation.warning)
+    }
+    setOcrCandidateNotice(
+      'OCR候補をフォームに反映しました。日付・金額・仕入先等を確認し、経費科目は必ず手動で選択してから保存してください。',
+    )
+  }
+
+  const resolveOcrResultMessage = (result: Awaited<ReturnType<typeof runAccountingReceiptOcr>>) => {
+    if (result.status === 'error') {
+      return result.message ?? 'OCR処理に失敗しました。手入力で登録できます。'
+    }
+
+    if (!result.ocrRawText) {
+      return '文字を読み取れませんでした。手入力で登録できます。'
+    }
+
+    if (
+      !result.parsed.receiptDate &&
+      !result.parsed.vendorName &&
+      !result.parsed.taxIncludedAmount &&
+      !result.parsed.invoiceNumber
+    ) {
+      return 'テキストは読み取れましたが、日付・金額等を自動判定できませんでした。手入力してください。'
+    }
+
+    return result.message ?? 'OCR読取が完了しました。'
   }
 
   const handleRunReceiptOcr = async () => {
@@ -516,6 +560,7 @@ export function AccountingPage() {
     setErrorMessage('')
     setStatusMessage('')
     setOcrCandidateNotice('')
+    setOcrProgressMessage('OCR読取を開始しました。')
 
     try {
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
@@ -523,20 +568,27 @@ export function AccountingPage() {
         storagePath: expenseForm.receiptStoragePath,
       })
 
-      if (!downloadUrl) {
-        setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
+      if (!downloadUrl && !expenseForm.receiptStoragePath?.trim() && !recentReceiptBlobs[expenseForm.receiptId ?? '']) {
+        setErrorMessage(OCR_IMAGE_UNAVAILABLE_MESSAGE)
         return
       }
 
-      if (downloadUrl !== expenseForm.receiptImageUrl) {
+      if (downloadUrl && downloadUrl !== expenseForm.receiptImageUrl) {
         setExpenseForm((current) =>
           current ? { ...current, receiptImageUrl: downloadUrl } : current,
         )
       }
 
+      const receiptId = expenseForm.receiptId ?? ''
       const result = await runAccountingReceiptOcr({
-        downloadUrl,
-        receiptId: expenseForm.receiptId,
+        downloadUrl: downloadUrl || expenseForm.receiptImageUrl,
+        storagePath: expenseForm.receiptStoragePath,
+        receiptId,
+        imageBlob: receiptId ? recentReceiptBlobs[receiptId] : undefined,
+        onProgress: (progress) => {
+          setOcrProgressMessage(progress.message)
+          setStatusMessage(progress.message)
+        },
       })
 
       if (result.status === 'not_configured') {
@@ -546,23 +598,24 @@ export function AccountingPage() {
 
       if (result.status === 'error') {
         setErrorMessage(result.message ?? 'OCR の実行に失敗しました。')
+        setOcrProgressMessage(result.message ?? 'OCR処理に失敗しました。手入力で登録できます。')
         return
       }
 
-      setExpenseForm((current) =>
-        current ? applyAccountingReceiptOcrToExpense(current, result) : current,
-      )
-      setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
-      if (result.parsed.invoiceNumber) {
-        const validation = validateInvoiceNumberCandidate(result.parsed.invoiceNumber)
-        setInvoiceNumberWarning(validation.warning)
+      applyOcrResultToExpenseForm(result)
+
+      if (receiptId) {
+        await applyOcrCandidatesToAccountingReceipt({ receiptId, ocr: result })
+        await reloadUnorganizedReceipts()
       }
-      setOcrCandidateNotice(
-        'OCR候補をフォームに反映しました。日付・金額・仕入先等を確認し、経費科目は必ず手動で選択してから保存してください。',
-      )
-      setStatusMessage(result.message ?? 'OCR候補を反映しました。')
+
+      const resultMessage = resolveOcrResultMessage(result)
+      setOcrProgressMessage(resultMessage)
+      setStatusMessage(resultMessage)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'OCR の実行に失敗しました。')
+      const message = error instanceof Error ? error.message : 'OCR の実行に失敗しました。'
+      setErrorMessage(message)
+      setOcrProgressMessage('OCR処理に失敗しました。手入力で登録できます。')
     } finally {
       setIsRunningOcr(false)
     }
@@ -629,6 +682,10 @@ export function AccountingPage() {
     setOcrRunningReceiptId(receipt.id)
     setErrorMessage('')
     setStatusMessage('')
+    setOcrStatusByReceiptId((current) => ({
+      ...current,
+      [receipt.id]: 'OCR読取を開始しました。',
+    }))
 
     try {
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
@@ -636,24 +693,45 @@ export function AccountingPage() {
         storagePath: receipt.storagePath,
       })
 
-      if (!downloadUrl) {
-        setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
+      if (!downloadUrl && !receipt.storagePath?.trim() && !recentReceiptBlobs[receipt.id]) {
+        const message = OCR_IMAGE_UNAVAILABLE_MESSAGE
+        setErrorMessage(message)
+        setOcrStatusByReceiptId((current) => ({ ...current, [receipt.id]: message }))
         return
       }
 
       const result = await runAccountingReceiptOcr({
-        downloadUrl,
+        downloadUrl: downloadUrl || receipt.downloadUrl,
+        storagePath: receipt.storagePath,
         receiptId: receipt.id,
         fileName: receipt.fileName,
+        mimeType: receipt.mimeType,
+        imageBlob: recentReceiptBlobs[receipt.id],
+        onProgress: (progress) => {
+          setOcrStatusByReceiptId((current) => ({
+            ...current,
+            [receipt.id]: progress.message,
+          }))
+          setStatusMessage(progress.message)
+        },
       })
 
       if (result.status === 'not_configured') {
         setStatusMessage(OCR_NOT_CONFIGURED_MESSAGE)
+        setOcrStatusByReceiptId((current) => ({
+          ...current,
+          [receipt.id]: OCR_NOT_CONFIGURED_MESSAGE,
+        }))
         return
       }
 
       if (result.status === 'error') {
-        setErrorMessage(result.message ?? 'OCR の実行に失敗しました。')
+        const message = result.message ?? 'OCR の実行に失敗しました。'
+        setErrorMessage(message)
+        setOcrStatusByReceiptId((current) => ({
+          ...current,
+          [receipt.id]: `${message} 手入力で登録できます。`,
+        }))
         return
       }
 
@@ -661,19 +739,22 @@ export function AccountingPage() {
       await reloadUnorganizedReceipts()
 
       if (expenseForm?.receiptId === receipt.id) {
-        setExpenseForm((current) =>
-          current ? applyAccountingReceiptOcrToExpense(current, result) : current,
-        )
-        setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
-        if (result.parsed.invoiceNumber) {
-          setInvoiceNumberWarning(validateInvoiceNumberCandidate(result.parsed.invoiceNumber).warning)
-        }
-        setOcrCandidateNotice('OCR候補を反映しました。内容と経費科目を確認してから保存してください。')
+        applyOcrResultToExpenseForm(result)
       }
 
-      setStatusMessage(result.message ?? 'OCR候補を領収書データに反映しました。')
+      const resultMessage = resolveOcrResultMessage(result)
+      setOcrStatusByReceiptId((current) => ({
+        ...current,
+        [receipt.id]: resultMessage,
+      }))
+      setStatusMessage(resultMessage)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'OCR の実行に失敗しました。')
+      const message = error instanceof Error ? error.message : 'OCR の実行に失敗しました。'
+      setErrorMessage(message)
+      setOcrStatusByReceiptId((current) => ({
+        ...current,
+        [receipt.id]: 'OCR処理に失敗しました。手入力で登録できます。',
+      }))
     } finally {
       setOcrRunningReceiptId('')
     }
@@ -1435,6 +1516,11 @@ export function AccountingPage() {
                 </button>
               </div>
               {isUploadingReceipt ? <p className="accounting-note">証憑画像をアップロード中…</p> : null}
+              {isRunningOcr && ocrProgressMessage ? (
+                <p className="accounting-note" role="status">
+                  {ocrProgressMessage}
+                </p>
+              ) : null}
               {expenseForm.receiptImageUrl ? (
                 <div className="accounting-receipt-preview">
                   <img alt="証憑プレビュー" src={expenseForm.receiptImageUrl} />
@@ -1496,10 +1582,27 @@ export function AccountingPage() {
                               <dd>{receipt.invoiceNumberCandidate || '―'}</dd>
                             </div>
                             <div>
+                              <dt>OCR読取日時</dt>
+                              <dd>{formatOcrProcessedAt(receipt.ocrProcessedAt)}</dd>
+                            </div>
+                            <div>
                               <dt>メモ</dt>
                               <dd>{receipt.memo || '―'}</dd>
                             </div>
                           </dl>
+                          {ocrStatusByReceiptId[receipt.id] ? (
+                            <p className="accounting-note accounting-ocr-status" role="status">
+                              {ocrStatusByReceiptId[receipt.id]}
+                            </p>
+                          ) : null}
+                          {receipt.ocrRawText ? (
+                            <details className="accounting-ocr-details">
+                              <summary>OCR読取結果を表示</summary>
+                              <pre className="accounting-ocr-raw-text">{receipt.ocrRawText}</pre>
+                            </details>
+                          ) : receipt.ocrProcessedAt ? (
+                            <p className="accounting-note">OCR全文は空でした。画像の鮮明さを確認してください。</p>
+                          ) : null}
                           <div className="accounting-unorganized-actions">
                             <button
                               className="primary-action"
@@ -1545,6 +1648,7 @@ export function AccountingPage() {
                           <th>仕入先候補</th>
                           <th>金額候補</th>
                           <th>インボイス候補</th>
+                          <th>OCR読取日時</th>
                           <th>メモ</th>
                           <th>状態</th>
                           <th>操作</th>
@@ -1573,6 +1677,7 @@ export function AccountingPage() {
                                 : '―'}
                             </td>
                             <td>{receipt.invoiceNumberCandidate || '―'}</td>
+                            <td>{formatOcrProcessedAt(receipt.ocrProcessedAt)}</td>
                             <td>{receipt.memo || '―'}</td>
                             <td>{RECEIPT_STATUS_LABELS[receipt.status]}</td>
                             <td>

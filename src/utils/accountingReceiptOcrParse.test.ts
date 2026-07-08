@@ -75,6 +75,11 @@ describe('extractVendorName', () => {
   it('finds company-like line', () => {
     expect(extractVendorName('株式会社テスト薬局\n2026/07/08\n合計 1,100円')).toBe('株式会社テスト薬局')
   })
+
+  it('finds Seria receipt vendor', () => {
+    expect(extractVendorName('Seria\n2026/07/08\n合計 995')).toBe('Seria')
+    expect(extractVendorName('セリア\n2026/07/08\n合計 995')).toBe('セリア')
+  })
 })
 
 describe('parseAccountingReceiptOcrText', () => {
@@ -93,5 +98,19 @@ describe('parseAccountingReceiptOcrText', () => {
     expect(parsed.consumptionTaxAmount).toBe(100)
     expect(parsed.taxRate).toBe(10)
     expect(parsed.invoiceNumber).toBe('T1234567890123')
+  })
+
+  it('builds parsed fields from Seria-like receipt text', () => {
+    const parsed = parseAccountingReceiptOcrText(`
+      Seria
+      2026/07/08
+      合計 995
+      登録番号 T4200001013662
+    `)
+
+    expect(parsed.vendorName).toBe('Seria')
+    expect(parsed.receiptDate).toBe('2026-07-08')
+    expect(parsed.taxIncludedAmount).toBe(995)
+    expect(parsed.invoiceNumber).toBe('T4200001013662')
   })
 })

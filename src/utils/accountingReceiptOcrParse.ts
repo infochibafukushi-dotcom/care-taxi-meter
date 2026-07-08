@@ -208,6 +208,12 @@ export const extractVendorName = (text: string) => {
     .filter(Boolean)
 
   for (const line of lines.slice(0, 12)) {
+    if (/(セリア|Seria)/i.test(line) && !isLikelyNoiseLine(line)) {
+      return /セリア/.test(line) ? 'セリア' : 'Seria'
+    }
+  }
+
+  for (const line of lines.slice(0, 12)) {
     if (/(株式会社|有限会社|合同会社|（株）|\(株\)|薬局|医院|クリニック|店)/.test(line)) {
       if (!isLikelyNoiseLine(line)) {
         return line.slice(0, 80)

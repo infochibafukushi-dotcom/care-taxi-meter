@@ -307,6 +307,24 @@ body.route-accounting,
   font-weight: 600;
 }
 
+.accounting-ocr-raw-text {
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.accounting-ocr-status {
+  margin-top: 0.35rem;
+}
+
 .accounting-expense-cards {
   display: none;
   gap: 0.75rem;

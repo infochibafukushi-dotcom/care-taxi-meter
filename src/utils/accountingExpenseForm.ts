@@ -182,7 +182,7 @@ export const buildReceiptCandidateFieldsFromExpense = (
   taxRateCandidate: expense.taxRate,
 })
 
-export const formatReceiptSavedAt = (receipt: StoredAccountingReceipt) => {
+export const formatReceiptSavedAt = (receipt: Pick<StoredAccountingReceipt, 'createdAt' | 'updatedAt'>) => {
   const raw = receipt.createdAt ?? receipt.updatedAt ?? ''
   if (!raw) {
     return '―'
@@ -201,4 +201,12 @@ export const formatReceiptSavedAt = (receipt: StoredAccountingReceipt) => {
     minute: '2-digit',
     timeZone: 'Asia/Tokyo',
   }).format(date)
+}
+
+export const formatOcrProcessedAt = (value?: string) => {
+  if (!value) {
+    return '―'
+  }
+
+  return formatReceiptSavedAt({ createdAt: value, updatedAt: value })
 }

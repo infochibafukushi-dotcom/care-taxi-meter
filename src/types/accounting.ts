@@ -82,6 +82,7 @@ export type AccountingOcrData = {
   ocrRawText?: string
   ocrParsedFields?: OcrParsedFields
   ocrConfidence?: number
+  ocrProcessedAt?: string
   suggestedExpenseCategory?: ExpenseCategory | ''
 }
 

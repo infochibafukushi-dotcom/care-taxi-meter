@@ -11,7 +11,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getBytes, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseApp } from '../lib/firebase'
 import type {
   AccountingReceiptCandidateFields,
@@ -31,6 +31,24 @@ import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
 const collectionName = 'accountingReceipts'
+
+export const OCR_IMAGE_UNAVAILABLE_MESSAGE =
+  'OCRに使用できる画像URLがありません。もう一度撮影してください。'
+
+const guessMimeTypeFromPath = (storagePath: string) => {
+  const lower = storagePath.toLowerCase()
+  if (lower.endsWith('.png')) {
+    return 'image/png'
+  }
+  if (lower.endsWith('.webp')) {
+    return 'image/webp'
+  }
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) {
+    return 'image/heic'
+  }
+
+  return 'image/jpeg'
+}
 
 const isStorageObjectNotFound = (error: unknown) => {
   if (error && typeof error === 'object' && 'code' in error) {
@@ -100,6 +118,7 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
         ? (data.ocrParsedFields as StoredAccountingReceipt['ocrParsedFields'])
         : undefined,
     ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
+    ocrProcessedAt: typeof data.ocrProcessedAt === 'string' ? data.ocrProcessedAt : undefined,
     suggestedExpenseCategory:
       (data.suggestedExpenseCategory as StoredAccountingReceipt['suggestedExpenseCategory']) ?? '',
     uploadedBy: String(data.uploadedBy ?? ''),
@@ -284,9 +303,55 @@ export async function applyOcrCandidatesToAccountingReceipt({
       ocrRawText: ocr.ocrRawText,
       ocrParsedFields: parsed,
       ocrConfidence: ocr.ocrConfidence,
+      ocrProcessedAt: new Date().toISOString(),
       suggestedExpenseCategory: ocr.suggestedExpenseCategory ?? '',
     },
   })
+}
+
+export async function loadAccountingReceiptImageBlob({
+  imageBlob,
+  downloadUrl,
+  storagePath,
+  mimeType,
+}: {
+  imageBlob?: Blob | File | null
+  downloadUrl?: string
+  storagePath?: string
+  mimeType?: string
+}) {
+  if (imageBlob && imageBlob.size > 0) {
+    return imageBlob
+  }
+
+  const normalizedPath = storagePath?.trim() ?? ''
+  if (normalizedPath) {
+    const storage = getStorage(getFirebaseApp())
+    const bytes = await getBytes(ref(storage, normalizedPath))
+    const type = mimeType?.trim() || guessMimeTypeFromPath(normalizedPath)
+
+    return new Blob([bytes], { type })
+  }
+
+  const normalizedUrl = downloadUrl?.trim() ?? ''
+  if (!normalizedUrl) {
+    throw new Error(OCR_IMAGE_UNAVAILABLE_MESSAGE)
+  }
+
+  try {
+    const response = await fetch(normalizedUrl)
+    if (!response.ok) {
+      throw new Error(`証憑画像の取得に失敗しました (${response.status})`)
+    }
+
+    return response.blob()
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `証憑画像の取得に失敗しました。${error.message}`
+        : OCR_IMAGE_UNAVAILABLE_MESSAGE,
+    )
+  }
 }
 
 export async function linkAccountingReceiptToExpense({
