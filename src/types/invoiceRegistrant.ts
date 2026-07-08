@@ -12,9 +12,9 @@ export type InvoiceRegistrantInfo = {
   expireDate?: string
   kind?: string
   process?: string
-  lookupMethod: 'インボイス番号検索'
+  lookupMethod: 'インボイス番号検索' | 'fallback'
   lookedUpAt: string
-  source: 'nta-invoice-api' | 'cache'
+  source: 'nta-invoice-api' | 'cache' | 'fallback'
 }
 
 export type InvoiceRegistrantLookupResult =
@@ -22,6 +22,9 @@ export type InvoiceRegistrantLookupResult =
       status: 'success'
       registrant: InvoiceRegistrantInfo
       invoiceCheckStatus: '確認済'
+      /** API 失敗時に既知番号フォールバックを使った場合 true */
+      usedFallback?: boolean
+      fallbackReason?: string
     }
   | {
       status: 'not_found'

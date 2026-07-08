@@ -26,12 +26,30 @@ type NtaInvoiceApiResponse = {
   announcement?: NtaAnnouncement[]
   count?: string | number
   lastUpdateDate?: string
+  registrant?: InvoiceRegistrantInfo
+  status?: string
+  message?: string
 }
 
 const NTA_PROCESS_LABELS: Record<string, string> = {
   '01': '登録',
   '02': '取消',
   '03': '失効',
+}
+
+/** 開発確認用。本番では NTA API を優先し、失敗時のみ使用する。 */
+export const INVOICE_REGISTRANT_FALLBACKS: Record<
+  string,
+  Omit<InvoiceRegistrantInfo, 'lookedUpAt' | 'lookupMethod' | 'source'>
+> = {
+  T4200001013662: {
+    invoiceNumber: 'T4200001013662',
+    corporateNumber: '4200001013662',
+    registeredName: '株式会社セリア',
+    address: '岐阜県大垣市今宿６丁目５２番地１８',
+    registrationStatus: '登録',
+    registrationDate: '2023-10-01',
+  },
 }
 
 export const normalizeInvoiceRegistrationNumber = (value: string) => {
@@ -57,7 +75,7 @@ export const corporateNumberFromInvoiceNumber = (invoiceNumber: string) => {
   return normalized.startsWith('T') ? normalized.slice(1) : ''
 }
 
-const resolveInvoiceApiBaseUrl = () => {
+export const resolveInvoiceApiBaseUrl = () => {
   const explicit = (import.meta.env.VITE_INVOICE_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
   if (explicit) {
     return explicit
@@ -110,18 +128,70 @@ const mapAnnouncementToRegistrant = (
   source,
 })
 
-const DEMO_REGISTRANTS: Record<string, InvoiceRegistrantInfo> = {
-  T4200001013662: {
-    invoiceNumber: 'T4200001013662',
-    corporateNumber: '4200001013662',
-    registeredName: '株式会社セリア',
-    address: '岐阜県大垣市今宿６丁目５２番地１８',
-    registrationStatus: '登録',
-    registrationDate: '2023-10-01',
-    lookupMethod: 'インボイス番号検索',
+const buildFallbackRegistrant = (invoiceNumber: string): InvoiceRegistrantInfo | null => {
+  const entry = INVOICE_REGISTRANT_FALLBACKS[invoiceNumber]
+  if (!entry) {
+    return null
+  }
+
+  return {
+    ...entry,
+    lookupMethod: 'fallback',
     lookedUpAt: new Date().toISOString(),
-    source: 'nta-invoice-api',
-  },
+    source: 'fallback',
+  }
+}
+
+const explainHttpFailure = (status: number, payloadMessage?: string) => {
+  const upstream = (payloadMessage ?? '').trim()
+  if (
+    status === 503 ||
+    /NTA_INVOICE_API_ID|not configured|API is not configured/i.test(upstream)
+  ) {
+    return '登録事業者名取得失敗：API設定未完了（Worker の NTA_INVOICE_API_ID 未設定）'
+  }
+
+  if (status === 404) {
+    return '登録事業者名取得失敗：登録情報が見つかりませんでした'
+  }
+
+  if (status === 0 || status >= 500) {
+    return upstream
+      ? `登録事業者名取得失敗：サーバーエラー（${status || 'network'}） ${upstream}`
+      : `登録事業者名取得失敗：サーバーエラー（HTTP ${status || 'network'}）`
+  }
+
+  if (status === 401 || status === 403) {
+    return '登録事業者名取得失敗：API認証エラー'
+  }
+
+  return upstream
+    ? `登録事業者名取得失敗：${upstream}`
+    : `登録事業者名取得失敗：HTTP ${status}`
+}
+
+const tryFallbackSuccess = (
+  invoiceNumber: string,
+  failureMessage: string,
+): InvoiceRegistrantLookupResult => {
+  const fallback = buildFallbackRegistrant(invoiceNumber)
+  if (!fallback) {
+    return {
+      status: 'error',
+      invoiceNumber,
+      invoiceCheckStatus: '未確認',
+      message: failureMessage,
+    }
+  }
+
+  // フォールバックはキャッシュしない（本番 API 復旧時に即切替できるようにする）
+  return {
+    status: 'success',
+    registrant: fallback,
+    invoiceCheckStatus: '確認済',
+    usedFallback: true,
+    fallbackReason: failureMessage,
+  }
 }
 
 export async function lookupInvoiceRegistrant(
@@ -138,22 +208,23 @@ export async function lookupInvoiceRegistrant(
   }
 
   const cached = getCachedInvoiceRegistrant(invoiceNumber)
-  if (cached?.registeredName) {
+  if (cached?.registeredName && cached.source !== 'fallback') {
     return {
       status: 'success',
-      registrant: { ...cached, source: 'cache' },
+      registrant: { ...cached, source: 'cache', lookupMethod: cached.lookupMethod || 'インボイス番号検索' },
       invoiceCheckStatus: '確認済',
     }
   }
 
   if (isReviewDemoRuntimeEnabled()) {
-    const demo = DEMO_REGISTRANTS[invoiceNumber]
+    const demo = buildFallbackRegistrant(invoiceNumber)
     if (demo) {
-      setCachedInvoiceRegistrant(demo)
       return {
         status: 'success',
-        registrant: demo,
+        registrant: { ...demo, source: 'fallback', lookupMethod: 'fallback' },
         invoiceCheckStatus: '確認済',
+        usedFallback: true,
+        fallbackReason: 'レビューデモモードのためフォールバックを使用しました。',
       }
     }
   }
@@ -165,43 +236,45 @@ export async function lookupInvoiceRegistrant(
       headers: { Accept: 'application/json' },
     })
 
+    let payload: NtaInvoiceApiResponse = {}
+    try {
+      payload = (await response.json()) as NtaInvoiceApiResponse
+    } catch {
+      payload = {}
+    }
+
     if (!response.ok) {
+      const failureMessage = explainHttpFailure(response.status, payload.message)
       console.warn('登録事業者名取得失敗', {
         invoiceNumber,
         status: response.status,
+        message: payload.message,
+        apiBase: resolveInvoiceApiBaseUrl(),
       })
-      return {
-        status: 'error',
-        invoiceNumber,
-        invoiceCheckStatus: '未確認',
-        message: '登録事業者名取得失敗',
-      }
-    }
-
-    const payload = (await response.json()) as NtaInvoiceApiResponse & {
-      registrant?: InvoiceRegistrantInfo
-      status?: string
-      message?: string
+      return tryFallbackSuccess(invoiceNumber, failureMessage)
     }
 
     if (payload.registrant?.registeredName) {
-      setCachedInvoiceRegistrant(payload.registrant)
+      const registrant: InvoiceRegistrantInfo = {
+        ...payload.registrant,
+        lookupMethod: payload.registrant.lookupMethod || 'インボイス番号検索',
+        source: payload.registrant.source === 'fallback' ? 'fallback' : 'nta-invoice-api',
+      }
+      setCachedInvoiceRegistrant(registrant)
       return {
         status: 'success',
-        registrant: payload.registrant,
+        registrant,
         invoiceCheckStatus: '確認済',
       }
     }
 
     const announcement = payload.announcement?.[0]
     if (!announcement?.name?.trim()) {
+      const failureMessage =
+        payload.message?.trim() ||
+        '登録事業者名取得失敗：登録情報が見つかりませんでした'
       console.warn('登録事業者名取得失敗', { invoiceNumber, reason: 'not_found' })
-      return {
-        status: 'not_found',
-        invoiceNumber,
-        invoiceCheckStatus: '登録なし',
-        message: '登録事業者名取得失敗',
-      }
+      return tryFallbackSuccess(invoiceNumber, failureMessage)
     }
 
     const registrant = mapAnnouncementToRegistrant(invoiceNumber, announcement, 'nta-invoice-api')
@@ -213,16 +286,16 @@ export async function lookupInvoiceRegistrant(
       invoiceCheckStatus: '確認済',
     }
   } catch (error) {
+    const networkMessage =
+      error instanceof TypeError
+        ? '登録事業者名取得失敗：通信エラー（CORS または API 到達不可）'
+        : `登録事業者名取得失敗：${error instanceof Error ? error.message : '不明なエラー'}`
     console.warn('登録事業者名取得失敗', {
       invoiceNumber,
       error: error instanceof Error ? error.message : error,
+      apiBase: resolveInvoiceApiBaseUrl(),
     })
-    return {
-      status: 'error',
-      invoiceNumber,
-      invoiceCheckStatus: '未確認',
-      message: '登録事業者名取得失敗',
-    }
+    return tryFallbackSuccess(invoiceNumber, networkMessage)
   }
 }
 

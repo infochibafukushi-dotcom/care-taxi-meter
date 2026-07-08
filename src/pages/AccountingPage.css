@@ -272,6 +272,24 @@ body.route-accounting,
   white-space: nowrap;
 }
 
+.accounting-quote-success {
+  margin: 0;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.85rem;
+}
+
+.accounting-quote-error {
+  margin: 0;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.85rem;
+}
+
 .accounting-audit-menu {
   margin-top: 0.5rem;
   padding: 0.85rem 1rem;

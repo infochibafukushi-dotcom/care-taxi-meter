@@ -281,6 +281,10 @@ export function AccountingPage() {
   const [receiptImageZoom, setReceiptImageZoom] = useState(1)
   const [isLookingUpInvoice, setIsLookingUpInvoice] = useState(false)
   const [isAuditMenuOpen, setIsAuditMenuOpen] = useState(false)
+  const [invoiceQuoteMessage, setInvoiceQuoteMessage] = useState<{
+    tone: 'success' | 'error'
+    text: string
+  } | null>(null)
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
 
@@ -509,12 +513,42 @@ export function AccountingPage() {
     })
 
   const resetExpenseFormToNew = () => {
+    const clearingReceiptId = expenseForm?.receiptId
     setEditingExpenseId('')
     setIsConsumptionTaxManual(false)
     setOcrCandidateNotice('')
     setInvoiceNumberWarning('')
+    setInvoiceQuoteMessage(null)
+    setReceiptImageZoom(1)
+    setIsLookingUpInvoice(false)
+    setIsAuditMenuOpen(false)
+    setOcrProgressMessage('')
     clearReceiptPreviewObjectUrl()
+    if (clearingReceiptId) {
+      setRecentReceiptBlobs((current) => {
+        if (!(clearingReceiptId in current)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[clearingReceiptId]
+        return next
+      })
+      setOcrStatusByReceiptId((current) => {
+        if (!(clearingReceiptId in current)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[clearingReceiptId]
+        return next
+      })
+    }
     setExpenseForm(buildFreshExpenseForm())
+    setStatusMessage('入力フォームとプレビューを初期化しました（保存済み領収書は削除していません）。')
+    setErrorMessage('')
+  }
+
+  const resetReceiptImageZoomOnly = () => {
+    setReceiptImageZoom(1)
   }
 
   const reloadUnorganizedReceipts = async () => {
@@ -561,6 +595,16 @@ export function AccountingPage() {
       },
     })
   }
+
+  const currentFormDuplicateMatches = useMemo(() => {
+    if (!expenseForm) {
+      return []
+    }
+    return findExpenseDuplicates(
+      expenses,
+      buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
+    )
+  }, [editingExpenseId, expenseForm, expenses])
 
   const handleExpenseFieldChange = <K extends keyof AccountingExpenseInput>(
     key: K,
@@ -677,6 +721,10 @@ export function AccountingPage() {
 
   const handleQuoteInvoiceRegistrant = async () => {
     if (!expenseForm?.invoiceNumber?.trim()) {
+      setInvoiceQuoteMessage({
+        tone: 'error',
+        text: 'インボイス番号を入力してから【引用】を押してください。',
+      })
       setErrorMessage('インボイス番号を入力してから【引用】を押してください。')
       return
     }
@@ -684,6 +732,7 @@ export function AccountingPage() {
     setIsLookingUpInvoice(true)
     setErrorMessage('')
     setStatusMessage('')
+    setInvoiceQuoteMessage(null)
     try {
       const lookup = await lookupInvoiceRegistrant(expenseForm.invoiceNumber)
       if (lookup.status === 'success') {
@@ -711,7 +760,11 @@ export function AccountingPage() {
               }
             : current,
         )
-        setStatusMessage(`登録事業者「${registrant.registeredName}」を仕入先へ反映しました。`)
+        const successText = lookup.usedFallback
+          ? `仕入先へ「${registrant.registeredName}」を反映しました（取得方法: fallback）。${lookup.fallbackReason ?? ''}`
+          : `仕入先へ「${registrant.registeredName}」を反映しました（インボイスあり・確認済）。`
+        setInvoiceQuoteMessage({ tone: 'success', text: successText })
+        setStatusMessage(successText)
         return
       }
 
@@ -727,13 +780,17 @@ export function AccountingPage() {
             }
           : current,
       )
-      setErrorMessage(
-        lookup.status === 'skipped'
-          ? lookup.message || 'インボイス検索をスキップしました。手入力してください。'
-          : lookup.message || '登録事業者を取得できませんでした。手入力してください。',
-      )
+      const failureText =
+        lookup.message || '登録事業者名取得失敗：原因不明。手入力で仕入先を入力してください。'
+      setInvoiceQuoteMessage({ tone: 'error', text: failureText })
+      setErrorMessage(failureText)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'インボイス引用に失敗しました。')
+      const failureText =
+        error instanceof Error
+          ? `登録事業者名取得失敗：${error.message}`
+          : 'インボイス引用に失敗しました。'
+      setInvoiceQuoteMessage({ tone: 'error', text: failureText })
+      setErrorMessage(failureText)
     } finally {
       setIsLookingUpInvoice(false)
     }
@@ -2274,9 +2331,16 @@ export function AccountingPage() {
                       <button
                         className="secondary-action"
                         type="button"
-                        onClick={() => setReceiptImageZoom(1)}
+                        onClick={resetReceiptImageZoomOnly}
                       >
-                        リセット
+                        ズーム解除
+                      </button>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={resetExpenseFormToNew}
+                      >
+                        入力リセット
                       </button>
                     </div>
                     <div className="accounting-expense-image-viewport">
@@ -2322,9 +2386,21 @@ export function AccountingPage() {
                       disabled={isLookingUpInvoice || !expenseForm.invoiceNumber?.trim()}
                       onClick={() => void handleQuoteInvoiceRegistrant()}
                     >
-                      {isLookingUpInvoice ? '引用中…' : '引用'}
+                      {isLookingUpInvoice ? '取得中...' : '引用'}
                     </button>
                   </div>
+                  {invoiceQuoteMessage ? (
+                    <p
+                      className={
+                        invoiceQuoteMessage.tone === 'success'
+                          ? 'accounting-quote-success'
+                          : 'accounting-quote-error'
+                      }
+                      role={invoiceQuoteMessage.tone === 'success' ? 'status' : 'alert'}
+                    >
+                      {invoiceQuoteMessage.text}
+                    </p>
+                  ) : null}
                   {invoiceNumberWarning ? (
                     <p className="accounting-warning" role="alert">
                       {invoiceNumberWarning}
@@ -2571,6 +2647,9 @@ export function AccountingPage() {
                     >
                       {editingExpenseId ? '経費を更新' : '経費を登録（確定）'}
                     </button>
+                    <button className="secondary-action" type="button" onClick={resetExpenseFormToNew}>
+                      入力リセット
+                    </button>
                     {editingExpenseId ? (
                       <button className="secondary-action" type="button" onClick={resetExpenseFormToNew}>
                         新規入力に切替
@@ -2652,11 +2731,33 @@ export function AccountingPage() {
                       </div>
                       <div>
                         <dt>論理削除</dt>
-                        <dd>{expenseForm.isDeleted ? '削除済み' : '未削除'}</dd>
+                        <dd>
+                          {expenseForm.isDeleted
+                            ? `削除済み${expenseForm.deletedAt ? ` / ${expenseForm.deletedAt}` : ''}${
+                                expenseForm.deletedBy ? ` / by ${expenseForm.deletedBy}` : ''
+                              }`
+                            : '未削除'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>削除理由</dt>
+                        <dd>{expenseForm.deleteReason || '―'}</dd>
                       </div>
                       <div>
                         <dt>lineItems（将来の複数仕訳）</dt>
                         <dd>{expenseForm.lineItems?.length ?? 0}件</dd>
+                      </div>
+                      <div>
+                        <dt>二重計上チェック</dt>
+                        <dd>
+                          {currentFormDuplicateMatches.length > 0
+                            ? `候補あり（${currentFormDuplicateMatches.length}件）`
+                            : '該当なし'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>電子証憑リンク</dt>
+                        <dd>{expenseForm.receiptId ? 'receiptId 紐付けあり' : '未紐付け'}</dd>
                       </div>
                     </dl>
                     <label>

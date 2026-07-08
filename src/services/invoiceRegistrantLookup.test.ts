@@ -60,6 +60,28 @@ describe('lookupInvoiceRegistrant', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('falls back to Seria when API returns 503 not configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        status: 'error',
+        message: 'Invoice API is not configured (NTA_INVOICE_API_ID)',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await lookupInvoiceRegistrant('T4200001013662')
+    expect(result.status).toBe('success')
+    if (result.status === 'success') {
+      expect(result.registrant.registeredName).toBe('株式会社セリア')
+      expect(result.registrant.lookupMethod).toBe('fallback')
+      expect(result.registrant.source).toBe('fallback')
+      expect(result.usedFallback).toBe(true)
+      expect(result.fallbackReason).toContain('API設定未完了')
+    }
+  })
+
   it('prefers search result over OCR vendor when applying lookup', () => {
     const applied = applyInvoiceRegistrantLookupToParsedFields(
       {
