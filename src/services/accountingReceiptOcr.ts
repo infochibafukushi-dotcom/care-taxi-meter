@@ -1,10 +1,11 @@
 import { createWorker, OEM } from 'tesseract.js'
+import tesseractWorkerUrl from 'tesseract.js/dist/worker.min.js?url'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
+import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
 import { parseAccountingReceiptOcrText } from '../utils/accountingReceiptOcrParse'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { loadAccountingReceiptImageBlob } from './accountingReceipts'
 
-const TESSERACT_VERSION = '7.0.0'
 const TESSERACT_CORE_VERSION = '5.1.0'
 const WORKER_INIT_TIMEOUT_MS = 120_000
 
@@ -53,10 +54,10 @@ const reportProgress = (
 }
 
 const getTesseractWorkerOptions = (onProgress?: RunAccountingReceiptOcrInput['onProgress']) => ({
-  workerPath: `https://cdn.jsdelivr.net/npm/tesseract.js@v${TESSERACT_VERSION}/dist/worker.min.js`,
+  workerPath: tesseractWorkerUrl,
   corePath: `https://cdn.jsdelivr.net/npm/tesseract.js-core@v${TESSERACT_CORE_VERSION}`,
   langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data',
-  workerBlobURL: false,
+  workerBlobURL: true,
   logger: (message: { status?: string; progress?: number }) => {
     if (message.status === 'loading tesseract core' || message.status === 'initializing tesseract') {
       reportProgress(onProgress, 'preparing-worker')
@@ -168,15 +169,17 @@ export async function runAccountingReceiptOcr(
       mimeType: input.mimeType,
     })
 
+    const ocrImage = await normalizeAccountingReceiptImage(imageBlob)
+
     console.info('[Accounting OCR] image fetched', {
-      size: imageBlob.size,
-      type: imageBlob.type,
+      size: ocrImage.size,
+      type: ocrImage.type,
     })
 
     const worker = await getOcrWorker(input.onProgress)
     reportProgress(input.onProgress, 'recognizing')
 
-    const { data } = await worker.recognize(imageBlob)
+    const { data } = await worker.recognize(ocrImage)
     const ocrRawText = data.text?.trim() ?? ''
     const ocrConfidence =
       typeof data.confidence === 'number' && data.confidence > 0 ? data.confidence / 100 : undefined

@@ -122,6 +122,15 @@ body.route-accounting,
 .accounting-panel {
   display: grid;
   gap: 1rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.accounting-expense-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .accounting-note {
@@ -235,6 +244,11 @@ body.route-accounting,
   border: 1px solid #bae6fd;
   border-radius: 0.75rem;
   background: #f0f9ff;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .accounting-receipt-flow h3 {
@@ -247,9 +261,18 @@ body.route-accounting,
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.accounting-receipt-actions > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .accounting-receipt-upload-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -259,6 +282,7 @@ body.route-accounting,
   cursor: pointer;
   font-weight: 600;
   text-align: center;
+  box-sizing: border-box;
 }
 
 .accounting-receipt-upload-button.secondary-action {
@@ -278,11 +302,41 @@ body.route-accounting,
   border: 0;
 }
 
+.accounting-receipt-preview {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .accounting-receipt-preview img {
-  max-width: 240px;
-  max-height: 240px;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: min(50vh, 320px);
+  object-fit: contain;
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
+  background: #fff;
+}
+
+.accounting-receipt-path {
+  margin: 0.35rem 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.accounting-receipt-error {
+  margin: 0;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
 }
 
 .accounting-tax-input-row {
@@ -482,6 +536,11 @@ body.route-accounting,
   border: 1px solid #fde68a;
   border-radius: 0.75rem;
   background: #fffbeb;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .accounting-unorganized-panel h3 {
@@ -500,11 +559,19 @@ body.route-accounting,
   border-radius: 0.75rem;
   padding: 0.85rem;
   background: #fff;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .accounting-unorganized-thumb {
+  display: block;
   width: 100%;
+  max-width: 100%;
   max-height: 220px;
+  height: auto;
   object-fit: contain;
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;

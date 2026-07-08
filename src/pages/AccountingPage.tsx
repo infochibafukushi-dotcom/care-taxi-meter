@@ -29,6 +29,7 @@ import {
   type StoredAccountingReceipt,
 } from '../services/accountingReceipts'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
+import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
@@ -187,12 +188,42 @@ export function AccountingPage() {
   const [recentReceiptBlobs, setRecentReceiptBlobs] = useState<Record<string, Blob>>({})
   const [ocrStatusByReceiptId, setOcrStatusByReceiptId] = useState<Record<string, string>>({})
   const [ocrProgressMessage, setOcrProgressMessage] = useState('')
+  const [receiptPreviewObjectUrl, setReceiptPreviewObjectUrl] = useState('')
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
 
   const canAccess = canAccessAccounting(role)
+
+  useEffect(() => {
+    return () => {
+      if (receiptPreviewObjectUrl) {
+        URL.revokeObjectURL(receiptPreviewObjectUrl)
+      }
+    }
+  }, [receiptPreviewObjectUrl])
+
+  const clearReceiptPreviewObjectUrl = () => {
+    setReceiptPreviewObjectUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current)
+      }
+
+      return ''
+    })
+  }
+
+  const setReceiptPreviewFromFile = (file: File) => {
+    const previewUrl = URL.createObjectURL(file)
+    setReceiptPreviewObjectUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current)
+      }
+
+      return previewUrl
+    })
+  }
 
   useEffect(() => {
     if (!canAccess) {
@@ -376,6 +407,7 @@ export function AccountingPage() {
     setIsConsumptionTaxManual(false)
     setOcrCandidateNotice('')
     setInvoiceNumberWarning('')
+    clearReceiptPreviewObjectUrl()
     setExpenseForm(buildFreshExpenseForm())
   }
 
@@ -487,7 +519,7 @@ export function AccountingPage() {
     setStatusMessage('消費税額を再計算しました。')
   }
 
-  const handleReceiptUpload = async (file: File | null) => {
+  const handleReceiptUpload = async (file: File | null, input?: HTMLInputElement | null) => {
     if (!file || !expenseForm) {
       return
     }
@@ -495,10 +527,14 @@ export function AccountingPage() {
     setIsUploadingReceipt(true)
     setStatusMessage('')
     setErrorMessage('')
+    setOcrProgressMessage('')
 
     try {
+      const normalizedFile = await normalizeAccountingReceiptImage(file)
+      setReceiptPreviewFromFile(normalizedFile)
+
       const uploaded = await uploadAccountingReceiptImage({
-        file,
+        file: normalizedFile,
         franchiseeId: tenantScope.franchiseeId,
         storeId: tenantScope.storeId,
         uploadedBy: staffId,
@@ -517,13 +553,17 @@ export function AccountingPage() {
       )
       setRecentReceiptBlobs((current) => ({
         ...current,
-        [uploaded.receiptId]: file,
+        [uploaded.receiptId]: normalizedFile,
       }))
       setStatusMessage('証憑画像をアップロードしました。OCR読取で候補を反映できます。')
     } catch (error) {
+      clearReceiptPreviewObjectUrl()
       setErrorMessage(error instanceof Error ? error.message : '証憑画像のアップロードに失敗しました。')
     } finally {
       setIsUploadingReceipt(false)
+      if (input) {
+        input.value = ''
+      }
     }
   }
 
@@ -677,6 +717,7 @@ export function AccountingPage() {
     setOcrCandidateNotice(
       '未整理領収書から経費入力フォームへ引き継ぎました。内容と経費科目を確認してから保存してください。',
     )
+    clearReceiptPreviewObjectUrl()
     setInvoiceNumberWarning(
       form.invoiceNumber ? validateInvoiceNumberCandidate(form.invoiceNumber).warning : '',
     )
@@ -1543,7 +1584,9 @@ export function AccountingPage() {
                     className="accounting-hidden-input"
                     disabled={isUploadingReceipt || isRunningOcr}
                     type="file"
-                    onChange={(event) => void handleReceiptUpload(event.target.files?.[0] ?? null)}
+                    onChange={(event) =>
+                      void handleReceiptUpload(event.target.files?.[0] ?? null, event.currentTarget)
+                    }
                   />
                 </label>
                 <label className="accounting-receipt-upload-button secondary-action">
@@ -1553,7 +1596,9 @@ export function AccountingPage() {
                     className="accounting-hidden-input"
                     disabled={isUploadingReceipt || isRunningOcr}
                     type="file"
-                    onChange={(event) => void handleReceiptUpload(event.target.files?.[0] ?? null)}
+                    onChange={(event) =>
+                      void handleReceiptUpload(event.target.files?.[0] ?? null, event.currentTarget)
+                    }
                   />
                 </label>
                 <button
@@ -1573,16 +1618,26 @@ export function AccountingPage() {
                   {isSavingReceiptOnly ? '保存中…' : '領収書だけ保存'}
                 </button>
               </div>
+              {errorMessage ? (
+                <p className="accounting-receipt-error" role="alert">
+                  {errorMessage}
+                </p>
+              ) : null}
               {isUploadingReceipt ? <p className="accounting-note">証憑画像をアップロード中…</p> : null}
               {isRunningOcr && ocrProgressMessage ? (
-                <p className="accounting-note" role="status">
+                <p className="accounting-note accounting-ocr-status" role="status">
                   {ocrProgressMessage}
                 </p>
               ) : null}
-              {expenseForm.receiptImageUrl ? (
+              {receiptPreviewObjectUrl || expenseForm.receiptImageUrl ? (
                 <div className="accounting-receipt-preview">
-                  <img alt="証憑プレビュー" src={expenseForm.receiptImageUrl} />
-                  <p>{expenseForm.receiptStoragePath}</p>
+                  <img
+                    alt="証憑プレビュー"
+                    src={receiptPreviewObjectUrl || expenseForm.receiptImageUrl}
+                  />
+                  {expenseForm.receiptStoragePath ? (
+                    <p className="accounting-receipt-path">{expenseForm.receiptStoragePath}</p>
+                  ) : null}
                 </div>
               ) : expenseForm.receiptStoragePath ? (
                 <p className="accounting-note">証憑画像をアップロード済みです（{expenseForm.receiptStoragePath}）。OCR読取を実行できます。</p>
