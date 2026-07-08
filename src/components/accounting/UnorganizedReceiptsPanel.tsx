@@ -114,10 +114,15 @@ export function UnorganizedReceiptsPanel({
                       {ocrStatusByReceiptId[receipt.id]}
                     </p>
                   ) : null}
-                  <div className="accounting-unorganized-actions">
+                  <div className="accounting-unorganized-primary-actions">
                     <button className="primary-action" type="button" onClick={() => onRegisterAsExpense(receipt)}>
                       編集する
                     </button>
+                    <button className="secondary-action" type="button" onClick={() => onDelete(receipt.id)}>
+                      削除
+                    </button>
+                  </div>
+                  <div className="accounting-unorganized-actions">
                     <button
                       className="secondary-action"
                       disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
@@ -131,9 +136,6 @@ export function UnorganizedReceiptsPanel({
                     </button>
                     <button className="secondary-action" type="button" onClick={() => onReject(receipt)}>
                       登録しない
-                    </button>
-                    <button className="secondary-action" type="button" onClick={() => onDelete(receipt.id)}>
-                      削除
                     </button>
                   </div>
                 </div>
@@ -161,9 +163,14 @@ export function UnorganizedReceiptsPanel({
                     </td>
                     <td>{RECEIPT_STATUS_LABELS[receipt.status]}</td>
                     <td>
-                      <button className="primary-action" type="button" onClick={() => onRegisterAsExpense(receipt)}>
-                        編集する
-                      </button>
+                      <div className="accounting-unorganized-table-actions">
+                        <button className="primary-action" type="button" onClick={() => onRegisterAsExpense(receipt)}>
+                          編集する
+                        </button>
+                        <button className="secondary-action" type="button" onClick={() => onDelete(receipt.id)}>
+                          削除
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

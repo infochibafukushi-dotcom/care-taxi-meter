@@ -969,6 +969,27 @@ body.route-accounting,
   gap: 0.5rem;
 }
 
+.accounting-unorganized-primary-actions,
+.accounting-unorganized-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.accounting-unorganized-primary-actions {
+  margin-bottom: 0.5rem;
+}
+
+.accounting-unorganized-primary-actions .primary-action,
+.accounting-unorganized-primary-actions .secondary-action,
+.accounting-unorganized-table-actions .primary-action,
+.accounting-unorganized-table-actions .secondary-action {
+  flex: 1 1 calc(50% - 0.25rem);
+  min-width: 0;
+  max-width: 100%;
+}
+
 .accounting-unorganized-table-thumb {
   width: 72px;
   height: 72px;
@@ -1465,6 +1486,19 @@ body.route-accounting,
   .accounting-unorganized-actions .primary-action,
   .accounting-unorganized-actions .secondary-action {
     width: 100%;
+  }
+
+  .accounting-unorganized-primary-actions,
+  .accounting-unorganized-table-actions {
+    flex-direction: row;
+  }
+
+  .accounting-unorganized-primary-actions .primary-action,
+  .accounting-unorganized-primary-actions .secondary-action,
+  .accounting-unorganized-table-actions .primary-action,
+  .accounting-unorganized-table-actions .secondary-action {
+    width: auto;
+    flex: 1 1 calc(50% - 0.25rem);
   }
 
   .accounting-tax-input-row {

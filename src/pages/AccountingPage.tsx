@@ -1448,13 +1448,14 @@ export function AccountingPage() {
 
   const handleDeleteUnorganizedReceipt = async (receiptId: string) => {
     const confirmed = window.confirm(
-      'この未整理の領収書データとアップロード画像を削除します。元に戻せません。削除してよろしいですか？',
+      'この未整理の領収書を削除します。よろしいですか？\n※削除すると元に戻せません。',
     )
     if (!confirmed) {
       return
     }
 
     try {
+      setErrorMessage('')
       const result = await deleteAccountingReceipt(receiptId)
 
       if (expenseForm?.receiptId === receiptId) {
