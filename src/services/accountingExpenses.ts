@@ -64,12 +64,17 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     postingDate: typeof data.postingDate === 'string' ? data.postingDate : undefined,
     plTreatment: normalizePlTreatment(data.plTreatment),
     vendorName: String(data.vendorName ?? ''),
+    storeName: typeof data.storeName === 'string' ? data.storeName : '',
+    phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : '',
     description: String(data.description ?? ''),
     expenseCategory: (data.expenseCategory as StoredAccountingExpense['expenseCategory']) ?? '',
     taxIncludedAmount: Number(data.taxIncludedAmount ?? 0),
     taxRate: Number(data.taxRate ?? 0),
     consumptionTaxAmount: Number(data.consumptionTaxAmount ?? 0),
     paymentMethod: (data.paymentMethod as StoredAccountingExpense['paymentMethod']) ?? '',
+    lineItems: Array.isArray(data.lineItems)
+      ? (data.lineItems as StoredAccountingExpense['lineItems'])
+      : [],
     invoiceNumber: typeof data.invoiceNumber === 'string' ? data.invoiceNumber : '',
     invoiceCheckStatus:
       typeof data.invoiceCheckStatus === 'string'
@@ -321,6 +326,8 @@ export const buildEmptyExpenseInput = ({
     postingDate: today,
     plTreatment: 'expense',
     vendorName: '',
+    storeName: '',
+    phoneNumber: '',
     description: '',
     expenseCategory: '',
     taxIncludedAmount: 0,
@@ -344,6 +351,7 @@ export const buildEmptyExpenseInput = ({
     receiptImageUrl: '',
     receiptStoragePath: '',
     receiptId: '',
+    lineItems: [],
     confirmationStatus: '未確認',
     memo: '',
     ocrRawText: '',

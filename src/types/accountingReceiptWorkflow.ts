@@ -75,6 +75,24 @@ export type AccountingReceiptConfirmedFields = {
   memo?: string
   phoneNumber?: string
   address?: string
+  storeName?: string
+  /**
+   * 将来の複数仕訳（例: 車検=整備代+重量税）。
+   * 現状の UI は1行だが、データ構造として維持する。
+   */
+  lineItems?: AccountingExpenseLineItemDraft[]
+}
+
+/** 1枚の領収書を複数明細へ分割するための下書き型（将来対応） */
+export type AccountingExpenseLineItemDraft = {
+  id: string
+  description: string
+  expenseCategory: ExpenseCategory | ''
+  taxIncludedAmount: number
+  consumptionTaxAmount?: number
+  taxRate?: number
+  taxCategory: TaxCategory
+  invoiceStatus?: InvoiceStatus
 }
 
 export type AccountingReceiptEditHistoryEntry = {
@@ -138,4 +156,6 @@ export const buildEmptyConfirmedFields = (): AccountingReceiptConfirmedFields =>
   memo: '',
   phoneNumber: '',
   address: '',
+  storeName: '',
+  lineItems: [],
 })

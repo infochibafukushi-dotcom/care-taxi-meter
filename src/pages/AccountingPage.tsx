@@ -30,6 +30,7 @@ import {
   type StoredAccountingReceipt,
 } from '../services/accountingReceipts'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
+import { lookupInvoiceRegistrant } from '../services/invoiceRegistrantLookup'
 import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
@@ -48,7 +49,6 @@ import type { StaffRole } from '../types/work'
 import {
   ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
   EXPENSE_CATEGORIES,
-  INVOICE_CHECK_STATUSES,
   INVOICE_STATUS_LABELS,
   INVOICE_STATUSES,
   PAYMENT_METHODS,
@@ -68,7 +68,6 @@ import {
   type AccountingExpenseInput,
   type ExpenseCategory,
   type ExpenseConfirmationStatus,
-  type InvoiceCheckStatus,
   type InvoiceStatus,
   type PlTreatment,
   type SalesCategory,
@@ -279,6 +278,9 @@ export function AccountingPage() {
     severity: 'warning' | 'strong'
     onContinue: () => void
   } | null>(null)
+  const [receiptImageZoom, setReceiptImageZoom] = useState(1)
+  const [isLookingUpInvoice, setIsLookingUpInvoice] = useState(false)
+  const [isAuditMenuOpen, setIsAuditMenuOpen] = useState(false)
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
 
@@ -587,6 +589,23 @@ export function AccountingPage() {
         next.receiptDate = String(value)
       }
 
+      if (key === 'taxCategory') {
+        if (value === 'non_taxable' || value === 'out_of_scope') {
+          next.taxRate = 0
+          if (!isConsumptionTaxManual) {
+            next.consumptionTaxAmount = 0
+          }
+        } else if (next.taxRate === 0) {
+          next.taxRate = 10
+          if (!isConsumptionTaxManual) {
+            next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(
+              next.taxIncludedAmount,
+              10,
+            )
+          }
+        }
+      }
+
       if (key === 'invoiceNumber') {
         const validation = validateInvoiceNumberCandidate(String(value))
         setInvoiceNumberWarning(validation.warning)
@@ -654,6 +673,74 @@ export function AccountingPage() {
     })
     setIsConsumptionTaxManual(false)
     setStatusMessage('消費税額を再計算しました。')
+  }
+
+  const handleQuoteInvoiceRegistrant = async () => {
+    if (!expenseForm?.invoiceNumber?.trim()) {
+      setErrorMessage('インボイス番号を入力してから【引用】を押してください。')
+      return
+    }
+
+    setIsLookingUpInvoice(true)
+    setErrorMessage('')
+    setStatusMessage('')
+    try {
+      const lookup = await lookupInvoiceRegistrant(expenseForm.invoiceNumber)
+      if (lookup.status === 'success') {
+        const registrant = lookup.registrant
+        setExpenseForm((current) =>
+          current
+            ? {
+                ...current,
+                vendorName: registrant.registeredName || current.vendorName,
+                invoiceNumber: registrant.invoiceNumber || current.invoiceNumber,
+                invoiceRegisteredName: registrant.registeredName,
+                invoiceRegisteredNameVerified: true,
+                invoiceCorporateNumber: registrant.corporateNumber,
+                invoiceAddress: registrant.address || '',
+                invoiceRegistrationStatus: registrant.registrationStatus,
+                invoiceRegistrationDate: registrant.registrationDate || '',
+                invoiceTradeName: registrant.tradeName || '',
+                invoiceLookupMethod: registrant.lookupMethod,
+                invoiceRegistrant: registrant,
+                invoiceCheckStatus: '確認済',
+                invoiceStatus: 'verified',
+                invoiceCheckedAt: registrant.lookedUpAt || new Date().toISOString(),
+                updatedBy: staffId,
+                updatedByName: staffName,
+              }
+            : current,
+        )
+        setStatusMessage(`登録事業者「${registrant.registeredName}」を仕入先へ反映しました。`)
+        return
+      }
+
+      setExpenseForm((current) =>
+        current
+          ? {
+              ...current,
+              invoiceRegisteredNameVerified: false,
+              invoiceCheckStatus: lookup.invoiceCheckStatus,
+              invoiceStatus: lookup.status === 'not_found' ? 'none' : current.invoiceStatus,
+              updatedBy: staffId,
+              updatedByName: staffName,
+            }
+          : current,
+      )
+      setErrorMessage(
+        lookup.status === 'skipped'
+          ? lookup.message || 'インボイス検索をスキップしました。手入力してください。'
+          : lookup.message || '登録事業者を取得できませんでした。手入力してください。',
+      )
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'インボイス引用に失敗しました。')
+    } finally {
+      setIsLookingUpInvoice(false)
+    }
+  }
+
+  const adjustReceiptImageZoom = (delta: number) => {
+    setReceiptImageZoom((current) => Math.min(3, Math.max(0.5, Number((current + delta).toFixed(2)))))
   }
 
   const handleReceiptUpload = async (file: File | null, input?: HTMLInputElement | null) => {
@@ -1852,7 +1939,7 @@ export function AccountingPage() {
                 </p>
               ) : null}
               {receiptPreviewObjectUrl || expenseForm.receiptImageUrl ? (
-                <div className="accounting-receipt-preview">
+                <div className="accounting-receipt-preview accounting-receipt-preview--flow">
                   <img
                     alt="証憑プレビュー"
                     src={receiptPreviewObjectUrl || expenseForm.receiptImageUrl}
@@ -1862,7 +1949,9 @@ export function AccountingPage() {
                   ) : null}
                 </div>
               ) : expenseForm.receiptStoragePath ? (
-                <p className="accounting-note">証憑画像をアップロード済みです（{expenseForm.receiptStoragePath}）。OCR読取を実行できます。</p>
+                <p className="accounting-note accounting-receipt-preview--flow">
+                  証憑画像をアップロード済みです（{expenseForm.receiptStoragePath}）。OCR読取を実行できます。
+                </p>
               ) : null}
               {expenseForm.ocrConfidence != null ? (
                 <p className="accounting-note">OCR信頼度（参考）: {(expenseForm.ocrConfidence * 100).toFixed(0)}%</p>
@@ -2162,366 +2251,429 @@ export function AccountingPage() {
               )}
             </section>
 
-            <div className="accounting-form-grid">
-              <label>
-                証憑日
-                <input
-                  type="date"
-                  value={expenseForm.receiptDate ?? getExpenseReceiptDate(expenseForm)}
-                  onChange={(event) => handleExpenseFieldChange('receiptDate', event.target.value)}
-                />
-              </label>
-              <label>
-                計上日
-                <input
-                  type="date"
-                  value={expenseForm.postingDate ?? getExpensePostingDate(expenseForm)}
-                  onChange={(event) => handleExpenseFieldChange('postingDate', event.target.value)}
-                />
-              </label>
-              <label>
-                仕入先
-                <input
-                  type="text"
-                  value={expenseForm.vendorName}
-                  onChange={(event) => handleExpenseFieldChange('vendorName', event.target.value)}
-                />
-              </label>
-              <label className="accounting-form-span-2">
-                内容
-                <input
-                  type="text"
-                  value={expenseForm.description}
-                  onChange={(event) => handleExpenseFieldChange('description', event.target.value)}
-                />
-              </label>
-              <label>
-                経費科目（必須・手動確定）
-                <select
-                  value={expenseForm.expenseCategory}
-                  onChange={(event) =>
-                    handleExpenseFieldChange('expenseCategory', event.target.value as ExpenseCategory | '')
-                  }
-                >
-                  <option value="">未選択</option>
-                  {EXPENSE_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {expenseForm.suggestedExpenseCategory ? (
-                <p className="accounting-suggestion accounting-form-span-2">
-                  OCR/AI科目候補: {expenseForm.suggestedExpenseCategory}
-                  {shouldAutoApplyOcrCandidates(expenseForm.ocrConfidence) &&
-                  expenseForm.expenseCategory === expenseForm.suggestedExpenseCategory
-                    ? '（信頼度が高いため自動反映済み）'
-                    : '（参考値）'}
-                </p>
-              ) : null}
-              <label>
-                PL反映区分
-                <select
-                  value={expenseForm.plTreatment ?? 'expense'}
-                  onChange={(event) =>
-                    handleExpenseFieldChange('plTreatment', event.target.value as PlTreatment)
-                  }
-                >
-                  {PL_TREATMENTS.map((treatment) => (
-                    <option key={treatment} value={treatment}>
-                      {PL_TREATMENT_LABELS[treatment]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                税込金額(円)
-                <input
-                  inputMode="numeric"
-                  placeholder="例：551000"
-                  type="text"
-                  value={formatYenInputDisplay(expenseForm.taxIncludedAmount, isNewExpenseEntry)}
-                  onChange={(event) => handleTaxIncludedAmountChange(event.target.value)}
-                />
-              </label>
-              <label>
-                税率(%)
-                <input
-                  inputMode="decimal"
-                  min="0"
-                  type="number"
-                  value={expenseForm.taxRate}
-                  onChange={(event) => handleExpenseFieldChange('taxRate', Number(event.target.value))}
-                />
-              </label>
-              <label className="accounting-tax-field">
-                消費税額(円)
-                <div className="accounting-tax-input-row">
-                  <input
-                    inputMode="numeric"
-                    placeholder="例：50090"
-                    type="text"
-                    value={formatYenInputDisplay(
-                      expenseForm.consumptionTaxAmount,
-                      isNewExpenseEntry && !isConsumptionTaxManual,
+            <section className="accounting-expense-editor" aria-label="経費確認・編集">
+              <aside className="accounting-expense-editor-image" aria-label="領収書画像">
+                {receiptPreviewObjectUrl || expenseForm.receiptImageUrl ? (
+                  <>
+                    <div className="accounting-expense-image-toolbar">
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => adjustReceiptImageZoom(-0.25)}
+                      >
+                        縮小
+                      </button>
+                      <span>{Math.round(receiptImageZoom * 100)}%</span>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => adjustReceiptImageZoom(0.25)}
+                      >
+                        拡大
+                      </button>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => setReceiptImageZoom(1)}
+                      >
+                        リセット
+                      </button>
+                    </div>
+                    <div className="accounting-expense-image-viewport">
+                      <img
+                        alt="領収書"
+                        className="accounting-expense-image"
+                        src={receiptPreviewObjectUrl || expenseForm.receiptImageUrl}
+                        style={{ transform: `scale(${receiptImageZoom})` }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="accounting-note">
+                    左に領収書画像が表示されます。未整理から「編集する」、または撮影・アップロードしてください。
+                  </p>
+                )}
+              </aside>
+
+              <div className="accounting-expense-editor-form">
+                <div className="accounting-form-stack">
+                  <label>
+                    ① 証憑日
+                    <input
+                      type="date"
+                      value={expenseForm.receiptDate ?? getExpenseReceiptDate(expenseForm)}
+                      onChange={(event) => handleExpenseFieldChange('receiptDate', event.target.value)}
+                    />
+                  </label>
+
+                  <div className="accounting-invoice-quote-row">
+                    <label>
+                      ② インボイス番号
+                      <input
+                        type="text"
+                        value={expenseForm.invoiceNumber ?? ''}
+                        placeholder="T4200001013662"
+                        onChange={(event) => handleExpenseFieldChange('invoiceNumber', event.target.value)}
+                      />
+                    </label>
+                    <button
+                      className="secondary-action accounting-invoice-quote-button"
+                      type="button"
+                      disabled={isLookingUpInvoice || !expenseForm.invoiceNumber?.trim()}
+                      onClick={() => void handleQuoteInvoiceRegistrant()}
+                    >
+                      {isLookingUpInvoice ? '引用中…' : '引用'}
+                    </button>
+                  </div>
+                  {invoiceNumberWarning ? (
+                    <p className="accounting-warning" role="alert">
+                      {invoiceNumberWarning}
+                    </p>
+                  ) : null}
+                  {expenseForm.invoiceStatus === 'none' ? (
+                    <p className="accounting-warning" role="status">
+                      インボイス番号がないため、仕入税額控除の対象は要確認です。
+                    </p>
+                  ) : null}
+
+                  <label>
+                    ③ 仕入先
+                    <input
+                      type="text"
+                      value={expenseForm.vendorName}
+                      onChange={(event) => handleExpenseFieldChange('vendorName', event.target.value)}
+                    />
+                  </label>
+                  {expenseForm.invoiceRegisteredNameVerified && expenseForm.invoiceRegisteredName ? (
+                    <p className="accounting-note">登録事業者名（引用）: {expenseForm.invoiceRegisteredName}</p>
+                  ) : null}
+
+                  <div className="accounting-form-pair">
+                    <label>
+                      ④ 店舗名
+                      <input
+                        type="text"
+                        value={expenseForm.storeName ?? ''}
+                        onChange={(event) => handleExpenseFieldChange('storeName', event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      電話番号
+                      <input
+                        type="tel"
+                        value={expenseForm.phoneNumber ?? ''}
+                        onChange={(event) => handleExpenseFieldChange('phoneNumber', event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <label>
+                    ⑤ 合計金額（税込・円）
+                    <input
+                      inputMode="numeric"
+                      placeholder="例：55000"
+                      type="text"
+                      value={formatYenInputDisplay(expenseForm.taxIncludedAmount, isNewExpenseEntry)}
+                      onChange={(event) => handleTaxIncludedAmountChange(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    消費税額（円・自動計算／手修正可）
+                    <div className="accounting-tax-input-row">
+                      <input
+                        inputMode="numeric"
+                        placeholder="例：5000"
+                        type="text"
+                        value={formatYenInputDisplay(
+                          expenseForm.consumptionTaxAmount,
+                          isNewExpenseEntry && !isConsumptionTaxManual,
+                        )}
+                        onChange={(event) => handleConsumptionTaxAmountChange(event.target.value)}
+                      />
+                      <button
+                        className="secondary-action accounting-recalc-tax-button"
+                        type="button"
+                        onClick={handleRecalculateConsumptionTax}
+                      >
+                        税額を再計算
+                      </button>
+                    </div>
+                  </label>
+
+                  <fieldset className="accounting-radio-fieldset">
+                    <legend>⑥ 税区分</legend>
+                    <div className="accounting-radio-row">
+                      {TAX_CATEGORIES.map((category) => (
+                        <label key={category} className="accounting-radio-label">
+                          <input
+                            type="radio"
+                            name="taxCategory"
+                            checked={(expenseForm.taxCategory ?? 'taxable') === category}
+                            onChange={() => handleExpenseFieldChange('taxCategory', category as TaxCategory)}
+                          />
+                          {TAX_CATEGORY_LABELS[category]}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <fieldset className="accounting-radio-fieldset">
+                    <legend>税率</legend>
+                    <div className="accounting-radio-row">
+                      {[10, 8, 0].map((rate) => (
+                        <label key={rate} className="accounting-radio-label">
+                          <input
+                            type="radio"
+                            name="taxRate"
+                            checked={expenseForm.taxRate === rate}
+                            onChange={() => handleExpenseFieldChange('taxRate', rate)}
+                          />
+                          {rate}%
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <label>
+                    ⑦ 経費科目
+                    <select
+                      value={expenseForm.expenseCategory}
+                      onChange={(event) =>
+                        handleExpenseFieldChange('expenseCategory', event.target.value as ExpenseCategory | '')
+                      }
+                    >
+                      <option value="">未選択</option>
+                      {EXPENSE_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {expenseForm.suggestedExpenseCategory ? (
+                    <p className="accounting-suggestion">
+                      OCR科目候補: {expenseForm.suggestedExpenseCategory}
+                      {shouldAutoApplyOcrCandidates(expenseForm.ocrConfidence) &&
+                      expenseForm.expenseCategory === expenseForm.suggestedExpenseCategory
+                        ? '（自動反映済み・要確認）'
+                        : '（参考・集計には未使用）'}
+                    </p>
+                  ) : null}
+
+                  <label>
+                    ⑧ 支払方法
+                    <select
+                      value={expenseForm.paymentMethod}
+                      onChange={(event) =>
+                        handleExpenseFieldChange(
+                          'paymentMethod',
+                          event.target.value as AccountingExpenseInput['paymentMethod'],
+                        )
+                      }
+                    >
+                      <option value="">未選択</option>
+                      {PAYMENT_METHODS.filter((method) => method !== '電子マネー' && method !== '役員立替').map(
+                        (method) => (
+                          <option key={method} value={method}>
+                            {method}
+                          </option>
+                        ),
+                      )}
+                      {(expenseForm.paymentMethod === '電子マネー' ||
+                        expenseForm.paymentMethod === '役員立替') && (
+                        <option value={expenseForm.paymentMethod}>{expenseForm.paymentMethod}</option>
+                      )}
+                    </select>
+                  </label>
+
+                  <label>
+                    ⑨ メモ
+                    <textarea
+                      rows={3}
+                      value={expenseForm.memo ?? ''}
+                      onChange={(event) => handleExpenseFieldChange('memo', event.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    内容（任意・商品名など）
+                    <input
+                      type="text"
+                      value={expenseForm.description}
+                      onChange={(event) => handleExpenseFieldChange('description', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    計上日
+                    <input
+                      type="date"
+                      value={expenseForm.postingDate ?? getExpensePostingDate(expenseForm)}
+                      onChange={(event) => handleExpenseFieldChange('postingDate', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    PL反映区分
+                    <select
+                      value={expenseForm.plTreatment ?? 'expense'}
+                      onChange={(event) =>
+                        handleExpenseFieldChange('plTreatment', event.target.value as PlTreatment)
+                      }
+                    >
+                      {PL_TREATMENTS.map((treatment) => (
+                        <option key={treatment} value={treatment}>
+                          {PL_TREATMENT_LABELS[treatment]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    確認状態
+                    <select
+                      value={expenseForm.confirmationStatus}
+                      onChange={(event) =>
+                        handleExpenseFieldChange(
+                          'confirmationStatus',
+                          event.target.value as ExpenseConfirmationStatus,
+                        )
+                      }
+                    >
+                      {confirmationStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <fieldset className="accounting-radio-fieldset">
+                    <legend>インボイス</legend>
+                    <div className="accounting-radio-row">
+                      {INVOICE_STATUSES.map((status) => (
+                        <label key={status} className="accounting-radio-label">
+                          <input
+                            type="radio"
+                            name="invoiceStatus"
+                            checked={(expenseForm.invoiceStatus ?? 'unknown') === status}
+                            onChange={() =>
+                              handleExpenseFieldChange('invoiceStatus', status as InvoiceStatus)
+                            }
+                          />
+                          {INVOICE_STATUS_LABELS[status]}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <div className="accounting-form-actions">
+                    <button
+                      className="primary-action"
+                      type="button"
+                      disabled={isSavingExpense || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
+                      onClick={() => void handleSaveExpense()}
+                    >
+                      {editingExpenseId ? '経費を更新' : '経費を登録（確定）'}
+                    </button>
+                    {editingExpenseId ? (
+                      <button className="secondary-action" type="button" onClick={resetExpenseFormToNew}>
+                        新規入力に切替
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <details
+                    className="accounting-audit-menu"
+                    open={isAuditMenuOpen}
+                    onToggle={(event) => setIsAuditMenuOpen(event.currentTarget.open)}
+                  >
+                    <summary>証明・監査メニュー</summary>
+                    <p className="accounting-note">
+                      日常業務では不要です。画像ハッシュ・修正履歴・電子証憑情報など、監査・証明用にまとめています。
+                    </p>
+                    <dl className="accounting-audit-grid">
+                      <div>
+                        <dt>imageHash</dt>
+                        <dd>{expenseForm.imageHash || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>imageUrl</dt>
+                        <dd>{expenseForm.receiptImageUrl || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>storagePath</dt>
+                        <dd>{expenseForm.receiptStoragePath || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>receiptId / receiptStatus</dt>
+                        <dd>
+                          {expenseForm.receiptId || '―'} / {expenseForm.receiptStatus || '―'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>OCR日時</dt>
+                        <dd>{formatOcrProcessedAt(expenseForm.ocrProcessedAt)}</dd>
+                      </div>
+                      <div>
+                        <dt>OCR信頼度</dt>
+                        <dd>
+                          {expenseForm.ocrConfidence != null
+                            ? `${(expenseForm.ocrConfidence * 100).toFixed(0)}%`
+                            : '―'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>登録者</dt>
+                        <dd>
+                          {expenseForm.createdByName || expenseForm.createdBy || '―'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>更新者</dt>
+                        <dd>
+                          {expenseForm.updatedByName || expenseForm.updatedBy || '―'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>法人番号</dt>
+                        <dd>{expenseForm.invoiceCorporateNumber || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>所在地</dt>
+                        <dd>{expenseForm.invoiceAddress || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>インボイス確認日時</dt>
+                        <dd>{expenseForm.invoiceCheckedAt || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>取得方法</dt>
+                        <dd>{expenseForm.invoiceLookupMethod || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>確認状態（インボイス）</dt>
+                        <dd>{expenseForm.invoiceCheckStatus || '―'}</dd>
+                      </div>
+                      <div>
+                        <dt>論理削除</dt>
+                        <dd>{expenseForm.isDeleted ? '削除済み' : '未削除'}</dd>
+                      </div>
+                      <div>
+                        <dt>lineItems（将来の複数仕訳）</dt>
+                        <dd>{expenseForm.lineItems?.length ?? 0}件</dd>
+                      </div>
+                    </dl>
+                    <label>
+                      OCR全文（候補・集計非対象）
+                      <textarea readOnly rows={4} value={expenseForm.ocrRawText ?? ''} />
+                    </label>
+                    {expenseForm.ocrCandidates ? (
+                      <pre className="accounting-audit-json">
+                        {JSON.stringify(expenseForm.ocrCandidates, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="accounting-note">OCR候補データはありません。</p>
                     )}
-                    onChange={(event) => handleConsumptionTaxAmountChange(event.target.value)}
-                  />
-                  <button
-                    className="secondary-action accounting-recalc-tax-button"
-                    type="button"
-                    onClick={handleRecalculateConsumptionTax}
-                  >
-                    税額を再計算
-                  </button>
+                  </details>
                 </div>
-              </label>
-              <label>
-                支払方法
-                <select
-                  value={expenseForm.paymentMethod}
-                  onChange={(event) =>
-                    handleExpenseFieldChange(
-                      'paymentMethod',
-                      event.target.value as AccountingExpenseInput['paymentMethod'],
-                    )
-                  }
-                >
-                  <option value="">未選択</option>
-                  {PAYMENT_METHODS.map((method) => (
-                    <option key={method} value={method}>
-                      {method}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                インボイス番号
-                <input
-                  type="text"
-                  value={expenseForm.invoiceNumber ?? ''}
-                  onChange={(event) => handleExpenseFieldChange('invoiceNumber', event.target.value)}
-                />
-              </label>
-              {invoiceNumberWarning ? (
-                <p className="accounting-warning accounting-form-span-2" role="alert">
-                  {invoiceNumberWarning}
-                </p>
-              ) : null}
-              {expenseForm.invoiceStatus === 'none' ? (
-                <p className="accounting-warning accounting-form-span-2" role="status">
-                  インボイス番号がないため、仕入税額控除の対象は要確認です。
-                </p>
-              ) : null}
-              <fieldset className="accounting-form-span-2 accounting-radio-fieldset">
-                <legend>税区分</legend>
-                <div className="accounting-radio-row">
-                  {TAX_CATEGORIES.map((category) => (
-                    <label key={category} className="accounting-radio-label">
-                      <input
-                        type="radio"
-                        name="taxCategory"
-                        checked={(expenseForm.taxCategory ?? 'taxable') === category}
-                        onChange={() => handleExpenseFieldChange('taxCategory', category as TaxCategory)}
-                      />
-                      {TAX_CATEGORY_LABELS[category]}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <fieldset className="accounting-form-span-2 accounting-radio-fieldset">
-                <legend>インボイス</legend>
-                <div className="accounting-radio-row">
-                  {INVOICE_STATUSES.map((status) => (
-                    <label key={status} className="accounting-radio-label">
-                      <input
-                        type="radio"
-                        name="invoiceStatus"
-                        checked={(expenseForm.invoiceStatus ?? 'unknown') === status}
-                        onChange={() => handleExpenseFieldChange('invoiceStatus', status as InvoiceStatus)}
-                      />
-                      {INVOICE_STATUS_LABELS[status]}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <label>
-                インボイス確認
-                <select
-                  value={expenseForm.invoiceCheckStatus ?? '未確認'}
-                  onChange={(event) =>
-                    handleExpenseFieldChange('invoiceCheckStatus', event.target.value as InvoiceCheckStatus)
-                  }
-                >
-                  {INVOICE_CHECK_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {expenseForm.invoiceRegisteredNameVerified && expenseForm.invoiceRegisteredName ? (
-                <label className="accounting-form-span-2">
-                  登録事業者名
-                  <input type="text" readOnly value={expenseForm.invoiceRegisteredName} />
-                </label>
-              ) : (
-                <label className="accounting-form-span-2">
-                  登録事業者名（手入力）
-                  <input
-                    type="text"
-                    value={expenseForm.invoiceRegisteredName ?? ''}
-                    onChange={(event) =>
-                      handleExpenseFieldChange('invoiceRegisteredName', event.target.value)
-                    }
-                  />
-                </label>
-              )}
-              {expenseForm.invoiceCorporateNumber ? (
-                <label>
-                  法人番号
-                  <input type="text" readOnly value={expenseForm.invoiceCorporateNumber} />
-                </label>
-              ) : null}
-              {expenseForm.invoiceAddress ? (
-                <label className="accounting-form-span-2">
-                  所在地
-                  <input type="text" readOnly value={expenseForm.invoiceAddress} />
-                </label>
-              ) : null}
-              {expenseForm.invoiceRegistrationStatus ? (
-                <label>
-                  登録状況
-                  <input type="text" readOnly value={expenseForm.invoiceRegistrationStatus} />
-                </label>
-              ) : null}
-              {expenseForm.invoiceRegistrationDate ? (
-                <label>
-                  登録年月日
-                  <input type="text" readOnly value={expenseForm.invoiceRegistrationDate} />
-                </label>
-              ) : null}
-              <label>
-                インボイス確認日時
-                <input
-                  type="datetime-local"
-                  value={
-                    expenseForm.invoiceCheckedAt
-                      ? expenseForm.invoiceCheckedAt.slice(0, 16)
-                      : ''
-                  }
-                  onChange={(event) =>
-                    handleExpenseFieldChange(
-                      'invoiceCheckedAt',
-                      event.target.value ? `${event.target.value}:00` : '',
-                    )
-                  }
-                />
-              </label>
-              <label>
-                確認状態
-                <select
-                  value={expenseForm.confirmationStatus}
-                  onChange={(event) =>
-                    handleExpenseFieldChange(
-                      'confirmationStatus',
-                      event.target.value as ExpenseConfirmationStatus,
-                    )
-                  }
-                >
-                  {confirmationStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="accounting-form-span-2">
-                メモ
-                <textarea
-                  rows={3}
-                  value={expenseForm.memo ?? ''}
-                  onChange={(event) => handleExpenseFieldChange('memo', event.target.value)}
-                />
-              </label>
-              <details className="accounting-form-span-2 accounting-ocr-details">
-                <summary>OCR詳細（候補データ）</summary>
-                <p className="accounting-note">以下は OCR 候補の保存用です。経費科目は上の選択欄で手動確定してください。</p>
-                <dl className="accounting-ocr-invoice-summary">
-                  <div>
-                    <dt>OCR番号</dt>
-                    <dd>
-                      {expenseForm.ocrParsedFields?.invoiceOcrNumber ||
-                        expenseForm.invoiceNumber ||
-                        '―'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>検索結果</dt>
-                    <dd>
-                      {expenseForm.invoiceRegisteredNameVerified
-                        ? expenseForm.invoiceRegisteredName || '―'
-                        : '―'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>取得方法</dt>
-                    <dd>{expenseForm.invoiceLookupMethod || '―'}</dd>
-                  </div>
-                </dl>
-                <label>
-                  OCR全文
-                  <textarea
-                    readOnly
-                    rows={3}
-                    value={expenseForm.ocrRawText ?? ''}
-                  />
-                </label>
-                <label>
-                  ocrConfidence
-                  <input
-                    readOnly
-                    type="number"
-                    step="0.01"
-                    value={expenseForm.ocrConfidence ?? ''}
-                  />
-                </label>
-                <label>
-                  suggestedExpenseCategory（参考・自動確定しない）
-                  <select
-                    disabled
-                    value={expenseForm.suggestedExpenseCategory ?? ''}
-                  >
-                    <option value="">未設定</option>
-                    {EXPENSE_CATEGORIES.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </details>
-              <div className="accounting-form-actions accounting-form-span-2">
-                <button
-                  className="primary-action"
-                  type="button"
-                  disabled={isSavingExpense || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
-                  onClick={() => void handleSaveExpense()}
-                >
-                  {editingExpenseId ? '経費を更新' : '経費を登録'}
-                </button>
-                {editingExpenseId ? (
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    onClick={resetExpenseFormToNew}
-                  >
-                    新規入力に切替
-                  </button>
-                ) : null}
               </div>
-            </div>
+            </section>
 
             <section className="accounting-expense-summaries" aria-label="経費集計サマリー">
               <h3>{formatYearMonthLabel(targetYearMonth)} の集計（確認済み・未削除）</h3>

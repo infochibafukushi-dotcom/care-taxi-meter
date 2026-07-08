@@ -230,11 +230,18 @@ export const buildExpenseFormFromReceipt = ({
       candidates?.vendorName ||
       receipt.ocrParsedFields?.vendorName ||
       '',
+    storeName: confirmed?.storeName || '',
+    phoneNumber:
+      confirmed?.phoneNumber ||
+      candidates?.phoneNumber ||
+      receipt.ocrParsedFields?.phoneNumber ||
+      '',
     description:
       confirmed?.description ||
       candidates?.description ||
       receipt.ocrParsedFields?.description ||
       '',
+    lineItems: confirmed?.lineItems ?? [],
     taxIncludedAmount,
     taxRate,
     consumptionTaxAmount,
