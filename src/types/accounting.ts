@@ -1,4 +1,39 @@
 import type { InvoiceRegistrantInfo } from './invoiceRegistrant'
+import type {
+  AccountingReceiptConfirmedFields,
+  AccountingReceiptEditHistoryEntry,
+  AccountingReceiptOcrCandidates,
+  AccountingReceiptWorkflowStatus,
+  AccountingSourceDevice,
+  InvoiceStatus,
+  TaxCategory,
+} from './accountingReceiptWorkflow'
+
+export type {
+  AccountingReceiptConfirmedFields,
+  AccountingReceiptEditHistoryEntry,
+  AccountingReceiptOcrCandidates,
+  AccountingReceiptWorkflowStatus,
+  AccountingSourceDevice,
+  InvoiceStatus,
+  TaxCategory,
+} from './accountingReceiptWorkflow'
+
+export {
+  ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
+  ACCOUNTING_RECEIPT_WORKFLOW_STATUSES,
+  ACCOUNTING_SOURCE_DEVICES,
+  INVOICE_STATUS_LABELS,
+  INVOICE_STATUSES,
+  TAX_CATEGORY_LABELS,
+  TAX_CATEGORIES,
+  buildEmptyConfirmedFields,
+  detectSourceDevice,
+  isConfirmedReceiptForAggregation,
+  normalizeAccountingReceiptWorkflowStatus,
+  normalizeInvoiceStatus,
+  normalizeTaxCategory,
+} from './accountingReceiptWorkflow'
 
 export const SALES_CATEGORIES = [
   '運賃',
@@ -128,6 +163,8 @@ export type OcrParsedFields = {
   invoiceLookupMethod?: string
   /** OCR番号（検索に使った登録番号） */
   invoiceOcrNumber?: string
+  phoneNumber?: string
+  address?: string
 }
 
 export type AccountingOcrData = {
@@ -137,6 +174,7 @@ export type AccountingOcrData = {
   ocrProcessedAt?: string
   suggestedExpenseCategory?: ExpenseCategory | ''
   invoiceRegistrant?: InvoiceRegistrantInfo
+  ocrCandidates?: AccountingReceiptOcrCandidates
 }
 
 export type AccountingTenantFields = {
@@ -174,6 +212,8 @@ export type AccountingExpenseInput = AccountingTenantFields &
     invoiceRegistrationDate?: string
     invoiceTradeName?: string
     invoiceLookupMethod?: string
+    taxCategory?: TaxCategory
+    invoiceStatus?: InvoiceStatus
     receiptImageUrl?: string
     receiptStoragePath?: string
     receiptId?: string
@@ -229,10 +269,19 @@ export type AccountingReceiptInput = AccountingTenantFields &
   AccountingOcrData & {
     storagePath: string
     downloadUrl: string
+    /** alias for downloadUrl — used by mobile→PC workflows */
+    imageUrl?: string
     mimeType: string
     fileName: string
     fileSizeBytes: number
     status: ReceiptStatus
+    /** ワークフロー状態 draft / ocr_ready / confirmed / rejected */
+    receiptStatus?: AccountingReceiptWorkflowStatus
+    confirmed?: AccountingReceiptConfirmedFields
+    editHistory?: AccountingReceiptEditHistoryEntry[]
+    sourceDevice?: AccountingSourceDevice
+    createdBy?: string
+    updatedBy?: string
     linkedExpenseId?: string
     uploadedBy: string
     uploadedByName: string
@@ -325,13 +374,13 @@ export type MonthlyProfitLoss = {
 }
 
 export const normalizeReceiptStatus = (value: unknown, linkedExpenseId?: string): ReceiptStatus => {
-  if (value === 'linked') {
-    return 'linked'
+  if (value === 'linked' || value === 'confirmed') {
+    return linkedExpenseId || value === 'linked' ? 'linked' : 'unorganized'
   }
-  if (value === 'invalid' || value === 'invalidated') {
+  if (value === 'invalid' || value === 'invalidated' || value === 'rejected') {
     return 'invalid'
   }
-  if (value === 'unorganized') {
+  if (value === 'unorganized' || value === 'draft' || value === 'ocr_ready') {
     return 'unorganized'
   }
   // 旧 status: active は linkedExpenseId の有無で解釈
@@ -339,6 +388,23 @@ export const normalizeReceiptStatus = (value: unknown, linkedExpenseId?: string)
     return linkedExpenseId ? 'linked' : 'unorganized'
   }
   return linkedExpenseId ? 'linked' : 'unorganized'
+}
+
+export const mapLegacyStatusToWorkflow = (
+  status: ReceiptStatus,
+  hasOcr: boolean,
+  linkedExpenseId?: string,
+): AccountingReceiptWorkflowStatus => {
+  if (status === 'invalid') {
+    return 'rejected'
+  }
+  if (status === 'linked' || linkedExpenseId) {
+    return 'confirmed'
+  }
+  if (hasOcr) {
+    return 'ocr_ready'
+  }
+  return 'draft'
 }
 
 export const normalizePlTreatment = (value: unknown): PlTreatment => {

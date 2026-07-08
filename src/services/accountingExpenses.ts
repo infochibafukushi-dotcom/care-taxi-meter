@@ -74,9 +74,24 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
       typeof data.invoiceRegistrationDate === 'string' ? data.invoiceRegistrationDate : '',
     invoiceTradeName: typeof data.invoiceTradeName === 'string' ? data.invoiceTradeName : '',
     invoiceLookupMethod: typeof data.invoiceLookupMethod === 'string' ? data.invoiceLookupMethod : '',
+    taxCategory:
+      data.taxCategory === 'non_taxable' || data.taxCategory === 'out_of_scope' || data.taxCategory === 'taxable'
+        ? data.taxCategory
+        : 'taxable',
+    invoiceStatus:
+      data.invoiceStatus === 'verified' ||
+      data.invoiceStatus === 'none' ||
+      data.invoiceStatus === 'not_required' ||
+      data.invoiceStatus === 'unknown'
+        ? data.invoiceStatus
+        : 'unknown',
     invoiceRegistrant:
       data.invoiceRegistrant && typeof data.invoiceRegistrant === 'object'
         ? (data.invoiceRegistrant as StoredAccountingExpense['invoiceRegistrant'])
+        : undefined,
+    ocrCandidates:
+      data.ocrCandidates && typeof data.ocrCandidates === 'object'
+        ? (data.ocrCandidates as StoredAccountingExpense['ocrCandidates'])
         : undefined,
     receiptImageUrl: typeof data.receiptImageUrl === 'string' ? data.receiptImageUrl : '',
     receiptStoragePath: typeof data.receiptStoragePath === 'string' ? data.receiptStoragePath : '',
@@ -264,6 +279,8 @@ export const buildEmptyExpenseInput = ({
     paymentMethod: '',
     invoiceNumber: '',
     invoiceCheckStatus: '未確認',
+    invoiceStatus: 'unknown',
+    taxCategory: 'taxable',
     invoiceRegisteredName: '',
     invoiceCheckedAt: '',
     invoiceRegisteredNameVerified: false,
@@ -281,6 +298,7 @@ export const buildEmptyExpenseInput = ({
     memo: '',
     ocrRawText: '',
     ocrParsedFields: undefined,
+    ocrCandidates: undefined,
     ocrConfidence: undefined,
     suggestedExpenseCategory: '',
     createdBy: staffId,

@@ -5,6 +5,7 @@ import {
   buildSuggestedExpenseCategory,
   parseAccountingReceiptOcrText,
 } from '../utils/accountingReceiptOcrParse'
+import { buildOcrCandidatesFromParsed } from '../utils/accountingReceiptClassification'
 import {
   getAccountingTesseractPaths,
   logAccountingTesseractPaths,
@@ -262,35 +263,66 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
     })
   }
 
-  const parsedFields = {
-    supplierName: parsed.vendorName,
-    receiptDate: parsed.receiptDate,
-    totalAmount: parsed.taxIncludedAmount,
-    consumptionTax: parsed.consumptionTaxAmount,
-    description: parsed.description,
-    invoiceNumber: parsed.invoiceNumber,
-    invoiceRegisteredName: parsed.invoiceRegisteredName,
-    invoiceLookupMethod: parsed.invoiceLookupMethod,
+  const ocrCandidates = buildOcrCandidatesFromParsed({
+    parsed,
+    rawText: ocrRawText,
     suggestedExpenseCategory,
+  })
+  const finalSuggested = ocrCandidates.accountTitle || suggestedExpenseCategory
+
+  const parsedFields = {
+    supplierName: ocrCandidates.vendorName || parsed.vendorName,
+    receiptDate: ocrCandidates.date || parsed.receiptDate,
+    totalAmount: ocrCandidates.amount ?? parsed.taxIncludedAmount,
+    consumptionTax: ocrCandidates.taxAmount ?? parsed.consumptionTaxAmount,
+    description: ocrCandidates.description,
+    invoiceNumber: ocrCandidates.invoiceNumber,
+    invoiceRegisteredName: ocrCandidates.invoiceRegisteredName,
+    invoiceStatus: ocrCandidates.invoiceStatus,
+    taxCategory: ocrCandidates.taxCategory,
+    phoneNumber: ocrCandidates.phoneNumber,
+    address: ocrCandidates.address,
+    invoiceLookupMethod: parsed.invoiceLookupMethod,
+    suggestedExpenseCategory: finalSuggested,
   }
   console.log(parsedFields)
   logOcrStep('parse-done', parsedFields)
 
   reportProgress(input.onProgress, 'done')
 
+  const hasInvoice = Boolean(ocrCandidates.invoiceNumber)
+  const message = !hasParsedOcrCandidate(parsed)
+    ? 'テキストは読み取れましたが、日付・金額等を自動判定できませんでした。手入力してください。'
+    : invoiceLookupStatus === 'success'
+      ? 'OCR候補を反映し、登録事業者名をインボイス番号検索で取得しました。'
+      : !hasInvoice && ocrCandidates.invoiceStatus === 'not_required'
+        ? 'OCR候補を反映しました（役所・証明書系のためインボイス対象外候補）。'
+        : !hasInvoice && ocrCandidates.invoiceStatus === 'none'
+          ? 'OCR候補を反映しました（インボイス番号なし・登録可能）。仕入税額控除は要確認です。'
+          : 'OCR候補を反映しました。日付・金額等を確認してください。'
+
   return {
     status: 'success',
-    message: hasParsedOcrCandidate(parsed)
-      ? invoiceLookupStatus === 'success'
-        ? 'OCR候補を反映し、登録事業者名をインボイス番号検索で取得しました。'
-        : 'OCR候補を反映しました。日付・金額等を確認してください。'
-      : 'テキストは読み取れましたが、日付・金額等を自動判定できませんでした。手入力してください。',
+    message,
     ocrRawText,
     ocrConfidence,
-    parsed,
-    suggestedExpenseCategory,
+    parsed: {
+      ...parsed,
+      phoneNumber: ocrCandidates.phoneNumber,
+      address: ocrCandidates.address,
+      description: ocrCandidates.description || parsed.description,
+      taxIncludedAmount: ocrCandidates.amount ?? parsed.taxIncludedAmount,
+      consumptionTaxAmount: ocrCandidates.taxAmount ?? parsed.consumptionTaxAmount,
+      vendorName: ocrCandidates.vendorName || parsed.vendorName,
+    },
+    suggestedExpenseCategory: finalSuggested,
     invoiceRegistrant,
     invoiceLookupStatus,
+    ocrCandidates,
+    invoiceNotice:
+      !hasInvoice && ocrCandidates.invoiceStatus === 'none'
+        ? 'インボイス番号がないため、仕入税額控除の対象は要確認です。'
+        : undefined,
   }
 }
 

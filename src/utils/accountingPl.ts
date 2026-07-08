@@ -7,6 +7,7 @@ import type {
   StoredAccountingAdjustment,
   StoredAccountingExpense,
   StoredAccountingFixedCost,
+  ExpenseCategory,
 } from '../types/accounting'
 import {
   EXPENSE_CATEGORIES,
@@ -16,6 +17,13 @@ import {
   normalizePlTreatment,
   SALES_CATEGORIES,
 } from '../types/accounting'
+
+/** 経費が PL / 集計対象か。確認済み + 科目選択が必須。領収書ドラフト段階の OCR 候補は計上しない。 */
+export const isExpenseEligibleForAggregation = (
+  expense: Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory'>,
+): expense is Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory'> & {
+  expenseCategory: ExpenseCategory
+} => isConfirmedForPl(expense.confirmationStatus) && isExpenseCategorySelected(expense.expenseCategory)
 import { isFixedCostActiveForMonth } from './accountingFixedCost'
 import {
   aggregateSalesBreakdown,
@@ -83,7 +91,7 @@ export const aggregateConfirmedExpenses = (
   let confirmedExpenseCount = 0
 
   expenses.forEach((expense) => {
-    if (!isConfirmedForPl(expense.confirmationStatus) || !isExpenseCategorySelected(expense.expenseCategory)) {
+    if (!isExpenseEligibleForAggregation(expense)) {
       return
     }
 
@@ -96,7 +104,8 @@ export const aggregateConfirmedExpenses = (
       return
     }
 
-    breakdown[expense.expenseCategory] += expense.taxIncludedAmount
+    const category = expense.expenseCategory as ExpenseCategory
+    breakdown[category] += expense.taxIncludedAmount
     confirmedExpenseCount += 1
   })
 
@@ -111,7 +120,7 @@ export const aggregateDeferredCandidateExpenses = (
   let deferredCandidateCount = 0
 
   expenses.forEach((expense) => {
-    if (!isConfirmedForPl(expense.confirmationStatus) || !isExpenseCategorySelected(expense.expenseCategory)) {
+    if (!isExpenseEligibleForAggregation(expense)) {
       return
     }
 
@@ -124,7 +133,7 @@ export const aggregateDeferredCandidateExpenses = (
       return
     }
 
-    breakdown[expense.expenseCategory] += expense.taxIncludedAmount
+    breakdown[expense.expenseCategory as ExpenseCategory] += expense.taxIncludedAmount
     deferredCandidateCount += 1
   })
 

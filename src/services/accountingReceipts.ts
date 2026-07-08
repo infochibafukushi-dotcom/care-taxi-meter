@@ -1,5 +1,6 @@
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -15,12 +16,25 @@ import { deleteObject, getBytes, getDownloadURL, getStorage, ref, uploadBytes } 
 import { getFirebaseApp } from '../lib/firebase'
 import type {
   AccountingReceiptCandidateFields,
+  AccountingReceiptConfirmedFields,
+  AccountingReceiptEditHistoryEntry,
   AccountingReceiptInput,
+  AccountingReceiptOcrCandidates,
+  AccountingReceiptWorkflowStatus,
   ReceiptStatus,
   StoredAccountingReceipt,
 } from '../types/accounting'
-import { normalizeReceiptStatus } from '../types/accounting'
+import {
+  detectSourceDevice,
+  mapLegacyStatusToWorkflow,
+  normalizeAccountingReceiptWorkflowStatus,
+  normalizeReceiptStatus,
+} from '../types/accounting'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
+import {
+  buildConfirmedDraftFromCandidates,
+  buildOcrCandidatesFromParsed,
+} from '../utils/accountingReceiptClassification'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import {
@@ -87,6 +101,26 @@ const readTimestampAsIso = (value: unknown) => {
 const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unknown> }): StoredAccountingReceipt => {
   const data = snapshot.data()
   const linkedExpenseId = typeof data.linkedExpenseId === 'string' ? data.linkedExpenseId : ''
+  const downloadUrl = String(data.downloadUrl ?? data.imageUrl ?? '')
+  const status = normalizeReceiptStatus(data.status ?? data.receiptStatus, linkedExpenseId || undefined)
+  const ocrParsedFields =
+    data.ocrParsedFields && typeof data.ocrParsedFields === 'object'
+      ? (data.ocrParsedFields as StoredAccountingReceipt['ocrParsedFields'])
+      : undefined
+  const ocrCandidates =
+    data.ocrCandidates && typeof data.ocrCandidates === 'object'
+      ? (data.ocrCandidates as AccountingReceiptOcrCandidates)
+      : undefined
+  const hasOcr = Boolean(
+    ocrCandidates?.rawText ||
+      data.ocrRawText ||
+      ocrParsedFields ||
+      data.ocrProcessedAt,
+  )
+  const receiptStatus = normalizeAccountingReceiptWorkflowStatus(
+    data.receiptStatus,
+    mapLegacyStatusToWorkflow(status, hasOcr, linkedExpenseId || undefined),
+  )
 
   return {
     id: snapshot.id,
@@ -94,11 +128,13 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     companyId: String(data.companyId ?? data.franchiseeId ?? ''),
     storeId: String(data.storeId ?? ''),
     storagePath: String(data.storagePath ?? ''),
-    downloadUrl: String(data.downloadUrl ?? ''),
+    downloadUrl,
+    imageUrl: String(data.imageUrl ?? downloadUrl),
     mimeType: String(data.mimeType ?? data.contentType ?? ''),
     fileName: String(data.fileName ?? ''),
     fileSizeBytes: Number(data.fileSizeBytes ?? data.size ?? 0),
-    status: normalizeReceiptStatus(data.status, linkedExpenseId || undefined),
+    status,
+    receiptStatus,
     linkedExpenseId: linkedExpenseId || undefined,
     memo: typeof data.memo === 'string' ? data.memo : '',
     receiptDate: typeof data.receiptDate === 'string' ? data.receiptDate : '',
@@ -111,10 +147,21 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     taxAmountCandidate: typeof data.taxAmountCandidate === 'number' ? data.taxAmountCandidate : undefined,
     taxRateCandidate: typeof data.taxRateCandidate === 'number' ? data.taxRateCandidate : undefined,
     ocrRawText: typeof data.ocrRawText === 'string' ? data.ocrRawText : '',
-    ocrParsedFields:
-      data.ocrParsedFields && typeof data.ocrParsedFields === 'object'
-        ? (data.ocrParsedFields as StoredAccountingReceipt['ocrParsedFields'])
+    ocrParsedFields,
+    ocrCandidates,
+    confirmed:
+      data.confirmed && typeof data.confirmed === 'object'
+        ? (data.confirmed as AccountingReceiptConfirmedFields)
         : undefined,
+    editHistory: Array.isArray(data.editHistory)
+      ? (data.editHistory as AccountingReceiptEditHistoryEntry[])
+      : [],
+    sourceDevice:
+      data.sourceDevice === 'mobile' || data.sourceDevice === 'pc'
+        ? data.sourceDevice
+        : undefined,
+    createdBy: typeof data.createdBy === 'string' ? data.createdBy : String(data.uploadedBy ?? ''),
+    updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : String(data.uploadedBy ?? ''),
     ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
     ocrProcessedAt: typeof data.ocrProcessedAt === 'string' ? data.ocrProcessedAt : undefined,
     suggestedExpenseCategory:
@@ -166,8 +213,32 @@ export async function fetchAccountingReceipts(scope?: TenantAccessScope) {
 
 export async function fetchUnorganizedAccountingReceipts(scope?: TenantAccessScope) {
   const receipts = await fetchAccountingReceipts(scope)
-  return receipts.filter((receipt) => receipt.status === 'unorganized')
+  return receipts.filter((receipt) => {
+    const workflow =
+      receipt.receiptStatus ??
+      mapLegacyStatusToWorkflow(
+        receipt.status,
+        Boolean(receipt.ocrCandidates || receipt.ocrRawText),
+        receipt.linkedExpenseId,
+      )
+    return (
+      receipt.status === 'unorganized' &&
+      (workflow === 'draft' || workflow === 'ocr_ready')
+    )
+  })
 }
+
+const buildEditHistoryUnion = (
+  editedBy: string,
+  changedFields: string[],
+  sourceDevice = detectSourceDevice(),
+) =>
+  arrayUnion({
+    editedAt: new Date().toISOString(),
+    editedBy,
+    sourceDevice,
+    changedFields,
+  }) as unknown as AccountingReceiptEditHistoryEntry[]
 
 export async function uploadAccountingReceiptImage({
   file,
@@ -197,20 +268,34 @@ export async function uploadAccountingReceiptImage({
   const db = getFirestore(getFirebaseApp())
   const tenant = resolveAccountingTenantFields({ franchiseeId, storeId })
 
+  const sourceDevice = detectSourceDevice()
   const receiptRef = await addDoc(
     collection(db, collectionName),
     removeUndefinedFields({
       ...tenant,
       storagePath: '',
       downloadUrl: '',
+      imageUrl: '',
       mimeType: file.type || 'application/octet-stream',
       fileName: file.name,
       fileSizeBytes: file.size,
       status: 'unorganized' satisfies ReceiptStatus,
+      receiptStatus: 'draft' satisfies AccountingReceiptWorkflowStatus,
+      sourceDevice,
       memo: memo ?? '',
       ...candidateFields,
       uploadedBy,
       uploadedByName,
+      createdBy: uploadedBy,
+      updatedBy: uploadedBy,
+      editHistory: [
+        {
+          editedAt: new Date().toISOString(),
+          editedBy: uploadedBy,
+          sourceDevice,
+          changedFields: ['create', 'image'],
+        },
+      ],
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }),
@@ -227,6 +312,7 @@ export async function uploadAccountingReceiptImage({
   await updateDoc(doc(db, collectionName, receiptRef.id), {
     storagePath,
     downloadUrl,
+    imageUrl: downloadUrl,
     updatedAt: serverTimestamp(),
   })
 
@@ -242,7 +328,7 @@ export async function updateUnorganizedAccountingReceipt({
   patch,
 }: {
   receiptId: string
-  patch: Partial<AccountingReceiptInput>
+  patch: Partial<AccountingReceiptInput> & Record<string, unknown>
 }) {
   if (isReviewDemoRuntimeEnabled()) {
     return
@@ -254,7 +340,7 @@ export async function updateUnorganizedAccountingReceipt({
     removeUndefinedFields({
       ...patch,
       updatedAt: serverTimestamp(),
-    }),
+    }) as Record<string, unknown>,
   )
 }
 
@@ -286,28 +372,135 @@ export async function saveReceiptOnly({
 export async function applyOcrCandidatesToAccountingReceipt({
   receiptId,
   ocr,
+  editedBy = 'system',
 }: {
   receiptId: string
   ocr: AccountingReceiptOcrResult
+  editedBy?: string
 }) {
   const parsed = ocr.parsed
+  const ocrCandidates =
+    ocr.ocrCandidates ??
+    buildOcrCandidatesFromParsed({
+      parsed,
+      rawText: ocr.ocrRawText,
+      suggestedExpenseCategory: ocr.suggestedExpenseCategory,
+    })
+  const confirmedDraft = buildConfirmedDraftFromCandidates(ocrCandidates)
+  const sourceDevice = detectSourceDevice()
 
   await updateUnorganizedAccountingReceipt({
     receiptId,
     patch: {
-      receiptDate: parsed.receiptDate ?? parsed.transactionDate,
-      vendorNameCandidate: parsed.vendorName,
-      invoiceNumberCandidate: parsed.invoiceNumber,
-      invoiceRegisteredNameCandidate: parsed.invoiceRegisteredName,
-      amountTotalCandidate: parsed.taxIncludedAmount,
-      taxAmountCandidate: parsed.consumptionTaxAmount,
+      receiptDate: parsed.receiptDate ?? parsed.transactionDate ?? ocrCandidates.date,
+      vendorNameCandidate: ocrCandidates.vendorName || parsed.vendorName,
+      invoiceNumberCandidate: ocrCandidates.invoiceNumber || parsed.invoiceNumber,
+      invoiceRegisteredNameCandidate:
+        ocrCandidates.invoiceRegisteredName || parsed.invoiceRegisteredName,
+      amountTotalCandidate: ocrCandidates.amount ?? parsed.taxIncludedAmount,
+      taxAmountCandidate: ocrCandidates.taxAmount ?? parsed.consumptionTaxAmount,
       taxRateCandidate: parsed.taxRate,
       ocrRawText: ocr.ocrRawText,
       ocrParsedFields: parsed,
+      ocrCandidates,
+      confirmed: confirmedDraft,
+      receiptStatus: 'ocr_ready',
+      status: 'unorganized',
       ocrConfidence: ocr.ocrConfidence,
       ocrProcessedAt: new Date().toISOString(),
-      suggestedExpenseCategory: ocr.suggestedExpenseCategory ?? '',
+      suggestedExpenseCategory: ocr.suggestedExpenseCategory ?? ocrCandidates.accountTitle ?? '',
       invoiceRegistrant: ocr.invoiceRegistrant,
+      updatedBy: editedBy,
+      sourceDevice,
+      editHistory: buildEditHistoryUnion(editedBy, ['ocrCandidates', 'receiptStatus'], sourceDevice),
+    },
+  })
+}
+
+export async function saveConfirmedAccountingReceipt({
+  receiptId,
+  confirmed,
+  editedBy,
+}: {
+  receiptId: string
+  confirmed: AccountingReceiptConfirmedFields
+  editedBy: string
+  previousHistory?: AccountingReceiptEditHistoryEntry[]
+}) {
+  const sourceDevice = detectSourceDevice()
+  await updateUnorganizedAccountingReceipt({
+    receiptId,
+    patch: {
+      confirmed,
+      receiptStatus: 'confirmed',
+      status: 'unorganized',
+      receiptDate: confirmed.date,
+      vendorNameCandidate: confirmed.vendorName,
+      invoiceNumberCandidate: confirmed.invoiceNumber,
+      invoiceRegisteredNameCandidate: confirmed.invoiceRegisteredName,
+      amountTotalCandidate: confirmed.amount,
+      taxAmountCandidate: confirmed.taxAmount,
+      memo: confirmed.memo,
+      updatedBy: editedBy,
+      sourceDevice,
+      editHistory: buildEditHistoryUnion(editedBy, ['confirmed', 'receiptStatus'], sourceDevice),
+    },
+  })
+}
+
+export async function rejectAccountingReceiptWorkflow({
+  receiptId,
+  editedBy,
+}: {
+  receiptId: string
+  editedBy: string
+  previousHistory?: AccountingReceiptEditHistoryEntry[]
+}) {
+  const sourceDevice = detectSourceDevice()
+  await updateUnorganizedAccountingReceipt({
+    receiptId,
+    patch: {
+      receiptStatus: 'rejected',
+      status: 'invalid',
+      updatedBy: editedBy,
+      sourceDevice,
+      editHistory: buildEditHistoryUnion(editedBy, ['receiptStatus'], sourceDevice),
+    },
+  })
+}
+
+export async function saveReceiptDraftEdits({
+  receiptId,
+  confirmed,
+  ocrCandidates,
+  editedBy,
+  changedFields,
+}: {
+  receiptId: string
+  confirmed: AccountingReceiptConfirmedFields
+  ocrCandidates?: AccountingReceiptOcrCandidates
+  editedBy: string
+  previousHistory?: AccountingReceiptEditHistoryEntry[]
+  changedFields: string[]
+}) {
+  const sourceDevice = detectSourceDevice()
+  await updateUnorganizedAccountingReceipt({
+    receiptId,
+    patch: {
+      confirmed,
+      ocrCandidates,
+      receiptStatus: 'ocr_ready',
+      status: 'unorganized',
+      receiptDate: confirmed.date,
+      vendorNameCandidate: confirmed.vendorName,
+      invoiceNumberCandidate: confirmed.invoiceNumber,
+      invoiceRegisteredNameCandidate: confirmed.invoiceRegisteredName,
+      amountTotalCandidate: confirmed.amount,
+      taxAmountCandidate: confirmed.taxAmount,
+      memo: confirmed.memo,
+      updatedBy: editedBy,
+      sourceDevice,
+      editHistory: buildEditHistoryUnion(editedBy, changedFields, sourceDevice),
     },
   })
 }
@@ -372,6 +565,7 @@ export async function linkAccountingReceiptToExpense({
   const db = getFirestore(getFirebaseApp())
   await updateDoc(doc(db, collectionName, receiptId), {
     status: 'linked' satisfies ReceiptStatus,
+    receiptStatus: 'confirmed' satisfies AccountingReceiptWorkflowStatus,
     linkedExpenseId: expenseId,
     updatedAt: serverTimestamp(),
   })
@@ -389,6 +583,7 @@ export async function invalidateAccountingReceipt({
   const db = getFirestore(getFirebaseApp())
   await updateDoc(doc(db, collectionName, receiptId), {
     status: 'invalid' satisfies ReceiptStatus,
+    receiptStatus: 'rejected' satisfies AccountingReceiptWorkflowStatus,
     invalidatedAt: new Date().toISOString(),
     updatedAt: serverTimestamp(),
   })

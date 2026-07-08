@@ -361,13 +361,19 @@ service cloud.firestore {
     }
 
     function isAccountingUser() {
-      return isHqAdmin() || isFranchiseeOwner();
+      return isHqAdmin() || isFranchiseeOwner() || isStoreManager();
     }
     function canReadAccounting(data) {
-      return isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(data));
+      return isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchisee(data))
+        || (isStoreManager() && sameStore(data));
     }
     function canWriteAccountingData(data) {
-      return hasTenant(data) && (isHqAdmin() || (isFranchiseeOwner() && sameFranchisee(data)));
+      return hasTenant(data) && (
+        isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchisee(data))
+        || (isStoreManager() && sameStore(data))
+      );
     }
     function validConfirmedExpenseCategory() {
       return request.resource.data.confirmationStatus != '確認済み'

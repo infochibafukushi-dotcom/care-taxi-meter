@@ -4,6 +4,7 @@ import type {
   OcrParsedFields,
   StoredAccountingReceipt,
 } from '../types/accounting'
+import type { AccountingReceiptOcrCandidates } from '../types/accountingReceiptWorkflow'
 import { buildEmptyExpenseInput } from '../services/accountingExpenses'
 import { getExpensePostingDate } from '../types/accounting'
 import { calculateConsumptionTaxFromIncluded } from './accountingPl'
@@ -36,6 +37,8 @@ export type AccountingReceiptOcrResult = {
   suggestedExpenseCategory?: ExpenseCategory | ''
   invoiceRegistrant?: import('../types/invoiceRegistrant').InvoiceRegistrantInfo
   invoiceLookupStatus?: 'success' | 'not_found' | 'error' | 'skipped' | 'idle'
+  ocrCandidates?: AccountingReceiptOcrCandidates
+  invoiceNotice?: string
 }
 
 export const OCR_NOT_CONFIGURED_MESSAGE =
@@ -53,8 +56,8 @@ export const hasAccountingFormReceiptImage = (
 ) => Boolean(form.receiptImageUrl?.trim() || form.receiptStoragePath?.trim() || form.receiptId?.trim())
 
 export const hasStoredAccountingReceiptImage = (
-  receipt: Pick<StoredAccountingReceipt, 'downloadUrl' | 'storagePath'>,
-) => Boolean(receipt.downloadUrl?.trim() || receipt.storagePath?.trim())
+  receipt: Pick<StoredAccountingReceipt, 'downloadUrl' | 'storagePath' | 'imageUrl'>,
+) => Boolean(receipt.downloadUrl?.trim() || receipt.imageUrl?.trim() || receipt.storagePath?.trim())
 
 /** T + 13桁（合計14文字）の簡易チェック */
 export const validateInvoiceNumberCandidate = (value: string) => {
@@ -101,24 +104,46 @@ export const applyAccountingReceiptOcrToExpense = (
   const registrantVerified = Boolean(
     ocr.invoiceLookupStatus === 'success' && parsed.invoiceRegisteredName,
   )
+  const candidates = ocr.ocrCandidates
+  const invoiceStatus =
+    candidates?.invoiceStatus ??
+    (registrantVerified ? 'verified' : parsed.invoiceNumber ? 'unknown' : 'none')
+  const taxCategory = candidates?.taxCategory ?? 'taxable'
 
   return {
     ...expense,
     receiptDate: receiptDate || expense.receiptDate,
     postingDate: postingDate || expense.postingDate,
     transactionDate: postingDate || expense.transactionDate,
-    vendorName: parsed.vendorName ?? expense.vendorName,
-    description: parsed.description ?? expense.description,
-    taxIncludedAmount,
+    vendorName:
+      candidates?.vendorName ||
+      parsed.vendorName ||
+      parsed.invoiceRegisteredName ||
+      expense.vendorName,
+    description: candidates?.description || parsed.description || expense.description,
+    taxIncludedAmount: candidates?.amount ?? taxIncludedAmount,
     taxRate,
-    consumptionTaxAmount,
-    invoiceNumber: parsed.invoiceNumber ?? expense.invoiceNumber,
-    invoiceRegisteredName: parsed.invoiceRegisteredName ?? expense.invoiceRegisteredName,
-    invoiceCheckStatus: parsed.invoiceCheckStatus ?? expense.invoiceCheckStatus ?? '未確認',
+    consumptionTaxAmount: candidates?.taxAmount ?? consumptionTaxAmount,
+    invoiceNumber: candidates?.invoiceNumber || parsed.invoiceNumber || expense.invoiceNumber,
+    invoiceRegisteredName:
+      candidates?.invoiceRegisteredName ||
+      parsed.invoiceRegisteredName ||
+      expense.invoiceRegisteredName,
+    invoiceCheckStatus:
+      invoiceStatus === 'verified'
+        ? '確認済'
+        : invoiceStatus === 'not_required'
+          ? '対象外'
+          : invoiceStatus === 'none'
+            ? '登録なし'
+            : parsed.invoiceCheckStatus ?? expense.invoiceCheckStatus ?? '未確認',
+    invoiceStatus,
+    taxCategory,
     invoiceCheckedAt: registrantVerified ? new Date().toISOString() : expense.invoiceCheckedAt,
     invoiceRegisteredNameVerified: registrantVerified,
     invoiceCorporateNumber: parsed.invoiceCorporateNumber ?? expense.invoiceCorporateNumber,
-    invoiceAddress: parsed.invoiceAddress ?? expense.invoiceAddress,
+    invoiceAddress:
+      candidates?.address || parsed.invoiceAddress || expense.invoiceAddress,
     invoiceRegistrationStatus: parsed.invoiceRegistrationStatus ?? expense.invoiceRegistrationStatus,
     invoiceRegistrationDate: parsed.invoiceRegistrationDate ?? expense.invoiceRegistrationDate,
     invoiceTradeName: parsed.invoiceTradeName ?? expense.invoiceTradeName,
@@ -126,11 +151,18 @@ export const applyAccountingReceiptOcrToExpense = (
     invoiceRegistrant: ocr.invoiceRegistrant ?? expense.invoiceRegistrant,
     ocrRawText: ocr.ocrRawText ?? expense.ocrRawText,
     ocrParsedFields: parsed,
+    ocrCandidates: candidates ?? expense.ocrCandidates,
     ocrConfidence: ocr.ocrConfidence ?? expense.ocrConfidence,
-    suggestedExpenseCategory,
+    suggestedExpenseCategory:
+      candidates?.accountTitle ||
+      ocr.suggestedExpenseCategory ||
+      expense.suggestedExpenseCategory ||
+      '',
     expenseCategory:
-      autoApplyCandidates && suggestedExpenseCategory && !expense.expenseCategory
-        ? suggestedExpenseCategory
+      autoApplyCandidates &&
+      (candidates?.accountTitle || suggestedExpenseCategory) &&
+      !expense.expenseCategory
+        ? candidates?.accountTitle || suggestedExpenseCategory
         : expense.expenseCategory,
   }
 }
@@ -149,38 +181,94 @@ export const buildExpenseFormFromReceipt = ({
   staffName: string
 }): AccountingExpenseInput => {
   const base = buildEmptyExpenseInput({ franchiseeId, storeId, staffId, staffName })
-  const receiptDate = receipt.receiptDate || receipt.ocrParsedFields?.receiptDate || ''
-  const postingDate = receipt.ocrParsedFields?.postingDate || receiptDate || base.postingDate
-  const taxIncludedAmount = receipt.amountTotalCandidate ?? receipt.ocrParsedFields?.taxIncludedAmount ?? 0
+  const candidates = receipt.ocrCandidates
+  const confirmed = receipt.confirmed
+  const receiptDate =
+    confirmed?.date ||
+    receipt.receiptDate ||
+    candidates?.date ||
+    receipt.ocrParsedFields?.receiptDate ||
+    ''
+  const postingDate = receiptDate || base.postingDate
+  const taxIncludedAmount =
+    confirmed?.amount ??
+    receipt.amountTotalCandidate ??
+    candidates?.amount ??
+    receipt.ocrParsedFields?.taxIncludedAmount ??
+    0
   const taxRate = receipt.taxRateCandidate ?? receipt.ocrParsedFields?.taxRate ?? 10
   const consumptionTaxAmount =
+    confirmed?.taxAmount ??
     receipt.taxAmountCandidate ??
+    candidates?.taxAmount ??
     receipt.ocrParsedFields?.consumptionTaxAmount ??
     (taxIncludedAmount > 0 ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate) : 0)
+  const invoiceStatus =
+    confirmed?.invoiceStatus ||
+    candidates?.invoiceStatus ||
+    (receipt.ocrParsedFields?.invoiceNumber ? 'unknown' : 'none')
+  const taxCategory = confirmed?.taxCategory || candidates?.taxCategory || 'taxable'
+  const accountTitle =
+    confirmed?.accountTitle ||
+    candidates?.accountTitle ||
+    receipt.suggestedExpenseCategory ||
+    ''
 
   return {
     ...base,
     receiptId: receipt.id,
-    receiptImageUrl: receipt.downloadUrl,
+    receiptImageUrl: receipt.downloadUrl || receipt.imageUrl || '',
     receiptStoragePath: receipt.storagePath,
     receiptDate: receiptDate || base.receiptDate,
     postingDate: postingDate || getExpensePostingDate(base),
     transactionDate: postingDate || getExpensePostingDate(base),
-    vendorName: receipt.vendorNameCandidate || receipt.ocrParsedFields?.vendorName || '',
-    description: receipt.ocrParsedFields?.description || '',
+    vendorName:
+      confirmed?.vendorName ||
+      receipt.vendorNameCandidate ||
+      candidates?.vendorName ||
+      receipt.ocrParsedFields?.vendorName ||
+      '',
+    description:
+      confirmed?.description ||
+      candidates?.description ||
+      receipt.ocrParsedFields?.description ||
+      '',
     taxIncludedAmount,
     taxRate,
     consumptionTaxAmount,
-    invoiceNumber: receipt.invoiceNumberCandidate || receipt.ocrParsedFields?.invoiceNumber || '',
+    taxCategory,
+    invoiceStatus,
+    invoiceNumber:
+      confirmed?.invoiceNumber ||
+      receipt.invoiceNumberCandidate ||
+      candidates?.invoiceNumber ||
+      receipt.ocrParsedFields?.invoiceNumber ||
+      '',
     invoiceRegisteredName:
-      receipt.invoiceRegisteredNameCandidate || receipt.ocrParsedFields?.invoiceRegisteredName || '',
-    invoiceCheckStatus: receipt.ocrParsedFields?.invoiceCheckStatus ?? '未確認',
+      confirmed?.invoiceRegisteredName ||
+      receipt.invoiceRegisteredNameCandidate ||
+      candidates?.invoiceRegisteredName ||
+      receipt.ocrParsedFields?.invoiceRegisteredName ||
+      '',
+    invoiceCheckStatus:
+      invoiceStatus === 'verified'
+        ? '確認済'
+        : invoiceStatus === 'not_required'
+          ? '対象外'
+          : invoiceStatus === 'none'
+            ? '登録なし'
+            : receipt.ocrParsedFields?.invoiceCheckStatus ?? '未確認',
     invoiceRegisteredNameVerified: Boolean(
       receipt.invoiceRegistrant?.registeredName || receipt.ocrParsedFields?.invoiceLookupMethod,
     ),
     invoiceCorporateNumber:
       receipt.ocrParsedFields?.invoiceCorporateNumber || receipt.invoiceRegistrant?.corporateNumber || '',
-    invoiceAddress: receipt.ocrParsedFields?.invoiceAddress || receipt.invoiceRegistrant?.address || '',
+    invoiceAddress:
+      confirmed?.address ||
+      candidates?.address ||
+      receipt.ocrParsedFields?.invoiceAddress ||
+      receipt.invoiceRegistrant?.address ||
+      '',
     invoiceRegistrationStatus:
       receipt.ocrParsedFields?.invoiceRegistrationStatus ||
       receipt.invoiceRegistrant?.registrationStatus ||
@@ -195,14 +283,17 @@ export const buildExpenseFormFromReceipt = ({
       receipt.ocrParsedFields?.invoiceLookupMethod || receipt.invoiceRegistrant?.lookupMethod || '',
     invoiceRegistrant: receipt.invoiceRegistrant,
     invoiceCheckedAt:
-      receipt.ocrParsedFields?.invoiceCheckStatus === '確認済' ? new Date().toISOString() : '',
-    memo: receipt.memo ?? '',
-    ocrRawText: receipt.ocrRawText ?? '',
+      invoiceStatus === 'verified' || receipt.ocrParsedFields?.invoiceCheckStatus === '確認済'
+        ? new Date().toISOString()
+        : '',
+    memo: confirmed?.memo || receipt.memo || '',
+    ocrRawText: receipt.ocrRawText || candidates?.rawText || '',
     ocrParsedFields: receipt.ocrParsedFields,
+    ocrCandidates: candidates,
     ocrConfidence: receipt.ocrConfidence,
-    suggestedExpenseCategory: receipt.suggestedExpenseCategory ?? '',
-    confirmationStatus: '未確認',
-    expenseCategory: '',
+    suggestedExpenseCategory: accountTitle,
+    confirmationStatus: receipt.receiptStatus === 'confirmed' ? '確認済み' : '未確認',
+    expenseCategory: accountTitle,
     plTreatment: 'expense',
   }
 }

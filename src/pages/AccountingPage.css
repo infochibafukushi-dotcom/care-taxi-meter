@@ -383,6 +383,31 @@ body.route-accounting,
   word-break: break-word;
 }
 
+.accounting-radio-fieldset {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  padding: 0.75rem 0.9rem;
+  margin: 0;
+}
+
+.accounting-radio-fieldset legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.accounting-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.1rem;
+}
+
+.accounting-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
 .accounting-ocr-raw-text {
   margin: 0.5rem 0 0;
   padding: 0.65rem 0.75rem;

@@ -23,7 +23,9 @@ import {
   fetchUnorganizedAccountingReceipts,
   invalidateAccountingReceipt,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
+  rejectAccountingReceiptWorkflow,
   resolveAccountingReceiptDownloadUrl,
+  saveConfirmedAccountingReceipt,
   saveReceiptOnly,
   uploadAccountingReceiptImage,
   type StoredAccountingReceipt,
@@ -45,13 +47,18 @@ import {
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
 import {
+  ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
   EXPENSE_CATEGORIES,
   INVOICE_CHECK_STATUSES,
+  INVOICE_STATUS_LABELS,
+  INVOICE_STATUSES,
   PAYMENT_METHODS,
   PL_TREATMENTS,
   PL_TREATMENT_LABELS,
   RECEIPT_STATUS_LABELS,
   SALES_CATEGORIES,
+  TAX_CATEGORIES,
+  TAX_CATEGORY_LABELS,
   getExpensePostingDate,
   getExpenseReceiptDate,
   getPlTreatmentLabel,
@@ -61,8 +68,10 @@ import {
   type ExpenseCategory,
   type ExpenseConfirmationStatus,
   type InvoiceCheckStatus,
+  type InvoiceStatus,
   type PlTreatment,
   type SalesCategory,
+  type TaxCategory,
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
 import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
@@ -724,7 +733,9 @@ export function AccountingPage() {
         calculateConsumptionTaxFromIncluded(form.taxIncludedAmount, form.taxRate),
     )
     setOcrCandidateNotice(
-      '未整理領収書から経費入力フォームへ引き継ぎました。内容と経費科目を確認してから保存してください。',
+      form.invoiceStatus === 'none'
+        ? '未整理領収書を読み込みました。インボイス番号がないため、仕入税額控除の対象は要確認です。'
+        : '未整理領収書から経費入力フォームへ引き継ぎました。税区分・インボイス・経費科目を確認してから保存してください。',
     )
     clearReceiptPreviewObjectUrl()
     setInvoiceNumberWarning(
@@ -732,7 +743,74 @@ export function AccountingPage() {
     )
     setExpenseForm(form)
     setActiveTab('expenses')
-    setStatusMessage('未整理領収書を経費入力フォームへ読み込みました。')
+    setStatusMessage('未整理領収書を経費入力フォームへ読み込みました（スマホ保存分もPCから編集できます）。')
+  }
+
+  const handleConfirmUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
+    const form = buildExpenseFormFromReceipt({
+      receipt,
+      franchiseeId: tenantScope.franchiseeId,
+      storeId: tenantScope.storeId,
+      staffId,
+      staffName,
+    })
+
+    if (!form.expenseCategory) {
+      handleRegisterReceiptAsExpense(receipt)
+      setErrorMessage('確定するには経費科目を選択してください。フォームで入力後に保存してください。')
+      return
+    }
+
+    setErrorMessage('')
+    setStatusMessage('')
+    try {
+      await saveConfirmedAccountingReceipt({
+        receiptId: receipt.id,
+        editedBy: staffId,
+        previousHistory: receipt.editHistory,
+        confirmed: {
+          vendorName: form.vendorName,
+          date: form.receiptDate || getExpenseReceiptDate(form),
+          amount: form.taxIncludedAmount,
+          taxAmount: form.consumptionTaxAmount,
+          taxCategory: form.taxCategory ?? 'taxable',
+          invoiceStatus: form.invoiceStatus ?? 'unknown',
+          invoiceNumber: form.invoiceNumber,
+          invoiceRegisteredName: form.invoiceRegisteredName,
+          accountTitle: form.expenseCategory,
+          description: form.description,
+          memo: form.memo,
+          phoneNumber: form.ocrCandidates?.phoneNumber,
+          address: form.invoiceAddress,
+        },
+      })
+      const expensePayload: AccountingExpenseInput = {
+        ...form,
+        confirmationStatus: '確認済み',
+        updatedBy: staffId,
+        updatedByName: staffName,
+      }
+      await createAccountingExpense(expensePayload)
+      setStatusMessage('領収書を確定し、経費・集計対象として登録しました。')
+      await reloadExpensesAdjustmentsAndReceipts()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '領収書の確定に失敗しました。')
+    }
+  }
+
+  const handleRejectUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
+    setErrorMessage('')
+    try {
+      await rejectAccountingReceiptWorkflow({
+        receiptId: receipt.id,
+        editedBy: staffId,
+        previousHistory: receipt.editHistory,
+      })
+      setStatusMessage('領収書を「登録しない」に更新しました。')
+      await reloadUnorganizedReceipts()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '領収書の却下に失敗しました。')
+    }
   }
 
   const handleRunOcrOnUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
@@ -1679,8 +1757,17 @@ export function AccountingPage() {
                         )}
                         <div className="accounting-unorganized-body">
                           <header>
-                            <strong>{receipt.vendorNameCandidate || '（仕入先候補なし）'}</strong>
-                            <span>{RECEIPT_STATUS_LABELS[receipt.status]}</span>
+                            <strong>
+                              {receipt.confirmed?.vendorName ||
+                                receipt.ocrCandidates?.vendorName ||
+                                receipt.vendorNameCandidate ||
+                                '（仕入先候補なし）'}
+                            </strong>
+                            <span>
+                              {ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS[
+                                receipt.receiptStatus ?? 'draft'
+                              ] || RECEIPT_STATUS_LABELS[receipt.status]}
+                            </span>
                           </header>
                           <dl>
                             <div>
@@ -1689,35 +1776,96 @@ export function AccountingPage() {
                             </div>
                             <div>
                               <dt>証憑日候補</dt>
-                              <dd>{receipt.receiptDate || '―'}</dd>
+                              <dd>
+                                {receipt.confirmed?.date ||
+                                  receipt.ocrCandidates?.date ||
+                                  receipt.receiptDate ||
+                                  '―'}
+                              </dd>
                             </div>
                             <div>
                               <dt>金額候補</dt>
                               <dd>
-                                {receipt.amountTotalCandidate != null
-                                  ? formatFareYen(receipt.amountTotalCandidate)
+                                {(receipt.confirmed?.amount ??
+                                  receipt.ocrCandidates?.amount ??
+                                  receipt.amountTotalCandidate) != null
+                                  ? formatFareYen(
+                                      receipt.confirmed?.amount ??
+                                        receipt.ocrCandidates?.amount ??
+                                        receipt.amountTotalCandidate ??
+                                        0,
+                                    )
                                   : '―'}
                               </dd>
                             </div>
                             <div>
                               <dt>消費税候補</dt>
                               <dd>
-                                {receipt.taxAmountCandidate != null
-                                  ? formatFareYen(receipt.taxAmountCandidate)
+                                {(receipt.confirmed?.taxAmount ??
+                                  receipt.ocrCandidates?.taxAmount ??
+                                  receipt.taxAmountCandidate) != null
+                                  ? formatFareYen(
+                                      receipt.confirmed?.taxAmount ??
+                                        receipt.ocrCandidates?.taxAmount ??
+                                        receipt.taxAmountCandidate ??
+                                        0,
+                                    )
                                   : '―'}
                               </dd>
                             </div>
                             <div>
                               <dt>内容候補</dt>
-                              <dd>{receipt.ocrParsedFields?.description || '―'}</dd>
+                              <dd>
+                                {receipt.confirmed?.description ||
+                                  receipt.ocrCandidates?.description ||
+                                  '―'}
+                              </dd>
                             </div>
                             <div>
                               <dt>科目候補</dt>
-                              <dd>{receipt.suggestedExpenseCategory || '―'}</dd>
+                              <dd>
+                                {receipt.confirmed?.accountTitle ||
+                                  receipt.ocrCandidates?.accountTitle ||
+                                  receipt.suggestedExpenseCategory ||
+                                  '―'}
+                              </dd>
                             </div>
                             <div>
-                              <dt>インボイス候補</dt>
-                              <dd>{receipt.invoiceNumberCandidate || '―'}</dd>
+                              <dt>インボイス番号</dt>
+                              <dd>
+                                {receipt.confirmed?.invoiceNumber ||
+                                  receipt.ocrCandidates?.invoiceNumber ||
+                                  receipt.invoiceNumberCandidate ||
+                                  'なし'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>インボイス</dt>
+                              <dd>
+                                {
+                                  INVOICE_STATUS_LABELS[
+                                    receipt.confirmed?.invoiceStatus ||
+                                      receipt.ocrCandidates?.invoiceStatus ||
+                                      'unknown'
+                                  ]
+                                }
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>税区分</dt>
+                              <dd>
+                                {
+                                  TAX_CATEGORY_LABELS[
+                                    receipt.confirmed?.taxCategory ||
+                                      receipt.ocrCandidates?.taxCategory ||
+                                      'taxable'
+                                  ]
+                                }
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>撮影端末</dt>
+                              <dd>{receipt.sourceDevice === 'mobile' ? 'スマホ' : receipt.sourceDevice === 'pc' ? 'PC' : '―'}</dd>
                             </div>
                             <div>
                               <dt>OCR読取日時</dt>
@@ -1725,7 +1873,7 @@ export function AccountingPage() {
                             </div>
                             <div>
                               <dt>メモ</dt>
-                              <dd>{receipt.memo || '―'}</dd>
+                              <dd>{receipt.confirmed?.memo || receipt.memo || '―'}</dd>
                             </div>
                           </dl>
                           {ocrStatusByReceiptId[receipt.id] ? (
@@ -1733,10 +1881,12 @@ export function AccountingPage() {
                               {ocrStatusByReceiptId[receipt.id]}
                             </p>
                           ) : null}
-                          {receipt.ocrRawText ? (
+                          {receipt.ocrRawText || receipt.ocrCandidates?.rawText ? (
                             <details className="accounting-ocr-details">
                               <summary>OCR読取結果を表示</summary>
-                              <pre className="accounting-ocr-raw-text">{receipt.ocrRawText}</pre>
+                              <pre className="accounting-ocr-raw-text">
+                                {receipt.ocrRawText || receipt.ocrCandidates?.rawText}
+                              </pre>
                             </details>
                           ) : receipt.ocrProcessedAt ? (
                             <p className="accounting-note">OCR全文は空でした。画像の鮮明さを確認してください。</p>
@@ -1747,7 +1897,14 @@ export function AccountingPage() {
                               type="button"
                               onClick={() => handleRegisterReceiptAsExpense(receipt)}
                             >
-                              経費として登録
+                              編集する
+                            </button>
+                            <button
+                              className="primary-action"
+                              type="button"
+                              onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
+                            >
+                              確定する
                             </button>
                             <button
                               className="secondary-action"
@@ -1760,9 +1917,9 @@ export function AccountingPage() {
                             <button
                               className="secondary-action"
                               type="button"
-                              onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
+                              onClick={() => void handleRejectUnorganizedReceipt(receipt)}
                             >
-                              無効化
+                              登録しない
                             </button>
                             <button
                               className="secondary-action"
@@ -2007,6 +2164,43 @@ export function AccountingPage() {
                   {invoiceNumberWarning}
                 </p>
               ) : null}
+              {expenseForm.invoiceStatus === 'none' ? (
+                <p className="accounting-warning accounting-form-span-2" role="status">
+                  インボイス番号がないため、仕入税額控除の対象は要確認です。
+                </p>
+              ) : null}
+              <fieldset className="accounting-form-span-2 accounting-radio-fieldset">
+                <legend>税区分</legend>
+                <div className="accounting-radio-row">
+                  {TAX_CATEGORIES.map((category) => (
+                    <label key={category} className="accounting-radio-label">
+                      <input
+                        type="radio"
+                        name="taxCategory"
+                        checked={(expenseForm.taxCategory ?? 'taxable') === category}
+                        onChange={() => handleExpenseFieldChange('taxCategory', category as TaxCategory)}
+                      />
+                      {TAX_CATEGORY_LABELS[category]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="accounting-form-span-2 accounting-radio-fieldset">
+                <legend>インボイス</legend>
+                <div className="accounting-radio-row">
+                  {INVOICE_STATUSES.map((status) => (
+                    <label key={status} className="accounting-radio-label">
+                      <input
+                        type="radio"
+                        name="invoiceStatus"
+                        checked={(expenseForm.invoiceStatus ?? 'unknown') === status}
+                        onChange={() => handleExpenseFieldChange('invoiceStatus', status as InvoiceStatus)}
+                      />
+                      {INVOICE_STATUS_LABELS[status]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <label>
                 インボイス確認
                 <select

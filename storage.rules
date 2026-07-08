@@ -20,21 +20,30 @@ service firebase.storage {
     function isFranchiseeOwner() {
       return role() == 'franchisee_owner' || role() == 'owner';
     }
+    function isStoreManager() {
+      return role() == 'store_manager' || role() == 'manager';
+    }
     function sameFranchiseeFromPath(pathFranchiseeId) {
       return franchiseeId() == pathFranchiseeId
         || request.auth.token.companyId == pathFranchiseeId;
     }
+    function sameStoreFromPath(pathFranchiseeId, pathStoreId) {
+      return sameFranchiseeFromPath(pathFranchiseeId)
+        && request.auth.token.storeId == pathStoreId;
+    }
 
     match /accounting/{pathFranchiseeId}/{storeId}/receipts/{receiptId}/{fileName} {
       allow read: if isHqAdmin()
-        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId));
+        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))
+        || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId));
       allow write: if isHqAdmin()
-        || (isFranchiseeOwner()
-          && sameFranchiseeFromPath(pathFranchiseeId)
+        || ((isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId)
+            || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId)))
           && request.resource.size < 10 * 1024 * 1024
           && request.resource.contentType.matches('image/.*'));
       allow delete: if isHqAdmin()
-        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId));
+        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))
+        || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId));
     }
   }
 }
