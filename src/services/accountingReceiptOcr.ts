@@ -233,7 +233,14 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   reportProgress(input.onProgress, 'parsing')
   logOcrStep('parse-start', { textLength: ocrRawText.length })
   const parsed = parseAccountingReceiptOcrText(ocrRawText)
-  logOcrStep('parse-done', parsed)
+  const parsedFields = {
+    supplierName: parsed.vendorName,
+    receiptDate: parsed.receiptDate,
+    totalAmount: parsed.taxIncludedAmount,
+    invoiceNumber: parsed.invoiceNumber,
+  }
+  console.log(parsedFields)
+  logOcrStep('parse-done', parsedFields)
 
   reportProgress(input.onProgress, 'done')
 

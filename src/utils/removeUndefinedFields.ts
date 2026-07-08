@@ -2,6 +2,11 @@
  * Firestore rejects documents containing `undefined` values.
  * Recursively removes undefined keys from plain objects and arrays.
  */
+const isPlainObject = (value: object) => {
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 export const removeUndefinedFields = <T>(value: T): T => {
   if (value === undefined) {
     return value
@@ -14,6 +19,10 @@ export const removeUndefinedFields = <T>(value: T): T => {
   }
 
   if (value === null || typeof value !== 'object') {
+    return value
+  }
+
+  if (!isPlainObject(value)) {
     return value
   }
 

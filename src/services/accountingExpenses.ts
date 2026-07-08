@@ -32,13 +32,11 @@ import {
   logAccountingQueryFailure,
   resolveAccountingTenantFields,
 } from './accountingTenant'
+import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
 const collectionName = 'accountingExpenses'
-
-const removeUndefinedFields = <T extends Record<string, unknown>>(data: T) =>
-  Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T
 
 const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unknown> }): StoredAccountingExpense => {
   const data = snapshot.data()

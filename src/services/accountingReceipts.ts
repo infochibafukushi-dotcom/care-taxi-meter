@@ -21,6 +21,7 @@ import type {
 } from '../types/accounting'
 import { normalizeReceiptStatus } from '../types/accounting'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
+import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import {
   createAccountingTenantConstraints,
@@ -70,9 +71,6 @@ const isPermissionDenied = (error: unknown) => {
 export type DeleteAccountingReceiptResult = {
   storageImageWasMissing?: boolean
 }
-
-const removeUndefinedFields = <T extends Record<string, unknown>>(data: T) =>
-  Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T
 
 const readTimestampAsIso = (value: unknown) => {
   if (typeof value === 'string') {
