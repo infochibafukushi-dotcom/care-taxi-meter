@@ -876,6 +876,199 @@ body.route-accounting,
   margin-top: 1rem;
 }
 
+.accounting-expense-category-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-expense-category-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.accounting-expense-category-help-button {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.accounting-expense-category-help-button:hover,
+.accounting-expense-category-help-button:focus-visible {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+
+.accounting-expense-category-help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.accounting-expense-category-help-dialog {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  width: min(100%, 44rem);
+  max-height: min(90vh, 40rem);
+  padding: 1rem 1.1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+  box-sizing: border-box;
+}
+
+.accounting-expense-category-help-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.accounting-expense-category-help-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+.accounting-expense-category-help-close {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #475569;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.accounting-expense-category-help-search {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.accounting-expense-category-help-search input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+}
+
+.accounting-expense-category-help-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  padding-right: 0.15rem;
+}
+
+.accounting-expense-category-help-section {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.accounting-expense-category-help-section h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.accounting-expense-category-help-care-taxi {
+  padding: 0.75rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.65rem;
+  background: #eff6ff;
+}
+
+.accounting-expense-category-help-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.accounting-expense-category-help-table {
+  width: 100%;
+  min-width: 28rem;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.accounting-expense-category-help-care-taxi .accounting-expense-category-help-table {
+  min-width: 18rem;
+}
+
+.accounting-expense-category-help-table th,
+.accounting-expense-category-help-table td {
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.accounting-expense-category-help-table thead th {
+  background: #f1f5f9;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.accounting-expense-category-help-table tbody th {
+  background: #f8fafc;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.accounting-expense-category-help-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .accounting-expense-category-help-backdrop {
+    padding: 0.5rem;
+    align-items: stretch;
+  }
+
+  .accounting-expense-category-help-dialog {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 0.65rem;
+  }
+
+  .accounting-expense-category-help-table {
+    min-width: 24rem;
+    font-size: 0.82rem;
+  }
+
+  .accounting-expense-category-help-table th,
+  .accounting-expense-category-help-table td {
+    padding: 0.45rem 0.5rem;
+  }
+}
+
 .accounting-expense-summaries {
   margin-top: 1.5rem;
   padding-top: 1rem;

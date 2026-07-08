@@ -74,6 +74,7 @@ import {
   type TaxCategory,
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
+import { ExpenseCategoryHelpDialog } from '../components/accounting/ExpenseCategoryHelpDialog'
 import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
 import {
   buildExpensesCsv,
@@ -273,6 +274,7 @@ export function AccountingPage() {
   const [receiptPreviewObjectUrl, setReceiptPreviewObjectUrl] = useState('')
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
+  const [isExpenseCategoryHelpOpen, setIsExpenseCategoryHelpOpen] = useState(false)
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
     matches: ExpenseDuplicateMatch[]
     severity: 'warning' | 'strong'
@@ -2509,8 +2511,19 @@ export function AccountingPage() {
                     </div>
                   </fieldset>
 
-                  <label>
-                    ⑦ 経費科目
+                  <label className="accounting-expense-category-field">
+                    <span className="accounting-expense-category-label-row">
+                      ⑦ 経費科目
+                      <button
+                        type="button"
+                        className="accounting-expense-category-help-button"
+                        onClick={() => setIsExpenseCategoryHelpOpen(true)}
+                        aria-label="経費科目の一覧と使用例を表示"
+                        title="経費科目の一覧と使用例"
+                      >
+                        ?
+                      </button>
+                    </span>
                     <select
                       value={expenseForm.expenseCategory}
                       onChange={(event) =>
@@ -2973,6 +2986,10 @@ export function AccountingPage() {
           </section>
         ) : null}
       </section>
+      <ExpenseCategoryHelpDialog
+        open={isExpenseCategoryHelpOpen}
+        onClose={() => setIsExpenseCategoryHelpOpen(false)}
+      />
       {duplicatePrompt ? (
         <DuplicateExpensePromptDialog
           matches={duplicatePrompt.matches}
