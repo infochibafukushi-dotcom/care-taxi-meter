@@ -240,6 +240,8 @@ export type AccountingExpenseInput = AccountingTenantFields &
     deletedAt?: string
     deletedBy?: string
     deleteReason?: string
+    /** 10万円以上等で通常経費登録を選択した理由 */
+    normalExpenseOverrideReason?: string
   }
 
 export type StoredAccountingExpense = AccountingExpenseInput & {

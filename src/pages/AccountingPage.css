@@ -92,7 +92,8 @@ body.route-accounting,
 .accounting-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  align-items: end;
+  gap: 0.75rem 1rem;
 }
 
 .accounting-toolbar label {
@@ -146,6 +147,41 @@ body.route-accounting,
 
 .accounting-asset-recommendation {
   color: #5b6472;
+}
+
+.accounting-asset-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #d4a017;
+  border-radius: 0.5rem;
+  background: #fff8e6;
+}
+
+.accounting-asset-warning-message {
+  color: #7a4f01;
+  font-weight: 600;
+}
+
+.accounting-asset-pl-note {
+  color: #1f6feb;
+}
+
+.accounting-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.accounting-fiscal-year-note {
+  margin: 0;
+  width: 100%;
+  color: #5b6472;
+  font-size: 0.9rem;
+}
+
+.accounting-small-asset-ledger {
+  margin-bottom: 1.5rem;
 }
 
 .accounting-fixed-asset-cards {

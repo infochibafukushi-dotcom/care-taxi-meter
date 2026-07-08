@@ -20,6 +20,7 @@ import { fetchAccountingFixedCosts } from '../services/accountingFixedCosts'
 import {
   applyOcrCandidatesToAccountingReceipt,
   deleteAccountingReceipt,
+  fetchAccountingReceipts,
   fetchUnorganizedAccountingReceipts,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
   rejectAccountingReceiptWorkflow,
@@ -101,6 +102,7 @@ import {
   downloadCsvFile,
   formatPlAmount,
 } from '../utils/accountingCsv'
+import { detectFixedAssetRegistrationWarning } from '../utils/accountingAssetDetection'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
   aggregateExpensesByInvoiceStatus,
@@ -112,6 +114,8 @@ import {
   formatInvoiceStatusAggregationLabel,
   formatTaxCategoryAggregationLabel,
   formatYearMonthLabel,
+  formatFiscalYearLabel,
+  formatFiscalYearLabelForCalendarYear,
   getCurrentCalendarYearInJapan,
   getCurrentYearMonthInJapan,
   getYearlyProfitLossColumnOrder,
@@ -434,6 +438,7 @@ export function AccountingPage() {
   const [ocrCandidateNotice, setOcrCandidateNotice] = useState('')
   const [invoiceNumberWarning, setInvoiceNumberWarning] = useState('')
   const [unorganizedReceipts, setUnorganizedReceipts] = useState<StoredAccountingReceipt[]>([])
+  const [allReceipts, setAllReceipts] = useState<StoredAccountingReceipt[]>([])
   const [isSavingReceiptOnly, setIsSavingReceiptOnly] = useState(false)
   const [recentReceiptBlobs, setRecentReceiptBlobs] = useState<Record<string, Blob>>({})
   const [ocrStatusByReceiptId, setOcrStatusByReceiptId] = useState<Record<string, string>>({})
@@ -558,6 +563,15 @@ export function AccountingPage() {
           unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope)
         } catch (error) {
           loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
+        }
+
+        try {
+          const allReceiptRows = await fetchAccountingReceipts(accessScope)
+          if (!cancelled) {
+            setAllReceipts(allReceiptRows)
+          }
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts (all)', error))
         }
       }
 
@@ -739,6 +753,11 @@ export function AccountingPage() {
     setReceiptImageZoom(1)
   }
 
+  const reloadAllReceipts = async () => {
+    const rows = await fetchAccountingReceipts(accessScope)
+    setAllReceipts(rows)
+  }
+
   const reloadUnorganizedReceipts = async () => {
     const rows = await fetchUnorganizedAccountingReceipts(accessScope)
     setUnorganizedReceipts(rows)
@@ -747,6 +766,7 @@ export function AccountingPage() {
   const reloadExpensesAdjustmentsAndReceipts = async () => {
     await reloadExpensesAndAdjustments()
     await reloadUnorganizedReceipts()
+    await reloadAllReceipts()
   }
 
   const isNewExpenseEntry = !editingExpenseId
@@ -1494,6 +1514,27 @@ export function AccountingPage() {
 
   const validateAssetDraftBeforeSave = () => {
     if (assetDraft.registrationType === 'normal') {
+      const registrationWarning = detectFixedAssetRegistrationWarning({
+        amountYen: assetDraft.acquisitionCost || expenseForm?.taxIncludedAmount || 0,
+        description: expenseForm?.description ?? '',
+        vendorName: expenseForm?.vendorName ?? '',
+        suggestedCategory: expenseForm?.suggestedExpenseCategory ?? '',
+      })
+
+      if (registrationWarning.shouldWarn) {
+        if (!assetDraft.normalExpenseOverrideConfirmed) {
+          setErrorMessage(
+            '取得価額10万円以上または固定資産候補のため、通常経費のまま登録する場合は確認と理由入力が必要です。',
+          )
+          return false
+        }
+
+        if (!assetDraft.normalExpenseOverrideReason.trim()) {
+          setErrorMessage('通常経費で登録する理由を入力してください。')
+          return false
+        }
+      }
+
       return true
     }
 
@@ -1560,6 +1601,10 @@ export function AccountingPage() {
             assetDraft.registrationType === 'fixed'
               ? 'excluded'
               : normalizePlTreatment(expenseForm.plTreatment),
+          normalExpenseOverrideReason:
+            assetDraft.registrationType === 'normal' && assetDraft.normalExpenseOverrideConfirmed
+              ? assetDraft.normalExpenseOverrideReason.trim()
+              : undefined,
         }
 
         const acquisitionCost = assetDraft.acquisitionCost || expenseForm.taxIncludedAmount
@@ -1750,7 +1795,7 @@ export function AccountingPage() {
   const buildExportPayload = (exportType: 'monthly-pl' | 'yearly-pl' | 'expenses' | 'sales') => {
     if (exportType === 'yearly-pl') {
       return {
-        csv: buildYearlyPlCsv(yearlyProfitLoss),
+        csv: buildYearlyPlCsv(yearlyProfitLoss, targetYear),
         fileName: buildYearlyPlCsvFileName(targetYear),
         rowCount:
           SALES_CATEGORIES.length +
@@ -1875,7 +1920,7 @@ export function AccountingPage() {
             </select>
           </label>
           <label>
-            対象年（年間推移）
+            対象年
             <select value={targetYear} onChange={(event) => setTargetYear(Number(event.target.value))}>
               {calendarYearOptions.map((year) => (
                 <option key={year} value={year}>
@@ -1884,6 +1929,12 @@ export function AccountingPage() {
               ))}
             </select>
           </label>
+          <p className="accounting-fiscal-year-note">
+            対象年：{targetYear}年 / 会計年度：{formatFiscalYearLabelForCalendarYear(targetYear)}
+            {activeTab === 'pl-monthly' ? (
+              <> / 月次PL対象月：{formatYearMonthLabel(targetYearMonth)}</>
+            ) : null}
+          </p>
         </div>
 
         {showAccountingDiagnostics && sessionDiagnostics ? (
@@ -1980,6 +2031,9 @@ export function AccountingPage() {
             <>
                 <h2>{formatYearMonthLabel(targetYearMonth)} の管理会計PL</h2>
                 <p className="accounting-note">
+                  会計年度：{formatFiscalYearLabel(targetYearMonth)} / 対象月：{formatYearMonthLabel(targetYearMonth)}
+                </p>
+                <p className="accounting-note">
                   確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費マスタ{' '}
                   {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
                   <br />
@@ -1999,6 +2053,9 @@ export function AccountingPage() {
               <>
                 <div className="accounting-pl-yearly-header">
                   <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
+                  <p className="accounting-note">
+                    会計年度：{formatFiscalYearLabelForCalendarYear(targetYear)}（4月〜翌3月で集計）
+                  </p>
                   <button
                     className="primary-action"
                     type="button"
@@ -2772,6 +2829,9 @@ export function AccountingPage() {
                     draft={assetDraft}
                     defaultAmount={expenseForm.taxIncludedAmount}
                     defaultPurchaseDate={getExpenseReceiptDate(expenseForm) || getExpensePostingDate(expenseForm)}
+                    description={expenseForm.description}
+                    vendorName={expenseForm.vendorName}
+                    suggestedCategory={expenseForm.suggestedExpenseCategory}
                     smallAssetUsageAssets={fixedAssets}
                     onChange={setAssetDraft}
                   />
@@ -3207,7 +3267,8 @@ export function AccountingPage() {
         {activeTab === 'audit' ? (
           <AuditMaterialsPanel
             expenses={expenses}
-            receipts={unorganizedReceipts}
+            allReceipts={allReceipts}
+            unorganizedReceipts={unorganizedReceipts}
             fixedAssets={fixedAssets}
             salesRows={salesRows}
             profitLoss={profitLoss}

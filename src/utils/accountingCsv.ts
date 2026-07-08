@@ -4,14 +4,18 @@ import {
   EXPENSE_CATEGORIES,
   FIXED_EXPENSE_CATEGORIES,
   getExpensePostingDate,
-  getExpenseReceiptDate,
   getPlTreatmentLabel,
   normalizePlTreatment,
   SALES_CATEGORIES,
   VARIABLE_EXPENSE_CATEGORIES,
 } from '../types/accounting'
 import type { AccountingSalesRow } from './accountingSalesMapping'
-import { formatYearMonthLabel, getYearlyProfitLossColumnOrder } from './accountingPl'
+import {
+  formatFiscalYearLabelForCalendarYear,
+  formatYearMonthLabel,
+  getYearlyProfitLossColumnOrder,
+} from './accountingPl'
+import { ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS } from '../types/accountingReceiptWorkflow'
 import { formatFareYen } from '../services/fare'
 
 const CSV_EOL = '\r\n'
@@ -93,9 +97,13 @@ export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
  * 年間管理会計PL CSV。画面と同じ calculateYearlyProfitLoss 結果を出力する。
  * ファイル名推奨: management-pl-yearly-YYYY.csv
  */
-export const buildYearlyPlCsv = (yearly: YearlyProfitLoss) => {
+export const buildYearlyPlCsv = (yearly: YearlyProfitLoss, targetYear?: number) => {
   const columnOrder = getYearlyProfitLossColumnOrder()
-  const lines = [csvLine([...YEARLY_CSV_HEADERS])]
+  const fiscalLabel = targetYear ? formatFiscalYearLabelForCalendarYear(targetYear) : ''
+  const lines = [
+    ...(fiscalLabel ? [csvLine(['年次管理会計PL', fiscalLabel])] : []),
+    csvLine([...YEARLY_CSV_HEADERS]),
+  ]
 
   const pushRow = (section: string, label: string, pick: (pl: MonthlyProfitLoss) => number) => {
     lines.push(
@@ -175,44 +183,45 @@ export const buildExpensesCsv = (
     paymentMethod: string
     invoiceNumber?: string
     confirmationStatus: string
+    receiptImageUrl?: string
     memo?: string
+    normalExpenseOverrideReason?: string
   }>,
   targetYearMonth: string,
 ) => {
   const lines = [
     csvLine(['経費一覧', formatYearMonthLabel(targetYearMonth)]),
     csvLine([
-      '証憑日',
-      '計上日',
-      '仕入先',
+      '日付',
+      '取引先',
       '内容',
-      '経費科目',
-      'PL反映区分',
-      '税込金額(円)',
+      '勘定科目',
+      '補助科目',
+      '金額(円)',
       '税率(%)',
-      '消費税額(円)',
-      '支払方法',
+      '税額(円)',
       'インボイス番号',
-      '確認状態',
-      'メモ',
+      '領収書画像有無',
+      'PL反映区分',
+      '備考',
     ]),
-    ...expenses.map((expense) =>
-      csvLine([
-        getExpenseReceiptDate(expense),
+    ...expenses.map((expense) => {
+      const memoParts = [expense.memo?.trim(), expense.normalExpenseOverrideReason?.trim()].filter(Boolean)
+      return csvLine([
         getExpensePostingDate(expense),
         expense.vendorName,
         expense.description,
         expense.expenseCategory,
-        getPlTreatmentLabel(normalizePlTreatment(expense.plTreatment)),
+        '',
         expense.taxIncludedAmount,
         expense.taxRate ?? '',
         expense.consumptionTaxAmount,
-        expense.paymentMethod,
         expense.invoiceNumber ?? '',
-        expense.confirmationStatus,
-        expense.memo ?? '',
-      ]),
-    ),
+        expense.receiptImageUrl ? '有' : '無',
+        getPlTreatmentLabel(normalizePlTreatment(expense.plTreatment)),
+        memoParts.join(' / '),
+      ])
+    }),
   ]
 
   return `\uFEFF${lines.join(CSV_EOL)}`
@@ -221,11 +230,17 @@ export const buildExpensesCsv = (
 export const buildFixedAssetsCsv = (
   assets: Array<{
     purchaseDate: string
+    useStartDate: string
     assetName: string
     assetCategory: string
+    condition: string
+    firstRegistrationYearMonth?: string
     acquisitionCost: number
+    standardUsefulLifeYears: number
     appliedUsefulLifeYears: number
     monthlyDepreciationYen: number
+    depreciationStartYearMonth: string
+    depreciationEndYearMonth: string
     remainingBookValue: number
     status: string
     notes?: string
@@ -235,11 +250,17 @@ export const buildFixedAssetsCsv = (
     csvLine(['固定資産台帳']),
     csvLine([
       '購入日',
+      '使用開始日',
       '資産名',
       '資産区分',
+      '新品中古',
+      '初度登録年月',
       '取得価額(円)',
-      '耐用年数',
+      '標準耐用年数',
+      '適用耐用年数',
       '月額償却費(円)',
+      '償却開始月',
+      '償却終了月',
       '未償却残高(円)',
       '状態',
       '備考',
@@ -247,11 +268,17 @@ export const buildFixedAssetsCsv = (
     ...assets.map((asset) =>
       csvLine([
         asset.purchaseDate,
+        asset.useStartDate,
         asset.assetName,
         asset.assetCategory,
+        asset.condition,
+        asset.firstRegistrationYearMonth ?? '',
         asset.acquisitionCost,
+        asset.standardUsefulLifeYears,
         asset.appliedUsefulLifeYears,
         asset.monthlyDepreciationYen,
+        asset.depreciationStartYearMonth,
+        asset.depreciationEndYearMonth,
         asset.remainingBookValue,
         asset.status,
         asset.notes ?? '',
@@ -265,21 +292,37 @@ export const buildFixedAssetsCsv = (
 export const buildSmallAssetsCsv = (
   assets: Array<{
     purchaseDate: string
+    useStartDate: string
     assetName: string
     assetCategory: string
     acquisitionCost: number
+    plPostingYearMonth: string
     notes?: string
   }>,
 ) => {
   const lines = [
     csvLine(['少額資産一覧']),
-    csvLine(['購入日', '資産名', '資産区分', '取得価額(円)', '備考']),
+    csvLine([
+      '購入日',
+      '使用開始日',
+      '資産名',
+      '資産区分',
+      '取得価額(円)',
+      '処理区分',
+      '年間300万円枠対象',
+      'PL反映月',
+      '備考',
+    ]),
     ...assets.map((asset) =>
       csvLine([
         asset.purchaseDate,
+        asset.useStartDate,
         asset.assetName,
         asset.assetCategory,
         asset.acquisitionCost,
+        '少額資産',
+        asset.acquisitionCost >= 100_000 ? '対象' : '対象外',
+        asset.plPostingYearMonth,
         asset.notes ?? '',
       ]),
     ),
@@ -293,47 +336,149 @@ export const buildDepreciationCsv = (
     targetYearMonth: string
     assetName: string
     assetCategory: string
+    acquisitionCost: number
+    monthlyDepreciationYen: number
     depreciationYen: number
+    cumulativeDepreciationYen: number
+    remainingBookValue: number
+    plExpenseCategory: string
   }>,
 ) => {
   const lines = [
     csvLine(['減価償却一覧']),
-    csvLine(['対象年月', '資産名', '資産区分', '減価償却費(円)']),
+    csvLine([
+      '対象年月',
+      '資産名',
+      '資産区分',
+      '取得価額(円)',
+      '月額償却費(円)',
+      '当月償却費(円)',
+      '累計償却額(円)',
+      '未償却残高(円)',
+      'PL反映科目',
+    ]),
     ...rows.map((row) =>
-      csvLine([row.targetYearMonth, row.assetName, row.assetCategory, row.depreciationYen]),
-    ),
-  ]
-
-  return `\uFEFF${lines.join(CSV_EOL)}`
-}
-
-export const buildReceiptsCsv = (
-  receipts: Array<{
-    savedAt?: string
-    receiptDate?: string
-    vendorNameCandidate?: string
-    amountTotalCandidate?: number
-    status: string
-    memo?: string
-  }>,
-) => {
-  const lines = [
-    csvLine(['領収書一覧']),
-    csvLine(['保存日', '証憑日', '仕入先候補', '金額候補(円)', '状態', 'メモ']),
-    ...receipts.map((receipt) =>
       csvLine([
-        receipt.savedAt ?? '',
-        receipt.receiptDate ?? '',
-        receipt.vendorNameCandidate ?? '',
-        receipt.amountTotalCandidate ?? '',
-        receipt.status,
-        receipt.memo ?? '',
+        row.targetYearMonth,
+        row.assetName,
+        row.assetCategory,
+        row.acquisitionCost,
+        row.monthlyDepreciationYen,
+        row.depreciationYen,
+        row.cumulativeDepreciationYen,
+        row.remainingBookValue,
+        row.plExpenseCategory,
       ]),
     ),
   ]
 
   return `\uFEFF${lines.join(CSV_EOL)}`
 }
+
+const buildReceiptRowsCsv = (
+  title: string,
+  receipts: Array<{
+    savedAt?: string
+    receiptDate?: string
+    vendorNameCandidate?: string
+    amountTotalCandidate?: number
+    ocrStatus: string
+    confirmationStatus: string
+    linkedToExpense: string
+    imageReference: string
+  }>,
+) => {
+  const lines = [
+    csvLine([title]),
+    csvLine([
+      '保存日',
+      '証憑日',
+      '取引先候補',
+      '金額候補(円)',
+      'OCR状態',
+      '確認状態',
+      '経費登録済みか',
+      '画像URLまたは画像有無',
+    ]),
+    ...receipts.map((receipt) =>
+      csvLine([
+        receipt.savedAt ?? '',
+        receipt.receiptDate ?? '',
+        receipt.vendorNameCandidate ?? '',
+        receipt.amountTotalCandidate ?? '',
+        receipt.ocrStatus,
+        receipt.confirmationStatus,
+        receipt.linkedToExpense,
+        receipt.imageReference,
+      ]),
+    ),
+  ]
+
+  return `\uFEFF${lines.join(CSV_EOL)}`
+}
+
+export const buildAllReceiptsCsv = (
+  receipts: Array<{
+    savedAt?: string
+    receiptDate?: string
+    vendorNameCandidate?: string
+    amountTotalCandidate?: number
+    ocrProcessedAt?: string
+    receiptStatus?: string
+    linkedExpenseId?: string
+    downloadUrl?: string
+    imageUrl?: string
+  }>,
+) =>
+  buildReceiptRowsCsv(
+    '領収書一覧',
+    receipts.map((receipt) => ({
+      savedAt: receipt.savedAt,
+      receiptDate: receipt.receiptDate,
+      vendorNameCandidate: receipt.vendorNameCandidate,
+      amountTotalCandidate: receipt.amountTotalCandidate,
+      ocrStatus: receipt.ocrProcessedAt ? 'OCR済み' : '未OCR',
+      confirmationStatus:
+        ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS[
+          (receipt.receiptStatus ?? 'draft') as keyof typeof ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS
+        ] ?? receipt.receiptStatus ?? '',
+      linkedToExpense: receipt.linkedExpenseId ? 'はい' : 'いいえ',
+      imageReference: receipt.downloadUrl || receipt.imageUrl || '無',
+    })),
+  )
+
+export const buildUnorganizedReceiptsCsv = (
+  receipts: Array<{
+    savedAt?: string
+    receiptDate?: string
+    vendorNameCandidate?: string
+    amountTotalCandidate?: number
+    ocrProcessedAt?: string
+    receiptStatus?: string
+    linkedExpenseId?: string
+    downloadUrl?: string
+    imageUrl?: string
+  }>,
+) =>
+  buildReceiptRowsCsv(
+    '未整理領収書一覧',
+    receipts.map((receipt) => ({
+      savedAt: receipt.savedAt,
+      receiptDate: receipt.receiptDate,
+      vendorNameCandidate: receipt.vendorNameCandidate,
+      amountTotalCandidate: receipt.amountTotalCandidate,
+      ocrStatus: receipt.ocrProcessedAt ? 'OCR済み' : '未OCR',
+      confirmationStatus:
+        ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS[
+          (receipt.receiptStatus ?? 'draft') as keyof typeof ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS
+        ] ?? receipt.receiptStatus ?? '',
+      linkedToExpense: receipt.linkedExpenseId ? 'はい' : 'いいえ',
+      imageReference: receipt.downloadUrl || receipt.imageUrl || '無',
+    })),
+  )
+
+/** @deprecated buildAllReceiptsCsv を使用 */
+export const buildReceiptsCsv = buildAllReceiptsCsv
 
 export const downloadCsvFile = (fileName: string, csvContent: string) => {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })

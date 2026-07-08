@@ -602,6 +602,23 @@ export const getCurrentYearMonthInJapan = () => {
 
 export const getCurrentCalendarYearInJapan = () => Number(getCurrentYearMonthInJapan().slice(0, 4))
 
+/** 対象年月が属する会計年度（4月始まり）の表示ラベル */
+export const formatFiscalYearLabel = (referenceYearMonth: string) => {
+  const [yearText, monthText] = referenceYearMonth.split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  if (!year || !month) {
+    return ''
+  }
+
+  const fiscalStartYear = month >= 4 ? year : year - 1
+  return `${fiscalStartYear}年4月〜${fiscalStartYear + 1}年3月`
+}
+
+/** カレンダー年選択に対する会計年度ラベル（4月〜翌3月） */
+export const formatFiscalYearLabelForCalendarYear = (calendarYear: number) =>
+  `${calendarYear}年4月〜${calendarYear + 1}年3月`
+
 export const buildYearMonthOptions = (count = 12) => {
   const options: string[] = []
   const now = new Date()

@@ -50,6 +50,14 @@ export function FixedAssetLedgerPanel({
   const [editUsefulLifeChangeReason, setEditUsefulLifeChangeReason] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
+  const smallAssets = useMemo(
+    () =>
+      fixedAssets
+        .filter((asset) => !asset.isDeleted && asset.assetKind === 'small')
+        .sort((left, right) => right.purchaseDate.localeCompare(left.purchaseDate, 'ja')),
+    [fixedAssets],
+  )
+
   const visibleAssets = useMemo(
     () =>
       fixedAssets
@@ -191,6 +199,45 @@ export function FixedAssetLedgerPanel({
           />
         </label>
       </div>
+
+      <section className="accounting-small-asset-ledger" aria-label="少額資産一覧">
+        <h3>少額資産</h3>
+        <p className="accounting-note">
+          少額資産として登録された資産です。減価償却対象ではなく、取得月の経費としてPLに一括計上されます。
+        </p>
+        {smallAssets.length > 0 ? (
+          <div className="accounting-table-wrap">
+            <table className="accounting-table">
+              <thead>
+                <tr>
+                  <th>購入日</th>
+                  <th>資産名</th>
+                  <th>資産区分</th>
+                  <th>取得価額</th>
+                  <th>PL反映月</th>
+                  <th>備考</th>
+                </tr>
+              </thead>
+              <tbody>
+                {smallAssets.map((asset) => (
+                  <tr key={asset.id}>
+                    <td>{asset.purchaseDate}</td>
+                    <td>{asset.assetName}</td>
+                    <td>少額資産 / {asset.assetCategory}</td>
+                    <td>{formatFareYen(asset.acquisitionCost)}円</td>
+                    <td>{asset.depreciationStartYearMonth}</td>
+                    <td>{asset.notes || '―'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="accounting-note">少額資産はありません。</p>
+        )}
+      </section>
+
+      <h3>固定資産</h3>
 
       <div className="accounting-fixed-asset-cards">
         {filteredAssets.map((asset) => (

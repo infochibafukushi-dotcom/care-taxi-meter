@@ -254,6 +254,35 @@ export const getDepreciationAmountForMonth = (
   return asset.monthlyDepreciationYen
 }
 
+export const calculateCumulativeDepreciationYen = (
+  asset: StoredAccountingFixedAsset,
+  asOfYearMonth: string,
+) => {
+  if (asset.assetKind !== 'fixed' || asset.isDeleted) {
+    return 0
+  }
+
+  if (asOfYearMonth < asset.depreciationStartYearMonth) {
+    return 0
+  }
+
+  const endMonth =
+    asOfYearMonth <= asset.depreciationEndYearMonth ? asOfYearMonth : asset.depreciationEndYearMonth
+
+  let cumulative = 0
+  let cursor = asset.depreciationStartYearMonth
+
+  while (cursor <= endMonth) {
+    cumulative += getDepreciationAmountForMonth(asset, cursor)
+    if (cursor === endMonth) {
+      break
+    }
+    cursor = addMonthsToYearMonth(cursor, 1)
+  }
+
+  return cumulative
+}
+
 export const aggregateMonthlyDepreciationYen = (
   assets: StoredAccountingFixedAsset[],
   targetYearMonth: string,

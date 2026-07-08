@@ -9,6 +9,10 @@ import {
 } from '../../utils/accountingDepreciation'
 import { getCurrentCalendarYearInJapan } from '../../utils/accountingPl'
 import {
+  detectFixedAssetRegistrationWarning,
+  FIXED_ASSET_OVERRIDE_WARNING,
+} from '../../utils/accountingAssetDetection'
+import {
   ASSET_CONDITIONS,
   EXPENSE_REGISTRATION_TYPES,
   EXPENSE_REGISTRATION_TYPE_LABELS,
@@ -25,6 +29,9 @@ type ExpenseAssetBranchPanelProps = {
   draft: ExpenseAssetRegistrationDraft
   defaultAmount: number
   defaultPurchaseDate: string
+  description: string
+  vendorName: string
+  suggestedCategory?: string
   smallAssetUsageAssets: Array<Pick<StoredAccountingFixedAsset, 'assetKind' | 'purchaseDate' | 'acquisitionCost' | 'isDeleted'>>
   onChange: (draft: ExpenseAssetRegistrationDraft) => void
 }
@@ -34,6 +41,9 @@ export function ExpenseAssetBranchPanel({
   draft,
   defaultAmount,
   defaultPurchaseDate,
+  description,
+  vendorName,
+  suggestedCategory = '',
   smallAssetUsageAssets,
   onChange,
 }: ExpenseAssetBranchPanelProps) {
@@ -92,7 +102,13 @@ export function ExpenseAssetBranchPanel({
     }
 
     if (registrationType === 'normal') {
-      onChange({ ...base, assetCategory: '', assetName: '' })
+      onChange({
+        ...base,
+        assetCategory: '',
+        assetName: '',
+        normalExpenseOverrideReason: '',
+        normalExpenseOverrideConfirmed: false,
+      })
       setShowFixedDetails(false)
       return
     }
@@ -118,6 +134,13 @@ export function ExpenseAssetBranchPanel({
   }
 
   const amountRecommendation = getSmallAssetAmountRecommendation(draft.acquisitionCost || defaultAmount)
+  const registrationWarning = detectFixedAssetRegistrationWarning({
+    amountYen: draft.acquisitionCost || defaultAmount,
+    description,
+    vendorName,
+    assetCategory: draft.assetCategory,
+    suggestedCategory,
+  })
 
   return (
     <section className="accounting-asset-branch" aria-label="資産登録区分">
@@ -139,8 +162,46 @@ export function ExpenseAssetBranchPanel({
         </div>
       </fieldset>
 
+      {draft.registrationType === 'normal' && registrationWarning.shouldWarn ? (
+        <div className="accounting-asset-warning" role="alert">
+          <p className="accounting-note accounting-asset-warning-message">{FIXED_ASSET_OVERRIDE_WARNING}</p>
+          {registrationWarning.amountMatch ? (
+            <p className="accounting-note">取得価額が10万円以上です。</p>
+          ) : null}
+          {registrationWarning.keywordMatch ? (
+            <p className="accounting-note">内容・品目が固定資産候補キーワードに一致しています。</p>
+          ) : null}
+          <label className="accounting-checkbox-label">
+            <input
+              type="checkbox"
+              checked={draft.normalExpenseOverrideConfirmed}
+              onChange={(event) =>
+                updateDraft({
+                  normalExpenseOverrideConfirmed: event.target.checked,
+                  normalExpenseOverrideReason: event.target.checked ? draft.normalExpenseOverrideReason : '',
+                })
+              }
+            />
+            通常経費のまま登録する
+          </label>
+          {draft.normalExpenseOverrideConfirmed ? (
+            <label>
+              通常経費で登録する理由（必須）
+              <textarea
+                rows={2}
+                value={draft.normalExpenseOverrideReason}
+                onChange={(event) => updateDraft({ normalExpenseOverrideReason: event.target.value })}
+              />
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       {draft.registrationType === 'small' ? (
         <div className="accounting-asset-branch-fields">
+          <p className="accounting-note accounting-asset-pl-note">
+            少額資産として一括経費計上します。この資産は減価償却費ではなく、取得月の経費としてPLに反映されます。
+          </p>
           <label>
             購入したもの
             <select

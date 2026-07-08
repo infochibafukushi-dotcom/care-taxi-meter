@@ -108,6 +108,8 @@ export type ExpenseAssetRegistrationDraft = {
   depreciationStartYearMonth: string
   depreciationEndYearMonth: string
   notes: string
+  normalExpenseOverrideReason: string
+  normalExpenseOverrideConfirmed: boolean
 }
 
 export const buildEmptyExpenseAssetDraft = (): ExpenseAssetRegistrationDraft => ({
@@ -127,4 +129,6 @@ export const buildEmptyExpenseAssetDraft = (): ExpenseAssetRegistrationDraft => 
   depreciationStartYearMonth: '',
   depreciationEndYearMonth: '',
   notes: '',
+  normalExpenseOverrideReason: '',
+  normalExpenseOverrideConfirmed: false,
 })
