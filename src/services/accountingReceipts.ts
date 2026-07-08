@@ -119,6 +119,10 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     ocrProcessedAt: typeof data.ocrProcessedAt === 'string' ? data.ocrProcessedAt : undefined,
     suggestedExpenseCategory:
       (data.suggestedExpenseCategory as StoredAccountingReceipt['suggestedExpenseCategory']) ?? '',
+    invoiceRegistrant:
+      data.invoiceRegistrant && typeof data.invoiceRegistrant === 'object'
+        ? (data.invoiceRegistrant as StoredAccountingReceipt['invoiceRegistrant'])
+        : undefined,
     uploadedBy: String(data.uploadedBy ?? ''),
     uploadedByName: String(data.uploadedByName ?? ''),
     createdAt: readTimestampAsIso(data.createdAt),
@@ -303,6 +307,7 @@ export async function applyOcrCandidatesToAccountingReceipt({
       ocrConfidence: ocr.ocrConfidence,
       ocrProcessedAt: new Date().toISOString(),
       suggestedExpenseCategory: ocr.suggestedExpenseCategory ?? '',
+      invoiceRegistrant: ocr.invoiceRegistrant,
     },
   })
 }

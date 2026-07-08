@@ -64,6 +64,20 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
         : '未確認',
     invoiceRegisteredName: typeof data.invoiceRegisteredName === 'string' ? data.invoiceRegisteredName : '',
     invoiceCheckedAt: typeof data.invoiceCheckedAt === 'string' ? data.invoiceCheckedAt : '',
+    invoiceRegisteredNameVerified: data.invoiceRegisteredNameVerified === true,
+    invoiceCorporateNumber:
+      typeof data.invoiceCorporateNumber === 'string' ? data.invoiceCorporateNumber : '',
+    invoiceAddress: typeof data.invoiceAddress === 'string' ? data.invoiceAddress : '',
+    invoiceRegistrationStatus:
+      typeof data.invoiceRegistrationStatus === 'string' ? data.invoiceRegistrationStatus : '',
+    invoiceRegistrationDate:
+      typeof data.invoiceRegistrationDate === 'string' ? data.invoiceRegistrationDate : '',
+    invoiceTradeName: typeof data.invoiceTradeName === 'string' ? data.invoiceTradeName : '',
+    invoiceLookupMethod: typeof data.invoiceLookupMethod === 'string' ? data.invoiceLookupMethod : '',
+    invoiceRegistrant:
+      data.invoiceRegistrant && typeof data.invoiceRegistrant === 'object'
+        ? (data.invoiceRegistrant as StoredAccountingExpense['invoiceRegistrant'])
+        : undefined,
     receiptImageUrl: typeof data.receiptImageUrl === 'string' ? data.receiptImageUrl : '',
     receiptStoragePath: typeof data.receiptStoragePath === 'string' ? data.receiptStoragePath : '',
     receiptId: typeof data.receiptId === 'string' ? data.receiptId : '',
@@ -252,6 +266,14 @@ export const buildEmptyExpenseInput = ({
     invoiceCheckStatus: '未確認',
     invoiceRegisteredName: '',
     invoiceCheckedAt: '',
+    invoiceRegisteredNameVerified: false,
+    invoiceCorporateNumber: '',
+    invoiceAddress: '',
+    invoiceRegistrationStatus: '',
+    invoiceRegistrationDate: '',
+    invoiceTradeName: '',
+    invoiceLookupMethod: '',
+    invoiceRegistrant: undefined,
     receiptImageUrl: '',
     receiptStoragePath: '',
     receiptId: '',

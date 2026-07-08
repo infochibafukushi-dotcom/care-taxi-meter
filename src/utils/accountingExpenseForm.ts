@@ -34,6 +34,8 @@ export type AccountingReceiptOcrResult = {
   ocrConfidence?: number
   parsed: OcrParsedFields
   suggestedExpenseCategory?: ExpenseCategory | ''
+  invoiceRegistrant?: import('../types/invoiceRegistrant').InvoiceRegistrantInfo
+  invoiceLookupStatus?: 'success' | 'not_found' | 'error' | 'skipped' | 'idle'
 }
 
 export const OCR_NOT_CONFIGURED_MESSAGE =
@@ -96,6 +98,10 @@ export const applyAccountingReceiptOcrToExpense = (
     ocr.suggestedExpenseCategory ?? expense.suggestedExpenseCategory ?? ''
   const autoApplyCandidates = shouldAutoApplyOcrCandidates(ocr.ocrConfidence)
 
+  const registrantVerified = Boolean(
+    ocr.invoiceLookupStatus === 'success' && parsed.invoiceRegisteredName,
+  )
+
   return {
     ...expense,
     receiptDate: receiptDate || expense.receiptDate,
@@ -109,6 +115,15 @@ export const applyAccountingReceiptOcrToExpense = (
     invoiceNumber: parsed.invoiceNumber ?? expense.invoiceNumber,
     invoiceRegisteredName: parsed.invoiceRegisteredName ?? expense.invoiceRegisteredName,
     invoiceCheckStatus: parsed.invoiceCheckStatus ?? expense.invoiceCheckStatus ?? '未確認',
+    invoiceCheckedAt: registrantVerified ? new Date().toISOString() : expense.invoiceCheckedAt,
+    invoiceRegisteredNameVerified: registrantVerified,
+    invoiceCorporateNumber: parsed.invoiceCorporateNumber ?? expense.invoiceCorporateNumber,
+    invoiceAddress: parsed.invoiceAddress ?? expense.invoiceAddress,
+    invoiceRegistrationStatus: parsed.invoiceRegistrationStatus ?? expense.invoiceRegistrationStatus,
+    invoiceRegistrationDate: parsed.invoiceRegistrationDate ?? expense.invoiceRegistrationDate,
+    invoiceTradeName: parsed.invoiceTradeName ?? expense.invoiceTradeName,
+    invoiceLookupMethod: parsed.invoiceLookupMethod ?? expense.invoiceLookupMethod,
+    invoiceRegistrant: ocr.invoiceRegistrant ?? expense.invoiceRegistrant,
     ocrRawText: ocr.ocrRawText ?? expense.ocrRawText,
     ocrParsedFields: parsed,
     ocrConfidence: ocr.ocrConfidence ?? expense.ocrConfidence,
@@ -160,6 +175,27 @@ export const buildExpenseFormFromReceipt = ({
     invoiceRegisteredName:
       receipt.invoiceRegisteredNameCandidate || receipt.ocrParsedFields?.invoiceRegisteredName || '',
     invoiceCheckStatus: receipt.ocrParsedFields?.invoiceCheckStatus ?? '未確認',
+    invoiceRegisteredNameVerified: Boolean(
+      receipt.invoiceRegistrant?.registeredName || receipt.ocrParsedFields?.invoiceLookupMethod,
+    ),
+    invoiceCorporateNumber:
+      receipt.ocrParsedFields?.invoiceCorporateNumber || receipt.invoiceRegistrant?.corporateNumber || '',
+    invoiceAddress: receipt.ocrParsedFields?.invoiceAddress || receipt.invoiceRegistrant?.address || '',
+    invoiceRegistrationStatus:
+      receipt.ocrParsedFields?.invoiceRegistrationStatus ||
+      receipt.invoiceRegistrant?.registrationStatus ||
+      '',
+    invoiceRegistrationDate:
+      receipt.ocrParsedFields?.invoiceRegistrationDate ||
+      receipt.invoiceRegistrant?.registrationDate ||
+      '',
+    invoiceTradeName:
+      receipt.ocrParsedFields?.invoiceTradeName || receipt.invoiceRegistrant?.tradeName || '',
+    invoiceLookupMethod:
+      receipt.ocrParsedFields?.invoiceLookupMethod || receipt.invoiceRegistrant?.lookupMethod || '',
+    invoiceRegistrant: receipt.invoiceRegistrant,
+    invoiceCheckedAt:
+      receipt.ocrParsedFields?.invoiceCheckStatus === '確認済' ? new Date().toISOString() : '',
     memo: receipt.memo ?? '',
     ocrRawText: receipt.ocrRawText ?? '',
     ocrParsedFields: receipt.ocrParsedFields,

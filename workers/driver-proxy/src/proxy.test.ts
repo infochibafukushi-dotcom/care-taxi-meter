@@ -75,6 +75,31 @@ describe('evaluateDriverProxyRoute', () => {
   })
 })
 
+describe('evaluateInvoiceProxyRoute', () => {
+  it('allows registrant GET with invoice number', async () => {
+    const { evaluateInvoiceProxyRoute } = await import('./invoiceRouting.ts')
+    const decision = evaluateInvoiceProxyRoute(
+      'GET',
+      '/api/invoice/registrant',
+      new URLSearchParams({ number: 'T4200001013662' }),
+    )
+    assert.equal(decision.kind, 'allowed')
+    if (decision.kind === 'allowed') {
+      assert.equal(decision.invoiceNumber, 'T4200001013662')
+    }
+  })
+
+  it('rejects invalid invoice numbers', async () => {
+    const { evaluateInvoiceProxyRoute } = await import('./invoiceRouting.ts')
+    const decision = evaluateInvoiceProxyRoute(
+      'GET',
+      '/api/invoice/registrant',
+      new URLSearchParams({ number: '4200001013662' }),
+    )
+    assert.equal(decision.kind, 'bad_request')
+  })
+})
+
 describe('handleDriverProxyRequest', () => {
   it('proxies allowed GET with bearer token and strips cookies', async () => {
     let upstreamRequest: Request | null = null

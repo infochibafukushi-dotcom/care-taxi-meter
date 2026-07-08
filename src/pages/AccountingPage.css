@@ -361,6 +361,28 @@ body.route-accounting,
   font-weight: 600;
 }
 
+.accounting-ocr-invoice-summary {
+  display: grid;
+  gap: 0.35rem 1rem;
+  margin: 0.75rem 0 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.accounting-ocr-invoice-summary div {
+  min-width: 0;
+}
+
+.accounting-ocr-invoice-summary dt {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.accounting-ocr-invoice-summary dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+
 .accounting-ocr-raw-text {
   margin: 0.5rem 0 0;
   padding: 0.65rem 0.75rem;

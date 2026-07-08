@@ -1,3 +1,5 @@
+import type { InvoiceRegistrantInfo } from './invoiceRegistrant'
+
 export const SALES_CATEGORIES = [
   '運賃',
   '介助',
@@ -85,7 +87,7 @@ export const PL_TREATMENT_LABELS: Record<PlTreatment, string> = {
 
 export type AccountingPaymentMethod = (typeof PAYMENT_METHODS)[number]
 
-export const INVOICE_CHECK_STATUSES = ['未確認', '登録あり', '登録なし', '対象外'] as const
+export const INVOICE_CHECK_STATUSES = ['未確認', '確認済', '登録あり', '登録なし', '対象外'] as const
 
 export type InvoiceCheckStatus = (typeof INVOICE_CHECK_STATUSES)[number]
 
@@ -112,6 +114,20 @@ export type OcrParsedFields = {
   invoiceNumber?: string
   invoiceRegisteredName?: string
   invoiceCheckStatus?: InvoiceCheckStatus
+  /** インボイス番号から取得した法人番号（T無し13桁） */
+  invoiceCorporateNumber?: string
+  /** 登録事業者の所在地 */
+  invoiceAddress?: string
+  /** 登録状況（登録／取消／失効など） */
+  invoiceRegistrationStatus?: string
+  /** 登録年月日（YYYY-MM-DD） */
+  invoiceRegistrationDate?: string
+  /** 屋号 */
+  invoiceTradeName?: string
+  /** 取得方法（例: インボイス番号検索） */
+  invoiceLookupMethod?: string
+  /** OCR番号（検索に使った登録番号） */
+  invoiceOcrNumber?: string
 }
 
 export type AccountingOcrData = {
@@ -120,6 +136,7 @@ export type AccountingOcrData = {
   ocrConfidence?: number
   ocrProcessedAt?: string
   suggestedExpenseCategory?: ExpenseCategory | ''
+  invoiceRegistrant?: InvoiceRegistrantInfo
 }
 
 export type AccountingTenantFields = {
@@ -149,6 +166,14 @@ export type AccountingExpenseInput = AccountingTenantFields &
     invoiceCheckStatus?: InvoiceCheckStatus
     invoiceRegisteredName?: string
     invoiceCheckedAt?: string
+    /** true when registered name came from NTA invoice search (not OCR/hand) */
+    invoiceRegisteredNameVerified?: boolean
+    invoiceCorporateNumber?: string
+    invoiceAddress?: string
+    invoiceRegistrationStatus?: string
+    invoiceRegistrationDate?: string
+    invoiceTradeName?: string
+    invoiceLookupMethod?: string
     receiptImageUrl?: string
     receiptStoragePath?: string
     receiptId?: string

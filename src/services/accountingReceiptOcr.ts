@@ -12,6 +12,10 @@ import {
 } from '../utils/accountingTesseractPaths'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { loadAccountingReceiptImageBlob } from './accountingReceipts'
+import {
+  applyInvoiceRegistrantLookupToParsedFields,
+  lookupInvoiceRegistrant,
+} from './invoiceRegistrantLookup'
 
 export const OCR_TIMEOUT_MS = 30_000
 export const OCR_TIMEOUT_MESSAGE =
@@ -236,8 +240,28 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
 
   reportProgress(input.onProgress, 'parsing')
   logOcrStep('parse-start', { textLength: ocrRawText.length })
-  const parsed = parseAccountingReceiptOcrText(ocrRawText)
+  let parsed = parseAccountingReceiptOcrText(ocrRawText)
   const suggestedExpenseCategory = buildSuggestedExpenseCategory(parsed)
+
+  let invoiceLookupStatus: AccountingReceiptOcrResult['invoiceLookupStatus'] = 'idle'
+  let invoiceRegistrant: AccountingReceiptOcrResult['invoiceRegistrant']
+
+  if (parsed.invoiceNumber) {
+    reportProgress(input.onProgress, 'parsing', 'インボイス登録事業者を検索しています…')
+    logOcrStep('invoice-lookup-start', { invoiceNumber: parsed.invoiceNumber })
+    const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber)
+    invoiceLookupStatus = lookup.status
+    parsed = applyInvoiceRegistrantLookupToParsedFields(parsed, lookup)
+    if (lookup.status === 'success') {
+      invoiceRegistrant = lookup.registrant
+    }
+    logOcrStep('invoice-lookup-done', {
+      status: lookup.status,
+      registeredName: invoiceRegistrant?.registeredName ?? '',
+      invoiceNumber: parsed.invoiceNumber,
+    })
+  }
+
   const parsedFields = {
     supplierName: parsed.vendorName,
     receiptDate: parsed.receiptDate,
@@ -245,6 +269,8 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
     consumptionTax: parsed.consumptionTaxAmount,
     description: parsed.description,
     invoiceNumber: parsed.invoiceNumber,
+    invoiceRegisteredName: parsed.invoiceRegisteredName,
+    invoiceLookupMethod: parsed.invoiceLookupMethod,
     suggestedExpenseCategory,
   }
   console.log(parsedFields)
@@ -255,12 +281,16 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   return {
     status: 'success',
     message: hasParsedOcrCandidate(parsed)
-      ? 'OCR候補を反映しました。日付・金額等を確認してください。'
+      ? invoiceLookupStatus === 'success'
+        ? 'OCR候補を反映し、登録事業者名をインボイス番号検索で取得しました。'
+        : 'OCR候補を反映しました。日付・金額等を確認してください。'
       : 'テキストは読み取れましたが、日付・金額等を自動判定できませんでした。手入力してください。',
     ocrRawText,
     ocrConfidence,
     parsed,
     suggestedExpenseCategory,
+    invoiceRegistrant,
+    invoiceLookupStatus,
   }
 }
 
@@ -291,23 +321,30 @@ export async function runAccountingReceiptOcr(
   })
 
   if (isReviewDemoRuntimeEnabled()) {
+    let parsed = {
+      receiptDate: '2025-10-10',
+      postingDate: '2026-07-06',
+      vendorName: 'Seria',
+      description: 'デモ商品',
+      taxIncludedAmount: 995,
+      taxRate: 10,
+      consumptionTaxAmount: 90,
+      invoiceNumber: 'T4200001013662',
+      invoiceOcrNumber: 'T4200001013662',
+      invoiceRegisteredName: undefined as string | undefined,
+      invoiceCheckStatus: '未確認' as const,
+    }
+    const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber)
+    parsed = applyInvoiceRegistrantLookupToParsedFields(parsed, lookup)
     return {
       status: 'success',
       message: 'レビューデモ用の OCR 候補です。',
-      ocrRawText: 'デモ領収書 OCR テキスト',
-      ocrConfidence: 0.5,
-      parsed: {
-        receiptDate: '2025-10-10',
-        postingDate: '2026-07-06',
-        vendorName: 'デモ仕入先',
-        description: 'デモ商品',
-        taxIncludedAmount: 1100,
-        taxRate: 10,
-        consumptionTaxAmount: 100,
-        invoiceNumber: 'T1234567890123',
-        invoiceRegisteredName: 'デモ登録事業者',
-      },
+      ocrRawText: 'デモ領収書 OCR テキスト Seria 合計 995 T4200001013662',
+      ocrConfidence: 0.85,
+      parsed,
       suggestedExpenseCategory: '消耗品費',
+      invoiceRegistrant: lookup.status === 'success' ? lookup.registrant : undefined,
+      invoiceLookupStatus: lookup.status,
     }
   }
 

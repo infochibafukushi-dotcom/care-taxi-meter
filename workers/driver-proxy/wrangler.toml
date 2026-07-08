@@ -5,6 +5,8 @@ compatibility_date = "2025-06-01"
 [vars]
 ALLOWED_ORIGIN = "http://localhost:5173"
 RESERVATION_V4_ORIGIN = "https://reservation-v4.example.com"
+# NTA_INVOICE_API_ID — set via `wrangler secret put NTA_INVOICE_API_ID` (recommended)
+# or as a var after National Tax Agency application ID is issued.
 
 [[services]]
 binding = "RESERVATION_V4"

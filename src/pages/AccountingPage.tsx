@@ -580,10 +580,13 @@ export function AccountingPage() {
     }
     const autoAppliedCategory =
       shouldAutoApplyOcrCandidates(result.ocrConfidence) && Boolean(result.suggestedExpenseCategory)
+    const registrantFound = result.invoiceLookupStatus === 'success' && Boolean(result.parsed.invoiceRegisteredName)
     setOcrCandidateNotice(
-      autoAppliedCategory
-        ? `OCR候補をフォームに反映しました（信頼度${(OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%以上のため経費科目候補も自動入力）。内容を確認してから保存してください。`
-        : 'OCR候補をフォームに反映しました。日付・金額・内容・経費科目候補を確認してから保存してください。',
+      registrantFound
+        ? `OCR候補を反映し、登録事業者名「${result.parsed.invoiceRegisteredName}」をインボイス番号検索で取得しました。`
+        : autoAppliedCategory
+          ? `OCR候補をフォームに反映しました（信頼度${(OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%以上のため経費科目候補も自動入力）。内容を確認してから保存してください。`
+          : 'OCR候補をフォームに反映しました。日付・金額・内容・経費科目候補を確認してから保存してください。',
     )
   }
 
@@ -2019,14 +2022,47 @@ export function AccountingPage() {
                   ))}
                 </select>
               </label>
-              <label>
-                登録事業者名（手入力）
-                <input
-                  type="text"
-                  value={expenseForm.invoiceRegisteredName ?? ''}
-                  onChange={(event) => handleExpenseFieldChange('invoiceRegisteredName', event.target.value)}
-                />
-              </label>
+              {expenseForm.invoiceRegisteredNameVerified && expenseForm.invoiceRegisteredName ? (
+                <label className="accounting-form-span-2">
+                  登録事業者名
+                  <input type="text" readOnly value={expenseForm.invoiceRegisteredName} />
+                </label>
+              ) : (
+                <label className="accounting-form-span-2">
+                  登録事業者名（手入力）
+                  <input
+                    type="text"
+                    value={expenseForm.invoiceRegisteredName ?? ''}
+                    onChange={(event) =>
+                      handleExpenseFieldChange('invoiceRegisteredName', event.target.value)
+                    }
+                  />
+                </label>
+              )}
+              {expenseForm.invoiceCorporateNumber ? (
+                <label>
+                  法人番号
+                  <input type="text" readOnly value={expenseForm.invoiceCorporateNumber} />
+                </label>
+              ) : null}
+              {expenseForm.invoiceAddress ? (
+                <label className="accounting-form-span-2">
+                  所在地
+                  <input type="text" readOnly value={expenseForm.invoiceAddress} />
+                </label>
+              ) : null}
+              {expenseForm.invoiceRegistrationStatus ? (
+                <label>
+                  登録状況
+                  <input type="text" readOnly value={expenseForm.invoiceRegistrationStatus} />
+                </label>
+              ) : null}
+              {expenseForm.invoiceRegistrationDate ? (
+                <label>
+                  登録年月日
+                  <input type="text" readOnly value={expenseForm.invoiceRegistrationDate} />
+                </label>
+              ) : null}
               <label>
                 インボイス確認日時
                 <input
@@ -2073,6 +2109,28 @@ export function AccountingPage() {
               <details className="accounting-form-span-2 accounting-ocr-details">
                 <summary>OCR詳細（候補データ）</summary>
                 <p className="accounting-note">以下は OCR 候補の保存用です。経費科目は上の選択欄で手動確定してください。</p>
+                <dl className="accounting-ocr-invoice-summary">
+                  <div>
+                    <dt>OCR番号</dt>
+                    <dd>
+                      {expenseForm.ocrParsedFields?.invoiceOcrNumber ||
+                        expenseForm.invoiceNumber ||
+                        '―'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>検索結果</dt>
+                    <dd>
+                      {expenseForm.invoiceRegisteredNameVerified
+                        ? expenseForm.invoiceRegisteredName || '―'
+                        : '―'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>取得方法</dt>
+                    <dd>{expenseForm.invoiceLookupMethod || '―'}</dd>
+                  </div>
+                </dl>
                 <label>
                   OCR全文
                   <textarea

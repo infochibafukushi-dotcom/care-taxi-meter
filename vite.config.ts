@@ -5,12 +5,16 @@ import { VitePWA } from 'vite-plugin-pwa'
 const githubPagesBase = '/care-taxi-meter/'
 const appBasePath = githubPagesBase.replace(/\/$/, '')
 const driverApiProxyPath = `${appBasePath}/api/driver`
+const invoiceApiProxyPath = `${appBasePath}/api/invoice`
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const reservationOrigin = env.RESERVATION_V4_ORIGIN?.trim()
   const meterDriverToken = env.METER_DRIVER_TOKEN?.trim()
+  const ntaInvoiceApiId = env.NTA_INVOICE_API_ID?.trim()
+  const invoiceApiProxyTarget =
+    env.VITE_RESERVATION_API_BASE_URL?.trim() || reservationOrigin || ''
 
   const reservationDriverProxy: ProxyOptions | undefined = reservationOrigin
     ? {
@@ -28,6 +32,38 @@ export default defineConfig(({ mode }) => {
         },
       }
     : undefined
+
+  const invoiceApiProxy: ProxyOptions | undefined = invoiceApiProxyTarget
+    ? {
+        target: invoiceApiProxyTarget,
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path: string) =>
+          path.startsWith(appBasePath) ? path.slice(appBasePath.length) || '/' : path,
+      }
+    : ntaInvoiceApiId
+      ? {
+          target: 'https://web-api.invoice-kohyo.nta.go.jp',
+          changeOrigin: true,
+          secure: true,
+          rewrite: () => '/1/num',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              const incomingUrl = new URL(req.url ?? '', 'http://localhost')
+              const number = incomingUrl.searchParams.get('number') ?? ''
+              proxyReq.path = `/1/num?id=${encodeURIComponent(ntaInvoiceApiId)}&number=${encodeURIComponent(number)}&type=21&history=0`
+            })
+          },
+        }
+      : undefined
+
+  const proxy: Record<string, ProxyOptions> = {}
+  if (reservationDriverProxy) {
+    proxy[driverApiProxyPath] = reservationDriverProxy
+  }
+  if (invoiceApiProxy) {
+    proxy[invoiceApiProxyPath] = invoiceApiProxy
+  }
 
   return {
   base: githubPagesBase,
@@ -74,12 +110,6 @@ export default defineConfig(({ mode }) => {
       },
     }),
   ],
-  server: reservationDriverProxy
-    ? {
-        proxy: {
-          [driverApiProxyPath]: reservationDriverProxy,
-        },
-      }
-    : undefined,
+  server: Object.keys(proxy).length > 0 ? { proxy } : undefined,
   }
 })

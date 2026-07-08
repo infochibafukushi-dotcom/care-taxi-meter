@@ -20,7 +20,7 @@ const AMOUNT_KEYWORDS = [
 ] as const
 const TAX_KEYWORDS = ['消費税', '内税額', '内税', '税額', 'うち消費税', 'うち税'] as const
 const PRODUCT_LINE_SKIP =
-  /^(合計|小計|税|消費税|内税|お預かり|お預り|お釣り|釣り|登録番号|ポイント|レシート|領収|領収書|領収証|商品名|単価|数量|金額|店舗|店番|担当|tel|電話|〒|no\.|seria|セリア)/i
+  /^(合計|小計|税|消費税|内税|お預かり|お預り|お釣り|釣り|登録番号|ポイント|レシート|領収|領収書|領収証|商品名|単価|数量|金額|店舗|店番|担当|tel|電話|〒|no\.|seria|セリア|\d{2,4}[/-]\d{1,2}[/-]\d{0,2}|\d{4}年)/i
 
 /** 全角英数字・記号を半角に変換 */
 export const toHalfWidthAscii = (value: string) =>
@@ -316,6 +316,10 @@ export const extractProductDescription = (text: string) => {
       continue
     }
 
+    if (/^\d{2,4}[/-]\d{1,2}/.test(half) || /\d{4}年/.test(half)) {
+      continue
+    }
+
     if (/^T\d{13}$/i.test(half.replace(/\s+/g, ''))) {
       continue
     }
@@ -370,8 +374,10 @@ export const parseAccountingReceiptOcrText = (text: string): OcrParsedFields => 
     taxRate,
     consumptionTaxAmount,
     invoiceNumber,
-    invoiceRegisteredName: vendorName,
+    // 登録事業者名はインボイス番号検索結果を優先するため、ここでは OCR 仕入先を入れない
+    invoiceRegisteredName: undefined,
     invoiceCheckStatus: invoiceNumber ? '未確認' : undefined,
+    invoiceOcrNumber: invoiceNumber,
   }
 }
 
