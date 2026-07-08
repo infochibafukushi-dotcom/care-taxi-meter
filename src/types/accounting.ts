@@ -17,6 +17,9 @@ export const EXPENSE_CATEGORIES = [
   '保険料',
   'リース料',
   '消耗品費',
+  '水道光熱費',
+  '地代家賃',
+  '介護用品費',
   '広告宣伝費',
   '接待交際費',
   '旅費交通費',
@@ -30,6 +33,39 @@ export const EXPENSE_CATEGORIES = [
 ] as const
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
+
+/** 固定費登録フォーム用の科目候補（表示ラベルは既存勘定科目と整合） */
+export const FIXED_COST_CATEGORY_OPTIONS: ReadonlyArray<{ value: ExpenseCategory; label: string }> = [
+  { value: '燃料費', label: '燃料費' },
+  { value: '車両費', label: '車両費' },
+  { value: '保険料', label: '保険料' },
+  { value: '通信費', label: '通信費' },
+  { value: '水道光熱費', label: '水道光熱費' },
+  { value: '地代家賃', label: '地代家賃' },
+  { value: '高速・駐車場', label: '駐車場代' },
+  { value: '消耗品費', label: '消耗品費' },
+  { value: '介護用品費', label: '介護用品費' },
+  { value: '広告宣伝費', label: '広告宣伝費' },
+  { value: '支払手数料', label: '支払手数料' },
+  { value: '研修費', label: '研修費' },
+  { value: '租税公課', label: '租税公課' },
+  { value: '旅費交通費', label: '旅費交通費' },
+  { value: 'システム費', label: 'システム利用料' },
+  { value: 'その他経費', label: '雑費' },
+]
+
+export const FIXED_COST_AMOUNT_MODES = ['monthly', 'annual'] as const
+
+export type FixedCostAmountMode = (typeof FIXED_COST_AMOUNT_MODES)[number]
+
+export const FIXED_COST_STATUSES = ['active', 'cancelled'] as const
+
+export type FixedCostStatus = (typeof FIXED_COST_STATUSES)[number]
+
+export const FIXED_COST_STATUS_LABELS: Record<FixedCostStatus, string> = {
+  active: '有効',
+  cancelled: '解約済み',
+}
 
 export const EXPENSE_CONFIRMATION_STATUSES = ['未確認', '確認済み', '無効'] as const
 
@@ -201,17 +237,26 @@ export type StoredAccountingExport = AccountingExportInput & {
 export type AccountingFixedCostInput = AccountingTenantFields & {
   name: string
   expenseCategory: ExpenseCategory
+  amountMode: FixedCostAmountMode
   monthlyAmountYen: number
+  annualAmountYen: number
   startYearMonth: string
+  /** @deprecated cancelYearMonth を優先。後方互換のため残存 */
   endYearMonth?: string
+  cancelYearMonth?: string
+  status: FixedCostStatus
   memo?: string
   confirmationStatus: ExpenseConfirmationStatus
+  sourceType: 'fixedCost'
+  createdBy?: string
+  updatedBy?: string
 }
 
 export type StoredAccountingFixedCost = AccountingFixedCostInput & {
   id: string
   createdAt?: string
   updatedAt?: string
+  cancelledAt?: string
 }
 
 export type AccountingSalesEntryInput = AccountingTenantFields & {
@@ -236,6 +281,14 @@ export type MonthlyProfitLoss = {
   targetYearMonth: string
   sales: SalesCategoryBreakdown
   salesTotalYen: number
+  /** 変動費・通常経費（レシート経費＋調整） */
+  variableExpenses: ExpenseCategoryBreakdown
+  variableExpensesTotalYen: number
+  /** 固定費（sourceType: fixedCost） */
+  fixedCosts: ExpenseCategoryBreakdown
+  fixedCostsTotalYen: number
+  fixedCostCount: number
+  /** 変動費＋固定費の合算（営業利益計算用） */
   expenses: ExpenseCategoryBreakdown
   expensesTotalYen: number
   deferredCandidate: ExpenseCategoryBreakdown

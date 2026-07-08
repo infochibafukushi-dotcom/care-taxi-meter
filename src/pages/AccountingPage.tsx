@@ -16,6 +16,7 @@ import {
   fetchAccountingAdjustments,
   invalidateAccountingAdjustment,
 } from '../services/accountingAdjustments'
+import { fetchAccountingFixedCosts } from '../services/accountingFixedCosts'
 import {
   applyOcrCandidatesToAccountingReceipt,
   deleteAccountingReceipt,
@@ -63,6 +64,7 @@ import {
   type SalesCategory,
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
+import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
 import {
   buildExpensesCsv,
   buildMonthlyPlCsv,
@@ -97,7 +99,7 @@ import {
 } from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
-type AccountingTab = 'sales' | 'expenses' | 'pl' | 'export'
+type AccountingTab = 'sales' | 'expenses' | 'fixed-costs' | 'pl' | 'export'
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
 
@@ -166,6 +168,7 @@ export function AccountingPage() {
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
+  const [fixedCosts, setFixedCosts] = useState<Awaited<ReturnType<typeof fetchAccountingFixedCosts>>>([])
   const [sessionDiagnostics, setSessionDiagnostics] = useState<AccountingSessionDiagnostics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -220,6 +223,7 @@ export function AccountingPage() {
       let records: StoredCaseRecord[] = []
       let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
       let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
+      let fixedCostRows: Awaited<ReturnType<typeof fetchAccountingFixedCosts>> = []
       let unorganizedRows: StoredAccountingReceipt[] = []
 
       if (!authValidationError) {
@@ -243,6 +247,12 @@ export function AccountingPage() {
         }
 
         try {
+          fixedCostRows = await fetchAccountingFixedCosts(accessScope)
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedCosts', error))
+        }
+
+        try {
           unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope)
         } catch (error) {
           loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
@@ -257,6 +267,7 @@ export function AccountingPage() {
       setCaseRecords(records)
       setExpenses(expenseRows)
       setAdjustments(adjustmentRows)
+      setFixedCosts(fixedCostRows)
       setUnorganizedReceipts(unorganizedRows)
       setErrorMessage(loadErrors.join(' / '))
       setIsLoading(false)
@@ -318,9 +329,10 @@ export function AccountingPage() {
         caseRecords,
         expenses,
         adjustments,
+        fixedCosts,
         targetYearMonth,
       }),
-    [adjustments, caseRecords, expenses, targetYearMonth],
+    [adjustments, caseRecords, expenses, fixedCosts, targetYearMonth],
   )
   const monthExpenses = useMemo(
     () => expenses.filter((expense) => getExpensePostingDate(expense).startsWith(targetYearMonth)),
@@ -813,6 +825,11 @@ export function AccountingPage() {
     setAdjustments(adjustmentRows)
   }
 
+  const reloadFixedCosts = async () => {
+    const rows = await fetchAccountingFixedCosts(accessScope)
+    setFixedCosts(rows)
+  }
+
   const handleSaveExpense = async () => {
     if (!expenseForm) {
       return
@@ -1132,6 +1149,7 @@ export function AccountingPage() {
             ['pl', '月次PL'],
             ['sales', '確定売上'],
             ['expenses', '経費入力'],
+            ['fixed-costs', '固定費管理'],
             ['export', 'CSV出力'],
           ] as const).map(([tab, label]) => (
             <button
@@ -1157,8 +1175,8 @@ export function AccountingPage() {
           <section className="accounting-panel" aria-label="月次PL">
             <h2>{formatYearMonthLabel(targetYearMonth)} の月次PL</h2>
             <p className="accounting-note">
-              確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 繰延資産候補{' '}
-              {profitLoss.deferredCandidateCount}件
+              確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費{' '}
+              {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
             </p>
             <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
             <div className="accounting-pl-grid">
@@ -1179,16 +1197,56 @@ export function AccountingPage() {
                 </ul>
               </section>
               <section>
-                <h3>経費</h3>
+                <h3>変動費・通常経費</h3>
                 <ul className="accounting-pl-list">
-                  {PL_EXPENSE_CATEGORIES.map((category) => (
-                    <li key={category}>
-                      <span>{category}</span>
-                      <strong>{formatPlAmount(profitLoss.expenses[category])}</strong>
+                  {PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).length > 0 ? (
+                    PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).map(
+                      (category) => (
+                        <li key={category}>
+                          <span>{category}</span>
+                          <strong>{formatPlAmount(profitLoss.variableExpenses[category])}</strong>
+                        </li>
+                      ),
+                    )
+                  ) : (
+                    <li>
+                      <span>該当なし</span>
+                      <strong>{formatPlAmount(0)}</strong>
                     </li>
-                  ))}
+                  )}
                   <li className="accounting-pl-total">
-                    <span>経費合計</span>
+                    <span>変動費合計</span>
+                    <strong>{formatPlAmount(profitLoss.variableExpensesTotalYen)}</strong>
+                  </li>
+                </ul>
+              </section>
+              <section>
+                <h3>固定費</h3>
+                <ul className="accounting-pl-list">
+                  {PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).length > 0 ? (
+                    PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).map((category) => (
+                      <li key={category}>
+                        <span>{category}</span>
+                        <strong>{formatPlAmount(profitLoss.fixedCosts[category])}</strong>
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <span>該当なし</span>
+                      <strong>{formatPlAmount(0)}</strong>
+                    </li>
+                  )}
+                  <li className="accounting-pl-total">
+                    <span>固定費合計</span>
+                    <strong>{formatPlAmount(profitLoss.fixedCostsTotalYen)}</strong>
+                  </li>
+                </ul>
+              </section>
+              <section>
+                <h3>経費合計</h3>
+                <ul className="accounting-pl-list">
+                  <li className="accounting-pl-total">
+                    <span>経費合計（変動費＋固定費）</span>
                     <strong>{formatPlAmount(profitLoss.expensesTotalYen)}</strong>
                   </li>
                 </ul>
@@ -2116,6 +2174,18 @@ export function AccountingPage() {
               </table>
             </div>
           </section>
+        ) : null}
+
+        {activeTab === 'fixed-costs' ? (
+          <FixedCostManagementPanel
+            fixedCosts={fixedCosts}
+            franchiseeId={tenantScope.franchiseeId}
+            storeId={tenantScope.storeId}
+            staffId={staffId}
+            onReload={reloadFixedCosts}
+            onError={setErrorMessage}
+            onStatus={setStatusMessage}
+          />
         ) : null}
 
         {activeTab === 'export' ? (

@@ -374,6 +374,101 @@ body.route-accounting,
   gap: 0.5rem;
 }
 
+.accounting-fixed-cost-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.accounting-fixed-cost-row-actions,
+.accounting-fixed-cost-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.accounting-fixed-cost-cards {
+  display: none;
+  gap: 0.75rem;
+}
+
+.accounting-fixed-cost-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.accounting-fixed-cost-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.accounting-fixed-cost-card header h3 {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+}
+
+.accounting-fixed-cost-card-category {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.accounting-fixed-cost-card-status {
+  color: #0f766e;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.accounting-fixed-cost-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-fixed-cost-card dl div {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.5rem;
+}
+
+.accounting-fixed-cost-card dt {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.accounting-fixed-cost-card dd {
+  margin: 0;
+}
+
+.accounting-fixed-cost-cancel-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.accounting-fixed-cost-cancel-dialog-body {
+  width: min(100%, 28rem);
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+}
+
 .accounting-save-receipt-only-button {
   font-size: 1.05rem;
   min-height: 3rem;
@@ -598,12 +693,14 @@ body.route-accounting,
   }
 
   .accounting-table-wrap--desktop,
-  .accounting-unorganized-table-wrap {
+  .accounting-unorganized-table-wrap,
+  .accounting-fixed-cost-table-wrap {
     display: none;
   }
 
   .accounting-expense-cards,
-  .accounting-unorganized-cards {
+  .accounting-unorganized-cards,
+  .accounting-fixed-cost-cards {
     display: grid;
   }
 
@@ -655,7 +752,8 @@ body.route-accounting,
   .accounting-pl-grid,
   .accounting-form-grid,
   .accounting-unorganized-cards,
-  .accounting-expense-cards {
+  .accounting-expense-cards,
+  .accounting-fixed-cost-cards {
     grid-template-columns: 1fr;
   }
 
@@ -736,7 +834,8 @@ body.route-accounting,
   }
 
   .accounting-unorganized-cards,
-  .accounting-expense-cards {
+  .accounting-expense-cards,
+  .accounting-fixed-cost-cards {
     grid-template-columns: 1fr;
   }
 
@@ -770,7 +869,8 @@ body.route-accounting,
   .accounting-pl-grid,
   .accounting-form-grid,
   .accounting-unorganized-cards,
-  .accounting-expense-cards {
+  .accounting-expense-cards,
+  .accounting-fixed-cost-cards {
     grid-template-columns: 1fr;
   }
 

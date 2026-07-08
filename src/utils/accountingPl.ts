@@ -6,6 +6,7 @@ import type {
   SalesCategoryBreakdown,
   StoredAccountingAdjustment,
   StoredAccountingExpense,
+  StoredAccountingFixedCost,
 } from '../types/accounting'
 import {
   EXPENSE_CATEGORIES,
@@ -15,6 +16,7 @@ import {
   normalizePlTreatment,
   SALES_CATEGORIES,
 } from '../types/accounting'
+import { isFixedCostActiveForMonth } from './accountingFixedCost'
 import {
   aggregateSalesBreakdown,
   filterCaseRecordsByYearMonth,
@@ -129,29 +131,70 @@ export const aggregateDeferredCandidateExpenses = (
   return { breakdown, deferredCandidateCount }
 }
 
+const mergeExpenseBreakdowns = (
+  left: ExpenseCategoryBreakdown,
+  right: ExpenseCategoryBreakdown,
+): ExpenseCategoryBreakdown => {
+  const next = createEmptyExpenseBreakdown()
+
+  EXPENSE_CATEGORIES.forEach((category) => {
+    next[category] = left[category] + right[category]
+  })
+
+  return next
+}
+
+export const aggregateFixedCosts = (
+  fixedCosts: StoredAccountingFixedCost[],
+  targetYearMonth: string,
+) => {
+  const breakdown = createEmptyExpenseBreakdown()
+  let fixedCostCount = 0
+
+  fixedCosts.forEach((fixedCost) => {
+    if (!isFixedCostActiveForMonth(fixedCost, targetYearMonth) || !isExpenseCategorySelected(fixedCost.expenseCategory)) {
+      return
+    }
+
+    breakdown[fixedCost.expenseCategory] += fixedCost.monthlyAmountYen
+    fixedCostCount += 1
+  })
+
+  return { breakdown, fixedCostCount }
+}
+
 export const calculateMonthlyProfitLoss = ({
   adjustments,
   caseRecords,
   expenses,
+  fixedCosts = [],
   targetYearMonth,
 }: {
   adjustments: StoredAccountingAdjustment[]
   caseRecords: StoredCaseRecord[]
   expenses: StoredAccountingExpense[]
+  fixedCosts?: StoredAccountingFixedCost[]
   targetYearMonth: string
 }): MonthlyProfitLoss => {
   const monthCaseRecords = filterCaseRecordsByYearMonth(caseRecords, targetYearMonth)
   const monthAdjustments = adjustments.filter((adjustment) => adjustment.targetYearMonth === targetYearMonth)
 
   const sales = applySalesAdjustments(aggregateSalesBreakdown(monthCaseRecords), monthAdjustments)
-  const { breakdown: expensesBreakdown, confirmedExpenseCount } = aggregateConfirmedExpenses(expenses, targetYearMonth)
+  const { breakdown: variableExpensesBreakdown, confirmedExpenseCount } = aggregateConfirmedExpenses(
+    expenses,
+    targetYearMonth,
+  )
   const { breakdown: deferredCandidate, deferredCandidateCount } = aggregateDeferredCandidateExpenses(
     expenses,
     targetYearMonth,
   )
-  const expensesWithAdjustments = applyExpenseAdjustments(expensesBreakdown, monthAdjustments)
+  const variableExpensesWithAdjustments = applyExpenseAdjustments(variableExpensesBreakdown, monthAdjustments)
+  const { breakdown: fixedCostsBreakdown, fixedCostCount } = aggregateFixedCosts(fixedCosts, targetYearMonth)
+  const expensesWithAdjustments = mergeExpenseBreakdowns(variableExpensesWithAdjustments, fixedCostsBreakdown)
 
   const salesTotalYen = sumSalesBreakdown(sales)
+  const variableExpensesTotalYen = sumExpenseBreakdown(variableExpensesWithAdjustments)
+  const fixedCostsTotalYen = sumExpenseBreakdown(fixedCostsBreakdown)
   const expensesTotalYen = sumExpenseBreakdown(expensesWithAdjustments)
   const deferredCandidateTotalYen = sumExpenseBreakdown(deferredCandidate)
 
@@ -159,6 +202,11 @@ export const calculateMonthlyProfitLoss = ({
     targetYearMonth,
     sales,
     salesTotalYen,
+    variableExpenses: variableExpensesWithAdjustments,
+    variableExpensesTotalYen,
+    fixedCosts: fixedCostsBreakdown,
+    fixedCostsTotalYen,
+    fixedCostCount,
     expenses: expensesWithAdjustments,
     expensesTotalYen,
     deferredCandidate,

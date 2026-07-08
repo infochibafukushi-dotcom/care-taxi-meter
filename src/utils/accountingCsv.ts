@@ -25,7 +25,14 @@ export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
     csvLine(['区分', '科目', '金額(円)']),
     ...SALES_CATEGORIES.map((category) => csvLine(['売上', category, profitLoss.sales[category]])),
     csvLine(['売上', '売上合計', profitLoss.salesTotalYen]),
-    ...EXPENSE_CATEGORIES.map((category) => csvLine(['経費', category, profitLoss.expenses[category]])),
+    ...EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).map((category) =>
+      csvLine(['変動費', category, profitLoss.variableExpenses[category]]),
+    ),
+    csvLine(['変動費', '変動費合計', profitLoss.variableExpensesTotalYen]),
+    ...EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).map((category) =>
+      csvLine(['固定費', category, profitLoss.fixedCosts[category]]),
+    ),
+    csvLine(['固定費', '固定費合計', profitLoss.fixedCostsTotalYen]),
     csvLine(['経費', '経費合計', profitLoss.expensesTotalYen]),
     ...deferredRows,
     csvLine(['繰延資産候補', '合計', profitLoss.deferredCandidateTotalYen]),
