@@ -10,6 +10,8 @@ import type {
   YearlyProfitLossColumnKey,
   ExpenseCategory,
 } from '../types/accounting'
+import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
+import { aggregateMonthlyDepreciationYen } from './accountingDepreciation'
 import {
   EXPENSE_CATEGORIES,
   getAccountPlCategory,
@@ -310,17 +312,33 @@ export const formatTaxCategoryAggregationLabel = (category: TaxCategory) => TAX_
 
 export const formatInvoiceStatusAggregationLabel = (status: InvoiceStatus) => INVOICE_STATUS_LABELS[status]
 
+export const aggregateDepreciationExpenses = (
+  fixedAssets: StoredAccountingFixedAsset[],
+  targetYearMonth: string,
+) => {
+  const breakdown = createEmptyExpenseBreakdown()
+  const depreciationYen = aggregateMonthlyDepreciationYen(fixedAssets, targetYearMonth)
+
+  if (depreciationYen > 0) {
+    breakdown['減価償却費'] = depreciationYen
+  }
+
+  return { breakdown, depreciationYen, depreciatingAssetCount: depreciationYen > 0 ? 1 : 0 }
+}
+
 export const calculateMonthlyProfitLoss = ({
   adjustments,
   caseRecords,
   expenses,
   fixedCosts = [],
+  fixedAssets = [],
   targetYearMonth,
 }: {
   adjustments: StoredAccountingAdjustment[]
   caseRecords: StoredCaseRecord[]
   expenses: StoredAccountingExpense[]
   fixedCosts?: StoredAccountingFixedCost[]
+  fixedAssets?: StoredAccountingFixedAsset[]
   targetYearMonth: string
 }): MonthlyProfitLoss => {
   const monthCaseRecords = filterCaseRecordsByYearMonth(caseRecords, targetYearMonth)
@@ -349,7 +367,11 @@ export const calculateMonthlyProfitLoss = ({
   )
 
   const { breakdown: fixedCostsFromMaster, fixedCostCount } = aggregateFixedCosts(fixedCosts, targetYearMonth)
-  const fixedCostsBreakdown = mergeExpenseBreakdowns(adjustedBuckets.fixedCosts, fixedCostsFromMaster)
+  const { breakdown: depreciationBreakdown } = aggregateDepreciationExpenses(fixedAssets, targetYearMonth)
+  const fixedCostsBreakdown = mergeExpenseBreakdowns(
+    mergeExpenseBreakdowns(adjustedBuckets.fixedCosts, fixedCostsFromMaster),
+    depreciationBreakdown,
+  )
   const costOfSales = adjustedBuckets.costOfSales
   const variableExpenses = adjustedBuckets.variableExpenses
   const expensesMerged = mergeExpenseBreakdowns(
@@ -483,12 +505,14 @@ export const calculateYearlyProfitLoss = ({
   caseRecords,
   expenses,
   fixedCosts = [],
+  fixedAssets = [],
   targetYear,
 }: {
   adjustments: StoredAccountingAdjustment[]
   caseRecords: StoredCaseRecord[]
   expenses: StoredAccountingExpense[]
   fixedCosts?: StoredAccountingFixedCost[]
+  fixedAssets?: StoredAccountingFixedAsset[]
   targetYear: number
 }): YearlyProfitLoss => {
   const buildMonth = (year: number, month: number) => {
@@ -498,6 +522,7 @@ export const calculateYearlyProfitLoss = ({
       caseRecords,
       expenses,
       fixedCosts,
+      fixedAssets,
       targetYearMonth,
     })
   }

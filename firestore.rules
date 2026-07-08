@@ -429,6 +429,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /accountingFixedAssets/{fixedAssetId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if false;
+    }
+
     match /accountingSales/{salesEntryId} {
       allow read: if canReadAccounting(resource.data);
       allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);

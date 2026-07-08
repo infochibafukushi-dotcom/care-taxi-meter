@@ -168,4 +168,40 @@ describe('calculateYearlyProfitLoss', () => {
     expect(yearly.columnLabels.twoYearsAgo).toContain('前々期')
     expect(yearly.columnLabels.previousYear).toContain('前期')
   })
+
+  it('reflects fixed asset depreciation as 減価償却費 in monthly PL', () => {
+    const pl = calculateMonthlyProfitLoss({
+      adjustments: [],
+      caseRecords: [],
+      expenses: [],
+      fixedCosts: [],
+      fixedAssets: [
+        {
+          id: 'fa1',
+          franchiseeId: 'f1',
+          companyId: 'f1',
+          storeId: 's1',
+          assetKind: 'fixed',
+          purchaseDate: '2026-01-10',
+          useStartDate: '2026-03-01',
+          assetCategory: 'PC',
+          assetName: 'PC',
+          condition: '新品',
+          acquisitionCost: 240_000,
+          standardUsefulLifeYears: 4,
+          appliedUsefulLifeYears: 4,
+          monthlyDepreciationYen: 5_000,
+          depreciationStartYearMonth: '2026-03',
+          depreciationEndYearMonth: '2030-02',
+          remainingBookValue: 235_000,
+          status: 'active',
+          notes: '',
+        },
+      ],
+      targetYearMonth: '2026-03',
+    })
+
+    expect(pl.fixedCosts['減価償却費']).toBe(5_000)
+    expect(pl.fixedCostsTotalYen).toBe(5_000)
+  })
 })

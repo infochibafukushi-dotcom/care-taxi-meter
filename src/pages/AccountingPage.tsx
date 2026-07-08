@@ -47,16 +47,14 @@ import {
 import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
 import {
-  ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
-  COST_OF_SALES_CATEGORIES,
   EXPENSE_CATEGORIES,
+  COST_OF_SALES_CATEGORIES,
   FIXED_EXPENSE_CATEGORIES,
   INVOICE_STATUS_LABELS,
   INVOICE_STATUSES,
   PAYMENT_METHODS,
   PL_TREATMENTS,
   PL_TREATMENT_LABELS,
-  RECEIPT_STATUS_LABELS,
   SALES_CATEGORIES,
   TAX_CATEGORIES,
   TAX_CATEGORY_LABELS,
@@ -80,6 +78,20 @@ import {
 import { canAccessAccounting } from '../types/permissions'
 import { ExpenseCategoryHelpDialog } from '../components/accounting/ExpenseCategoryHelpDialog'
 import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
+import { ExpenseAssetBranchPanel } from '../components/accounting/ExpenseAssetBranchPanel'
+import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedgerPanel'
+import { AuditMaterialsPanel } from '../components/accounting/AuditMaterialsPanel'
+import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
+import {
+  buildFixedAssetInputFromDraft,
+  createAccountingFixedAsset,
+  fetchAccountingFixedAssets,
+} from '../services/accountingFixedAssets'
+import {
+  buildEmptyExpenseAssetDraft,
+  type ExpenseAssetRegistrationDraft,
+  type StoredAccountingFixedAsset,
+} from '../types/accountingFixedAssets'
 import {
   buildExpensesCsv,
   buildMonthlyPlCsv,
@@ -124,7 +136,6 @@ import {
   buildExpenseFormFromReceipt,
   buildReceiptCandidateFieldsFromExpense,
   formatOcrProcessedAt,
-  formatReceiptSavedAt,
   formatYenInputDisplay,
   hasAccountingFormReceiptImage,
   hasStoredAccountingReceiptImage,
@@ -137,8 +148,27 @@ import {
 } from '../utils/accountingExpenseForm'
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
-type AccountingTab = 'sales' | 'expenses' | 'fixed-costs' | 'pl' | 'export'
-type PlViewMode = 'monthly' | 'yearly'
+type AccountingTab =
+  | 'expenses'
+  | 'unorganized-receipts'
+  | 'pl-monthly'
+  | 'pl-yearly'
+  | 'fixed-costs'
+  | 'fixed-assets'
+  | 'audit'
+  | 'export'
+  | 'sales'
+
+const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
+  { tab: 'expenses', label: '経費登録' },
+  { tab: 'unorganized-receipts', label: '未整理の領収書' },
+  { tab: 'pl-monthly', label: '月次PL' },
+  { tab: 'pl-yearly', label: '年次PL' },
+  { tab: 'fixed-costs', label: '固定費管理' },
+  { tab: 'fixed-assets', label: '固定資産台帳' },
+  { tab: 'audit', label: '監査資料' },
+  { tab: 'export', label: 'CSV・PDF出力' },
+]
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
 
@@ -381,14 +411,15 @@ export function AccountingPage() {
   const staffName =
     workSession.currentSession?.staffName ?? authSession?.name ?? '経理担当'
 
-  const [activeTab, setActiveTab] = useState<AccountingTab>('pl')
-  const [plViewMode, setPlViewMode] = useState<PlViewMode>('monthly')
+  const [activeTab, setActiveTab] = useState<AccountingTab>('expenses')
   const [targetYearMonth, setTargetYearMonth] = useState(getCurrentYearMonthInJapan())
   const [targetYear, setTargetYear] = useState(getCurrentCalendarYearInJapan())
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
   const [fixedCosts, setFixedCosts] = useState<Awaited<ReturnType<typeof fetchAccountingFixedCosts>>>([])
+  const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
+  const [assetDraft, setAssetDraft] = useState<ExpenseAssetRegistrationDraft>(buildEmptyExpenseAssetDraft)
   const [sessionDiagnostics, setSessionDiagnostics] = useState<AccountingSessionDiagnostics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -488,6 +519,7 @@ export function AccountingPage() {
       let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
       let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
       let fixedCostRows: Awaited<ReturnType<typeof fetchAccountingFixedCosts>> = []
+      let fixedAssetRows: StoredAccountingFixedAsset[] = []
       let unorganizedRows: StoredAccountingReceipt[] = []
 
       if (!authValidationError) {
@@ -517,6 +549,12 @@ export function AccountingPage() {
         }
 
         try {
+          fixedAssetRows = await fetchAccountingFixedAssets(accessScope)
+        } catch (error) {
+          loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedAssets', error))
+        }
+
+        try {
           unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope)
         } catch (error) {
           loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
@@ -532,6 +570,7 @@ export function AccountingPage() {
       setExpenses(expenseRows)
       setAdjustments(adjustmentRows)
       setFixedCosts(fixedCostRows)
+      setFixedAssets(fixedAssetRows)
       setUnorganizedReceipts(unorganizedRows)
       setErrorMessage(loadErrors.join(' / '))
       setIsLoading(false)
@@ -594,9 +633,10 @@ export function AccountingPage() {
         expenses,
         adjustments,
         fixedCosts,
+        fixedAssets,
         targetYearMonth,
       }),
-    [adjustments, caseRecords, expenses, fixedCosts, targetYearMonth],
+    [adjustments, caseRecords, expenses, fixedAssets, fixedCosts, targetYearMonth],
   )
   const yearlyProfitLoss = useMemo(
     () =>
@@ -605,9 +645,10 @@ export function AccountingPage() {
         expenses,
         adjustments,
         fixedCosts,
+        fixedAssets,
         targetYear,
       }),
-    [adjustments, caseRecords, expenses, fixedCosts, targetYear],
+    [adjustments, caseRecords, expenses, fixedAssets, fixedCosts, targetYear],
   )
   const yearlyColumnOrder = useMemo(() => getYearlyProfitLossColumnOrder(), [])
   const monthExpenses = useMemo(
@@ -647,11 +688,6 @@ export function AccountingPage() {
     [monthCaseRecords],
   )
   const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他売上'] > 0
-
-  const visibleUnorganizedReceipts = useMemo(
-    () => unorganizedReceipts.filter((receipt) => receipt.id !== expenseForm?.receiptId),
-    [expenseForm?.receiptId, unorganizedReceipts],
-  )
 
   const hasFormReceiptImage = Boolean(expenseForm && hasAccountingFormReceiptImage(expenseForm))
 
@@ -694,6 +730,7 @@ export function AccountingPage() {
       })
     }
     setExpenseForm(buildFreshExpenseForm())
+    setAssetDraft(buildEmptyExpenseAssetDraft())
     setStatusMessage('入力フォームとプレビューを初期化しました（保存済み領収書は削除していません）。')
     setErrorMessage('')
   }
@@ -1449,6 +1486,53 @@ export function AccountingPage() {
     setFixedCosts(rows)
   }
 
+  const reloadFixedAssets = async () => {
+    const rows = await fetchAccountingFixedAssets(accessScope)
+    setFixedAssets(rows)
+  }
+
+  const validateAssetDraftBeforeSave = () => {
+    if (assetDraft.registrationType === 'normal') {
+      return true
+    }
+
+    if (!assetDraft.purchaseDate) {
+      setErrorMessage('購入日を入力してください。')
+      return false
+    }
+
+    if (!assetDraft.useStartDate) {
+      setErrorMessage('使用開始日を入力してください。')
+      return false
+    }
+
+    if ((assetDraft.acquisitionCost || expenseForm?.taxIncludedAmount || 0) <= 0) {
+      setErrorMessage('取得価額を入力してください。')
+      return false
+    }
+
+    if (
+      assetDraft.registrationType === 'fixed' &&
+      assetDraft.appliedUsefulLifeYears !== assetDraft.standardUsefulLifeYears &&
+      !assetDraft.usefulLifeChangeReason.trim()
+    ) {
+      setErrorMessage('耐用年数を変更した場合は変更理由を入力してください。')
+      return false
+    }
+
+    if (
+      assetDraft.registrationType === 'fixed' &&
+      assetDraft.assetCategory === '車両' &&
+      assetDraft.condition === '中古' &&
+      !assetDraft.firstRegistrationYearMonth
+    ) {
+      setErrorMessage('中古車の初度登録年月を入力してください。')
+      return false
+    }
+
+    return true
+  }
+
   const handleSaveExpense = async () => {
     if (!expenseForm) {
       return
@@ -1459,23 +1543,79 @@ export function AccountingPage() {
       return
     }
 
+    if (!validateAssetDraftBeforeSave()) {
+      return
+    }
+
     const persistExpense = async () => {
       setIsSavingExpense(true)
       setErrorMessage('')
       setStatusMessage('')
 
       try {
-        if (editingExpenseId) {
-          await updateAccountingExpense(editingExpenseId, expenseForm)
-          setStatusMessage('経費を更新しました。')
-        } else {
-          await createAccountingExpense(expenseForm)
-          setStatusMessage('経費を登録しました。')
+        const expensePayload: AccountingExpenseInput = {
+          ...expenseForm,
+          plTreatment:
+            assetDraft.registrationType === 'fixed'
+              ? 'excluded'
+              : normalizePlTreatment(expenseForm.plTreatment),
         }
 
+        const acquisitionCost = assetDraft.acquisitionCost || expenseForm.taxIncludedAmount
+        const syncedAssetDraft: ExpenseAssetRegistrationDraft = {
+          ...assetDraft,
+          acquisitionCost,
+          purchaseDate: assetDraft.purchaseDate || getExpenseReceiptDate(expenseForm),
+          useStartDate: assetDraft.useStartDate || getExpensePostingDate(expenseForm),
+          assetName:
+            assetDraft.assetName ||
+            assetDraft.assetCategory ||
+            expenseForm.description ||
+            expenseForm.vendorName,
+        }
+
+        let expenseId = editingExpenseId
+        const wasEditing = Boolean(editingExpenseId)
+        if (editingExpenseId) {
+          await updateAccountingExpense(editingExpenseId, expensePayload)
+        } else {
+          expenseId = await createAccountingExpense(expensePayload)
+        }
+
+        if (
+          syncedAssetDraft.registrationType === 'small' ||
+          syncedAssetDraft.registrationType === 'fixed'
+        ) {
+          await createAccountingFixedAsset(
+            buildFixedAssetInputFromDraft({
+              draft: {
+                ...syncedAssetDraft,
+                registrationType: syncedAssetDraft.registrationType,
+              },
+              expenseId,
+              franchiseeId: tenantScope.franchiseeId,
+              storeId: tenantScope.storeId,
+              staffId,
+              staffName,
+            }),
+          )
+        }
+
+        const successMessage =
+          syncedAssetDraft.registrationType === 'small'
+            ? '経費と少額資産一覧へ登録しました。'
+            : syncedAssetDraft.registrationType === 'fixed'
+              ? '経費と固定資産台帳へ登録しました。'
+              : wasEditing
+                ? '経費を更新しました。'
+                : '経費を登録しました。'
+
         setEditingExpenseId('')
+        setAssetDraft(buildEmptyExpenseAssetDraft())
         resetExpenseFormToNew()
+        setStatusMessage(successMessage)
         await reloadExpensesAdjustmentsAndReceipts()
+        await reloadFixedAssets()
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
       } finally {
@@ -1813,17 +1953,11 @@ export function AccountingPage() {
           </section>
         ) : null}
 
-        <nav className="accounting-tabs" aria-label="経理メニュー">
-          {([
-            ['pl', '管理会計PL'],
-            ['sales', '確定売上'],
-            ['expenses', '経費入力'],
-            ['fixed-costs', '固定費管理'],
-            ['export', 'CSV出力'],
-          ] as const).map(([tab, label]) => (
+        <nav className="accounting-main-menu" aria-label="経理メニュー">
+          {ACCOUNTING_MAIN_MENU.map(({ tab, label }) => (
             <button
               key={tab}
-              className={activeTab === tab ? 'accounting-tab is-active' : 'accounting-tab'}
+              className={activeTab === tab ? 'accounting-main-menu-item is-active' : 'accounting-main-menu-item'}
               type="button"
               onClick={() => setActiveTab(tab)}
             >
@@ -1840,42 +1974,27 @@ export function AccountingPage() {
         ) : null}
         {statusMessage ? <p className="save-note">{statusMessage}</p> : null}
 
-        {activeTab === 'pl' ? (
-          <section className="accounting-panel" aria-label="管理会計PL">
-            <div className="accounting-pl-view-toggle" role="group" aria-label="PL表示切替">
-              <button
-                type="button"
-                className={plViewMode === 'monthly' ? 'accounting-tab is-active' : 'accounting-tab'}
-                onClick={() => setPlViewMode('monthly')}
-              >
-                月次PL
-              </button>
-              <button
-                type="button"
-                className={plViewMode === 'yearly' ? 'accounting-tab is-active' : 'accounting-tab'}
-                onClick={() => setPlViewMode('yearly')}
-              >
-                年間推移
-              </button>
-            </div>
-
-            {plViewMode === 'monthly' ? (
-              <>
+        {activeTab === 'pl-monthly' ? (
+          <section className="accounting-panel" aria-label="月次PL">
+            <>
                 <h2>{formatYearMonthLabel(targetYearMonth)} の管理会計PL</h2>
                 <p className="accounting-note">
                   確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費マスタ{' '}
                   {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
                   <br />
-                  科目の category（sales / costOfSales / fixedExpense / variableExpense）で自動集計します。集計対象は
-                  confirmationStatus=確認済み かつ isDeleted=false の経費のみです。
+                  固定資産台帳の減価償却費は毎月「減価償却費」として自動反映されます。
                 </p>
                 <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
                 <MonthlyManagementPlSections
                   profitLoss={profitLoss}
                   showExpenseFareSalesWarning={showExpenseFareSalesWarning}
                 />
-              </>
-            ) : (
+            </>
+          </section>
+        ) : null}
+
+        {activeTab === 'pl-yearly' ? (
+          <section className="accounting-panel" aria-label="年次PL">
               <>
                 <div className="accounting-pl-yearly-header">
                   <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
@@ -1888,7 +2007,7 @@ export function AccountingPage() {
                   </button>
                 </div>
                 <p className="accounting-note">
-                  前々期・前期・各月・年間合計を同一レイアウトで表示します。科目は統合せず個別に集計しています。CSVは画面と同じ集計結果を出力します。
+                  前々期・前期・各月・年間合計を同一レイアウトで表示します。減価償却費は固定費の「減価償却費」に集計されます。
                 </p>
                 <div className="accounting-pl-yearly-wrap">
                   <table className="accounting-table accounting-pl-yearly-table">
@@ -1986,7 +2105,6 @@ export function AccountingPage() {
                   </table>
                 </div>
               </>
-            )}
           </section>
         ) : null}
 
@@ -2215,6 +2333,19 @@ export function AccountingPage() {
           </section>
         ) : null}
 
+        {activeTab === 'unorganized-receipts' ? (
+          <UnorganizedReceiptsPanel
+            receipts={unorganizedReceipts}
+            ocrRunningReceiptId={ocrRunningReceiptId}
+            ocrStatusByReceiptId={ocrStatusByReceiptId}
+            onRegisterAsExpense={handleRegisterReceiptAsExpense}
+            onRunOcr={(receipt) => void handleRunOcrOnUnorganizedReceipt(receipt)}
+            onConfirm={(receipt) => void handleConfirmUnorganizedReceipt(receipt)}
+            onReject={(receipt) => void handleRejectUnorganizedReceipt(receipt)}
+            onDelete={(receiptId) => void handleDeleteUnorganizedReceipt(receiptId)}
+          />
+        ) : null}
+
         {activeTab === 'expenses' && expenseForm ? (
           <section className="accounting-panel accounting-expense-panel" aria-label="経費入力">
             <h2>{editingExpenseId ? '経費編集' : '経費入力'}</h2>
@@ -2311,315 +2442,6 @@ export function AccountingPage() {
               {expenseForm.ocrConfidence != null ? (
                 <p className="accounting-note">OCR信頼度（参考）: {(expenseForm.ocrConfidence * 100).toFixed(0)}%</p>
               ) : null}
-            </section>
-
-            <section className="accounting-unorganized-panel" aria-label="未整理の領収書">
-              <h3>未整理の領収書 ({visibleUnorganizedReceipts.length})</h3>
-              <p className="accounting-note">
-                スマホで一時保存した領収書です（draft / ocr_ready）。PL・集計には反映されません。
-                「編集する」でフォームへ読み込み、内容を確認して「確定する」で経費登録してください。
-              </p>
-              {visibleUnorganizedReceipts.length > 0 ? (
-                <>
-                  <div className="accounting-unorganized-cards">
-                    {visibleUnorganizedReceipts.map((receipt) => (
-                      <article key={receipt.id} className="accounting-unorganized-card">
-                        {receipt.downloadUrl ? (
-                          <img
-                            alt="領収書サムネイル"
-                            className="accounting-unorganized-thumb"
-                            src={receipt.downloadUrl}
-                          />
-                        ) : (
-                          <div className="accounting-unorganized-thumb accounting-unorganized-thumb--empty">
-                            画像なし
-                          </div>
-                        )}
-                        <div className="accounting-unorganized-body">
-                          <header>
-                            <strong>
-                              {receipt.confirmed?.vendorName ||
-                                receipt.ocrCandidates?.vendorName ||
-                                receipt.vendorNameCandidate ||
-                                '（仕入先候補なし）'}
-                            </strong>
-                            <span>
-                              {ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS[
-                                receipt.receiptStatus ?? 'draft'
-                              ] || RECEIPT_STATUS_LABELS[receipt.status]}
-                            </span>
-                          </header>
-                          <dl>
-                            <div>
-                              <dt>保存日</dt>
-                              <dd>{formatReceiptSavedAt(receipt)}</dd>
-                            </div>
-                            <div>
-                              <dt>証憑日候補</dt>
-                              <dd>
-                                {receipt.confirmed?.date ||
-                                  receipt.ocrCandidates?.date ||
-                                  receipt.receiptDate ||
-                                  '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>金額候補</dt>
-                              <dd>
-                                {(receipt.confirmed?.amount ??
-                                  receipt.ocrCandidates?.amount ??
-                                  receipt.amountTotalCandidate) != null
-                                  ? formatFareYen(
-                                      receipt.confirmed?.amount ??
-                                        receipt.ocrCandidates?.amount ??
-                                        receipt.amountTotalCandidate ??
-                                        0,
-                                    )
-                                  : '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>消費税率候補</dt>
-                              <dd>
-                                {(receipt.ocrCandidates?.taxRate ?? receipt.taxRateCandidate) != null
-                                  ? `${receipt.ocrCandidates?.taxRate ?? receipt.taxRateCandidate}%`
-                                  : '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>消費税候補</dt>
-                              <dd>
-                                {(receipt.confirmed?.taxAmount ??
-                                  receipt.ocrCandidates?.taxAmount ??
-                                  receipt.taxAmountCandidate) != null
-                                  ? formatFareYen(
-                                      receipt.confirmed?.taxAmount ??
-                                        receipt.ocrCandidates?.taxAmount ??
-                                        receipt.taxAmountCandidate ??
-                                        0,
-                                    )
-                                  : '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>税抜候補</dt>
-                              <dd>
-                                {receipt.ocrCandidates?.taxExcludedAmount != null
-                                  ? formatFareYen(receipt.ocrCandidates.taxExcludedAmount)
-                                  : '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>内容候補</dt>
-                              <dd>
-                                {receipt.confirmed?.description ||
-                                  receipt.ocrCandidates?.description ||
-                                  '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>科目候補</dt>
-                              <dd>
-                                {receipt.confirmed?.accountTitle ||
-                                  receipt.ocrCandidates?.accountTitle ||
-                                  receipt.suggestedExpenseCategory ||
-                                  '―'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>インボイス番号</dt>
-                              <dd>
-                                {receipt.confirmed?.invoiceNumber ||
-                                  receipt.ocrCandidates?.invoiceNumber ||
-                                  receipt.invoiceNumberCandidate ||
-                                  'なし'}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>インボイス</dt>
-                              <dd>
-                                {
-                                  INVOICE_STATUS_LABELS[
-                                    receipt.confirmed?.invoiceStatus ||
-                                      receipt.ocrCandidates?.invoiceStatus ||
-                                      'unknown'
-                                  ]
-                                }
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>税区分</dt>
-                              <dd>
-                                {
-                                  TAX_CATEGORY_LABELS[
-                                    receipt.confirmed?.taxCategory ||
-                                      receipt.ocrCandidates?.taxCategory ||
-                                      'taxable'
-                                  ]
-                                }
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>撮影端末</dt>
-                              <dd>{receipt.sourceDevice === 'mobile' ? 'スマホ' : receipt.sourceDevice === 'pc' ? 'PC' : '―'}</dd>
-                            </div>
-                            <div>
-                              <dt>OCR読取日時</dt>
-                              <dd>{formatOcrProcessedAt(receipt.ocrProcessedAt)}</dd>
-                            </div>
-                            <div>
-                              <dt>メモ</dt>
-                              <dd>{receipt.confirmed?.memo || receipt.memo || '―'}</dd>
-                            </div>
-                          </dl>
-                          {ocrStatusByReceiptId[receipt.id] ? (
-                            <p className="accounting-note accounting-ocr-status" role="status">
-                              {ocrStatusByReceiptId[receipt.id]}
-                            </p>
-                          ) : null}
-                          {receipt.ocrRawText || receipt.ocrCandidates?.rawText ? (
-                            <details className="accounting-ocr-details">
-                              <summary>OCR読取結果を表示</summary>
-                              <pre className="accounting-ocr-raw-text">
-                                {receipt.ocrRawText || receipt.ocrCandidates?.rawText}
-                              </pre>
-                            </details>
-                          ) : receipt.ocrProcessedAt ? (
-                            <p className="accounting-note">OCR全文は空でした。画像の鮮明さを確認してください。</p>
-                          ) : null}
-                          <div className="accounting-unorganized-actions">
-                            <button
-                              className="primary-action"
-                              type="button"
-                              onClick={() => handleRegisterReceiptAsExpense(receipt)}
-                            >
-                              編集する
-                            </button>
-                            <button
-                              className="secondary-action"
-                              disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
-                              type="button"
-                              onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
-                            >
-                              {ocrRunningReceiptId === receipt.id ? 'OCR読取中…' : 'OCR読取'}
-                            </button>
-                            <button
-                              className="primary-action"
-                              type="button"
-                              onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
-                            >
-                              確定する
-                            </button>
-                            <button
-                              className="secondary-action"
-                              type="button"
-                              onClick={() => void handleRejectUnorganizedReceipt(receipt)}
-                            >
-                              登録しない
-                            </button>
-                            <button
-                              className="secondary-action"
-                              type="button"
-                              onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
-                            >
-                              削除
-                            </button>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="accounting-table-wrap accounting-table-wrap--desktop accounting-unorganized-table-wrap">
-                    <table className="accounting-table accounting-table--desktop">
-                      <thead>
-                        <tr>
-                          <th>画像</th>
-                          <th>保存日</th>
-                          <th>証憑日候補</th>
-                          <th>仕入先候補</th>
-                          <th>金額候補</th>
-                          <th>インボイス候補</th>
-                          <th>OCR読取日時</th>
-                          <th>メモ</th>
-                          <th>状態</th>
-                          <th>操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleUnorganizedReceipts.map((receipt) => (
-                          <tr key={receipt.id}>
-                            <td>
-                              {receipt.downloadUrl ? (
-                                <img
-                                  alt="領収書サムネイル"
-                                  className="accounting-unorganized-table-thumb"
-                                  src={receipt.downloadUrl}
-                                />
-                              ) : (
-                                '―'
-                              )}
-                            </td>
-                            <td>{formatReceiptSavedAt(receipt)}</td>
-                            <td>{receipt.receiptDate || '―'}</td>
-                            <td>{receipt.vendorNameCandidate || '―'}</td>
-                            <td>
-                              {receipt.amountTotalCandidate != null
-                                ? formatFareYen(receipt.amountTotalCandidate)
-                                : '―'}
-                            </td>
-                            <td>{receipt.invoiceNumberCandidate || '―'}</td>
-                            <td>{formatOcrProcessedAt(receipt.ocrProcessedAt)}</td>
-                            <td>{receipt.memo || '―'}</td>
-                            <td>{RECEIPT_STATUS_LABELS[receipt.status]}</td>
-                            <td>
-                              <div className="accounting-unorganized-actions">
-                                <button
-                                  className="primary-action"
-                                  type="button"
-                                  onClick={() => handleRegisterReceiptAsExpense(receipt)}
-                                >
-                                  編集する
-                                </button>
-                                <button
-                                  className="secondary-action"
-                                  disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
-                                  type="button"
-                                  onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
-                                >
-                                  {ocrRunningReceiptId === receipt.id ? 'OCR読取中…' : 'OCR読取'}
-                                </button>
-                                <button
-                                  className="primary-action"
-                                  type="button"
-                                  onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
-                                >
-                                  確定する
-                                </button>
-                                <button
-                                  className="secondary-action"
-                                  type="button"
-                                  onClick={() => void handleRejectUnorganizedReceipt(receipt)}
-                                >
-                                  登録しない
-                                </button>
-                                <button
-                                  className="secondary-action"
-                                  type="button"
-                                  onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
-                                >
-                                  削除
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <p className="accounting-note">未整理の領収書はありません。</p>
-              )}
             </section>
 
             <section className="accounting-expense-editor" aria-label="経費確認・編集">
@@ -2943,6 +2765,15 @@ export function AccountingPage() {
                         : '（参考・集計には未使用）'}
                     </p>
                   ) : null}
+
+                  <ExpenseAssetBranchPanel
+                    hasExpenseCategory={Boolean(expenseForm.expenseCategory)}
+                    draft={assetDraft}
+                    defaultAmount={expenseForm.taxIncludedAmount}
+                    defaultPurchaseDate={getExpenseReceiptDate(expenseForm) || getExpensePostingDate(expenseForm)}
+                    smallAssetUsageAssets={fixedAssets}
+                    onChange={setAssetDraft}
+                  />
 
                   <label>
                     ⑧ 支払方法
@@ -3359,6 +3190,30 @@ export function AccountingPage() {
             onReload={reloadFixedCosts}
             onError={setErrorMessage}
             onStatus={setStatusMessage}
+          />
+        ) : null}
+
+        {activeTab === 'fixed-assets' ? (
+          <FixedAssetLedgerPanel
+            fixedAssets={fixedAssets}
+            staffId={staffId}
+            onReload={reloadFixedAssets}
+            onError={setErrorMessage}
+            onStatus={setStatusMessage}
+          />
+        ) : null}
+
+        {activeTab === 'audit' ? (
+          <AuditMaterialsPanel
+            expenses={expenses}
+            receipts={unorganizedReceipts}
+            fixedAssets={fixedAssets}
+            salesRows={salesRows}
+            profitLoss={profitLoss}
+            yearlyProfitLoss={yearlyProfitLoss}
+            targetYearMonth={targetYearMonth}
+            targetYear={targetYear}
+            onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
           />
         ) : null}
 

@@ -218,6 +218,123 @@ export const buildExpensesCsv = (
   return `\uFEFF${lines.join(CSV_EOL)}`
 }
 
+export const buildFixedAssetsCsv = (
+  assets: Array<{
+    purchaseDate: string
+    assetName: string
+    assetCategory: string
+    acquisitionCost: number
+    appliedUsefulLifeYears: number
+    monthlyDepreciationYen: number
+    remainingBookValue: number
+    status: string
+    notes?: string
+  }>,
+) => {
+  const lines = [
+    csvLine(['固定資産台帳']),
+    csvLine([
+      '購入日',
+      '資産名',
+      '資産区分',
+      '取得価額(円)',
+      '耐用年数',
+      '月額償却費(円)',
+      '未償却残高(円)',
+      '状態',
+      '備考',
+    ]),
+    ...assets.map((asset) =>
+      csvLine([
+        asset.purchaseDate,
+        asset.assetName,
+        asset.assetCategory,
+        asset.acquisitionCost,
+        asset.appliedUsefulLifeYears,
+        asset.monthlyDepreciationYen,
+        asset.remainingBookValue,
+        asset.status,
+        asset.notes ?? '',
+      ]),
+    ),
+  ]
+
+  return `\uFEFF${lines.join(CSV_EOL)}`
+}
+
+export const buildSmallAssetsCsv = (
+  assets: Array<{
+    purchaseDate: string
+    assetName: string
+    assetCategory: string
+    acquisitionCost: number
+    notes?: string
+  }>,
+) => {
+  const lines = [
+    csvLine(['少額資産一覧']),
+    csvLine(['購入日', '資産名', '資産区分', '取得価額(円)', '備考']),
+    ...assets.map((asset) =>
+      csvLine([
+        asset.purchaseDate,
+        asset.assetName,
+        asset.assetCategory,
+        asset.acquisitionCost,
+        asset.notes ?? '',
+      ]),
+    ),
+  ]
+
+  return `\uFEFF${lines.join(CSV_EOL)}`
+}
+
+export const buildDepreciationCsv = (
+  rows: Array<{
+    targetYearMonth: string
+    assetName: string
+    assetCategory: string
+    depreciationYen: number
+  }>,
+) => {
+  const lines = [
+    csvLine(['減価償却一覧']),
+    csvLine(['対象年月', '資産名', '資産区分', '減価償却費(円)']),
+    ...rows.map((row) =>
+      csvLine([row.targetYearMonth, row.assetName, row.assetCategory, row.depreciationYen]),
+    ),
+  ]
+
+  return `\uFEFF${lines.join(CSV_EOL)}`
+}
+
+export const buildReceiptsCsv = (
+  receipts: Array<{
+    savedAt?: string
+    receiptDate?: string
+    vendorNameCandidate?: string
+    amountTotalCandidate?: number
+    status: string
+    memo?: string
+  }>,
+) => {
+  const lines = [
+    csvLine(['領収書一覧']),
+    csvLine(['保存日', '証憑日', '仕入先候補', '金額候補(円)', '状態', 'メモ']),
+    ...receipts.map((receipt) =>
+      csvLine([
+        receipt.savedAt ?? '',
+        receipt.receiptDate ?? '',
+        receipt.vendorNameCandidate ?? '',
+        receipt.amountTotalCandidate ?? '',
+        receipt.status,
+        receipt.memo ?? '',
+      ]),
+    ),
+  ]
+
+  return `\uFEFF${lines.join(CSV_EOL)}`
+}
+
 export const downloadCsvFile = (fileName: string, csvContent: string) => {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
