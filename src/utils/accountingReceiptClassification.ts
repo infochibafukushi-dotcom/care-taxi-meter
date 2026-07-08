@@ -159,6 +159,12 @@ export const buildOcrCandidatesFromParsed = ({
     date: parsed.receiptDate || parsed.transactionDate,
     amount: parsed.taxIncludedAmount,
     taxAmount,
+    taxRate: parsed.taxRate,
+    taxExcludedAmount:
+      parsed.taxExcludedAmount ??
+      (parsed.taxIncludedAmount != null && taxAmount != null
+        ? Math.max(parsed.taxIncludedAmount - taxAmount, 0)
+        : undefined),
     description,
     accountTitle,
     taxCategory,

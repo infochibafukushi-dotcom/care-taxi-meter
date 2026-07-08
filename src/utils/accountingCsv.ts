@@ -14,9 +14,11 @@ import type { AccountingSalesRow } from './accountingSalesMapping'
 import { formatYearMonthLabel, getYearlyProfitLossColumnOrder } from './accountingPl'
 import { formatFareYen } from '../services/fare'
 
+const CSV_EOL = '\r\n'
+
 const escapeCsv = (value: string | number) => {
   const stringValue = String(value)
-  if (!/[",\n]/.test(stringValue)) {
+  if (!/[",\n\r]/.test(stringValue)) {
     return stringValue
   }
 
@@ -24,6 +26,26 @@ const escapeCsv = (value: string | number) => {
 }
 
 const csvLine = (values: Array<string | number>) => values.map(escapeCsv).join(',')
+
+const YEARLY_CSV_HEADERS = [
+  '区分',
+  '科目',
+  '前々期',
+  '前期',
+  '1月',
+  '2月',
+  '3月',
+  '4月',
+  '5月',
+  '6月',
+  '7月',
+  '8月',
+  '9月',
+  '10月',
+  '11月',
+  '12月',
+  '年間合計',
+] as const
 
 const appendPositiveExpenseRows = (
   lines: string[],
@@ -64,13 +86,16 @@ export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
   lines.push(csvLine(['繰延資産候補', '合計', profitLoss.deferredCandidateTotalYen]))
   lines.push(csvLine(['利益', '営業利益（純利益）', profitLoss.operatingProfitYen]))
 
-  return `\uFEFF${lines.join('\n')}`
+  return `\uFEFF${lines.join(CSV_EOL)}`
 }
 
+/**
+ * 年間管理会計PL CSV。画面と同じ calculateYearlyProfitLoss 結果を出力する。
+ * ファイル名推奨: management-pl-yearly-YYYY.csv
+ */
 export const buildYearlyPlCsv = (yearly: YearlyProfitLoss) => {
   const columnOrder = getYearlyProfitLossColumnOrder()
-  const header = ['区分', '科目', ...columnOrder.map((key) => yearly.columnLabels[key])]
-  const lines = [csvLine([`${yearly.targetYear}年 管理会計PL`]), csvLine(header)]
+  const lines = [csvLine([...YEARLY_CSV_HEADERS])]
 
   const pushRow = (section: string, label: string, pick: (pl: MonthlyProfitLoss) => number) => {
     lines.push(
@@ -104,8 +129,10 @@ export const buildYearlyPlCsv = (yearly: YearlyProfitLoss) => {
   pushRow('変動費', '変動費小計', (pl) => pl.variableExpensesTotalYen)
   pushRow('利益', '営業利益（純利益）', (pl) => pl.operatingProfitYen)
 
-  return `\uFEFF${lines.join('\n')}`
+  return `\uFEFF${lines.join(CSV_EOL)}`
 }
+
+export const buildYearlyPlCsvFileName = (targetYear: number) => `management-pl-yearly-${targetYear}.csv`
 
 export const buildSalesCsv = (rows: AccountingSalesRow[], targetYearMonth: string) => {
   const lines = [
@@ -130,7 +157,7 @@ export const buildSalesCsv = (rows: AccountingSalesRow[], targetYearMonth: strin
     ),
   ]
 
-  return `\uFEFF${lines.join('\n')}`
+  return `\uFEFF${lines.join(CSV_EOL)}`
 }
 
 export const buildExpensesCsv = (
@@ -143,7 +170,7 @@ export const buildExpensesCsv = (
     expenseCategory: string
     plTreatment?: string
     taxIncludedAmount: number
-    taxRate: number
+    taxRate: number | null
     consumptionTaxAmount: number
     paymentMethod: string
     invoiceNumber?: string
@@ -178,7 +205,7 @@ export const buildExpensesCsv = (
         expense.expenseCategory,
         getPlTreatmentLabel(normalizePlTreatment(expense.plTreatment)),
         expense.taxIncludedAmount,
-        expense.taxRate,
+        expense.taxRate ?? '',
         expense.consumptionTaxAmount,
         expense.paymentMethod,
         expense.invoiceNumber ?? '',
@@ -188,7 +215,7 @@ export const buildExpensesCsv = (
     ),
   ]
 
-  return `\uFEFF${lines.join('\n')}`
+  return `\uFEFF${lines.join(CSV_EOL)}`
 }
 
 export const downloadCsvFile = (fileName: string, csvContent: string) => {

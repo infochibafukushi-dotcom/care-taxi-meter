@@ -85,6 +85,7 @@ import {
   buildMonthlyPlCsv,
   buildSalesCsv,
   buildYearlyPlCsv,
+  buildYearlyPlCsvFileName,
   downloadCsvFile,
   formatPlAmount,
 } from '../utils/accountingCsv'
@@ -94,7 +95,6 @@ import {
   aggregateExpensesByTaxCategory,
   buildCalendarYearOptions,
   buildYearMonthOptions,
-  calculateConsumptionTaxFromIncluded,
   calculateMonthlyProfitLoss,
   calculateYearlyProfitLoss,
   formatInvoiceStatusAggregationLabel,
@@ -105,6 +105,13 @@ import {
   getYearlyProfitLossColumnOrder,
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
+import {
+  calculateConsumptionTaxFromIncluded,
+  calculateTaxExcludedAmount,
+  isPresetTaxRate,
+  TAX_RATE_PRESETS,
+  type TaxCalculationMode,
+} from '../utils/accountingTax'
 import {
   type ExpenseDuplicateCandidate,
   type ExpenseDuplicateMatch,
@@ -750,6 +757,47 @@ export function AccountingPage() {
     )
   }, [editingExpenseId, expenseForm, expenses])
 
+  const applyTaxFields = (
+    current: AccountingExpenseInput,
+    overrides: Partial<
+      Pick<
+        AccountingExpenseInput,
+        'taxIncludedAmount' | 'taxRate' | 'taxAmount' | 'consumptionTaxAmount' | 'taxCalculationMode'
+      >
+    >,
+  ): AccountingExpenseInput => {
+    const taxIncludedAmount = overrides.taxIncludedAmount ?? current.taxIncludedAmount
+    const taxRate = Object.prototype.hasOwnProperty.call(overrides, 'taxRate')
+      ? (overrides.taxRate as number | null)
+      : current.taxRate
+    const taxCalculationMode =
+      (overrides.taxCalculationMode as TaxCalculationMode | undefined) ??
+      current.taxCalculationMode ??
+      'auto'
+    const shouldAuto =
+      taxCalculationMode === 'auto' ||
+      (!isConsumptionTaxManual && taxCalculationMode !== 'manual' && taxCalculationMode !== 'ocr')
+    const taxAmount = shouldAuto
+      ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate)
+      : (overrides.taxAmount ??
+        overrides.consumptionTaxAmount ??
+        current.taxAmount ??
+        current.consumptionTaxAmount)
+
+    return {
+      ...current,
+      ...overrides,
+      taxIncludedAmount,
+      taxRate,
+      taxAmount,
+      consumptionTaxAmount: taxAmount ?? 0,
+      taxExcludedAmount: calculateTaxExcludedAmount(taxIncludedAmount, taxAmount),
+      taxCalculationMode,
+      updatedBy: staffId,
+      updatedByName: staffName,
+    }
+  }
+
   const handleExpenseFieldChange = <K extends keyof AccountingExpenseInput>(
     key: K,
     value: AccountingExpenseInput[K],
@@ -761,11 +809,19 @@ export function AccountingPage() {
 
       const next = { ...current, [key]: value, updatedBy: staffId, updatedByName: staffName }
 
-      if (key === 'taxRate' && !isConsumptionTaxManual) {
-        next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(
-          next.taxIncludedAmount,
-          Number(value),
-        )
+      if (key === 'taxRate') {
+        const rate = value as number | null
+        if (!isConsumptionTaxManual) {
+          return applyTaxFields(current, {
+            taxRate: rate,
+            taxCalculationMode: 'auto',
+          })
+        }
+        return applyTaxFields(current, {
+          taxRate: rate,
+          taxCalculationMode: current.taxCalculationMode ?? 'manual',
+          taxAmount: current.taxAmount ?? current.consumptionTaxAmount,
+        })
       }
 
       if (key === 'postingDate') {
@@ -779,18 +835,22 @@ export function AccountingPage() {
 
       if (key === 'taxCategory') {
         if (value === 'non_taxable' || value === 'out_of_scope') {
-          next.taxRate = 0
-          if (!isConsumptionTaxManual) {
-            next.consumptionTaxAmount = 0
-          }
-        } else if (next.taxRate === 0) {
-          next.taxRate = 10
-          if (!isConsumptionTaxManual) {
-            next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(
-              next.taxIncludedAmount,
-              10,
-            )
-          }
+          return applyTaxFields(current, {
+            taxRate: 0,
+            taxCalculationMode: isConsumptionTaxManual ? 'manual' : 'auto',
+            taxAmount: isConsumptionTaxManual
+              ? (current.taxAmount ?? current.consumptionTaxAmount)
+              : 0,
+          })
+        }
+        if (current.taxRate === 0 || current.taxRate === null) {
+          return applyTaxFields(current, {
+            taxRate: 10,
+            taxCalculationMode: isConsumptionTaxManual ? 'manual' : 'auto',
+            taxAmount: isConsumptionTaxManual
+              ? (current.taxAmount ?? current.consumptionTaxAmount)
+              : undefined,
+          })
         }
       }
 
@@ -815,35 +875,65 @@ export function AccountingPage() {
         return current
       }
 
-      const next = {
-        ...current,
+      return applyTaxFields(current, {
         taxIncludedAmount: amount,
-        updatedBy: staffId,
-        updatedByName: staffName,
-      }
-
-      if (!isConsumptionTaxManual) {
-        next.consumptionTaxAmount = calculateConsumptionTaxFromIncluded(amount, next.taxRate)
-      }
-
-      return next
+        taxCalculationMode: isConsumptionTaxManual
+          ? (current.taxCalculationMode ?? 'manual')
+          : 'auto',
+        taxAmount: isConsumptionTaxManual
+          ? (current.taxAmount ?? current.consumptionTaxAmount)
+          : undefined,
+      })
     })
   }
 
   const handleConsumptionTaxAmountChange = (raw: string) => {
     setIsConsumptionTaxManual(true)
+    const taxAmount = parseYenInput(raw)
     setExpenseForm((current) => {
       if (!current) {
         return current
       }
 
-      return {
-        ...current,
-        consumptionTaxAmount: parseYenInput(raw),
-        updatedBy: staffId,
-        updatedByName: staffName,
-      }
+      return applyTaxFields(current, {
+        taxAmount,
+        consumptionTaxAmount: taxAmount,
+        taxCalculationMode: 'manual',
+      })
     })
+  }
+
+  const handleTaxRatePresetSelect = (rate: number | null) => {
+    if (rate === null) {
+      setExpenseForm((current) => {
+        if (!current) {
+          return current
+        }
+        return applyTaxFields(current, {
+          taxRate: null,
+          taxCalculationMode: isConsumptionTaxManual ? 'manual' : 'auto',
+          taxAmount: isConsumptionTaxManual
+            ? (current.taxAmount ?? current.consumptionTaxAmount)
+            : 0,
+        })
+      })
+      return
+    }
+
+    handleExpenseFieldChange('taxRate', rate)
+  }
+
+  const handleCustomTaxRateChange = (raw: string) => {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      handleTaxRatePresetSelect(null)
+      return
+    }
+    const parsed = Number(trimmed.replace(/%/g, ''))
+    if (!Number.isFinite(parsed)) {
+      return
+    }
+    handleExpenseFieldChange('taxRate', parsed)
   }
 
   const handleRecalculateConsumptionTax = () => {
@@ -852,12 +942,9 @@ export function AccountingPage() {
         return current
       }
 
-      return {
-        ...current,
-        consumptionTaxAmount: calculateConsumptionTaxFromIncluded(current.taxIncludedAmount, current.taxRate),
-        updatedBy: staffId,
-        updatedByName: staffName,
-      }
+      return applyTaxFields(current, {
+        taxCalculationMode: 'auto',
+      })
     })
     setIsConsumptionTaxManual(false)
     setStatusMessage('消費税額を再計算しました。')
@@ -997,7 +1084,11 @@ export function AccountingPage() {
     setExpenseForm((current) =>
       current ? applyAccountingReceiptOcrToExpense(current, result) : current,
     )
-    setIsConsumptionTaxManual(Boolean(result.parsed.consumptionTaxAmount))
+    setIsConsumptionTaxManual(
+      result.parsed.consumptionTaxAmount !== undefined ||
+        result.ocrCandidates?.taxAmount !== undefined ||
+        result.parsed.taxRate !== undefined,
+    )
     if (result.parsed.invoiceNumber) {
       const validation = validateInvoiceNumberCandidate(result.parsed.invoiceNumber)
       setInvoiceNumberWarning(validation.warning)
@@ -1144,8 +1235,7 @@ export function AccountingPage() {
     })
     setEditingExpenseId('')
     setIsConsumptionTaxManual(
-      form.consumptionTaxAmount !==
-        calculateConsumptionTaxFromIncluded(form.taxIncludedAmount, form.taxRate),
+      form.taxCalculationMode === 'manual' || form.taxCalculationMode === 'ocr',
     )
     setOcrCandidateNotice(
       form.invoiceStatus === 'none'
@@ -1412,8 +1502,10 @@ export function AccountingPage() {
 
     setEditingExpenseId(expenseId)
     setIsConsumptionTaxManual(
-      expense.consumptionTaxAmount !==
-        calculateConsumptionTaxFromIncluded(expense.taxIncludedAmount, expense.taxRate),
+      expense.taxCalculationMode === 'manual' ||
+        expense.taxCalculationMode === 'ocr' ||
+        (expense.taxAmount ?? expense.consumptionTaxAmount) !==
+          calculateConsumptionTaxFromIncluded(expense.taxIncludedAmount, expense.taxRate),
     )
     setOcrCandidateNotice('')
     setInvoiceNumberWarning(
@@ -1518,7 +1610,7 @@ export function AccountingPage() {
     if (exportType === 'yearly-pl') {
       return {
         csv: buildYearlyPlCsv(yearlyProfitLoss),
-        fileName: `accounting-pl-yearly-${targetYear}.csv`,
+        fileName: buildYearlyPlCsvFileName(targetYear),
         rowCount:
           SALES_CATEGORIES.length +
           COST_OF_SALES_CATEGORIES.length +
@@ -1785,9 +1877,18 @@ export function AccountingPage() {
               </>
             ) : (
               <>
-                <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
+                <div className="accounting-pl-yearly-header">
+                  <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
+                  <button
+                    className="primary-action"
+                    type="button"
+                    onClick={() => void handleExport('yearly-pl')}
+                  >
+                    年間PL CSVダウンロード
+                  </button>
+                </div>
                 <p className="accounting-note">
-                  前々期・前期・各月・年間合計を同一レイアウトで表示します。科目は統合せず個別に集計しています。
+                  前々期・前期・各月・年間合計を同一レイアウトで表示します。科目は統合せず個別に集計しています。CSVは画面と同じ集計結果を出力します。
                 </p>
                 <div className="accounting-pl-yearly-wrap">
                   <table className="accounting-table accounting-pl-yearly-table">
@@ -2278,6 +2379,14 @@ export function AccountingPage() {
                               </dd>
                             </div>
                             <div>
+                              <dt>消費税率候補</dt>
+                              <dd>
+                                {(receipt.ocrCandidates?.taxRate ?? receipt.taxRateCandidate) != null
+                                  ? `${receipt.ocrCandidates?.taxRate ?? receipt.taxRateCandidate}%`
+                                  : '―'}
+                              </dd>
+                            </div>
+                            <div>
                               <dt>消費税候補</dt>
                               <dd>
                                 {(receipt.confirmed?.taxAmount ??
@@ -2289,6 +2398,14 @@ export function AccountingPage() {
                                         receipt.taxAmountCandidate ??
                                         0,
                                     )
+                                  : '―'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>税抜候補</dt>
+                              <dd>
+                                {receipt.ocrCandidates?.taxExcludedAmount != null
+                                  ? formatFareYen(receipt.ocrCandidates.taxExcludedAmount)
                                   : '―'}
                               </dd>
                             </div>
@@ -2658,7 +2775,7 @@ export function AccountingPage() {
                         placeholder="例：5000"
                         type="text"
                         value={formatYenInputDisplay(
-                          expenseForm.consumptionTaxAmount,
+                          expenseForm.taxAmount ?? expenseForm.consumptionTaxAmount,
                           isNewExpenseEntry && !isConsumptionTaxManual,
                         )}
                         onChange={(event) => handleConsumptionTaxAmountChange(event.target.value)}
@@ -2671,6 +2788,11 @@ export function AccountingPage() {
                         税額を再計算
                       </button>
                     </div>
+                    {expenseForm.taxExcludedAmount != null ? (
+                      <span className="accounting-note">
+                        税抜金額（参考）: {formatFareYen(expenseForm.taxExcludedAmount)}円
+                      </span>
+                    ) : null}
                   </label>
 
                   <fieldset className="accounting-radio-fieldset">
@@ -2690,20 +2812,99 @@ export function AccountingPage() {
                     </div>
                   </fieldset>
                   <fieldset className="accounting-radio-fieldset">
-                    <legend>税率</legend>
+                    <legend>消費税率</legend>
                     <div className="accounting-radio-row">
-                      {[10, 8, 0].map((rate) => (
+                      {TAX_RATE_PRESETS.map((rate) => (
                         <label key={rate} className="accounting-radio-label">
                           <input
                             type="radio"
                             name="taxRate"
                             checked={expenseForm.taxRate === rate}
-                            onChange={() => handleExpenseFieldChange('taxRate', rate)}
+                            onChange={() => handleTaxRatePresetSelect(rate)}
                           />
                           {rate}%
                         </label>
                       ))}
+                      <label className="accounting-radio-label">
+                        <input
+                          type="radio"
+                          name="taxRate"
+                          checked={
+                            expenseForm.taxRate !== null &&
+                            expenseForm.taxRate !== undefined &&
+                            !isPresetTaxRate(expenseForm.taxRate)
+                          }
+                          onChange={() => {
+                            if (isPresetTaxRate(expenseForm.taxRate) || expenseForm.taxRate === null) {
+                              handleCustomTaxRateChange('5')
+                            }
+                          }}
+                        />
+                        その他
+                      </label>
+                      <label className="accounting-radio-label">
+                        <input
+                          type="radio"
+                          name="taxRate"
+                          checked={expenseForm.taxRate === null || expenseForm.taxRate === undefined}
+                          onChange={() => handleTaxRatePresetSelect(null)}
+                        />
+                        未設定
+                      </label>
                     </div>
+                    <label className="accounting-tax-rate-custom">
+                      消費税率（%）
+                      <input
+                        inputMode="decimal"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        placeholder="例：5"
+                        value={expenseForm.taxRate ?? ''}
+                        onChange={(event) => handleCustomTaxRateChange(event.target.value)}
+                      />
+                    </label>
+                    {expenseForm.ocrCandidates?.taxRate != null ||
+                    expenseForm.ocrCandidates?.taxAmount != null ||
+                    expenseForm.ocrParsedFields?.taxRate != null ||
+                    expenseForm.ocrParsedFields?.consumptionTaxAmount != null ? (
+                      <p className="accounting-note accounting-tax-ocr-candidates">
+                        OCR候補: 税率{' '}
+                        {expenseForm.ocrCandidates?.taxRate ??
+                          expenseForm.ocrParsedFields?.taxRate ??
+                          '―'}
+                        %／税額{' '}
+                        {(
+                          expenseForm.ocrCandidates?.taxAmount ??
+                          expenseForm.ocrParsedFields?.consumptionTaxAmount
+                        ) != null
+                          ? `${formatFareYen(
+                              expenseForm.ocrCandidates?.taxAmount ??
+                                expenseForm.ocrParsedFields?.consumptionTaxAmount ??
+                                0,
+                            )}円`
+                          : '―'}
+                        ／税込{' '}
+                        {(expenseForm.ocrCandidates?.amount ??
+                          expenseForm.ocrParsedFields?.taxIncludedAmount) != null
+                          ? `${formatFareYen(
+                              expenseForm.ocrCandidates?.amount ??
+                                expenseForm.ocrParsedFields?.taxIncludedAmount ??
+                                0,
+                            )}円`
+                          : '―'}
+                        ／税抜{' '}
+                        {(expenseForm.ocrCandidates?.taxExcludedAmount ??
+                          expenseForm.ocrParsedFields?.taxExcludedAmount) != null
+                          ? `${formatFareYen(
+                              expenseForm.ocrCandidates?.taxExcludedAmount ??
+                                expenseForm.ocrParsedFields?.taxExcludedAmount ??
+                                0,
+                            )}円`
+                          : '―'}
+                      </p>
+                    ) : null}
                   </fieldset>
 
                   <label className="accounting-expense-category-field">
@@ -3172,7 +3373,7 @@ export function AccountingPage() {
                 月次PL CSV
               </button>
               <button className="secondary-action" type="button" onClick={() => void handleExport('yearly-pl')}>
-                年次PL CSV
+                年間PL CSVダウンロード
               </button>
               <button className="secondary-action" type="button" onClick={() => void handleExport('sales')}>
                 確定売上 CSV

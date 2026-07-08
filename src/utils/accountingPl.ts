@@ -552,13 +552,7 @@ export const getYearlyProfitLossColumnOrder = (): YearlyProfitLossColumnKey[] =>
   'yearTotal',
 ]
 
-export const calculateConsumptionTaxFromIncluded = (taxIncludedAmount: number, taxRate: number) => {
-  if (taxIncludedAmount <= 0 || taxRate <= 0) {
-    return 0
-  }
-
-  return Math.round((taxIncludedAmount * taxRate) / (100 + taxRate))
-}
+export { calculateConsumptionTaxFromIncluded } from './accountingTax'
 
 export const formatYearMonthLabel = (targetYearMonth: string) => {
   const [year, month] = targetYearMonth.split('-')

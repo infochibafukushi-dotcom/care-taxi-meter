@@ -138,11 +138,27 @@ body.route-accounting,
   margin: 0;
 }
 
-.accounting-pl-view-toggle {
+.accounting-pl-yearly-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.accounting-pl-yearly-header h2 {
+  margin: 0;
+}
+
+.accounting-tax-rate-custom {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  max-width: 12rem;
+}
+
+.accounting-tax-ocr-candidates {
+  margin-top: 0.5rem;
 }
 
 .accounting-pl-grid {

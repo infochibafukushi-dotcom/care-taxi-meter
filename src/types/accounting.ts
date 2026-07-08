@@ -70,6 +70,7 @@ import {
   type ExpenseCategory,
   type SalesCategory,
 } from './accountingCategoryMaster'
+import { deriveTaxFields, normalizeTaxCalculationMode, normalizeTaxRate } from '../utils/accountingTax'
 
 export const FIXED_COST_AMOUNT_MODES = ['monthly', 'annual'] as const
 
@@ -133,6 +134,8 @@ export type OcrParsedFields = {
   vendorName?: string
   description?: string
   taxIncludedAmount?: number
+  taxExcludedAmount?: number
+  /** 消費税率候補（%）。未検出時は undefined */
   taxRate?: number
   consumptionTaxAmount?: number
   invoiceNumber?: string
@@ -190,8 +193,19 @@ export type AccountingExpenseInput = AccountingTenantFields &
     description: string
     expenseCategory: ExpenseCategory | ''
     taxIncludedAmount: number
-    taxRate: number
+    /** 消費税率（%）。未設定は null。保存は number | null */
+    taxRate: number | null
+    /**
+     * 消費税額（円）。自動計算・手入力・OCRのいずれか。
+     * @deprecated 新フィールド taxAmount と同一。後方互換のため残す
+     */
     consumptionTaxAmount: number
+    /** 消費税額（円）。consumptionTaxAmount と同値で保存 */
+    taxAmount?: number | null
+    /** 税抜金額（円）。将来の税抜PL切替用 */
+    taxExcludedAmount?: number | null
+    /** 税額の算出方法 */
+    taxCalculationMode?: 'auto' | 'manual' | 'ocr'
     paymentMethod: AccountingPaymentMethod | ''
     invoiceNumber?: string
     invoiceCheckStatus?: InvoiceCheckStatus
@@ -466,6 +480,12 @@ export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): Acc
   const postingDate = getExpensePostingDate(input)
   const receiptDate = input.receiptDate || postingDate
   const expenseCategory = normalizeExpenseCategory(input.expenseCategory)
+  const taxFields = deriveTaxFields({
+    taxIncludedAmount: input.taxIncludedAmount,
+    taxRate: input.taxRate,
+    taxAmount: input.taxAmount ?? input.consumptionTaxAmount,
+    taxCalculationMode: input.taxCalculationMode,
+  })
 
   return {
     ...input,
@@ -473,6 +493,11 @@ export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): Acc
     postingDate,
     transactionDate: postingDate,
     expenseCategory,
+    taxRate: taxFields.taxRate,
+    taxAmount: taxFields.taxAmount,
+    consumptionTaxAmount: taxFields.consumptionTaxAmount,
+    taxExcludedAmount: taxFields.taxExcludedAmount,
+    taxCalculationMode: taxFields.taxCalculationMode,
     plTreatment: normalizePlTreatment(input.plTreatment),
   }
 }
@@ -488,6 +513,38 @@ export const normalizeExpensePatchForSave = (
 
   if (input.expenseCategory !== undefined) {
     patch.expenseCategory = normalizeExpenseCategory(input.expenseCategory)
+  }
+
+  if (
+    input.taxRate !== undefined ||
+    input.taxAmount !== undefined ||
+    input.consumptionTaxAmount !== undefined ||
+    input.taxIncludedAmount !== undefined ||
+    input.taxCalculationMode !== undefined
+  ) {
+    const taxIncludedAmount = input.taxIncludedAmount ?? 0
+    const taxFields = deriveTaxFields({
+      taxIncludedAmount,
+      taxRate: input.taxRate,
+      taxAmount: input.taxAmount ?? input.consumptionTaxAmount,
+      taxCalculationMode: input.taxCalculationMode,
+    })
+    if (input.taxRate !== undefined || Object.prototype.hasOwnProperty.call(input, 'taxRate')) {
+      patch.taxRate = normalizeTaxRate(input.taxRate)
+    }
+    if (input.taxCalculationMode !== undefined) {
+      patch.taxCalculationMode = normalizeTaxCalculationMode(input.taxCalculationMode)
+    }
+    if (
+      input.taxAmount !== undefined ||
+      input.consumptionTaxAmount !== undefined ||
+      input.taxIncludedAmount !== undefined ||
+      input.taxCalculationMode !== undefined
+    ) {
+      patch.taxAmount = taxFields.taxAmount
+      patch.consumptionTaxAmount = taxFields.consumptionTaxAmount
+      patch.taxExcludedAmount = taxFields.taxExcludedAmount
+    }
   }
 
   const postingDate = input.postingDate ?? input.transactionDate

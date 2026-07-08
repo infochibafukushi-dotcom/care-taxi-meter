@@ -18,7 +18,16 @@ const AMOUNT_KEYWORDS = [
   'ご請求額',
   'ご請求',
 ] as const
-const TAX_KEYWORDS = ['消費税', '内税額', '内税', '税額', 'うち消費税', 'うち税'] as const
+const TAX_KEYWORDS = [
+  '消費税等',
+  'うち消費税',
+  '内消費税',
+  '消費税',
+  '内税額',
+  '内税',
+  '税額',
+  'うち税',
+] as const
 const PRODUCT_LINE_SKIP =
   /^(合計|小計|税|消費税|内税|お預かり|お預り|お釣り|釣り|登録番号|ポイント|レシート|領収|領収書|領収証|商品名|単価|数量|金額|店舗|店番|担当|tel|電話|〒|no\.|seria|セリア|\d{2,4}[/-]\d{1,2}[/-]\d{0,2}|\d{4}年)/i
 
@@ -294,19 +303,42 @@ export const extractConsumptionTaxAmount = (text: string, totalAmount?: number) 
   return undefined
 }
 
-/** 税率（取れなければ 10%） */
-export const extractTaxRate = (text: string) => {
+/**
+ * 消費税率候補を抽出。見つからない場合は undefined（呼び出し側で未設定扱い）。
+ * 対応例: 10% / 8% / 5% / 7% / 軽減税率 / 非課税
+ */
+export const extractTaxRate = (text: string): number | undefined => {
   const half = toHalfWidthAscii(text)
 
-  if (/(?:^|[^\d])8\s*%|8%|軽減税率/.test(half)) {
+  if (/非課税|不課税|対象外/.test(half)) {
+    return 0
+  }
+
+  if (/軽減税率/.test(half)) {
     return 8
   }
 
+  // 「消費税等(10%)」「税率 8 %」「内税10%」など、明示された%を優先
+  const percentMatches = [...half.matchAll(/(?:税率|税|消費税等?|内税)?\s*[（(]?\s*(\d{1,2}(?:\.\d+)?)\s*%\s*[）)]?/g)]
+  for (const match of percentMatches) {
+    const rate = Number(match[1])
+    if (Number.isFinite(rate) && rate >= 0 && rate <= 100) {
+      return rate
+    }
+  }
+
+  // 単独の 0%/8%/10%（後方互換）
+  if (/(?:^|[^\d])0\s*%/.test(half)) {
+    return 0
+  }
+  if (/(?:^|[^\d])8\s*%|8%/.test(half)) {
+    return 8
+  }
   if (/(?:^|[^\d])10\s*%|10%/.test(half)) {
     return 10
   }
 
-  return 10
+  return undefined
 }
 
 /** 支払先候補（会社名らしき行） */
@@ -409,6 +441,10 @@ export const parseAccountingReceiptOcrText = (text: string): OcrParsedFields => 
     vendorName,
     description,
     taxIncludedAmount,
+    taxExcludedAmount:
+      taxIncludedAmount != null && consumptionTaxAmount != null
+        ? Math.max(taxIncludedAmount - consumptionTaxAmount, 0)
+        : undefined,
     taxRate,
     consumptionTaxAmount,
     invoiceNumber,

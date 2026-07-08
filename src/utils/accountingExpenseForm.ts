@@ -7,7 +7,7 @@ import type {
 import type { AccountingReceiptOcrCandidates } from '../types/accountingReceiptWorkflow'
 import { buildEmptyExpenseInput } from '../services/accountingExpenses'
 import { getExpensePostingDate } from '../types/accounting'
-import { calculateConsumptionTaxFromIncluded } from './accountingPl'
+import { calculateConsumptionTaxFromIncluded, calculateTaxExcludedAmount } from './accountingTax'
 
 /** 数字のみ抽出し先頭0を除去して number に変換（空欄は 0） */
 export const parseYenInput = (raw: string) => {
@@ -88,13 +88,18 @@ export const applyAccountingReceiptOcrToExpense = (
   ocr: AccountingReceiptOcrResult,
 ): AccountingExpenseInput => {
   const parsed = ocr.parsed
+  const candidates = ocr.ocrCandidates
   const receiptDate = parsed.receiptDate ?? parsed.transactionDate
   const postingDate = parsed.postingDate ?? receiptDate
   const taxIncludedAmount = parsed.taxIncludedAmount ?? expense.taxIncludedAmount
-  const taxRate = parsed.taxRate ?? expense.taxRate
+  const taxRate =
+    parsed.taxRate !== undefined ? parsed.taxRate : (expense.taxRate ?? null)
+  const hasOcrTaxAmount =
+    parsed.consumptionTaxAmount !== undefined || candidates?.taxAmount !== undefined
   const consumptionTaxAmount =
+    candidates?.taxAmount ??
     parsed.consumptionTaxAmount ??
-    (taxIncludedAmount > 0
+    (taxIncludedAmount > 0 && taxRate !== null
       ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate)
       : expense.consumptionTaxAmount)
   const suggestedExpenseCategory =
@@ -104,11 +109,12 @@ export const applyAccountingReceiptOcrToExpense = (
   const registrantVerified = Boolean(
     ocr.invoiceLookupStatus === 'success' && parsed.invoiceRegisteredName,
   )
-  const candidates = ocr.ocrCandidates
   const invoiceStatus =
     candidates?.invoiceStatus ??
     (registrantVerified ? 'verified' : parsed.invoiceNumber ? 'unknown' : 'none')
   const taxCategory = candidates?.taxCategory ?? 'taxable'
+  const resolvedIncluded = candidates?.amount ?? taxIncludedAmount
+  const resolvedTaxAmount = candidates?.taxAmount ?? consumptionTaxAmount
 
   return {
     ...expense,
@@ -121,9 +127,15 @@ export const applyAccountingReceiptOcrToExpense = (
       parsed.invoiceRegisteredName ||
       expense.vendorName,
     description: candidates?.description || parsed.description || expense.description,
-    taxIncludedAmount: candidates?.amount ?? taxIncludedAmount,
-    taxRate,
-    consumptionTaxAmount: candidates?.taxAmount ?? consumptionTaxAmount,
+    taxIncludedAmount: resolvedIncluded,
+    taxRate: candidates?.taxRate ?? taxRate,
+    taxAmount: resolvedTaxAmount,
+    consumptionTaxAmount: resolvedTaxAmount,
+    taxExcludedAmount:
+      candidates?.taxExcludedAmount ??
+      calculateTaxExcludedAmount(resolvedIncluded, resolvedTaxAmount),
+    taxCalculationMode:
+      hasOcrTaxAmount || parsed.taxRate !== undefined ? 'ocr' : expense.taxCalculationMode ?? 'auto',
     invoiceNumber: candidates?.invoiceNumber || parsed.invoiceNumber || expense.invoiceNumber,
     invoiceRegisteredName:
       candidates?.invoiceRegisteredName ||
@@ -196,13 +208,25 @@ export const buildExpenseFormFromReceipt = ({
     candidates?.amount ??
     receipt.ocrParsedFields?.taxIncludedAmount ??
     0
-  const taxRate = receipt.taxRateCandidate ?? receipt.ocrParsedFields?.taxRate ?? 10
+  const taxRate =
+    receipt.taxRateCandidate ??
+    candidates?.taxRate ??
+    receipt.ocrParsedFields?.taxRate ??
+    null
   const consumptionTaxAmount =
     confirmed?.taxAmount ??
     receipt.taxAmountCandidate ??
     candidates?.taxAmount ??
     receipt.ocrParsedFields?.consumptionTaxAmount ??
-    (taxIncludedAmount > 0 ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate) : 0)
+    (taxIncludedAmount > 0 && taxRate !== null
+      ? calculateConsumptionTaxFromIncluded(taxIncludedAmount, taxRate)
+      : 0)
+  const hasOcrTax =
+    confirmed?.taxAmount != null ||
+    receipt.taxAmountCandidate != null ||
+    candidates?.taxAmount != null ||
+    receipt.ocrParsedFields?.consumptionTaxAmount != null ||
+    receipt.ocrParsedFields?.taxRate != null
   const invoiceStatus =
     confirmed?.invoiceStatus ||
     candidates?.invoiceStatus ||
@@ -244,7 +268,12 @@ export const buildExpenseFormFromReceipt = ({
     lineItems: confirmed?.lineItems ?? [],
     taxIncludedAmount,
     taxRate,
+    taxAmount: consumptionTaxAmount,
     consumptionTaxAmount,
+    taxExcludedAmount:
+      candidates?.taxExcludedAmount ??
+      calculateTaxExcludedAmount(taxIncludedAmount, consumptionTaxAmount),
+    taxCalculationMode: hasOcrTax ? 'ocr' : 'auto',
     taxCategory,
     invoiceStatus,
     invoiceNumber:
@@ -326,7 +355,7 @@ export const buildReceiptCandidateFieldsFromExpense = (
   invoiceRegisteredNameCandidate: expense.invoiceRegisteredName || undefined,
   amountTotalCandidate: expense.taxIncludedAmount > 0 ? expense.taxIncludedAmount : undefined,
   taxAmountCandidate: expense.consumptionTaxAmount > 0 ? expense.consumptionTaxAmount : undefined,
-  taxRateCandidate: expense.taxRate,
+  taxRateCandidate: expense.taxRate ?? undefined,
 })
 
 export const formatReceiptSavedAt = (receipt: Pick<StoredAccountingReceipt, 'createdAt' | 'updatedAt'>) => {

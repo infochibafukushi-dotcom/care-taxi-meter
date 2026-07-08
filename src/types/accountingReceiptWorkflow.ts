@@ -51,8 +51,14 @@ export type AccountingReceiptOcrCandidates = {
   invoiceNumber?: string
   invoiceRegisteredName?: string
   date?: string
+  /** 税込金額候補 */
   amount?: number
+  /** 消費税額候補 */
   taxAmount?: number
+  /** 消費税率候補（%） */
+  taxRate?: number
+  /** 税抜金額候補 */
+  taxExcludedAmount?: number
   description?: string
   accountTitle?: ExpenseCategory | ''
   taxCategory?: TaxCategory

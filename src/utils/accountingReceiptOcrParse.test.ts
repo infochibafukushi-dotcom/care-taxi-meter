@@ -111,8 +111,8 @@ describe('extractConsumptionTaxAmount', () => {
 })
 
 describe('extractTaxRate', () => {
-  it('defaults to 10', () => {
-    expect(extractTaxRate('合計 1,100円')).toBe(10)
+  it('returns undefined when rate is not present', () => {
+    expect(extractTaxRate('合計 1,100円')).toBeUndefined()
   })
 
   it('detects 8 percent', () => {
@@ -145,8 +145,19 @@ describe('parseAccountingReceiptOcrText', () => {
     expect(parsed.vendorName).toBe('株式会社サンプル')
     expect(parsed.taxIncludedAmount).toBe(1100)
     expect(parsed.consumptionTaxAmount).toBe(100)
-    expect(parsed.taxRate).toBe(10)
+    expect(parsed.taxRate).toBeUndefined()
     expect(parsed.invoiceNumber).toBe('T1234567890123')
+  })
+
+  it('extracts custom or preset tax rate when percent is present', () => {
+    expect(
+      extractTaxRate(`
+      合計 1,050
+      消費税等(5%) 50円
+    `),
+    ).toBe(5)
+    expect(extractTaxRate('軽減税率 適用')).toBe(8)
+    expect(extractTaxRate('税率 10 %')).toBe(10)
   })
 
   it('builds parsed fields from Seria-like receipt text', () => {
@@ -167,7 +178,7 @@ describe('parseAccountingReceiptOcrText', () => {
     expect(parsed.consumptionTaxAmount).toBe(90)
     expect(parsed.description).toBe('ホッチキス・スマートブラシ・スタンプマット')
     expect(parsed.invoiceNumber).toBe('T4200001013662')
-    expect(buildSuggestedExpenseCategory(parsed)).toBe('消耗品費')
+    expect(buildSuggestedExpenseCategory(parsed)).toBe('事務用品・雑費')
   })
 })
 
@@ -184,12 +195,12 @@ describe('extractProductDescription', () => {
 })
 
 describe('suggestExpenseCategoryFromReceiptText', () => {
-  it('maps stationery products to 消耗品費', () => {
+  it('maps stationery products to 事務用品・雑費', () => {
     expect(
       suggestExpenseCategoryFromReceiptText({
         description: 'ホッチキス・スタンプマット',
         vendorName: 'Seria',
       }),
-    ).toBe('消耗品費')
+    ).toBe('事務用品・雑費')
   })
 })

@@ -26,6 +26,11 @@ import {
   normalizeExpensePatchForSave,
   normalizePlTreatment,
 } from '../types/accounting'
+import {
+  normalizeTaxAmount,
+  normalizeTaxCalculationMode,
+  normalizeTaxRate,
+} from '../utils/accountingTax'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { linkAccountingReceiptToExpense } from './accountingReceipts'
 import {
@@ -70,8 +75,21 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     description: String(data.description ?? ''),
     expenseCategory: normalizeExpenseCategory(data.expenseCategory),
     taxIncludedAmount: Number(data.taxIncludedAmount ?? 0),
-    taxRate: Number(data.taxRate ?? 0),
-    consumptionTaxAmount: Number(data.consumptionTaxAmount ?? 0),
+    taxRate: Object.prototype.hasOwnProperty.call(data, 'taxRate')
+      ? normalizeTaxRate(data.taxRate)
+      : null,
+    taxAmount:
+      normalizeTaxAmount(data.taxAmount) ?? normalizeTaxAmount(data.consumptionTaxAmount),
+    consumptionTaxAmount:
+      normalizeTaxAmount(data.taxAmount) ?? normalizeTaxAmount(data.consumptionTaxAmount) ?? 0,
+    taxExcludedAmount:
+      normalizeTaxAmount(data.taxExcludedAmount) ??
+      (() => {
+        const amount =
+          normalizeTaxAmount(data.taxAmount) ?? normalizeTaxAmount(data.consumptionTaxAmount)
+        return amount !== null ? Math.max(Number(data.taxIncludedAmount ?? 0) - amount, 0) : null
+      })(),
+    taxCalculationMode: normalizeTaxCalculationMode(data.taxCalculationMode),
     paymentMethod: (data.paymentMethod as StoredAccountingExpense['paymentMethod']) ?? '',
     lineItems: Array.isArray(data.lineItems)
       ? (data.lineItems as StoredAccountingExpense['lineItems'])
@@ -331,8 +349,11 @@ export const buildEmptyExpenseInput = ({
     description: '',
     expenseCategory: '',
     taxIncludedAmount: 0,
-    taxRate: 10,
+    taxRate: null,
+    taxAmount: null,
     consumptionTaxAmount: 0,
+    taxExcludedAmount: null,
+    taxCalculationMode: 'auto',
     paymentMethod: '',
     invoiceNumber: '',
     invoiceCheckStatus: '未確認',
