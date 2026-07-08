@@ -219,12 +219,19 @@ export type AccountingExpenseInput = AccountingTenantFields &
     receiptId?: string
     /** 未整理領収書ワークフロー状態（フォーム読み込み時） */
     receiptStatus?: AccountingReceiptWorkflowStatus
+    /** 領収書画像の SHA-256 ハッシュ（二重計上検知用） */
+    imageHash?: string
     confirmationStatus: ExpenseConfirmationStatus
     memo?: string
     createdBy: string
     createdByName: string
     updatedBy: string
     updatedByName: string
+    /** 論理削除フラグ（confirmed 済み経費の削除用） */
+    isDeleted?: boolean
+    deletedAt?: string
+    deletedBy?: string
+    deleteReason?: string
   }
 
 export type StoredAccountingExpense = AccountingExpenseInput & {
@@ -276,6 +283,8 @@ export type AccountingReceiptInput = AccountingTenantFields &
     mimeType: string
     fileName: string
     fileSizeBytes: number
+    /** 領収書画像の SHA-256 ハッシュ（二重計上検知用） */
+    imageHash?: string
     status: ReceiptStatus
     /** ワークフロー状態 draft / ocr_ready / confirmed / rejected */
     receiptStatus?: AccountingReceiptWorkflowStatus
@@ -472,3 +481,11 @@ export const canConfirmExpense = (expense: Pick<AccountingExpenseInput, 'expense
   isExpenseCategorySelected(expense.expenseCategory)
 
 export const isConfirmedForPl = (status: ExpenseConfirmationStatus) => status === '確認済み'
+
+export const isExpenseDeleted = (expense: Pick<StoredAccountingExpense, 'isDeleted'>) =>
+  expense.isDeleted === true
+
+/** PL・CSV・集計の対象経費（確認済みかつ未削除） */
+export const isExpenseEligibleForReporting = (
+  expense: Pick<StoredAccountingExpense, 'confirmationStatus' | 'isDeleted'>,
+) => isConfirmedForPl(expense.confirmationStatus) && !isExpenseDeleted(expense)

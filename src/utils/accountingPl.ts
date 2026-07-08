@@ -12,18 +12,24 @@ import type {
 import {
   EXPENSE_CATEGORIES,
   getExpensePostingDate,
+  INVOICE_STATUS_LABELS,
   isConfirmedForPl,
   isExpenseCategorySelected,
+  isExpenseEligibleForReporting,
   normalizePlTreatment,
   SALES_CATEGORIES,
+  TAX_CATEGORY_LABELS,
+  type InvoiceStatus,
+  type TaxCategory,
 } from '../types/accounting'
 
-/** 経費が PL / 集計対象か。確認済み + 科目選択が必須。領収書ドラフト段階の OCR 候補は計上しない。 */
+/** 経費が PL / 集計対象か。確認済み + 科目選択 + 未削除が必須。 */
 export const isExpenseEligibleForAggregation = (
-  expense: Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory'>,
-): expense is Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory'> & {
+  expense: Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory' | 'isDeleted'>,
+): expense is Pick<StoredAccountingExpense, 'confirmationStatus' | 'expenseCategory' | 'isDeleted'> & {
   expenseCategory: ExpenseCategory
-} => isConfirmedForPl(expense.confirmationStatus) && isExpenseCategorySelected(expense.expenseCategory)
+} =>
+  isExpenseEligibleForReporting(expense) && isExpenseCategorySelected(expense.expenseCategory)
 import { isFixedCostActiveForMonth } from './accountingFixedCost'
 import {
   aggregateSalesBreakdown,
@@ -171,6 +177,71 @@ export const aggregateFixedCosts = (
 
   return { breakdown, fixedCostCount }
 }
+
+export const aggregateExpensesByTaxCategory = (
+  expenses: StoredAccountingExpense[],
+  targetYearMonth: string,
+) => {
+  const totals: Record<TaxCategory, number> = {
+    taxable: 0,
+    non_taxable: 0,
+    out_of_scope: 0,
+  }
+
+  expenses.forEach((expense) => {
+    if (!isExpenseEligibleForAggregation(expense)) {
+      return
+    }
+
+    if (getExpensePostingDate(expense).slice(0, 7) !== targetYearMonth) {
+      return
+    }
+
+    if (normalizePlTreatment(expense.plTreatment) !== 'expense') {
+      return
+    }
+
+    const category = expense.taxCategory ?? 'taxable'
+    totals[category] += expense.taxIncludedAmount
+  })
+
+  return totals
+}
+
+export const aggregateExpensesByInvoiceStatus = (
+  expenses: StoredAccountingExpense[],
+  targetYearMonth: string,
+) => {
+  const totals: Record<InvoiceStatus, number> = {
+    verified: 0,
+    none: 0,
+    not_required: 0,
+    unknown: 0,
+  }
+
+  expenses.forEach((expense) => {
+    if (!isExpenseEligibleForAggregation(expense)) {
+      return
+    }
+
+    if (getExpensePostingDate(expense).slice(0, 7) !== targetYearMonth) {
+      return
+    }
+
+    if (normalizePlTreatment(expense.plTreatment) !== 'expense') {
+      return
+    }
+
+    const status = expense.invoiceStatus ?? 'unknown'
+    totals[status] += expense.taxIncludedAmount
+  })
+
+  return totals
+}
+
+export const formatTaxCategoryAggregationLabel = (category: TaxCategory) => TAX_CATEGORY_LABELS[category]
+
+export const formatInvoiceStatusAggregationLabel = (status: InvoiceStatus) => INVOICE_STATUS_LABELS[status]
 
 export const calculateMonthlyProfitLoss = ({
   adjustments,

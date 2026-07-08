@@ -36,6 +36,7 @@ import {
   buildOcrCandidatesFromParsed,
 } from '../utils/accountingReceiptClassification'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
+import { computeFileSha256 } from '../utils/imageHash'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import {
   createAccountingTenantConstraints,
@@ -133,6 +134,7 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     mimeType: String(data.mimeType ?? data.contentType ?? ''),
     fileName: String(data.fileName ?? ''),
     fileSizeBytes: Number(data.fileSizeBytes ?? data.size ?? 0),
+    imageHash: typeof data.imageHash === 'string' ? data.imageHash : '',
     status,
     receiptStatus,
     linkedExpenseId: linkedExpenseId || undefined,
@@ -269,6 +271,7 @@ export async function uploadAccountingReceiptImage({
   const tenant = resolveAccountingTenantFields({ franchiseeId, storeId })
 
   const sourceDevice = detectSourceDevice()
+  const imageHash = await computeFileSha256(file)
   const receiptRef = await addDoc(
     collection(db, collectionName),
     removeUndefinedFields({
@@ -279,6 +282,7 @@ export async function uploadAccountingReceiptImage({
       mimeType: file.type || 'application/octet-stream',
       fileName: file.name,
       fileSizeBytes: file.size,
+      imageHash,
       status: 'unorganized' satisfies ReceiptStatus,
       receiptStatus: 'draft' satisfies AccountingReceiptWorkflowStatus,
       sourceDevice,
@@ -320,6 +324,7 @@ export async function uploadAccountingReceiptImage({
     receiptId: receiptRef.id,
     downloadUrl,
     storagePath,
+    imageHash,
   }
 }
 

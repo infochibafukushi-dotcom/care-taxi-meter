@@ -218,6 +218,7 @@ export const buildExpenseFormFromReceipt = ({
     ...base,
     receiptId: receipt.id,
     receiptStatus: receipt.receiptStatus ?? 'draft',
+    imageHash: receipt.imageHash || '',
     receiptImageUrl: receipt.downloadUrl || receipt.imageUrl || '',
     receiptStoragePath: receipt.storagePath,
     receiptDate: receiptDate || base.receiptDate,

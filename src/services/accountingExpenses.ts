@@ -33,10 +33,23 @@ import {
   resolveAccountingTenantFields,
 } from './accountingTenant'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
+import { computeFileSha256 } from '../utils/imageHash'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
 const collectionName = 'accountingExpenses'
+
+const readTimestampAsIso = (value: unknown) => {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
+    return (value.toDate() as Date).toISOString()
+  }
+
+  return undefined
+}
 
 const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unknown> }): StoredAccountingExpense => {
   const data = snapshot.data()
@@ -96,7 +109,12 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     receiptImageUrl: typeof data.receiptImageUrl === 'string' ? data.receiptImageUrl : '',
     receiptStoragePath: typeof data.receiptStoragePath === 'string' ? data.receiptStoragePath : '',
     receiptId: typeof data.receiptId === 'string' ? data.receiptId : '',
+    imageHash: typeof data.imageHash === 'string' ? data.imageHash : '',
     confirmationStatus: (data.confirmationStatus as ExpenseConfirmationStatus) ?? '未確認',
+    isDeleted: data.isDeleted === true,
+    deletedAt: readTimestampAsIso(data.deletedAt),
+    deletedBy: typeof data.deletedBy === 'string' ? data.deletedBy : '',
+    deleteReason: typeof data.deleteReason === 'string' ? data.deleteReason : '',
     memo: typeof data.memo === 'string' ? data.memo : '',
     ocrRawText: typeof data.ocrRawText === 'string' ? data.ocrRawText : '',
     ocrParsedFields:
@@ -244,6 +262,38 @@ export async function deleteAccountingExpense(expenseId: string) {
   const db = getFirestore(getFirebaseApp())
   await deleteDoc(doc(db, collectionName, expenseId))
 }
+
+export async function softDeleteAccountingExpense({
+  expenseId,
+  deletedBy,
+  deletedByName,
+  deleteReason,
+}: {
+  expenseId: string
+  deletedBy: string
+  deletedByName: string
+  deleteReason?: string
+}) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  await updateDoc(
+    doc(db, collectionName, expenseId),
+    removeUndefinedFields({
+      isDeleted: true,
+      deletedAt: serverTimestamp(),
+      deletedBy,
+      deleteReason: deleteReason ?? '',
+      updatedBy: deletedBy,
+      updatedByName: deletedByName,
+      updatedAt: serverTimestamp(),
+    }),
+  )
+}
+
+export const computeExpenseImageHash = computeFileSha256
 
 export const buildEmptyExpenseInput = ({
   franchiseeId,

@@ -6,9 +6,9 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import {
   buildEmptyExpenseInput,
   createAccountingExpense,
-  deleteAccountingExpense,
   fetchAccountingExpenses,
   invalidateAccountingExpense,
+  softDeleteAccountingExpense,
   updateAccountingExpense,
 } from '../services/accountingExpenses'
 import {
@@ -61,6 +61,8 @@ import {
   getExpensePostingDate,
   getExpenseReceiptDate,
   getPlTreatmentLabel,
+  isExpenseDeleted,
+  isExpenseEligibleForReporting,
   normalizePlTreatment,
   type AccountingAdjustmentInput,
   type AccountingExpenseInput,
@@ -83,14 +85,24 @@ import {
 } from '../utils/accountingCsv'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
+  aggregateExpensesByInvoiceStatus,
+  aggregateExpensesByTaxCategory,
   buildYearMonthOptions,
   calculateConsumptionTaxFromIncluded,
   calculateMonthlyProfitLoss,
   EXPENSE_CATEGORIES as PL_EXPENSE_CATEGORIES,
+  formatInvoiceStatusAggregationLabel,
+  formatTaxCategoryAggregationLabel,
   formatYearMonthLabel,
   getCurrentYearMonthInJapan,
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
+import {
+  type ExpenseDuplicateCandidate,
+  type ExpenseDuplicateMatch,
+  findExpenseDuplicates,
+  formatExpenseDuplicateLabel,
+} from '../utils/accountingExpenseDuplicate'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import {
   applyAccountingReceiptOcrToExpense,
@@ -155,6 +167,67 @@ function ExpenseFareSalesWarning({ visible }: { visible: boolean }) {
   )
 }
 
+function DuplicateExpensePromptDialog({
+  matches,
+  severity,
+  onReviewExisting,
+  onContinue,
+  onCancel,
+}: {
+  matches: ExpenseDuplicateMatch[]
+  severity: 'warning' | 'strong'
+  onReviewExisting: (expenseId: string) => void
+  onContinue: () => void
+  onCancel: () => void
+}) {
+  const primaryMatch = matches[0]
+  if (!primaryMatch) {
+    return null
+  }
+
+  const title =
+    severity === 'strong'
+      ? '同じ領収書画像が既に登録されています。二重計上の可能性が高いです。'
+      : '同じ日付・同じ金額の経費が既に登録されています。二重計上の可能性があります。'
+
+  return (
+    <div className="accounting-duplicate-dialog-backdrop" role="presentation">
+      <section
+        className="accounting-duplicate-dialog"
+        role="alertdialog"
+        aria-labelledby="accounting-duplicate-dialog-title"
+        aria-describedby="accounting-duplicate-dialog-body"
+      >
+        <h3 id="accounting-duplicate-dialog-title">{title}</h3>
+        <div id="accounting-duplicate-dialog-body" className="accounting-duplicate-dialog-body">
+          <p>既存登録：</p>
+          <ul>
+            {matches.map((match) => (
+              <li key={match.expense.id}>{formatExpenseDuplicateLabel(match.expense)}</li>
+            ))}
+          </ul>
+          <p>このまま登録しますか？</p>
+        </div>
+        <div className="accounting-duplicate-dialog-actions">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => onReviewExisting(primaryMatch.expense.id)}
+          >
+            既存を確認
+          </button>
+          <button className="primary-action" type="button" onClick={onContinue}>
+            登録を続ける
+          </button>
+          <button className="secondary-action" type="button" onClick={onCancel}>
+            キャンセル
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function AccountingPage() {
   const [searchParams] = useSearchParams()
   const showAccountingDiagnostics = useMemo(() => isAccountingDebugEnabled(searchParams), [searchParams])
@@ -201,6 +274,11 @@ export function AccountingPage() {
   const [receiptPreviewObjectUrl, setReceiptPreviewObjectUrl] = useState('')
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    matches: ExpenseDuplicateMatch[]
+    severity: 'warning' | 'strong'
+    onContinue: () => void
+  } | null>(null)
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
 
@@ -376,7 +454,23 @@ export function AccountingPage() {
     [adjustments, caseRecords, expenses, fixedCosts, targetYearMonth],
   )
   const monthExpenses = useMemo(
-    () => expenses.filter((expense) => getExpensePostingDate(expense).startsWith(targetYearMonth)),
+    () =>
+      expenses.filter(
+        (expense) =>
+          getExpensePostingDate(expense).startsWith(targetYearMonth) && !isExpenseDeleted(expense),
+      ),
+    [expenses, targetYearMonth],
+  )
+  const reportingMonthExpenses = useMemo(
+    () => monthExpenses.filter((expense) => isExpenseEligibleForReporting(expense)),
+    [monthExpenses],
+  )
+  const taxCategorySummary = useMemo(
+    () => aggregateExpensesByTaxCategory(expenses, targetYearMonth),
+    [expenses, targetYearMonth],
+  )
+  const invoiceStatusSummary = useMemo(
+    () => aggregateExpensesByInvoiceStatus(expenses, targetYearMonth),
     [expenses, targetYearMonth],
   )
   const monthAdjustments = useMemo(
@@ -432,6 +526,39 @@ export function AccountingPage() {
   }
 
   const isNewExpenseEntry = !editingExpenseId
+
+  const buildDuplicateCandidateFromForm = (
+    form: AccountingExpenseInput,
+    expenseId?: string,
+  ): ExpenseDuplicateCandidate => ({
+    expenseId,
+    date: getExpenseReceiptDate(form),
+    amount: form.taxIncludedAmount,
+    vendorName: form.vendorName,
+    invoiceNumber: form.invoiceNumber,
+    imageHash: form.imageHash,
+  })
+
+  const promptDuplicateCheckBeforeConfirm = (
+    candidate: ExpenseDuplicateCandidate,
+    onContinue: () => Promise<void> | void,
+  ) => {
+    const matches = findExpenseDuplicates(expenses, candidate)
+    if (matches.length === 0) {
+      void onContinue()
+      return
+    }
+
+    const severity = matches.some((match) => match.severity === 'strong') ? 'strong' : 'warning'
+    setDuplicatePrompt({
+      matches,
+      severity,
+      onContinue: () => {
+        setDuplicatePrompt(null)
+        void onContinue()
+      },
+    })
+  }
 
   const handleExpenseFieldChange = <K extends keyof AccountingExpenseInput>(
     key: K,
@@ -558,6 +685,7 @@ export function AccountingPage() {
               receiptId: uploaded.receiptId,
               receiptImageUrl: uploaded.downloadUrl,
               receiptStoragePath: uploaded.storagePath,
+              imageHash: uploaded.imageHash,
             }
           : current,
       )
@@ -760,41 +888,45 @@ export function AccountingPage() {
       return
     }
 
-    setErrorMessage('')
-    setStatusMessage('')
-    try {
-      await saveConfirmedAccountingReceipt({
-        receiptId: receipt.id,
-        editedBy: staffId,
-        previousHistory: receipt.editHistory,
-        confirmed: {
-          vendorName: form.vendorName,
-          date: form.receiptDate || getExpenseReceiptDate(form),
-          amount: form.taxIncludedAmount,
-          taxAmount: form.consumptionTaxAmount,
-          taxCategory: form.taxCategory ?? 'taxable',
-          invoiceStatus: form.invoiceStatus ?? 'unknown',
-          invoiceNumber: form.invoiceNumber,
-          invoiceRegisteredName: form.invoiceRegisteredName,
-          accountTitle: form.expenseCategory,
-          description: form.description,
-          memo: form.memo,
-          phoneNumber: form.ocrCandidates?.phoneNumber,
-          address: form.invoiceAddress,
-        },
-      })
-      const expensePayload: AccountingExpenseInput = {
-        ...form,
-        confirmationStatus: '確認済み',
-        updatedBy: staffId,
-        updatedByName: staffName,
+    const confirmReceipt = async () => {
+      setErrorMessage('')
+      setStatusMessage('')
+      try {
+        await saveConfirmedAccountingReceipt({
+          receiptId: receipt.id,
+          editedBy: staffId,
+          previousHistory: receipt.editHistory,
+          confirmed: {
+            vendorName: form.vendorName,
+            date: form.receiptDate || getExpenseReceiptDate(form),
+            amount: form.taxIncludedAmount,
+            taxAmount: form.consumptionTaxAmount,
+            taxCategory: form.taxCategory ?? 'taxable',
+            invoiceStatus: form.invoiceStatus ?? 'unknown',
+            invoiceNumber: form.invoiceNumber,
+            invoiceRegisteredName: form.invoiceRegisteredName,
+            accountTitle: form.expenseCategory,
+            description: form.description,
+            memo: form.memo,
+            phoneNumber: form.ocrCandidates?.phoneNumber,
+            address: form.invoiceAddress,
+          },
+        })
+        const expensePayload: AccountingExpenseInput = {
+          ...form,
+          confirmationStatus: '確認済み',
+          updatedBy: staffId,
+          updatedByName: staffName,
+        }
+        await createAccountingExpense(expensePayload)
+        setStatusMessage('領収書を確定し、経費・集計対象として登録しました。')
+        await reloadExpensesAdjustmentsAndReceipts()
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : '領収書の確定に失敗しました。')
       }
-      await createAccountingExpense(expensePayload)
-      setStatusMessage('領収書を確定し、経費・集計対象として登録しました。')
-      await reloadExpensesAdjustmentsAndReceipts()
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '領収書の確定に失敗しました。')
     }
+
+    promptDuplicateCheckBeforeConfirm(buildDuplicateCandidateFromForm(form), confirmReceipt)
   }
 
   const handleRejectUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
@@ -949,27 +1081,39 @@ export function AccountingPage() {
       return
     }
 
-    setIsSavingExpense(true)
-    setErrorMessage('')
-    setStatusMessage('')
+    const persistExpense = async () => {
+      setIsSavingExpense(true)
+      setErrorMessage('')
+      setStatusMessage('')
 
-    try {
-      if (editingExpenseId) {
-        await updateAccountingExpense(editingExpenseId, expenseForm)
-        setStatusMessage('経費を更新しました。')
-      } else {
-        await createAccountingExpense(expenseForm)
-        setStatusMessage('経費を登録しました。')
+      try {
+        if (editingExpenseId) {
+          await updateAccountingExpense(editingExpenseId, expenseForm)
+          setStatusMessage('経費を更新しました。')
+        } else {
+          await createAccountingExpense(expenseForm)
+          setStatusMessage('経費を登録しました。')
+        }
+
+        setEditingExpenseId('')
+        resetExpenseFormToNew()
+        await reloadExpensesAdjustmentsAndReceipts()
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
+      } finally {
+        setIsSavingExpense(false)
       }
-
-      setEditingExpenseId('')
-      resetExpenseFormToNew()
-      await reloadExpensesAdjustmentsAndReceipts()
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
-    } finally {
-      setIsSavingExpense(false)
     }
+
+    if (expenseForm.confirmationStatus === '確認済み') {
+      promptDuplicateCheckBeforeConfirm(
+        buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
+        persistExpense,
+      )
+      return
+    }
+
+    await persistExpense()
   }
 
   const handleEditExpense = (expenseId: string) => {
@@ -1018,20 +1162,24 @@ export function AccountingPage() {
 
   const handleDeleteExpense = async (expenseId: string) => {
     const confirmed = window.confirm(
-      'この経費データを削除します。元に戻せません。削除してよろしいですか？',
+      'この経費を削除しますか？\n削除後はPL・集計・CSV出力から除外されます。',
     )
     if (!confirmed) {
       return
     }
 
     try {
-      await deleteAccountingExpense(expenseId)
+      await softDeleteAccountingExpense({
+        expenseId,
+        deletedBy: staffId,
+        deletedByName: staffName,
+      })
 
       if (editingExpenseId === expenseId) {
         resetExpenseFormToNew()
       }
 
-      setStatusMessage('経費を削除しました。')
+      setStatusMessage('経費を削除しました（集計対象から除外）。')
       await reloadExpensesAndAdjustments()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の削除に失敗しました。')
@@ -1098,9 +1246,9 @@ export function AccountingPage() {
     }
 
     return {
-      csv: buildExpensesCsv(monthExpenses, targetYearMonth),
+      csv: buildExpensesCsv(reportingMonthExpenses, targetYearMonth),
       fileName: `accounting-expenses-${fileSuffix}.csv`,
-      rowCount: monthExpenses.length,
+      rowCount: reportingMonthExpenses.length,
     }
   }
 
@@ -1286,6 +1434,8 @@ export function AccountingPage() {
             <p className="accounting-note">
               確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費{' '}
               {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
+              <br />
+              集計対象は confirmationStatus=確認済み かつ isDeleted=false の経費のみです。
             </p>
             <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
             <div className="accounting-pl-grid">
@@ -1628,6 +1778,8 @@ export function AccountingPage() {
             <h2>{editingExpenseId ? '経費編集' : '経費入力'}</h2>
             <p className="accounting-note">
               OCR/AIの科目提案は参考値です。最終的な経費科目は必ず人が選択して確定してください。
+              <br />
+              スマホは撮影→OCR→「領収書だけ保存」で一時保存し、PCで未整理領収書を編集・確定する運用を推奨します。
             </p>
 
             {ocrCandidateNotice ? (
@@ -1639,9 +1791,11 @@ export function AccountingPage() {
             <section className="accounting-receipt-flow" aria-label="領収書OCR登録">
               <h3>領収書から入力</h3>
               <p className="accounting-note">
-                撮影または画像選択 → OCR読取（候補） → 内容確認 → 経費科目を手動選択 → 保存
+                <strong>スマホ運用：</strong>撮影 → OCR読取 → 「領収書だけ保存」で一時保存（PL未反映）。
+                PCで後から編集・確定してください。
                 <br />
-                忙しい時は「領収書だけ保存」で画像だけ先に残せます。
+                <strong>PC運用：</strong>未整理領収書 → 編集する → OCR候補を確認・修正 → 確定する。
+                confirmed のみ PL・CSV・集計へ反映されます。
               </p>
               <div className="accounting-receipt-actions">
                 <label className="accounting-receipt-upload-button primary-action">
@@ -1718,7 +1872,8 @@ export function AccountingPage() {
             <section className="accounting-unorganized-panel" aria-label="未整理の領収書">
               <h3>未整理の領収書 ({visibleUnorganizedReceipts.length})</h3>
               <p className="accounting-note">
-                領収書だけ保存したデータです。PLには反映されません。「編集する」で入力フォームへ読み込み、「確定する」で経費・集計へ反映します。
+                スマホで一時保存した領収書です（draft / ocr_ready）。PL・集計には反映されません。
+                「編集する」でフォームへ読み込み、内容を確認して「確定する」で経費登録してください。
               </p>
               {visibleUnorganizedReceipts.length > 0 ? (
                 <>
@@ -2368,6 +2523,40 @@ export function AccountingPage() {
               </div>
             </div>
 
+            <section className="accounting-expense-summaries" aria-label="経費集計サマリー">
+              <h3>{formatYearMonthLabel(targetYearMonth)} の集計（確認済み・未削除）</h3>
+              <div className="accounting-expense-summary-grid">
+                <section>
+                  <h4>税区分集計</h4>
+                  <ul className="accounting-pl-list">
+                    {TAX_CATEGORIES.map((category) => (
+                      <li key={category}>
+                        <span>{formatTaxCategoryAggregationLabel(category)}</span>
+                        <strong>{formatFareYen(taxCategorySummary[category])}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <section>
+                  <h4>インボイス集計</h4>
+                  <ul className="accounting-pl-list">
+                    {INVOICE_STATUSES.map((status) => (
+                      <li key={status}>
+                        <span>{formatInvoiceStatusAggregationLabel(status)}</span>
+                        <strong>{formatFareYen(invoiceStatusSummary[status])}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <section>
+                  <h4>経費件数</h4>
+                  <p className="accounting-note">
+                    一覧 {monthExpenses.length}件 / 集計対象 {reportingMonthExpenses.length}件
+                  </p>
+                </section>
+              </div>
+            </section>
+
             <div className="accounting-expense-cards" aria-label="当月経費一覧（カード）">
               {monthExpenses.length > 0 ? (
                 monthExpenses.map((expense) => (
@@ -2515,7 +2704,7 @@ export function AccountingPage() {
           <section className="accounting-panel" aria-label="CSV出力">
             <h2>CSV出力</h2>
             <p className="accounting-note">
-              月次PL・確定売上・経費一覧をCSV出力します。出力履歴は accountingExports に保存されます。
+              月次PL・確定売上・経費一覧をCSV出力します。経費CSVは確認済み・未削除のみ含みます。
             </p>
             <div className="accounting-export-actions">
               <button className="primary-action" type="button" onClick={() => void handleExport('monthly-pl')}>
@@ -2531,6 +2720,18 @@ export function AccountingPage() {
           </section>
         ) : null}
       </section>
+      {duplicatePrompt ? (
+        <DuplicateExpensePromptDialog
+          matches={duplicatePrompt.matches}
+          severity={duplicatePrompt.severity}
+          onReviewExisting={(expenseId) => {
+            setDuplicatePrompt(null)
+            handleEditExpense(expenseId)
+          }}
+          onContinue={duplicatePrompt.onContinue}
+          onCancel={() => setDuplicatePrompt(null)}
+        />
+      ) : null}
     </main>
   )
 }
