@@ -21,7 +21,6 @@ import {
   applyOcrCandidatesToAccountingReceipt,
   deleteAccountingReceipt,
   fetchUnorganizedAccountingReceipts,
-  invalidateAccountingReceipt,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
   rejectAccountingReceiptWorkflow,
   resolveAccountingReceiptDownloadUrl,
@@ -709,7 +708,7 @@ export function AccountingPage() {
         updatedBy: staffId,
         updatedByName: staffName,
       })
-      setStatusMessage('領収書を未整理として保存しました。あとで「経費として登録」できます。')
+      setStatusMessage('領収書を未整理として保存しました。あとで「編集する」から入力フォームへ読み込めます。')
       resetExpenseFormToNew()
       await reloadUnorganizedReceipts()
     } catch (error) {
@@ -897,24 +896,6 @@ export function AccountingPage() {
       }))
     } finally {
       setOcrRunningReceiptId('')
-    }
-  }
-
-  const handleInvalidateUnorganizedReceipt = async (receiptId: string) => {
-    const confirmed = window.confirm('この未整理領収書を無効化します。画像は削除せず、一覧から除外します。')
-    if (!confirmed) {
-      return
-    }
-
-    try {
-      await invalidateAccountingReceipt({ receiptId })
-      if (expenseForm?.receiptId === receiptId) {
-        resetExpenseFormToNew()
-      }
-      setStatusMessage('未整理領収書を無効化しました。')
-      await reloadUnorganizedReceipts()
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '未整理領収書の無効化に失敗しました。')
     }
   }
 
@@ -1737,7 +1718,7 @@ export function AccountingPage() {
             <section className="accounting-unorganized-panel" aria-label="未整理の領収書">
               <h3>未整理の領収書 ({visibleUnorganizedReceipts.length})</h3>
               <p className="accounting-note">
-                領収書だけ保存したデータです。PLには反映されません。「経費として登録」で入力フォームへ引き継げます。
+                領収書だけ保存したデータです。PLには反映されません。「編集する」で入力フォームへ読み込み、「確定する」で経費・集計へ反映します。
               </p>
               {visibleUnorganizedReceipts.length > 0 ? (
                 <>
@@ -1900,19 +1881,19 @@ export function AccountingPage() {
                               編集する
                             </button>
                             <button
-                              className="primary-action"
-                              type="button"
-                              onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
-                            >
-                              確定する
-                            </button>
-                            <button
                               className="secondary-action"
                               disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
                               type="button"
                               onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
                             >
                               {ocrRunningReceiptId === receipt.id ? 'OCR読取中…' : 'OCR読取'}
+                            </button>
+                            <button
+                              className="primary-action"
+                              type="button"
+                              onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
+                            >
+                              確定する
                             </button>
                             <button
                               className="secondary-action"
@@ -1976,35 +1957,44 @@ export function AccountingPage() {
                             <td>{receipt.memo || '―'}</td>
                             <td>{RECEIPT_STATUS_LABELS[receipt.status]}</td>
                             <td>
-                              <button
-                                className="secondary-action"
-                                type="button"
-                                onClick={() => handleRegisterReceiptAsExpense(receipt)}
-                              >
-                                経費として登録
-                              </button>
-                              <button
-                                className="secondary-action"
-                                disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
-                                type="button"
-                                onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
-                              >
-                                OCR読取
-                              </button>
-                              <button
-                                className="secondary-action"
-                                type="button"
-                                onClick={() => void handleInvalidateUnorganizedReceipt(receipt.id)}
-                              >
-                                無効化
-                              </button>
-                              <button
-                                className="secondary-action"
-                                type="button"
-                                onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
-                              >
-                                削除
-                              </button>
+                              <div className="accounting-unorganized-actions">
+                                <button
+                                  className="primary-action"
+                                  type="button"
+                                  onClick={() => handleRegisterReceiptAsExpense(receipt)}
+                                >
+                                  編集する
+                                </button>
+                                <button
+                                  className="secondary-action"
+                                  disabled={!hasStoredAccountingReceiptImage(receipt) || ocrRunningReceiptId === receipt.id}
+                                  type="button"
+                                  onClick={() => void handleRunOcrOnUnorganizedReceipt(receipt)}
+                                >
+                                  {ocrRunningReceiptId === receipt.id ? 'OCR読取中…' : 'OCR読取'}
+                                </button>
+                                <button
+                                  className="primary-action"
+                                  type="button"
+                                  onClick={() => void handleConfirmUnorganizedReceipt(receipt)}
+                                >
+                                  確定する
+                                </button>
+                                <button
+                                  className="secondary-action"
+                                  type="button"
+                                  onClick={() => void handleRejectUnorganizedReceipt(receipt)}
+                                >
+                                  登録しない
+                                </button>
+                                <button
+                                  className="secondary-action"
+                                  type="button"
+                                  onClick={() => void handleDeleteUnorganizedReceipt(receipt.id)}
+                                >
+                                  削除
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}

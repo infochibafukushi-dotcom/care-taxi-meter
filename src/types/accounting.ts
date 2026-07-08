@@ -217,6 +217,8 @@ export type AccountingExpenseInput = AccountingTenantFields &
     receiptImageUrl?: string
     receiptStoragePath?: string
     receiptId?: string
+    /** 未整理領収書ワークフロー状態（フォーム読み込み時） */
+    receiptStatus?: AccountingReceiptWorkflowStatus
     confirmationStatus: ExpenseConfirmationStatus
     memo?: string
     createdBy: string
