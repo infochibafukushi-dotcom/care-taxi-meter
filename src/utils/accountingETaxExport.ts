@@ -1,4 +1,4 @@
-import type { ETaxPackage, ETaxReportLine } from '../types/accountingETax'
+import type { ETaxExportableSectionId, ETaxPackage, ETaxReportLine } from '../types/accountingETax'
 import {
   COST_OF_SALES_CATEGORIES,
   FIXED_EXPENSE_CATEGORIES,
@@ -80,6 +80,47 @@ export const buildETaxPlCsv = (pkg: ETaxPackage) => buildPlCsv(pkg)
 export const buildETaxBalanceSheetCsv = (pkg: ETaxPackage) =>
   reportLinesToCsv(`e-Tax入力用 貸借対照表 ${pkg.company.fiscalYearLabel}`, pkg.balanceSheet)
 
+export const buildETaxBsInputCsv = (pkg: ETaxPackage) =>
+  reportLinesToCsv(`e-Tax入力用 BS入力 ${pkg.company.fiscalYearLabel}`, pkg.bsInput)
+
+export const buildETaxAuxiliaryDataCsv = (pkg: ETaxPackage) =>
+  reportLinesToCsv(`e-Tax入力用 決算補助データ ${pkg.company.fiscalYearLabel}`, pkg.auxiliaryDataLines)
+
+export const buildETaxAccountBreakdownDetailCsv = (pkg: ETaxPackage) => {
+  const lines = [
+    csvLine([`e-Tax入力用 勘定科目内訳明細書 ${pkg.company.fiscalYearLabel}`]),
+    csvLine(['sectionId', 'sectionLabel', 'mappingId', ...Array.from({ length: 8 }, (_, index) => `col${index + 1}`)]),
+  ]
+
+  pkg.accountBreakdownDetail.forEach((section) => {
+    section.rows.forEach((row) => {
+      const padded = [...row.values]
+      while (padded.length < 8) {
+        padded.push('')
+      }
+      lines.push(
+        csvLine([section.sectionId, section.sectionLabel, row.mappingId, ...padded.slice(0, 8)]),
+      )
+    })
+    if (section.rows.length === 0) {
+      lines.push(csvLine([section.sectionId, section.sectionLabel, `${section.mappingIdPrefix}.empty`, '未設定']))
+    }
+  })
+
+  return withBom(lines.join(CSV_EOL))
+}
+
+export const buildETaxInputStatusCsv = (pkg: ETaxPackage) =>
+  withBom(
+    [
+      csvLine([`e-Tax入力用 入力状況 ${pkg.company.fiscalYearLabel}`]),
+      csvLine(['mappingId', '区分', '項目', '状態']),
+      ...pkg.missingItems.map((item) =>
+        csvLine([item.mappingId, item.category, item.label, item.status === 'planned' ? '今後対応予定' : '未設定']),
+      ),
+    ].join(CSV_EOL),
+  )
+
 export const buildETaxFixedAssetsCsv = (pkg: ETaxPackage) =>
   withBom(
     [
@@ -144,6 +185,9 @@ export const buildETaxConsumptionTaxCsv = (pkg: ETaxPackage) =>
   reportLinesToCsv(`e-Tax入力用 消費税集計 ${pkg.company.fiscalYearLabel}`, pkg.consumptionTax)
 
 export const buildETaxBulkCsvBundle = (pkg: ETaxPackage) => [
+  { fileName: `etax-auxiliary-${pkg.company.targetYear}.csv`, content: buildETaxAuxiliaryDataCsv(pkg) },
+  { fileName: `etax-bs-input-${pkg.company.targetYear}.csv`, content: buildETaxBsInputCsv(pkg) },
+  { fileName: `etax-account-breakdown-detail-${pkg.company.targetYear}.csv`, content: buildETaxAccountBreakdownDetailCsv(pkg) },
   { fileName: `etax-summary-${pkg.company.targetYear}.csv`, content: buildETaxSummaryCsv(pkg) },
   { fileName: `etax-pl-${pkg.company.targetYear}.csv`, content: buildETaxPlCsv(pkg) },
   { fileName: `etax-bs-${pkg.company.targetYear}.csv`, content: buildETaxBalanceSheetCsv(pkg) },
@@ -152,6 +196,7 @@ export const buildETaxBulkCsvBundle = (pkg: ETaxPackage) => [
   { fileName: `etax-account-breakdown-${pkg.company.targetYear}.csv`, content: buildETaxAccountBreakdownCsv(pkg) },
   { fileName: `etax-business-overview-${pkg.company.targetYear}.csv`, content: buildETaxBusinessOverviewCsv(pkg) },
   { fileName: `etax-consumption-tax-${pkg.company.targetYear}.csv`, content: buildETaxConsumptionTaxCsv(pkg) },
+  { fileName: `etax-input-status-${pkg.company.targetYear}.csv`, content: buildETaxInputStatusCsv(pkg) },
 ]
 
 const plPdfRows = (pkg: ETaxPackage) => {
@@ -223,6 +268,30 @@ export async function exportETaxBalanceSheetPdf(pkg: ETaxPackage) {
   return fileName
 }
 
+export async function exportETaxBsInputPdf(pkg: ETaxPackage) {
+  const fileName = `etax-bs-input-${pkg.company.targetYear}.pdf`
+  await downloadAuditTablePdf({
+    fileName,
+    title: `BS入力用 ${pkg.company.fiscalYearLabel}`,
+    headers: ['項目', '値', '金額(円)'],
+    rows: linesToPdfRows(pkg.bsInput),
+    orientation: 'portrait',
+  })
+  return fileName
+}
+
+export async function exportETaxAuxiliaryDataPdf(pkg: ETaxPackage) {
+  const fileName = `etax-auxiliary-${pkg.company.targetYear}.pdf`
+  await downloadAuditTablePdf({
+    fileName,
+    title: `決算補助データ ${pkg.company.fiscalYearLabel}`,
+    headers: ['項目', '値', '金額(円)'],
+    rows: linesToPdfRows(pkg.auxiliaryDataLines),
+    orientation: 'portrait',
+  })
+  return fileName
+}
+
 export async function exportETaxFixedAssetsPdf(pkg: ETaxPackage) {
   const fileName = `etax-fixed-assets-${pkg.company.targetYear}.pdf`
   await downloadAuditTablePdf({
@@ -272,6 +341,29 @@ export async function exportETaxAccountBreakdownPdf(pkg: ETaxPackage) {
   return fileName
 }
 
+export async function exportETaxAccountBreakdownDetailPdf(pkg: ETaxPackage) {
+  const fileName = `etax-account-breakdown-detail-${pkg.company.targetYear}.pdf`
+  const rows: string[][] = []
+  pkg.accountBreakdownDetail.forEach((section) => {
+    rows.push([section.sectionLabel, '', ''])
+    if (section.rows.length === 0) {
+      rows.push(['（データなし）', '未設定', ''])
+      return
+    }
+    section.rows.forEach((row) => {
+      rows.push([row.mappingId, row.values.join(' / '), ''])
+    })
+  })
+  await downloadAuditTablePdf({
+    fileName,
+    title: `勘定科目内訳明細書用資料 ${pkg.company.fiscalYearLabel}`,
+    headers: ['区分/項目', '内容', ''],
+    rows,
+    orientation: 'landscape',
+  })
+  return fileName
+}
+
 export async function exportETaxBusinessOverviewPdf(pkg: ETaxPackage) {
   const fileName = `etax-business-overview-${pkg.company.targetYear}.pdf`
   await downloadAuditTablePdf({
@@ -298,6 +390,9 @@ export async function exportETaxConsumptionTaxPdf(pkg: ETaxPackage) {
 
 export async function exportETaxBulkPdf(pkg: ETaxPackage) {
   const files = [
+    await exportETaxAuxiliaryDataPdf(pkg),
+    await exportETaxBsInputPdf(pkg),
+    await exportETaxAccountBreakdownDetailPdf(pkg),
     await exportETaxSummaryPdf(pkg),
     await exportETaxPlPdf(pkg),
     await exportETaxBalanceSheetPdf(pkg),
@@ -316,10 +411,7 @@ export function exportETaxBulkCsv(pkg: ETaxPackage) {
   return files.map((file) => file.fileName)
 }
 
-export async function exportETaxSectionPdf(
-  section: Exclude<import('../types/accountingETax').ETaxSectionId, 'pdf-bulk' | 'csv-bulk'>,
-  pkg: ETaxPackage,
-) {
+export async function exportETaxSectionPdf(section: ETaxExportableSectionId, pkg: ETaxPackage) {
   switch (section) {
     case 'summary':
       return exportETaxSummaryPdf(pkg)
@@ -327,34 +419,41 @@ export async function exportETaxSectionPdf(
       return exportETaxPlPdf(pkg)
     case 'bs':
       return exportETaxBalanceSheetPdf(pkg)
+    case 'bs-input':
+      return exportETaxBsInputPdf(pkg)
     case 'fixed-assets':
       return exportETaxFixedAssetsPdf(pkg)
     case 'small-assets':
       return exportETaxSmallAssetsPdf(pkg)
     case 'account-breakdown':
       return exportETaxAccountBreakdownPdf(pkg)
+    case 'account-breakdown-detail':
+      return exportETaxAccountBreakdownDetailPdf(pkg)
     case 'business-overview':
       return exportETaxBusinessOverviewPdf(pkg)
     case 'consumption-tax':
       return exportETaxConsumptionTaxPdf(pkg)
+    case 'auxiliary-data':
+      return exportETaxAuxiliaryDataPdf(pkg)
     default:
       return ''
   }
 }
 
-export function exportETaxSectionCsv(
-  section: Exclude<import('../types/accountingETax').ETaxSectionId, 'pdf-bulk' | 'csv-bulk'>,
-  pkg: ETaxPackage,
-) {
+export function exportETaxSectionCsv(section: ETaxExportableSectionId, pkg: ETaxPackage) {
   const builders: Record<string, (p: ETaxPackage) => string> = {
     summary: buildETaxSummaryCsv,
     pl: buildETaxPlCsv,
     bs: buildETaxBalanceSheetCsv,
+    'bs-input': buildETaxBsInputCsv,
     'fixed-assets': buildETaxFixedAssetsCsv,
     'small-assets': buildETaxSmallAssetsCsv,
     'account-breakdown': buildETaxAccountBreakdownCsv,
+    'account-breakdown-detail': buildETaxAccountBreakdownDetailCsv,
     'business-overview': buildETaxBusinessOverviewCsv,
     'consumption-tax': buildETaxConsumptionTaxCsv,
+    'auxiliary-data': buildETaxAuxiliaryDataCsv,
+    'input-status': buildETaxInputStatusCsv,
   }
   const build = builders[section]
   if (!build) {

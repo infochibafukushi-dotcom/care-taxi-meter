@@ -9,7 +9,8 @@ import type {
   StoredAccountingFixedCost,
 } from '../../types/accounting'
 import type { StoredAccountingFixedAsset } from '../../types/accountingFixedAssets'
-import type { ETaxSectionId } from '../../types/accountingETax'
+import type { ETaxExportableSectionId, ETaxSectionId } from '../../types/accountingETax'
+import type { StoredAccountingSettlementAuxiliary } from '../../types/accountingSettlementAuxiliary'
 import type { Company } from '../../types/work'
 import { formatPlAmount } from '../../utils/accountingCsv'
 import {
@@ -18,6 +19,7 @@ import {
   SALES_CATEGORIES,
   VARIABLE_EXPENSE_CATEGORIES,
 } from '../../types/accounting'
+import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { buildETaxPackage } from '../../utils/accountingETaxData'
 import {
   exportETaxBulkCsv,
@@ -26,33 +28,53 @@ import {
   exportETaxSectionCsv,
   exportETaxSectionPdf,
 } from '../../utils/accountingETaxExport'
+import { SettlementAuxiliaryDataPanel } from './SettlementAuxiliaryDataPanel'
 
 type ETaxSettlementPanelProps = {
   franchiseeId: string
   storeId: string
   targetYear: number
   targetYearMonth: string
+  staffId: string
+  staffName: string
   caseRecords: StoredCaseRecord[]
   expenses: StoredAccountingExpense[]
   adjustments: StoredAccountingAdjustment[]
   fixedCosts: StoredAccountingFixedCost[]
   fixedAssets: StoredAccountingFixedAsset[]
+  settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
+  onReloadAuxiliary: () => Promise<void>
   onExportRecorded: (fileName: string) => void
+  onStatus: (message: string) => void
   onError: (message: string) => void
 }
 
 const MENU_ITEMS: Array<{ id: ETaxSectionId; label: string; description: string }> = [
+  { id: 'auxiliary-input', label: '決算補助データ入力', description: '手入力が必要な最小項目を登録' },
+  { id: 'input-status', label: '入力状況チェック', description: '入力済み/未入力の確認' },
+  { id: 'missing-items', label: '不足項目一覧', description: '転記前の確認リスト' },
+  { id: 'auxiliary-data', label: '決算補助データ', description: '保存済み補助データの確認・出力' },
+  { id: 'bs-input', label: 'BS入力用', description: 'e-Tax転記用BS' },
+  { id: 'account-breakdown-detail', label: '勘定科目内訳明細書用資料', description: '内訳明細（CSV化優先）' },
   { id: 'summary', label: '① 決算サマリー', description: 'e-Tax転記用の年度概要' },
   { id: 'pl', label: '② 損益計算書（PL）', description: '会計年度ベースのPL' },
-  { id: 'bs', label: '③ 貸借対照表（BS）', description: '不足項目は未設定表示' },
+  { id: 'bs', label: '③ 貸借対照表（BS）', description: '決算補助データを反映' },
   { id: 'fixed-assets', label: '④ 固定資産・減価償却明細', description: '固定資産台帳から自動作成' },
   { id: 'small-assets', label: '⑤ 少額資産明細', description: '少額資産の一覧' },
-  { id: 'account-breakdown', label: '⑥ 勘定科目内訳明細', description: '科目別内訳（一覧）' },
+  { id: 'account-breakdown', label: '⑥ 勘定科目内訳明細', description: '科目別サマリー' },
   { id: 'business-overview', label: '⑦ 法人事業概況説明書用資料', description: '入力補助資料' },
   { id: 'consumption-tax', label: '⑧ 消費税集計', description: '課税区分・税率別集計' },
   { id: 'pdf-bulk', label: '⑨ PDF一括出力', description: '全資料をPDFで出力' },
   { id: 'csv-bulk', label: '⑩ CSV一括出力', description: '全資料をCSVで出力' },
 ]
+
+const NON_EXPORT_SECTIONS = new Set<ETaxSectionId>([
+  'auxiliary-input',
+  'input-status',
+  'missing-items',
+  'pdf-bulk',
+  'csv-bulk',
+])
 
 function ReportLineList({ lines }: { lines: Array<{ mappingId: string; label: string; displayValue: string; status: string }> }) {
   return (
@@ -129,12 +151,17 @@ export function ETaxSettlementPanel({
   storeId,
   targetYear,
   targetYearMonth,
+  staffId,
+  staffName,
   caseRecords,
   expenses,
   adjustments,
   fixedCosts,
   fixedAssets,
+  settlementAuxiliary,
+  onReloadAuxiliary,
   onExportRecorded,
+  onStatus,
   onError,
 }: ETaxSettlementPanelProps) {
   const [activeSection, setActiveSection] = useState<ETaxSectionId | null>(null)
@@ -164,6 +191,23 @@ export function ETaxSettlementPanel({
     return unsubscribe
   }, [franchiseeId, storeId])
 
+  const auxiliary = useMemo(
+    () =>
+      mergeSettlementAuxiliary(
+        settlementAuxiliary,
+        buildDefaultSettlementAuxiliary({
+          franchiseeId,
+          storeId,
+          targetYear,
+          company,
+          meterSettings,
+          staffId,
+          staffName,
+        }),
+      ),
+    [company, franchiseeId, meterSettings, settlementAuxiliary, staffId, staffName, storeId, targetYear],
+  )
+
   const pkg = useMemo(
     () =>
       buildETaxPackage({
@@ -176,9 +220,11 @@ export function ETaxSettlementPanel({
         adjustments,
         fixedCosts,
         fixedAssets,
+        auxiliary,
       }),
     [
       adjustments,
+      auxiliary,
       caseRecords,
       company,
       expenses,
@@ -191,7 +237,7 @@ export function ETaxSettlementPanel({
   )
 
   const handleSectionExport = async (kind: 'pdf' | 'csv') => {
-    if (!activeSection || activeSection === 'pdf-bulk' || activeSection === 'csv-bulk') {
+    if (!activeSection || NON_EXPORT_SECTIONS.has(activeSection)) {
       return
     }
 
@@ -199,8 +245,8 @@ export function ETaxSettlementPanel({
     try {
       const fileName =
         kind === 'pdf'
-          ? await exportETaxSectionPdf(activeSection, pkg)
-          : exportETaxSectionCsv(activeSection, pkg)
+          ? await exportETaxSectionPdf(activeSection as ETaxExportableSectionId, pkg)
+          : exportETaxSectionCsv(activeSection as ETaxExportableSectionId, pkg)
       if (fileName) {
         onExportRecorded(fileName)
       }
@@ -242,7 +288,7 @@ export function ETaxSettlementPanel({
     setActiveSection(sectionId)
   }
 
-  if (activeSection && activeSection !== 'pdf-bulk' && activeSection !== 'csv-bulk') {
+  if (activeSection && !NON_EXPORT_SECTIONS.has(activeSection)) {
     const menu = MENU_ITEMS.find((item) => item.id === activeSection)
 
     return (
@@ -252,22 +298,22 @@ export function ETaxSettlementPanel({
             ← メニューに戻る
           </button>
           <div className="accounting-etax-section-actions">
-              <button
-                className="secondary-action"
-                type="button"
-                disabled={isExporting}
-                onClick={() => void handleSectionExport('csv')}
-              >
-                CSV出力
-              </button>
-              <button
-                className="secondary-action"
-                type="button"
-                disabled={isExporting}
-                onClick={() => void handleSectionExport('pdf')}
-              >
-                PDF出力
-              </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isExporting}
+              onClick={() => void handleSectionExport('csv')}
+            >
+              CSV出力
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isExporting}
+              onClick={() => void handleSectionExport('pdf')}
+            >
+              PDF出力
+            </button>
           </div>
         </div>
 
@@ -282,8 +328,45 @@ export function ETaxSettlementPanel({
         ) : null}
 
         {activeSection === 'pl' ? <PlSectionView profitLoss={pkg.pl} /> : null}
-
         {activeSection === 'bs' ? <ReportLineList lines={pkg.balanceSheet} /> : null}
+        {activeSection === 'bs-input' ? <ReportLineList lines={pkg.bsInput} /> : null}
+        {activeSection === 'auxiliary-data' ? <ReportLineList lines={pkg.auxiliaryDataLines} /> : null}
+
+        {activeSection === 'account-breakdown-detail' ? (
+          <div className="accounting-etax-breakdown-sections">
+            {pkg.accountBreakdownDetail.map((section) => (
+              <section key={section.sectionId} className="accounting-etax-breakdown-section">
+                <h4>{section.sectionLabel}</h4>
+                <div className="accounting-table-wrap">
+                  <table className="accounting-table">
+                    <thead>
+                      <tr>
+                        {section.headers.map((header) => (
+                          <th key={header}>{header}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.rows.length > 0 ? (
+                        section.rows.map((row) => (
+                          <tr key={row.mappingId}>
+                            {row.values.map((value, index) => (
+                              <td key={`${row.mappingId}-${index}`}>{value}</td>
+                            ))}
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={section.headers.length}>未設定</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : null}
 
         {activeSection === 'fixed-assets' ? (
           <div className="accounting-table-wrap">
@@ -370,12 +453,66 @@ export function ETaxSettlementPanel({
     )
   }
 
+  if (activeSection === 'auxiliary-input') {
+    return (
+      <section className="accounting-panel accounting-etax-panel" aria-label="決算補助データ入力">
+        <div className="accounting-etax-section-header">
+          <button className="secondary-action" type="button" onClick={() => setActiveSection(null)}>
+            ← メニューに戻る
+          </button>
+        </div>
+        <h2>決算補助データ入力</h2>
+        <SettlementAuxiliaryDataPanel
+          franchiseeId={franchiseeId}
+          storeId={storeId}
+          targetYear={targetYear}
+          staffId={staffId}
+          staffName={staffName}
+          stored={settlementAuxiliary}
+          onReload={onReloadAuxiliary}
+          onStatus={onStatus}
+          onError={onError}
+        />
+      </section>
+    )
+  }
+
+  if (activeSection === 'input-status' || activeSection === 'missing-items') {
+    return (
+      <section className="accounting-panel accounting-etax-panel" aria-label="入力状況">
+        <div className="accounting-etax-section-header">
+          <button className="secondary-action" type="button" onClick={() => setActiveSection(null)}>
+            ← メニューに戻る
+          </button>
+        </div>
+        <h2>{activeSection === 'input-status' ? '入力状況チェック' : '不足項目一覧'}</h2>
+        {activeSection === 'input-status' ? (
+          <p className="accounting-note">
+            入力済み {pkg.inputStatus.completedChecks} / {pkg.inputStatus.totalChecks} 項目
+          </p>
+        ) : (
+          <p className="accounting-note">エラーではなく、転記前の確認リストです。</p>
+        )}
+        <ul className="accounting-etax-missing-list">
+          {pkg.missingItems.map((item) => (
+            <li key={item.mappingId} className={`is-${item.status}`}>
+              <span className="accounting-etax-missing-category">{item.category}</span>
+              <strong>{item.label}</strong>
+              <span>{item.status === 'planned' ? '今後対応予定' : '未設定'}</span>
+            </li>
+          ))}
+        </ul>
+        {pkg.missingItems.length === 0 ? <p className="save-note">不足項目はありません。</p> : null}
+      </section>
+    )
+  }
+
   return (
     <section className="accounting-panel accounting-etax-panel" aria-label="e-Tax入力用決算資料">
       <h2>e-Tax入力用決算資料</h2>
       <p className="accounting-note">
         法人税・地方税・消費税等のe-Tax/eLTAX申告時に、アプリ内データから転記用資料（PDF・CSV）を作成します。
-        申告書の自動作成機能ではありません。
+        申告書の自動作成機能ではありません。CSV化しやすい設計を優先しています。
       </p>
 
       <section className="accounting-etax-header-card" aria-label="決算資料ヘッダー">
@@ -399,6 +536,23 @@ export function ETaxSettlementPanel({
         </dl>
       </section>
 
+      <section className="accounting-etax-status-card" aria-label="入力状況サマリー">
+        <p>
+          入力状況: {pkg.inputStatus.completedChecks} / {pkg.inputStatus.totalChecks} 項目
+        </p>
+        {pkg.missingItems.length > 0 ? (
+          <ul className="accounting-etax-missing-preview">
+            {pkg.missingItems.slice(0, 4).map((item) => (
+              <li key={item.mappingId}>
+                {item.label}：{item.status === 'planned' ? '今後対応予定' : '未設定'}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="save-note">不足項目はありません。</p>
+        )}
+      </section>
+
       <p className="accounting-etax-role-note">
         監査資料は税理士・監査向け、e-Tax入力用決算資料はご自身の申告転記向けです。
       </p>
@@ -407,7 +561,9 @@ export function ETaxSettlementPanel({
         {MENU_ITEMS.map((item) => (
           <button
             key={item.id}
-            className={`accounting-etax-menu-card${item.id === 'pdf-bulk' || item.id === 'csv-bulk' ? ' is-bulk' : ''}`}
+            className={`accounting-etax-menu-card${
+              item.id === 'auxiliary-input' ? ' is-featured' : ''
+            }${item.id === 'pdf-bulk' || item.id === 'csv-bulk' ? ' is-bulk' : ''}`}
             type="button"
             disabled={isExporting}
             onClick={() => void handleMenuClick(item.id)}

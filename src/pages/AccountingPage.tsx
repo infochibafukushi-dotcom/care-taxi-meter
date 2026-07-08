@@ -17,6 +17,7 @@ import {
   invalidateAccountingAdjustment,
 } from '../services/accountingAdjustments'
 import { fetchAccountingFixedCosts } from '../services/accountingFixedCosts'
+import { fetchAccountingSettlementAuxiliary } from '../services/accountingSettlementAuxiliary'
 import {
   applyOcrCandidatesToAccountingReceipt,
   deleteAccountingReceipt,
@@ -94,6 +95,7 @@ import {
   type ExpenseAssetRegistrationDraft,
   type StoredAccountingFixedAsset,
 } from '../types/accountingFixedAssets'
+import type { StoredAccountingSettlementAuxiliary } from '../types/accountingSettlementAuxiliary'
 import {
   buildExpensesCsv,
   buildMonthlyPlCsv,
@@ -426,6 +428,7 @@ export function AccountingPage() {
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
   const [fixedCosts, setFixedCosts] = useState<Awaited<ReturnType<typeof fetchAccountingFixedCosts>>>([])
   const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
+  const [settlementAuxiliary, setSettlementAuxiliary] = useState<StoredAccountingSettlementAuxiliary | null>(null)
   const [assetDraft, setAssetDraft] = useState<ExpenseAssetRegistrationDraft>(buildEmptyExpenseAssetDraft)
   const [sessionDiagnostics, setSessionDiagnostics] = useState<AccountingSessionDiagnostics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -599,6 +602,30 @@ export function AccountingPage() {
       cancelled = true
     }
   }, [accessScopeKey, authSession, canAccess, showAccountingDiagnostics, targetYearMonth, workSession.currentSession])
+
+  useEffect(() => {
+    if (!canAccess) {
+      setSettlementAuxiliary(null)
+      return
+    }
+
+    let cancelled = false
+    void fetchAccountingSettlementAuxiliary(accessScope, targetYear)
+      .then((row) => {
+        if (!cancelled) {
+          setSettlementAuxiliary(row)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setErrorMessage(formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error))
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessScopeKey, canAccess, targetYear])
 
   useEffect(() => {
     if (!canAccess || expenseForm) {
@@ -1513,6 +1540,11 @@ export function AccountingPage() {
   const reloadFixedAssets = async () => {
     const rows = await fetchAccountingFixedAssets(accessScope)
     setFixedAssets(rows)
+  }
+
+  const reloadSettlementAuxiliary = async () => {
+    const row = await fetchAccountingSettlementAuxiliary(accessScope, targetYear)
+    setSettlementAuxiliary(row)
   }
 
   const validateAssetDraftBeforeSave = () => {
@@ -3292,12 +3324,17 @@ export function AccountingPage() {
             storeId={tenantScope.storeId}
             targetYear={targetYear}
             targetYearMonth={targetYearMonth}
+            staffId={staffId}
+            staffName={staffName}
             caseRecords={caseRecords}
             expenses={expenses}
             adjustments={adjustments}
             fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
+            settlementAuxiliary={settlementAuxiliary}
+            onReloadAuxiliary={reloadSettlementAuxiliary}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+            onStatus={setStatusMessage}
             onError={setErrorMessage}
           />
         ) : null}

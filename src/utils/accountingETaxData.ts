@@ -7,21 +7,36 @@ import type {
 } from '../types/accounting'
 import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
 import type {
+  ETaxAccountBreakdownSection,
+  ETaxBreakdownDetailRow,
   ETaxCompanyProfile,
   ETaxFixedAssetRow,
+  ETaxInputStatusSummary,
+  ETaxMissingItem,
   ETaxPackage,
   ETaxReportLine,
   ETaxSmallAssetRow,
 } from '../types/accountingETax'
+import type { AccountingSettlementAuxiliaryInput } from '../types/accountingSettlementAuxiliary'
 import {
   calculateCumulativeDepreciationYen,
   calculateRemainingBookValue,
 } from './accountingDepreciation'
-import { getExpensePostingDate, isExpenseEligibleForReporting } from '../types/accounting'
+import {
+  FIXED_EXPENSE_CATEGORIES,
+  getExpensePostingDate,
+  isExpenseEligibleForReporting,
+  VARIABLE_EXPENSE_CATEGORIES,
+} from '../types/accounting'
 import { calculateMonthlyProfitLoss, formatFiscalYearLabelForCalendarYear } from './accountingPl'
 import { corporateNumberFromInvoiceNumber } from '../services/invoiceRegistrantLookup'
 import type { Company } from '../types/work'
 import type { MeterSettings } from '../services/meterSettings'
+import {
+  hasSettlementAmount,
+  hasSettlementCount,
+  hasSettlementText,
+} from './accountingSettlementAuxiliaryForm'
 
 const UNSET = '未設定'
 const PLANNED = '今後対応予定'
@@ -46,6 +61,18 @@ const line = (
   status,
 })
 
+const textLine = (
+  mappingId: string,
+  label: string,
+  textValue: string | null | undefined,
+  status: ETaxReportLine['status'] = hasSettlementText(textValue) ? 'set' : 'unset',
+): ETaxReportLine => ({
+  mappingId,
+  label,
+  displayValue: status === 'planned' ? PLANNED : hasSettlementText(textValue) ? String(textValue) : UNSET,
+  status,
+})
+
 const plannedLine = (mappingId: string, label: string): ETaxReportLine => ({
   mappingId,
   label,
@@ -59,6 +86,12 @@ const unsetLine = (mappingId: string, label: string): ETaxReportLine => ({
   displayValue: UNSET,
   status: 'unset',
 })
+
+const balanceLine = (
+  mappingId: string,
+  label: string,
+  amountYen: number | null | undefined,
+): ETaxReportLine => line(mappingId, label, amountYen, hasSettlementAmount(amountYen) ? 'set' : 'unset')
 
 export const getFiscalYearMonths = (calendarYear: number) => {
   const months: string[] = []
@@ -170,6 +203,32 @@ export const calculateFiscalYearProfitLoss = ({
   return { ...merged, targetYearMonth: `${targetYear}-FY` }
 }
 
+export const calculateFiscalYearMonthlyProfitLoss = ({
+  caseRecords,
+  expenses,
+  adjustments,
+  fixedCosts,
+  fixedAssets,
+  targetYear,
+}: {
+  caseRecords: StoredCaseRecord[]
+  expenses: StoredAccountingExpense[]
+  adjustments: StoredAccountingAdjustment[]
+  fixedCosts: StoredAccountingFixedCost[]
+  fixedAssets: StoredAccountingFixedAsset[]
+  targetYear: number
+}) =>
+  getFiscalYearMonths(targetYear).map((targetYearMonth) =>
+    calculateMonthlyProfitLoss({
+      caseRecords,
+      expenses,
+      adjustments,
+      fixedCosts,
+      fixedAssets,
+      targetYearMonth,
+    }),
+  )
+
 export const buildETaxCompanyProfile = ({
   targetYear,
   company,
@@ -202,15 +261,31 @@ const isExpenseInFiscalYear = (expense: StoredAccountingExpense, targetYear: num
   return getFiscalYearMonths(targetYear).includes(month)
 }
 
+const getFixedAssetTotals = (
+  fixedAssets: StoredAccountingFixedAsset[],
+  asOfYearMonth: string,
+) => {
+  const ledgerAssets = fixedAssets.filter((asset) => asset.assetKind === 'fixed' && !asset.isDeleted)
+  const grossFixedAssets = ledgerAssets.reduce((sum, asset) => sum + asset.acquisitionCost, 0)
+  const accumulatedDepreciation = ledgerAssets.reduce(
+    (sum, asset) => sum + (asset.acquisitionCost - calculateRemainingBookValue(asset, asOfYearMonth)),
+    0,
+  )
+  const netFixedAssets = grossFixedAssets - accumulatedDepreciation
+  return { grossFixedAssets, accumulatedDepreciation, netFixedAssets, ledgerAssets }
+}
+
 export const buildETaxSettlementSummary = (
   pl: MonthlyProfitLoss,
   fiscalYearLabel: string,
   fixedAssets: StoredAccountingFixedAsset[],
   smallAssets: StoredAccountingFixedAsset[],
   targetYear: number,
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
 ): ETaxReportLine[] => {
   const depreciationYen = pl.fixedCosts['減価償却費'] ?? 0
   const sgaYen = pl.fixedCostsTotalYen + pl.variableExpensesTotalYen - depreciationYen
+  const balance = auxiliary?.yearEndBalance
 
   const fiscalMonths = getFiscalYearMonths(targetYear)
   const smallAssetTotal = smallAssets
@@ -242,38 +317,89 @@ export const buildETaxSettlementSummary = (
     line('etax.summary.depreciation', '減価償却費', depreciationYen),
     line('etax.summary.smallAssets', '少額資産合計', smallAssetTotal),
     line('etax.summary.fixedAssetAcquisition', '固定資産取得額', fixedAssetAcquisitionTotal),
-    unsetLine('etax.summary.cash', '現金残高'),
-    unsetLine('etax.summary.deposits', '預金残高'),
-    unsetLine('etax.summary.borrowings', '借入金残高'),
-    unsetLine('etax.summary.capital', '資本金'),
-    unsetLine('etax.summary.officerLoan', '役員借入金'),
+    balanceLine('etax.summary.cash', '現金残高', balance?.cash),
+    balanceLine('etax.summary.deposits', '預金残高', balance?.deposits),
+    balanceLine('etax.summary.borrowings', '借入金残高', balance?.borrowings),
+    balanceLine('etax.summary.capital', '資本金', balance?.capital),
+    balanceLine('etax.summary.officerLoan', '役員借入金', balance?.officerLoans),
   ]
 }
 
 export const buildETaxBalanceSheet = (
   fixedAssets: StoredAccountingFixedAsset[],
   asOfYearMonth: string,
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
 ): ETaxReportLine[] => {
-  const ledgerAssets = fixedAssets.filter((asset) => asset.assetKind === 'fixed' && !asset.isDeleted)
-  const grossFixedAssets = ledgerAssets.reduce((sum, asset) => sum + asset.acquisitionCost, 0)
-  const accumulatedDepreciation = ledgerAssets.reduce(
-    (sum, asset) => sum + (asset.acquisitionCost - calculateRemainingBookValue(asset, asOfYearMonth)),
-    0,
+  const { grossFixedAssets, accumulatedDepreciation, netFixedAssets } = getFixedAssetTotals(
+    fixedAssets,
+    asOfYearMonth,
   )
-  const netFixedAssets = grossFixedAssets - accumulatedDepreciation
+  const balance = auxiliary?.yearEndBalance
 
   return [
-    unsetLine('etax.bs.cash', '現金'),
-    unsetLine('etax.bs.deposits', '預金'),
-    unsetLine('etax.bs.accountsReceivable', '売掛金'),
-    unsetLine('etax.bs.accruedIncome', '未収金'),
-    line('etax.bs.fixedAssetsGross', '固定資産（取得価額）', grossFixedAssets || null, grossFixedAssets > 0 ? 'set' : 'unset'),
-    line('etax.bs.accumulatedDepreciation', '減価償却累計額', accumulatedDepreciation || null, accumulatedDepreciation > 0 ? 'set' : 'unset'),
-    line('etax.bs.fixedAssetsNet', '固定資産（帳簿価額）', netFixedAssets || null, netFixedAssets > 0 ? 'set' : 'unset'),
-    unsetLine('etax.bs.borrowings', '借入金'),
-    unsetLine('etax.bs.accountsPayable', '未払金'),
-    unsetLine('etax.bs.capital', '資本金'),
-    plannedLine('etax.bs.retainedEarnings', '利益剰余金'),
+    balanceLine('etax.bs.cash', '現金', balance?.cash),
+    balanceLine('etax.bs.deposits', '普通預金', balance?.deposits),
+    balanceLine('etax.bs.accountsReceivable', '売掛金', balance?.accountsReceivable),
+    balanceLine('etax.bs.accruedIncome', '未収金', balance?.accruedIncome),
+    balanceLine('etax.bs.prepayments', '仮払金', balance?.prepayments),
+    line(
+      'etax.bs.fixedAssetsGross',
+      '固定資産（取得価額）',
+      grossFixedAssets || null,
+      grossFixedAssets > 0 ? 'set' : 'unset',
+    ),
+    line(
+      'etax.bs.accumulatedDepreciation',
+      '減価償却累計額',
+      accumulatedDepreciation || null,
+      accumulatedDepreciation > 0 ? 'set' : 'unset',
+    ),
+    line(
+      'etax.bs.fixedAssetsNet',
+      '固定資産（帳簿価額）',
+      netFixedAssets || null,
+      netFixedAssets > 0 ? 'set' : 'unset',
+    ),
+    balanceLine('etax.bs.borrowings', '借入金', balance?.borrowings),
+    balanceLine('etax.bs.accountsPayable', '未払金', balance?.accountsPayable),
+    balanceLine('etax.bs.officerLoans', '役員借入金', balance?.officerLoans),
+    balanceLine('etax.bs.capital', '資本金', balance?.capital),
+    balanceLine('etax.bs.retainedEarnings', '利益剰余金', balance?.retainedEarnings),
+    ...(balance?.customAccounts ?? []).map((account) =>
+      balanceLine(
+        account.mappingId || `etax.bs.custom.${account.id}`,
+        account.accountName,
+        account.amountYen,
+      ),
+    ),
+  ]
+}
+
+export const buildETaxBsInput = (
+  fixedAssets: StoredAccountingFixedAsset[],
+  asOfYearMonth: string,
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+): ETaxReportLine[] => {
+  const { netFixedAssets, accumulatedDepreciation } = getFixedAssetTotals(fixedAssets, asOfYearMonth)
+  const balance = auxiliary?.yearEndBalance
+
+  return [
+    balanceLine('etax.bsInput.cash', '現金', balance?.cash),
+    balanceLine('etax.bsInput.deposits', '普通預金', balance?.deposits),
+    balanceLine('etax.bsInput.accountsReceivable', '売掛金', balance?.accountsReceivable),
+    balanceLine('etax.bsInput.accruedIncome', '未収金', balance?.accruedIncome),
+    line('etax.bsInput.fixedAssetsNet', '固定資産', netFixedAssets || null, netFixedAssets > 0 ? 'set' : 'unset'),
+    line(
+      'etax.bsInput.accumulatedDepreciation',
+      '減価償却累計額',
+      accumulatedDepreciation || null,
+      accumulatedDepreciation > 0 ? 'set' : 'unset',
+    ),
+    balanceLine('etax.bsInput.accountsPayable', '未払金', balance?.accountsPayable),
+    balanceLine('etax.bsInput.borrowings', '借入金', balance?.borrowings),
+    balanceLine('etax.bsInput.officerLoans', '役員借入金', balance?.officerLoans),
+    balanceLine('etax.bsInput.capital', '資本金', balance?.capital),
+    balanceLine('etax.bsInput.retainedEarnings', '利益剰余金', balance?.retainedEarnings),
   ]
 }
 
@@ -310,23 +436,190 @@ export const buildETaxSmallAssetRows = (fixedAssets: StoredAccountingFixedAsset[
       notes: asset.notes ?? '',
     }))
 
-export const buildETaxAccountBreakdown = (): ETaxReportLine[] => [
-  unsetLine('etax.account.cash', '現金'),
-  unsetLine('etax.account.deposits', '普通預金'),
-  unsetLine('etax.account.accountsReceivable', '売掛金'),
-  unsetLine('etax.account.accruedIncome', '未収金'),
-  unsetLine('etax.account.accountsPayable', '未払金'),
-  unsetLine('etax.account.borrowings', '借入金'),
-  unsetLine('etax.account.officerLoan', '役員借入金'),
-  plannedLine('etax.account.fixedAssets', '固定資産'),
-]
+const buildBreakdownSection = (
+  sectionId: string,
+  sectionLabel: string,
+  mappingIdPrefix: string,
+  headers: string[],
+  rows: ETaxBreakdownDetailRow[],
+): ETaxAccountBreakdownSection => ({
+  sectionId,
+  sectionLabel,
+  mappingIdPrefix,
+  headers,
+  rows,
+})
+
+export const buildETaxAccountBreakdown = (
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+  fixedAssets: StoredAccountingFixedAsset[],
+  asOfYearMonth: string,
+): ETaxReportLine[] => {
+  const balance = auxiliary?.yearEndBalance
+  const { netFixedAssets } = getFixedAssetTotals(fixedAssets, asOfYearMonth)
+
+  return [
+    balanceLine('etax.account.cash', '現金', balance?.cash),
+    balanceLine('etax.account.deposits', '普通預金', balance?.deposits),
+    balanceLine('etax.account.accountsReceivable', '売掛金', balance?.accountsReceivable),
+    balanceLine('etax.account.accruedIncome', '未収金', balance?.accruedIncome),
+    balanceLine('etax.account.prepayments', '仮払金', balance?.prepayments),
+    balanceLine('etax.account.accountsPayable', '未払金', balance?.accountsPayable),
+    balanceLine('etax.account.borrowings', '借入金', balance?.borrowings),
+    balanceLine('etax.account.officerLoan', '役員借入金', balance?.officerLoans),
+    line('etax.account.fixedAssets', '固定資産', netFixedAssets || null, netFixedAssets > 0 ? 'set' : 'unset'),
+  ]
+}
+
+export const buildETaxAccountBreakdownDetail = (
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+  fixedAssets: StoredAccountingFixedAsset[],
+  asOfYearMonth: string,
+): ETaxAccountBreakdownSection[] => {
+  const bankRows: ETaxBreakdownDetailRow[] = (auxiliary?.bankAccounts ?? []).map((row) => ({
+    mappingId: `etax.breakdown.bank.${row.id}`,
+    values: [
+      row.institutionName,
+      row.branchName,
+      row.accountType,
+      row.accountLastFour,
+      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      row.notes || '―',
+    ],
+  }))
+
+  const receivableRows: ETaxBreakdownDetailRow[] = (auxiliary?.receivables ?? []).map((row) => ({
+    mappingId: `etax.breakdown.receivable.${row.id}`,
+    values: [
+      row.counterpartyName,
+      row.registrationNumber,
+      row.description,
+      row.occurrenceDate,
+      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      row.notes || '―',
+    ],
+  }))
+
+  const prepaymentRows: ETaxBreakdownDetailRow[] = hasSettlementAmount(auxiliary?.yearEndBalance.prepayments)
+    ? [
+        {
+          mappingId: 'etax.breakdown.prepayments.summary',
+          values: ['仮払金合計', '', '', '', String(auxiliary?.yearEndBalance.prepayments), ''],
+        },
+      ]
+    : []
+
+  const payableRows: ETaxBreakdownDetailRow[] = (auxiliary?.payables ?? []).map((row) => ({
+    mappingId: `etax.breakdown.payable.${row.id}`,
+    values: [
+      row.counterpartyName,
+      row.registrationNumber,
+      row.description,
+      row.occurrenceDate,
+      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      row.notes || '―',
+    ],
+  }))
+
+  const loanRows: ETaxBreakdownDetailRow[] = (auxiliary?.loans ?? []).map((row) => ({
+    mappingId: `etax.breakdown.loan.${row.id}`,
+    values: [
+      row.lenderName,
+      row.loanDate,
+      hasSettlementAmount(row.originalAmount) ? String(row.originalAmount) : UNSET,
+      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      row.repaymentDueDate || UNSET,
+      row.interestRate || UNSET,
+      row.hasCollateral || UNSET,
+      row.notes || '―',
+    ],
+  }))
+
+  const officerLoanRows: ETaxBreakdownDetailRow[] = (auxiliary?.officerLoans ?? []).map((row) => ({
+    mappingId: `etax.breakdown.officerLoan.${row.id}`,
+    values: [
+      row.officerName,
+      row.occurrenceDate,
+      row.description,
+      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      row.notes || '―',
+    ],
+  }))
+
+  const fixedAssetRows: ETaxBreakdownDetailRow[] = buildETaxFixedAssetRows(fixedAssets, asOfYearMonth).map(
+    (row) => ({
+      mappingId: row.mappingId,
+      values: [
+        row.assetName,
+        row.assetCategory,
+        row.purchaseDate,
+        String(row.acquisitionCost),
+        String(row.cumulativeDepreciationYen),
+        String(row.remainingBookValue),
+      ],
+    }),
+  )
+
+  return [
+    buildBreakdownSection(
+      'bank',
+      '預貯金等の内訳',
+      'etax.breakdown.bank',
+      ['金融機関名', '支店名', '口座種別', '口座番号下4桁', '期末残高', '備考'],
+      bankRows,
+    ),
+    buildBreakdownSection(
+      'receivable',
+      '売掛金・未収金の内訳',
+      'etax.breakdown.receivable',
+      ['相手先名', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
+      receivableRows,
+    ),
+    buildBreakdownSection(
+      'prepayment',
+      '仮払金の内訳',
+      'etax.breakdown.prepayments',
+      ['項目', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
+      prepaymentRows,
+    ),
+    buildBreakdownSection(
+      'payable',
+      '未払金の内訳',
+      'etax.breakdown.payable',
+      ['相手先名', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
+      payableRows,
+    ),
+    buildBreakdownSection(
+      'loan',
+      '借入金の内訳',
+      'etax.breakdown.loan',
+      ['借入先', '借入日', '当初借入額', '期末残高', '返済期限', '利率', '担保有無', '備考'],
+      loanRows,
+    ),
+    buildBreakdownSection(
+      'officer-loan',
+      '役員借入金の内訳',
+      'etax.breakdown.officerLoan',
+      ['役員名', '発生日', '内容', '期末残高', '備考'],
+      officerLoanRows,
+    ),
+    buildBreakdownSection(
+      'fixed-asset',
+      '固定資産の内訳',
+      'etax.breakdown.fixedAsset',
+      ['資産名', '区分', '取得日', '取得価額', '累計償却', '帳簿価額'],
+      fixedAssetRows,
+    ),
+  ]
+}
 
 const aggregateFiscalExpenseTax = (expenses: StoredAccountingExpense[], targetYear: number) => {
   const totals = {
-    taxable8: 0,
-    taxable10: 0,
-    nonTaxable: 0,
-    outOfScope: 0,
+    expense10: 0,
+    expense8: 0,
+    expenseOutOfScope: 0,
+    expenseNonTaxable: 0,
+    invoiceExpenseCount: 0,
   }
 
   expenses.forEach((expense) => {
@@ -334,22 +627,26 @@ const aggregateFiscalExpenseTax = (expenses: StoredAccountingExpense[], targetYe
       return
     }
 
+    if (expense.invoiceNumber?.trim()) {
+      totals.invoiceExpenseCount += 1
+    }
+
     const amount = expense.taxIncludedAmount
 
     if (expense.taxCategory === 'non_taxable') {
-      totals.nonTaxable += amount
+      totals.expenseNonTaxable += amount
       return
     }
     if (expense.taxCategory === 'out_of_scope') {
-      totals.outOfScope += amount
+      totals.expenseOutOfScope += amount
       return
     }
 
     const rate = expense.taxRate ?? 10
     if (rate === 8) {
-      totals.taxable8 += amount
+      totals.expense8 += amount
     } else {
-      totals.taxable10 += amount
+      totals.expense10 += amount
     }
   })
 
@@ -366,20 +663,62 @@ export const buildETaxConsumptionTaxSummary = (
   return [
     line('etax.tax.taxableSales', '課税売上', pl.salesTotalYen),
     plannedLine('etax.tax.nonTaxableSales', '非課税売上'),
-    line('etax.tax.rate8', '8%', expenseTax.taxable8 || null, expenseTax.taxable8 > 0 ? 'set' : 'unset'),
-    line('etax.tax.rate10', '10%', expenseTax.taxable10 || null, expenseTax.taxable10 > 0 ? 'set' : 'unset'),
-    line('etax.tax.outOfScope', '対象外', expenseTax.outOfScope || null, expenseTax.outOfScope > 0 ? 'set' : 'unset'),
+    plannedLine('etax.tax.outOfScopeSales', '対象外売上'),
+    line(
+      'etax.tax.expense10',
+      '10%対象経費',
+      expenseTax.expense10 || null,
+      expenseTax.expense10 > 0 ? 'set' : 'unset',
+    ),
+    line('etax.tax.expense8', '8%対象経費', expenseTax.expense8 || null, expenseTax.expense8 > 0 ? 'set' : 'unset'),
+    line(
+      'etax.tax.expenseOutOfScope',
+      '対象外経費',
+      expenseTax.expenseOutOfScope || null,
+      expenseTax.expenseOutOfScope > 0 ? 'set' : 'unset',
+    ),
+    line(
+      'etax.tax.expenseNonTaxable',
+      '非課税経費',
+      expenseTax.expenseNonTaxable || null,
+      expenseTax.expenseNonTaxable > 0 ? 'set' : 'unset',
+    ),
     plannedLine('etax.tax.prepaidTax', '仮払消費税'),
     plannedLine('etax.tax.collectedTax', '仮受消費税'),
     plannedLine('etax.tax.difference', '差額'),
+    line(
+      'etax.tax.invoiceExpenseCount',
+      'インボイス番号付き経費件数',
+      expenseTax.invoiceExpenseCount,
+      expenseTax.invoiceExpenseCount > 0 ? 'set' : 'unset',
+    ),
   ]
+}
+
+const topExpenseCategories = (pl: MonthlyProfitLoss, limit = 5) => {
+  const totals = new Map<string, number>()
+
+  ;[...FIXED_EXPENSE_CATEGORIES, ...VARIABLE_EXPENSE_CATEGORIES].forEach((category) => {
+    const amount = (pl.fixedCosts[category] ?? 0) + (pl.variableExpenses[category] ?? 0)
+    if (amount > 0) {
+      totals.set(category, amount)
+    }
+  })
+
+  return [...totals.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([category, amount]) => `${category}: ${amount}`)
 }
 
 export const buildETaxBusinessOverview = (
   company: ETaxCompanyProfile,
   pl: MonthlyProfitLoss,
   expenses: StoredAccountingExpense[],
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+  monthlyRows: MonthlyProfitLoss[],
 ): ETaxReportLine[] => {
+  const basic = auxiliary?.companyBasic
   const vendors = [
     ...new Set(
       expenses
@@ -389,30 +728,67 @@ export const buildETaxBusinessOverview = (
     ),
   ].slice(0, 5)
 
+  const financialInstitutions = [
+    ...new Set((auxiliary?.bankAccounts ?? []).map((row) => row.institutionName.trim()).filter(Boolean)),
+  ]
+
+  const monthlySales = monthlyRows
+    .map((row) => `${row.targetYearMonth}=${row.salesTotalYen}`)
+    .join(' / ')
+  const monthlyExpenses = monthlyRows
+    .map((row) => `${row.targetYearMonth}=${row.expensesTotalYen}`)
+    .join(' / ')
+  const topCategories = topExpenseCategories(pl)
+
   return [
-    {
-      mappingId: 'etax.overview.companyName',
-      label: '会社名',
-      displayValue: company.companyName,
-      status: 'set',
-    },
-    {
-      mappingId: 'etax.overview.address',
-      label: '所在地',
-      displayValue: company.address,
-      status: 'set',
-    },
-    {
-      mappingId: 'etax.overview.representative',
-      label: '代表者',
-      displayValue: company.representativeName,
-      status: 'set',
-    },
-    plannedLine('etax.overview.businessDescription', '事業内容'),
-    plannedLine('etax.overview.employeeCount', '従業員数'),
-    plannedLine('etax.overview.officerCount', '役員数'),
+    textLine(
+      'etax.overview.companyName',
+      '会社名',
+      basic?.companyName || (company.companyName !== UNSET ? company.companyName : ''),
+    ),
+    textLine(
+      'etax.overview.address',
+      '所在地',
+      basic?.address || (company.address !== UNSET ? company.address : ''),
+    ),
+    textLine(
+      'etax.overview.representative',
+      '代表者',
+      basic?.representativeName || (company.representativeName !== UNSET ? company.representativeName : ''),
+    ),
+    textLine('etax.overview.businessDescription', '事業内容', basic?.businessDescription),
+    textLine(
+      'etax.overview.employeeCount',
+      '従業員数',
+      hasSettlementCount(basic?.employeeCount) ? String(basic?.employeeCount) : null,
+      hasSettlementCount(basic?.employeeCount) ? 'set' : 'unset',
+    ),
+    textLine(
+      'etax.overview.officerCount',
+      '役員数',
+      hasSettlementCount(basic?.officerCount) ? String(basic?.officerCount) : null,
+      hasSettlementCount(basic?.officerCount) ? 'set' : 'unset',
+    ),
     line('etax.overview.sales', '売上高', pl.salesTotalYen),
     line('etax.overview.operatingProfit', '営業利益', pl.operatingProfitYen),
+    {
+      mappingId: 'etax.overview.monthlySales',
+      label: '月別売上',
+      displayValue: monthlySales || UNSET,
+      status: monthlySales ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.overview.monthlyExpenses',
+      label: '月別経費',
+      displayValue: monthlyExpenses || UNSET,
+      status: monthlyExpenses ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.overview.topExpenseCategories',
+      label: '主要な経費科目',
+      displayValue: topCategories.length > 0 ? topCategories.join(' / ') : UNSET,
+      status: topCategories.length > 0 ? 'set' : 'unset',
+    },
     {
       mappingId: 'etax.overview.vendors',
       label: '主要仕入先',
@@ -420,8 +796,192 @@ export const buildETaxBusinessOverview = (
       status: vendors.length > 0 ? 'set' : 'unset',
     },
     plannedLine('etax.overview.customers', '主要取引先'),
-    plannedLine('etax.overview.financialInstitutions', '金融機関'),
+    {
+      mappingId: 'etax.overview.financialInstitutions',
+      label: '金融機関',
+      displayValue: financialInstitutions.length > 0 ? financialInstitutions.join(' / ') : UNSET,
+      status: financialInstitutions.length > 0 ? 'set' : 'unset',
+    },
   ]
+}
+
+export const buildETaxAuxiliaryDataLines = (
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+): ETaxReportLine[] => {
+  if (!auxiliary) {
+    return [unsetLine('etax.auxiliary.none', '決算補助データ')]
+  }
+
+  const basic = auxiliary.companyBasic
+  const balance = auxiliary.yearEndBalance
+
+  return [
+    textLine('etax.aux.companyName', '会社名', basic.companyName),
+    textLine('etax.aux.corporateNumber', '法人番号', basic.corporateNumber),
+    textLine('etax.aux.address', '所在地', basic.address),
+    textLine('etax.aux.representative', '代表者名', basic.representativeName),
+    textLine('etax.aux.businessDescription', '事業内容', basic.businessDescription),
+    textLine(
+      'etax.aux.officerCount',
+      '役員数',
+      hasSettlementCount(basic.officerCount) ? String(basic.officerCount) : null,
+      hasSettlementCount(basic.officerCount) ? 'set' : 'unset',
+    ),
+    textLine(
+      'etax.aux.employeeCount',
+      '従業員数',
+      hasSettlementCount(basic.employeeCount) ? String(basic.employeeCount) : null,
+      hasSettlementCount(basic.employeeCount) ? 'set' : 'unset',
+    ),
+    textLine(
+      'etax.aux.fiscalMonthEnd',
+      '決算月',
+      hasSettlementCount(basic.fiscalMonthEnd) ? `${basic.fiscalMonthEnd}月` : null,
+      hasSettlementCount(basic.fiscalMonthEnd) ? 'set' : 'unset',
+    ),
+    textLine('etax.aux.fiscalYearStartDate', '会計年度開始日', basic.fiscalYearStartDate),
+    textLine('etax.aux.fiscalYearEndDate', '会計年度終了日', basic.fiscalYearEndDate),
+    balanceLine('etax.aux.balance.cash', '現金', balance.cash),
+    balanceLine('etax.aux.balance.deposits', '普通預金', balance.deposits),
+    balanceLine('etax.aux.balance.accountsReceivable', '売掛金', balance.accountsReceivable),
+    balanceLine('etax.aux.balance.accruedIncome', '未収金', balance.accruedIncome),
+    balanceLine('etax.aux.balance.prepayments', '仮払金', balance.prepayments),
+    balanceLine('etax.aux.balance.accountsPayable', '未払金', balance.accountsPayable),
+    balanceLine('etax.aux.balance.borrowings', '借入金', balance.borrowings),
+    balanceLine('etax.aux.balance.officerLoans', '役員借入金', balance.officerLoans),
+    balanceLine('etax.aux.balance.capital', '資本金', balance.capital),
+    balanceLine('etax.aux.balance.retainedEarnings', '利益剰余金', balance.retainedEarnings),
+    {
+      mappingId: 'etax.aux.bankAccountCount',
+      label: '預金内訳件数',
+      displayValue: String(auxiliary.bankAccounts.length),
+      status: auxiliary.bankAccounts.length > 0 ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.aux.loanCount',
+      label: '借入金内訳件数',
+      displayValue: String(auxiliary.loans.length),
+      status: auxiliary.loans.length > 0 ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.aux.officerLoanCount',
+      label: '役員借入金内訳件数',
+      displayValue: String(auxiliary.officerLoans.length),
+      status: auxiliary.officerLoans.length > 0 ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.aux.receivableCount',
+      label: '売掛金・未収金内訳件数',
+      displayValue: String(auxiliary.receivables.length),
+      status: auxiliary.receivables.length > 0 ? 'set' : 'unset',
+    },
+    {
+      mappingId: 'etax.aux.payableCount',
+      label: '未払金内訳件数',
+      displayValue: String(auxiliary.payables.length),
+      status: auxiliary.payables.length > 0 ? 'set' : 'unset',
+    },
+  ]
+}
+
+const pushMissing = (
+  items: ETaxMissingItem[],
+  mappingId: string,
+  label: string,
+  category: string,
+  isComplete: boolean,
+) => {
+  if (!isComplete) {
+    items.push({ mappingId, label, status: 'unset', category })
+  }
+}
+
+export const buildETaxMissingItems = (
+  auxiliary: AccountingSettlementAuxiliaryInput | null,
+): ETaxMissingItem[] => {
+  const items: ETaxMissingItem[] = []
+  const basic = auxiliary?.companyBasic
+  const balance = auxiliary?.yearEndBalance
+
+  pushMissing(items, 'etax.check.businessDescription', '事業内容', '会社基本情報', hasSettlementText(basic?.businessDescription))
+  pushMissing(items, 'etax.check.officerCount', '役員数', '会社基本情報', hasSettlementCount(basic?.officerCount))
+  pushMissing(items, 'etax.check.employeeCount', '従業員数', '会社基本情報', hasSettlementCount(basic?.employeeCount))
+
+  pushMissing(items, 'etax.check.cash', '現金残高', '期末残高', hasSettlementAmount(balance?.cash))
+  pushMissing(items, 'etax.check.deposits', '普通預金残高', '期末残高', hasSettlementAmount(balance?.deposits))
+  pushMissing(items, 'etax.check.accountsReceivable', '売掛金残高', '期末残高', hasSettlementAmount(balance?.accountsReceivable))
+  pushMissing(items, 'etax.check.accruedIncome', '未収金残高', '期末残高', hasSettlementAmount(balance?.accruedIncome))
+  pushMissing(items, 'etax.check.prepayments', '仮払金残高', '期末残高', hasSettlementAmount(balance?.prepayments))
+  pushMissing(items, 'etax.check.accountsPayable', '未払金残高', '期末残高', hasSettlementAmount(balance?.accountsPayable))
+  pushMissing(items, 'etax.check.borrowings', '借入金残高', '期末残高', hasSettlementAmount(balance?.borrowings))
+  pushMissing(items, 'etax.check.officerLoans', '役員借入金残高', '期末残高', hasSettlementAmount(balance?.officerLoans))
+  pushMissing(items, 'etax.check.capital', '資本金', '期末残高', hasSettlementAmount(balance?.capital))
+  pushMissing(items, 'etax.check.retainedEarnings', '利益剰余金', '期末残高', hasSettlementAmount(balance?.retainedEarnings))
+
+  if (hasSettlementAmount(balance?.deposits) && (auxiliary?.bankAccounts.length ?? 0) === 0) {
+    items.push({
+      mappingId: 'etax.check.bankAccounts',
+      label: '預金内訳',
+      status: 'unset',
+      category: '内訳明細',
+    })
+  }
+  if (hasSettlementAmount(balance?.borrowings) && (auxiliary?.loans.length ?? 0) === 0) {
+    items.push({
+      mappingId: 'etax.check.loans',
+      label: '借入金内訳',
+      status: 'unset',
+      category: '内訳明細',
+    })
+  }
+  if (hasSettlementAmount(balance?.officerLoans) && (auxiliary?.officerLoans.length ?? 0) === 0) {
+    items.push({
+      mappingId: 'etax.check.officerLoanBreakdown',
+      label: '役員借入金内訳',
+      status: 'unset',
+      category: '内訳明細',
+    })
+  }
+  if (
+    (hasSettlementAmount(balance?.accountsReceivable) || hasSettlementAmount(balance?.accruedIncome)) &&
+    (auxiliary?.receivables.length ?? 0) === 0
+  ) {
+    items.push({
+      mappingId: 'etax.check.receivables',
+      label: '売掛金・未収金内訳',
+      status: 'unset',
+      category: '内訳明細',
+    })
+  }
+  if (hasSettlementAmount(balance?.accountsPayable) && (auxiliary?.payables.length ?? 0) === 0) {
+    items.push({
+      mappingId: 'etax.check.payables',
+      label: '未払金内訳',
+      status: 'unset',
+      category: '内訳明細',
+    })
+  }
+
+  items.push({
+    mappingId: 'etax.check.consumptionTax',
+    label: '仮払消費税・仮受消費税・差額',
+    status: 'planned',
+    category: '消費税',
+  })
+
+  return items
+}
+
+export const buildETaxInputStatus = (missingItems: ETaxMissingItem[]): ETaxInputStatusSummary => {
+  const unsetCount = missingItems.filter((item) => item.status === 'unset').length
+  const totalChecks = missingItems.length
+  const completedChecks = totalChecks - unsetCount
+
+  return {
+    totalChecks,
+    completedChecks,
+    missingItems,
+  }
 }
 
 export const buildETaxPackage = ({
@@ -434,6 +994,7 @@ export const buildETaxPackage = ({
   adjustments,
   fixedCosts,
   fixedAssets,
+  auxiliary,
 }: {
   targetYear: number
   targetYearMonth: string
@@ -444,6 +1005,7 @@ export const buildETaxPackage = ({
   adjustments: StoredAccountingAdjustment[]
   fixedCosts: StoredAccountingFixedCost[]
   fixedAssets: StoredAccountingFixedAsset[]
+  auxiliary: AccountingSettlementAuxiliaryInput | null
 }): ETaxPackage => {
   const companyProfile = buildETaxCompanyProfile({ targetYear, company, meterSettings })
   const pl = calculateFiscalYearProfitLoss({
@@ -454,17 +1016,38 @@ export const buildETaxPackage = ({
     fixedAssets,
     targetYear,
   })
+  const monthlyRows = calculateFiscalYearMonthlyProfitLoss({
+    caseRecords,
+    expenses,
+    adjustments,
+    fixedCosts,
+    fixedAssets,
+    targetYear,
+  })
   const smallAssets = fixedAssets.filter((asset) => asset.assetKind === 'small' && !asset.isDeleted)
+  const missingItems = buildETaxMissingItems(auxiliary)
 
   return {
     company: companyProfile,
-    summary: buildETaxSettlementSummary(pl, companyProfile.fiscalYearLabel, fixedAssets, smallAssets, targetYear),
+    summary: buildETaxSettlementSummary(
+      pl,
+      companyProfile.fiscalYearLabel,
+      fixedAssets,
+      smallAssets,
+      targetYear,
+      auxiliary,
+    ),
     pl,
-    balanceSheet: buildETaxBalanceSheet(fixedAssets, targetYearMonth),
+    balanceSheet: buildETaxBalanceSheet(fixedAssets, targetYearMonth, auxiliary),
+    bsInput: buildETaxBsInput(fixedAssets, targetYearMonth, auxiliary),
     fixedAssets: buildETaxFixedAssetRows(fixedAssets, targetYearMonth),
     smallAssets: buildETaxSmallAssetRows(fixedAssets),
-    accountBreakdown: buildETaxAccountBreakdown(),
-    businessOverview: buildETaxBusinessOverview(companyProfile, pl, expenses),
+    accountBreakdown: buildETaxAccountBreakdown(auxiliary, fixedAssets, targetYearMonth),
+    accountBreakdownDetail: buildETaxAccountBreakdownDetail(auxiliary, fixedAssets, targetYearMonth),
+    businessOverview: buildETaxBusinessOverview(companyProfile, pl, expenses, auxiliary, monthlyRows),
     consumptionTax: buildETaxConsumptionTaxSummary(pl, expenses, targetYear),
+    auxiliaryDataLines: buildETaxAuxiliaryDataLines(auxiliary),
+    inputStatus: buildETaxInputStatus(missingItems),
+    missingItems,
   }
 }
