@@ -69,6 +69,31 @@ describe('extractTaxIncludedAmount', () => {
     expect(extractTaxIncludedAmount('お買上 995')).toBe(995)
     expect(extractTaxIncludedAmount('ご請求額 ￥995')).toBe(995)
   })
+
+  it('ignores date-like concatenated numbers near total', () => {
+    const text = `
+      2026/07/08
+      2026708
+      合計
+      ￥995
+      消費税 90
+      T4200001013662
+    `
+    expect(extractTaxIncludedAmount(text)).toBe(995)
+  })
+
+  it('does not prefer huge OCR noise over total amount', () => {
+    const text = `
+      Seria
+      2026年7月8日
+      登録番号 T4200001013662
+      合計 ￥995
+      ポイント残高 2026707
+      消費税 90
+    `
+    expect(extractTaxIncludedAmount(text)).toBe(995)
+    expect(extractConsumptionTaxAmount(text, 995)).toBe(90)
+  })
 })
 
 describe('extractConsumptionTaxAmount', () => {

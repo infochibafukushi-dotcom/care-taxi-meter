@@ -65,19 +65,46 @@ export const parseYenAmountToken = (token: string) => {
 
 const isReasonableYenAmount = (amount: number) => amount > 0 && amount < 100_000_000
 
-const extractAmountsFromLine = (line: string) => {
-  const amounts: number[] = []
+/** 日付連結（例: 2026708）や西暦単独を金額候補から除外 */
+const isLikelyDateOrIdAmount = (amount: number, matchedText: string) => {
+  const digits = String(amount)
+  const half = toHalfWidthAscii(matchedText)
+
+  // YYYYMMDD 風（OCRでスラッシュが落ちた日付）
+  if (/^20\d{6}$/.test(digits)) {
+    return true
+  }
+
+  // 西暦のみ（通貨マークなし）
+  if (/^20\d{2}$/.test(digits) && !/[￥¥円]/.test(half)) {
+    return true
+  }
+
+  return false
+}
+
+const extractAmountCandidatesFromLine = (line: string) => {
+  const amounts: Array<{ amount: number; hasCurrencyMark: boolean }> = []
   const half = toHalfWidthAscii(line)
 
   for (const match of half.matchAll(/(?:￥|¥|Y)?\s*([\d,]+)\s*(?:円)?/gi)) {
-    const amount = parseYenAmountToken(match[0])
-    if (isReasonableYenAmount(amount)) {
-      amounts.push(amount)
+    const matchedText = match[0]
+    const amount = parseYenAmountToken(matchedText)
+    if (!isReasonableYenAmount(amount) || isLikelyDateOrIdAmount(amount, matchedText)) {
+      continue
     }
+
+    amounts.push({
+      amount,
+      hasCurrencyMark: /[￥¥円Y]/i.test(matchedText),
+    })
   }
 
   return amounts
 }
+
+const extractAmountsFromLine = (line: string) =>
+  extractAmountCandidatesFromLine(line).map((entry) => entry.amount)
 
 const extractAmountsNearLine = (lines: string[], lineIndex: number, span = 3) => {
   const amounts: number[] = []
@@ -89,12 +116,25 @@ const extractAmountsNearLine = (lines: string[], lineIndex: number, span = 3) =>
   return amounts
 }
 
-const pickTotalAmount = (amounts: number[]) => {
-  if (amounts.length === 0) {
-    return undefined
+const extractPreferredAmountNearLine = (lines: string[], lineIndex: number, span = 2) => {
+  const sameLine = extractAmountCandidatesFromLine(lines[lineIndex] ?? '')
+  const preferredSameLine = sameLine.filter((entry) => entry.hasCurrencyMark)
+  const sameLinePool = preferredSameLine.length > 0 ? preferredSameLine : sameLine
+  if (sameLinePool.length > 0) {
+    return Math.max(...sameLinePool.map((entry) => entry.amount))
   }
 
-  return Math.max(...amounts)
+  for (let index = lineIndex + 1; index < Math.min(lineIndex + span, lines.length); index += 1) {
+    const nextLine = extractAmountCandidatesFromLine(lines[index] ?? '')
+    const preferredNext = nextLine.filter((entry) => entry.hasCurrencyMark)
+    const nextPool = preferredNext.length > 0 ? preferredNext : nextLine
+    if (nextPool.length > 0) {
+      // 次行は「合計」直後の単独金額を優先（最大値より先に先頭候補）
+      return nextPool[0]?.amount
+    }
+  }
+
+  return undefined
 }
 
 const pickTaxAmount = (amounts: number[], totalAmount?: number) => {
@@ -201,13 +241,13 @@ export const extractTaxIncludedAmount = (text: string) => {
         return
       }
 
-      const amounts = extractAmountsNearLine(lines, lineIndex)
-      if (amounts.length === 0) {
+      const candidate = extractPreferredAmountNearLine(lines, lineIndex)
+      if (candidate === undefined || !isReasonableYenAmount(candidate)) {
         return
       }
 
-      const candidate = pickTotalAmount(amounts)
-      if (candidate === undefined) {
+      // キーワード一致時は小売想定上限を優先
+      if (candidate > 1_000_000) {
         return
       }
 
@@ -222,11 +262,9 @@ export const extractTaxIncludedAmount = (text: string) => {
     return bestAmount
   }
 
-  const fallbackAmounts = [
-    ...half.matchAll(/(?:￥|¥|Y)?\s*([\d,]+)\s*(?:円)?/gi),
-  ]
-    .map((match) => parseYenAmountToken(match[0]))
-    .filter(isReasonableYenAmount)
+  const fallbackAmounts = extractAmountCandidatesFromLine(half)
+    .filter((entry) => entry.amount <= 1_000_000)
+    .map((entry) => entry.amount)
 
   if (fallbackAmounts.length === 0) {
     return undefined
