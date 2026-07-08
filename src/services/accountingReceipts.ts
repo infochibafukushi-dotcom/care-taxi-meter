@@ -330,7 +330,7 @@ export async function loadAccountingReceiptImageBlob({
     const bytes = await getBytes(ref(storage, normalizedPath))
     const type = mimeType?.trim() || guessMimeTypeFromPath(normalizedPath)
 
-    return new Blob([bytes], { type })
+    return new Blob([new Uint8Array(bytes)], { type })
   }
 
   const normalizedUrl = downloadUrl?.trim() ?? ''
@@ -350,6 +350,7 @@ export async function loadAccountingReceiptImageBlob({
       error instanceof Error
         ? `証憑画像の取得に失敗しました。${error.message}`
         : OCR_IMAGE_UNAVAILABLE_MESSAGE,
+      { cause: error },
     )
   }
 }
@@ -403,11 +404,14 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
     snapshot = await getDoc(receiptRef)
   } catch (error) {
     if (isPermissionDenied(error)) {
-      throw new Error('未整理領収書データの読み取り権限がありません。Firestore rules を確認してください。')
+      throw new Error('未整理領収書データの読み取り権限がありません。Firestore rules を確認してください。', {
+        cause: error,
+      })
     }
 
     throw new Error(
       error instanceof Error ? `未整理領収書データの取得に失敗しました。${error.message}` : '未整理領収書データの取得に失敗しました。',
+      { cause: error },
     )
   }
 
@@ -431,10 +435,10 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
       if (isStorageObjectNotFound(error)) {
         storageImageWasMissing = true
       } else if (isPermissionDenied(error)) {
-        throw new Error('領収書画像の削除権限がありません。Storage rules を確認してください。')
+        throw new Error('領収書画像の削除権限がありません。Storage rules を確認してください。', { cause: error })
       } else {
         const detail = error instanceof Error ? error.message : '不明なエラー'
-        throw new Error(`領収書画像の削除に失敗しました。${detail}`)
+        throw new Error(`領収書画像の削除に失敗しました。${detail}`, { cause: error })
       }
     }
   }
@@ -443,11 +447,14 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
     await deleteDoc(receiptRef)
   } catch (error) {
     if (isPermissionDenied(error)) {
-      throw new Error('未整理領収書データの削除権限がありません。Firestore rules を確認してください。')
+      throw new Error('未整理領収書データの削除権限がありません。Firestore rules を確認してください。', {
+        cause: error,
+      })
     }
 
     throw new Error(
       error instanceof Error ? `未整理領収書データの削除に失敗しました。${error.message}` : '未整理領収書データの削除に失敗しました。',
+      { cause: error },
     )
   }
 

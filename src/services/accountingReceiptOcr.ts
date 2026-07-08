@@ -1,4 +1,3 @@
-import type { Worker } from 'tesseract.js'
 import { createWorker, OEM } from 'tesseract.js'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
 import { parseAccountingReceiptOcrText } from '../utils/accountingReceiptOcrParse'
@@ -39,7 +38,9 @@ type RunAccountingReceiptOcrInput = {
   onProgress?: (progress: AccountingReceiptOcrProgress) => void
 }
 
-let workerPromise: Promise<Worker> | null = null
+type OcrWorker = Awaited<ReturnType<typeof createWorker>>
+
+let workerPromise: Promise<OcrWorker> | null = null
 
 const reportProgress = (
   onProgress: RunAccountingReceiptOcrInput['onProgress'],
@@ -79,7 +80,7 @@ const getTesseractWorkerOptions = (onProgress?: RunAccountingReceiptOcrInput['on
 const createOcrWorker = async (onProgress?: RunAccountingReceiptOcrInput['onProgress']) => {
   const worker = await Promise.race([
     createWorker('jpn+eng', OEM.LSTM_ONLY, getTesseractWorkerOptions(onProgress)),
-    new Promise<Worker>((_, reject) => {
+    new Promise<OcrWorker>((_, reject) => {
       window.setTimeout(() => {
         reject(new Error('OCRエンジンの準備がタイムアウトしました。通信環境を確認して再試行してください。'))
       }, WORKER_INIT_TIMEOUT_MS)

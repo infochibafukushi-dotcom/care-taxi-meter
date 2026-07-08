@@ -78,7 +78,7 @@ const isLikelyNoiseLine = (line: string) => {
 /** インボイス番号を T + 13桁に正規化 */
 export const extractInvoiceNumber = (text: string) => {
   const half = toHalfWidthAscii(text).toUpperCase()
-  const pattern = /T(?:[\s\-]*\d){13}/gi
+  const pattern = /T(?:[\s-]*\d){13}/gi
 
   for (const match of half.matchAll(pattern)) {
     const normalized = match[0].replace(/[^0-9T]/g, '')
@@ -103,7 +103,7 @@ export const extractReceiptDate = (text: string) => {
     )
   }
 
-  const isoLikeDate = half.match(/\b(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\b/)
+  const isoLikeDate = half.match(/\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b/)
   if (isoLikeDate) {
     return formatParsedDate(
       Number(isoLikeDate[1]),
@@ -112,7 +112,7 @@ export const extractReceiptDate = (text: string) => {
     )
   }
 
-  const shortYearDate = half.match(/\b(\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})\b/)
+  const shortYearDate = half.match(/\b(\d{2})[/-](\d{1,2})[/-](\d{1,2})\b/)
   if (shortYearDate) {
     return formatParsedDate(
       Number(shortYearDate[1]) + 2000,
