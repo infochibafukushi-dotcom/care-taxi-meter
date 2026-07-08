@@ -22,6 +22,7 @@ import {
   toYearMonth,
 } from '../utils/accountingDepreciation'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
+import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
@@ -275,12 +276,15 @@ export async function createAccountingFixedAsset(input: AccountingFixedAssetInpu
   validateFixedAssetInput(input)
 
   const db = getFirestore(getFirebaseApp())
-  const document = await addDoc(collection(db, collectionName), {
-    ...input,
-    isDeleted: false,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  })
+  const document = await addDoc(
+    collection(db, collectionName),
+    removeUndefinedFields({
+      ...input,
+      isDeleted: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  )
 
   return document.id
 }
@@ -294,10 +298,13 @@ export async function updateAccountingFixedAsset(
   }
 
   const db = getFirestore(getFirebaseApp())
-  await updateDoc(doc(db, collectionName, assetId), {
-    ...input,
-    updatedAt: serverTimestamp(),
-  })
+  await updateDoc(
+    doc(db, collectionName, assetId),
+    removeUndefinedFields({
+      ...input,
+      updatedAt: serverTimestamp(),
+    }),
+  )
 }
 
 export async function softDeleteAccountingFixedAsset({
