@@ -48,7 +48,9 @@ import { useWorkSession } from '../hooks/useWorkSession'
 import type { StaffRole } from '../types/work'
 import {
   ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
+  COST_OF_SALES_CATEGORIES,
   EXPENSE_CATEGORIES,
+  FIXED_EXPENSE_CATEGORIES,
   INVOICE_STATUS_LABELS,
   INVOICE_STATUSES,
   PAYMENT_METHODS,
@@ -58,6 +60,7 @@ import {
   SALES_CATEGORIES,
   TAX_CATEGORIES,
   TAX_CATEGORY_LABELS,
+  VARIABLE_EXPENSE_CATEGORIES,
   getExpensePostingDate,
   getExpenseReceiptDate,
   getPlTreatmentLabel,
@@ -69,6 +72,7 @@ import {
   type ExpenseCategory,
   type ExpenseConfirmationStatus,
   type InvoiceStatus,
+  type MonthlyProfitLoss,
   type PlTreatment,
   type SalesCategory,
   type TaxCategory,
@@ -80,6 +84,7 @@ import {
   buildExpensesCsv,
   buildMonthlyPlCsv,
   buildSalesCsv,
+  buildYearlyPlCsv,
   downloadCsvFile,
   formatPlAmount,
 } from '../utils/accountingCsv'
@@ -87,14 +92,17 @@ import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SA
 import {
   aggregateExpensesByInvoiceStatus,
   aggregateExpensesByTaxCategory,
+  buildCalendarYearOptions,
   buildYearMonthOptions,
   calculateConsumptionTaxFromIncluded,
   calculateMonthlyProfitLoss,
-  EXPENSE_CATEGORIES as PL_EXPENSE_CATEGORIES,
+  calculateYearlyProfitLoss,
   formatInvoiceStatusAggregationLabel,
   formatTaxCategoryAggregationLabel,
   formatYearMonthLabel,
+  getCurrentCalendarYearInJapan,
   getCurrentYearMonthInJapan,
+  getYearlyProfitLossColumnOrder,
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
 import {
@@ -123,8 +131,127 @@ import {
 import type { SalesIntegrityCheck } from '../utils/accountingSalesMapping'
 
 type AccountingTab = 'sales' | 'expenses' | 'fixed-costs' | 'pl' | 'export'
+type PlViewMode = 'monthly' | 'yearly'
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
+
+function PlCategoryRows({
+  categories,
+  amounts,
+  emptyLabel = '該当なし',
+}: {
+  categories: readonly ExpenseCategory[]
+  amounts: Record<ExpenseCategory, number>
+  emptyLabel?: string
+}) {
+  const visible = categories.filter((category) => amounts[category] > 0)
+  if (visible.length === 0) {
+    return (
+      <li>
+        <span>{emptyLabel}</span>
+        <strong>{formatPlAmount(0)}</strong>
+      </li>
+    )
+  }
+
+  return (
+    <>
+      {visible.map((category) => (
+        <li key={category}>
+          <span>{category}</span>
+          <strong>{formatPlAmount(amounts[category])}</strong>
+        </li>
+      ))}
+    </>
+  )
+}
+
+function MonthlyManagementPlSections({
+  profitLoss,
+  showExpenseFareSalesWarning,
+}: {
+  profitLoss: MonthlyProfitLoss
+  showExpenseFareSalesWarning: boolean
+}) {
+  return (
+    <div className="accounting-pl-grid">
+      <section>
+        <h3>売上</h3>
+        <ul className="accounting-pl-list">
+          {PL_SALES_CATEGORIES.map((category) => (
+            <li key={category}>
+              <span>{category}</span>
+              <strong>{formatPlAmount(profitLoss.sales[category])}</strong>
+            </li>
+          ))}
+          <ExpenseFareSalesWarning visible={showExpenseFareSalesWarning} />
+          <li className="accounting-pl-total">
+            <span>売上小計</span>
+            <strong>{formatPlAmount(profitLoss.salesTotalYen)}</strong>
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h3>売上原価</h3>
+        <ul className="accounting-pl-list">
+          <PlCategoryRows categories={COST_OF_SALES_CATEGORIES} amounts={profitLoss.costOfSales} />
+          <li className="accounting-pl-total">
+            <span>売上原価小計</span>
+            <strong>{formatPlAmount(profitLoss.costOfSalesTotalYen)}</strong>
+          </li>
+        </ul>
+      </section>
+      <section className="accounting-pl-profit accounting-pl-gross">
+        <h3>粗利益</h3>
+        <p>
+          <span>粗利益（売上小計 − 売上原価小計）</span>
+          <strong>{formatPlAmount(profitLoss.grossProfitYen)}</strong>
+        </p>
+      </section>
+      <section>
+        <h3>固定費</h3>
+        <ul className="accounting-pl-list">
+          <PlCategoryRows categories={FIXED_EXPENSE_CATEGORIES} amounts={profitLoss.fixedCosts} />
+          <li className="accounting-pl-total">
+            <span>固定費小計</span>
+            <strong>{formatPlAmount(profitLoss.fixedCostsTotalYen)}</strong>
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h3>変動費</h3>
+        <ul className="accounting-pl-list">
+          <PlCategoryRows categories={VARIABLE_EXPENSE_CATEGORIES} amounts={profitLoss.variableExpenses} />
+          <li className="accounting-pl-total">
+            <span>変動費小計</span>
+            <strong>{formatPlAmount(profitLoss.variableExpensesTotalYen)}</strong>
+          </li>
+        </ul>
+      </section>
+      <section className="accounting-pl-deferred">
+        <h3>繰延資産候補</h3>
+        <p className="accounting-note">
+          PL反映区分が「繰延資産候補」の確認済み経費です。固定費・変動費・営業利益には含めません。
+        </p>
+        <ul className="accounting-pl-list">
+          <PlCategoryRows categories={EXPENSE_CATEGORIES} amounts={profitLoss.deferredCandidate} />
+          <li className="accounting-pl-total">
+            <span>繰延資産候補合計</span>
+            <strong>{formatPlAmount(profitLoss.deferredCandidateTotalYen)}</strong>
+          </li>
+        </ul>
+      </section>
+      <section className="accounting-pl-profit">
+        <h3>最終利益</h3>
+        <p>
+          <span>営業利益（純利益）</span>
+          <strong>{formatPlAmount(profitLoss.operatingProfitYen)}</strong>
+        </p>
+        <p className="accounting-note">粗利益 − 固定費小計 − 変動費小計</p>
+      </section>
+    </div>
+  )
+}
 
 function SalesIntegrityCheckPanel({ check }: { check: SalesIntegrityCheck }) {
   return (
@@ -248,7 +375,9 @@ export function AccountingPage() {
     workSession.currentSession?.staffName ?? authSession?.name ?? '経理担当'
 
   const [activeTab, setActiveTab] = useState<AccountingTab>('pl')
+  const [plViewMode, setPlViewMode] = useState<PlViewMode>('monthly')
   const [targetYearMonth, setTargetYearMonth] = useState(getCurrentYearMonthInJapan())
+  const [targetYear, setTargetYear] = useState(getCurrentCalendarYearInJapan())
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
@@ -289,6 +418,7 @@ export function AccountingPage() {
   } | null>(null)
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
+  const calendarYearOptions = useMemo(() => buildCalendarYearOptions(5), [])
 
   const canAccess = canAccessAccounting(role)
 
@@ -433,7 +563,7 @@ export function AccountingPage() {
       storeId: tenantScope.storeId,
       adjustmentType: 'sales',
       targetYearMonth,
-      salesCategory: 'その他',
+      salesCategory: 'その他売上',
       expenseCategory: '',
       amountYen: 0,
       description: '',
@@ -461,6 +591,18 @@ export function AccountingPage() {
       }),
     [adjustments, caseRecords, expenses, fixedCosts, targetYearMonth],
   )
+  const yearlyProfitLoss = useMemo(
+    () =>
+      calculateYearlyProfitLoss({
+        caseRecords,
+        expenses,
+        adjustments,
+        fixedCosts,
+        targetYear,
+      }),
+    [adjustments, caseRecords, expenses, fixedCosts, targetYear],
+  )
+  const yearlyColumnOrder = useMemo(() => getYearlyProfitLossColumnOrder(), [])
   const monthExpenses = useMemo(
     () =>
       expenses.filter(
@@ -497,7 +639,7 @@ export function AccountingPage() {
     () => sumExpenseFareYenFromCaseRecords(monthCaseRecords),
     [monthCaseRecords],
   )
-  const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他'] > 0
+  const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他売上'] > 0
 
   const visibleUnorganizedReceipts = useMemo(
     () => unorganizedReceipts.filter((receipt) => receipt.id !== expenseForm?.receiptId),
@@ -1372,14 +1514,34 @@ export function AccountingPage() {
     }
   }
 
-  const buildExportPayload = (exportType: 'monthly-pl' | 'expenses' | 'sales') => {
+  const buildExportPayload = (exportType: 'monthly-pl' | 'yearly-pl' | 'expenses' | 'sales') => {
+    if (exportType === 'yearly-pl') {
+      return {
+        csv: buildYearlyPlCsv(yearlyProfitLoss),
+        fileName: `accounting-pl-yearly-${targetYear}.csv`,
+        rowCount:
+          SALES_CATEGORIES.length +
+          COST_OF_SALES_CATEGORIES.length +
+          FIXED_EXPENSE_CATEGORIES.length +
+          VARIABLE_EXPENSE_CATEGORIES.length +
+          6,
+        targetYearMonth: `${targetYear}-01`,
+      }
+    }
+
     const fileSuffix = targetYearMonth
 
     if (exportType === 'monthly-pl') {
       return {
         csv: buildMonthlyPlCsv(profitLoss),
         fileName: `accounting-pl-${fileSuffix}.csv`,
-        rowCount: PL_SALES_CATEGORIES.length + PL_EXPENSE_CATEGORIES.length + 3,
+        rowCount:
+          SALES_CATEGORIES.length +
+          COST_OF_SALES_CATEGORIES.length +
+          FIXED_EXPENSE_CATEGORIES.length +
+          VARIABLE_EXPENSE_CATEGORIES.length +
+          6,
+        targetYearMonth,
       }
     }
 
@@ -1388,6 +1550,7 @@ export function AccountingPage() {
         csv: buildSalesCsv(salesRows, targetYearMonth),
         fileName: `accounting-sales-${fileSuffix}.csv`,
         rowCount: salesRows.length,
+        targetYearMonth,
       }
     }
 
@@ -1395,11 +1558,12 @@ export function AccountingPage() {
       csv: buildExpensesCsv(reportingMonthExpenses, targetYearMonth),
       fileName: `accounting-expenses-${fileSuffix}.csv`,
       rowCount: reportingMonthExpenses.length,
+      targetYearMonth,
     }
   }
 
-  const handleExport = async (exportType: 'monthly-pl' | 'expenses' | 'sales') => {
-    const { csv, fileName, rowCount } = buildExportPayload(exportType)
+  const handleExport = async (exportType: 'monthly-pl' | 'yearly-pl' | 'expenses' | 'sales') => {
+    const { csv, fileName, rowCount, targetYearMonth: exportYearMonth } = buildExportPayload(exportType)
 
     downloadCsvFile(fileName, csv)
 
@@ -1408,8 +1572,8 @@ export function AccountingPage() {
         franchiseeId: tenantScope.franchiseeId,
         companyId: tenantScope.franchiseeId,
         storeId: tenantScope.storeId,
-        exportType,
-        targetYearMonth,
+        exportType: exportType === 'yearly-pl' ? 'monthly-pl' : exportType,
+        targetYearMonth: exportYearMonth,
         fileName,
         rowCount,
         createdBy: staffId,
@@ -1463,7 +1627,7 @@ export function AccountingPage() {
         </div>
 
         <p className="lead admin-lead">
-          メーターアプリの確定済み売上を読み取り専用で表示し、経費入力と月次PLを管理します。caseRecords は変更しません。
+          メーターアプリの確定済み売上を読み取り専用で表示し、経費入力と管理会計PLを管理します。caseRecords は変更しません。
         </p>
 
         <div className="accounting-toolbar">
@@ -1473,6 +1637,16 @@ export function AccountingPage() {
               {yearMonthOptions.map((option) => (
                 <option key={option} value={option}>
                   {formatYearMonthLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            対象年（年間推移）
+            <select value={targetYear} onChange={(event) => setTargetYear(Number(event.target.value))}>
+              {calendarYearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}年
                 </option>
               ))}
             </select>
@@ -1549,7 +1723,7 @@ export function AccountingPage() {
 
         <nav className="accounting-tabs" aria-label="経理メニュー">
           {([
-            ['pl', '月次PL'],
+            ['pl', '管理会計PL'],
             ['sales', '確定売上'],
             ['expenses', '経費入力'],
             ['fixed-costs', '固定費管理'],
@@ -1575,122 +1749,143 @@ export function AccountingPage() {
         {statusMessage ? <p className="save-note">{statusMessage}</p> : null}
 
         {activeTab === 'pl' ? (
-          <section className="accounting-panel" aria-label="月次PL">
-            <h2>{formatYearMonthLabel(targetYearMonth)} の月次PL</h2>
-            <p className="accounting-note">
-              確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費{' '}
-              {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
-              <br />
-              集計対象は confirmationStatus=確認済み かつ isDeleted=false の経費のみです。
-            </p>
-            <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
-            <div className="accounting-pl-grid">
-              <section>
-                <h3>売上</h3>
-                <ul className="accounting-pl-list">
-                  {PL_SALES_CATEGORIES.map((category) => (
-                    <li key={category}>
-                      <span>{category}</span>
-                      <strong>{formatPlAmount(profitLoss.sales[category])}</strong>
-                    </li>
-                  ))}
-                  <ExpenseFareSalesWarning visible={showExpenseFareSalesWarning} />
-                  <li className="accounting-pl-total">
-                    <span>売上合計</span>
-                    <strong>{formatPlAmount(profitLoss.salesTotalYen)}</strong>
-                  </li>
-                </ul>
-              </section>
-              <section>
-                <h3>変動費・通常経費</h3>
-                <ul className="accounting-pl-list">
-                  {PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).length > 0 ? (
-                    PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).map(
-                      (category) => (
-                        <li key={category}>
-                          <span>{category}</span>
-                          <strong>{formatPlAmount(profitLoss.variableExpenses[category])}</strong>
-                        </li>
-                      ),
-                    )
-                  ) : (
-                    <li>
-                      <span>該当なし</span>
-                      <strong>{formatPlAmount(0)}</strong>
-                    </li>
-                  )}
-                  <li className="accounting-pl-total">
-                    <span>変動費合計</span>
-                    <strong>{formatPlAmount(profitLoss.variableExpensesTotalYen)}</strong>
-                  </li>
-                </ul>
-              </section>
-              <section>
-                <h3>固定費</h3>
-                <ul className="accounting-pl-list">
-                  {PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).length > 0 ? (
-                    PL_EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).map((category) => (
-                      <li key={category}>
-                        <span>{category}</span>
-                        <strong>{formatPlAmount(profitLoss.fixedCosts[category])}</strong>
-                      </li>
-                    ))
-                  ) : (
-                    <li>
-                      <span>該当なし</span>
-                      <strong>{formatPlAmount(0)}</strong>
-                    </li>
-                  )}
-                  <li className="accounting-pl-total">
-                    <span>固定費合計</span>
-                    <strong>{formatPlAmount(profitLoss.fixedCostsTotalYen)}</strong>
-                  </li>
-                </ul>
-              </section>
-              <section>
-                <h3>経費合計</h3>
-                <ul className="accounting-pl-list">
-                  <li className="accounting-pl-total">
-                    <span>経費合計（変動費＋固定費）</span>
-                    <strong>{formatPlAmount(profitLoss.expensesTotalYen)}</strong>
-                  </li>
-                </ul>
-              </section>
-              <section className="accounting-pl-deferred">
-                <h3>繰延資産候補</h3>
-                <p className="accounting-note">
-                  PL反映区分が「繰延資産候補」の確認済み経費です。経費合計・営業利益には含めません。
-                </p>
-                <ul className="accounting-pl-list">
-                  {EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).length > 0 ? (
-                    EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).map(
-                      (category) => (
-                        <li key={category}>
-                          <span>{category}</span>
-                          <strong>{formatPlAmount(profitLoss.deferredCandidate[category])}</strong>
-                        </li>
-                      ),
-                    )
-                  ) : (
-                    <li>
-                      <span>該当なし</span>
-                      <strong>{formatPlAmount(0)}</strong>
-                    </li>
-                  )}
-                  <li className="accounting-pl-total">
-                    <span>繰延資産候補合計</span>
-                    <strong>{formatPlAmount(profitLoss.deferredCandidateTotalYen)}</strong>
-                  </li>
-                </ul>
-              </section>
-              <section className="accounting-pl-profit">
-                <h3>利益</h3>
-                <p>
-                  <span>営業利益</span>
-                  <strong>{formatPlAmount(profitLoss.operatingProfitYen)}</strong>
-                </p>
-              </section>
+          <section className="accounting-panel" aria-label="管理会計PL">
+            <div className="accounting-pl-view-toggle" role="group" aria-label="PL表示切替">
+              <button
+                type="button"
+                className={plViewMode === 'monthly' ? 'accounting-tab is-active' : 'accounting-tab'}
+                onClick={() => setPlViewMode('monthly')}
+              >
+                月次PL
+              </button>
+              <button
+                type="button"
+                className={plViewMode === 'yearly' ? 'accounting-tab is-active' : 'accounting-tab'}
+                onClick={() => setPlViewMode('yearly')}
+              >
+                年間推移
+              </button>
             </div>
+
+            {plViewMode === 'monthly' ? (
+              <>
+                <h2>{formatYearMonthLabel(targetYearMonth)} の管理会計PL</h2>
+                <p className="accounting-note">
+                  確定案件 {profitLoss.caseRecordCount}件 / PL反映経費 {profitLoss.confirmedExpenseCount}件 / 固定費マスタ{' '}
+                  {profitLoss.fixedCostCount}件 / 繰延資産候補 {profitLoss.deferredCandidateCount}件
+                  <br />
+                  科目の category（sales / costOfSales / fixedExpense / variableExpense）で自動集計します。集計対象は
+                  confirmationStatus=確認済み かつ isDeleted=false の経費のみです。
+                </p>
+                <SalesIntegrityCheckPanel check={salesIntegrityCheck} />
+                <MonthlyManagementPlSections
+                  profitLoss={profitLoss}
+                  showExpenseFareSalesWarning={showExpenseFareSalesWarning}
+                />
+              </>
+            ) : (
+              <>
+                <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
+                <p className="accounting-note">
+                  前々期・前期・各月・年間合計を同一レイアウトで表示します。科目は統合せず個別に集計しています。
+                </p>
+                <div className="accounting-pl-yearly-wrap">
+                  <table className="accounting-table accounting-pl-yearly-table">
+                    <thead>
+                      <tr>
+                        <th>区分</th>
+                        <th>科目</th>
+                        {yearlyColumnOrder.map((key) => (
+                          <th key={key}>{yearlyProfitLoss.columnLabels[key]}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SALES_CATEGORIES.map((category) => (
+                        <tr key={`sales-${category}`}>
+                          <td>売上</td>
+                          <td>{category}</td>
+                          {yearlyColumnOrder.map((key) => (
+                            <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].sales[category])}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr className="accounting-pl-yearly-total">
+                        <td>売上</td>
+                        <td>売上小計</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].salesTotalYen)}</td>
+                        ))}
+                      </tr>
+                      {COST_OF_SALES_CATEGORIES.map((category) => (
+                        <tr key={`cos-${category}`}>
+                          <td>売上原価</td>
+                          <td>{category}</td>
+                          {yearlyColumnOrder.map((key) => (
+                            <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].costOfSales[category])}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr className="accounting-pl-yearly-total">
+                        <td>売上原価</td>
+                        <td>売上原価小計</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].costOfSalesTotalYen)}</td>
+                        ))}
+                      </tr>
+                      <tr className="accounting-pl-yearly-highlight">
+                        <td>粗利益</td>
+                        <td>粗利益</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].grossProfitYen)}</td>
+                        ))}
+                      </tr>
+                      {FIXED_EXPENSE_CATEGORIES.map((category) => (
+                        <tr key={`fixed-${category}`}>
+                          <td>固定費</td>
+                          <td>{category}</td>
+                          {yearlyColumnOrder.map((key) => (
+                            <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].fixedCosts[category])}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr className="accounting-pl-yearly-total">
+                        <td>固定費</td>
+                        <td>固定費小計</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].fixedCostsTotalYen)}</td>
+                        ))}
+                      </tr>
+                      {VARIABLE_EXPENSE_CATEGORIES.map((category) => (
+                        <tr key={`var-${category}`}>
+                          <td>変動費</td>
+                          <td>{category}</td>
+                          {yearlyColumnOrder.map((key) => (
+                            <td key={key}>
+                              {formatPlAmount(yearlyProfitLoss.columns[key].variableExpenses[category])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr className="accounting-pl-yearly-total">
+                        <td>変動費</td>
+                        <td>変動費小計</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].variableExpensesTotalYen)}</td>
+                        ))}
+                      </tr>
+                      <tr className="accounting-pl-yearly-highlight">
+                        <td>利益</td>
+                        <td>営業利益（純利益）</td>
+                        {yearlyColumnOrder.map((key) => (
+                          <td key={key}>{formatPlAmount(yearlyProfitLoss.columns[key].operatingProfitYen)}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </section>
         ) : null}
 
@@ -2970,11 +3165,14 @@ export function AccountingPage() {
           <section className="accounting-panel" aria-label="CSV出力">
             <h2>CSV出力</h2>
             <p className="accounting-note">
-              月次PL・確定売上・経費一覧をCSV出力します。経費CSVは確認済み・未削除のみ含みます。
+              管理会計PL（月次・年次）・確定売上・経費一覧をCSV出力します。経費CSVは確認済み・未削除のみ含みます。
             </p>
             <div className="accounting-export-actions">
               <button className="primary-action" type="button" onClick={() => void handleExport('monthly-pl')}>
                 月次PL CSV
+              </button>
+              <button className="secondary-action" type="button" onClick={() => void handleExport('yearly-pl')}>
+                年次PL CSV
               </button>
               <button className="secondary-action" type="button" onClick={() => void handleExport('sales')}>
                 確定売上 CSV

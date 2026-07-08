@@ -81,7 +81,7 @@ export const classifyReceiptWithoutInvoice = ({
 }): ReceiptClassificationHint => {
   if (isPublicFeeReceiptText(text)) {
     const accountTitle: ExpenseCategory =
-      /登録免許税|電子納付|登記/.test(text) ? '租税公課' : '支払手数料'
+      /登録免許税|電子納付|登記/.test(text) ? '租税公課' : '決済手数料'
 
     return {
       taxCategory: /登録免許税/.test(text) ? 'out_of_scope' : 'non_taxable',

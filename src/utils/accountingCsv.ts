@@ -1,7 +1,17 @@
-import type { MonthlyProfitLoss } from '../types/accounting'
-import { EXPENSE_CATEGORIES, getExpensePostingDate, getExpenseReceiptDate, getPlTreatmentLabel, normalizePlTreatment, SALES_CATEGORIES } from '../types/accounting'
+import type { MonthlyProfitLoss, YearlyProfitLoss } from '../types/accounting'
+import {
+  COST_OF_SALES_CATEGORIES,
+  EXPENSE_CATEGORIES,
+  FIXED_EXPENSE_CATEGORIES,
+  getExpensePostingDate,
+  getExpenseReceiptDate,
+  getPlTreatmentLabel,
+  normalizePlTreatment,
+  SALES_CATEGORIES,
+  VARIABLE_EXPENSE_CATEGORIES,
+} from '../types/accounting'
 import type { AccountingSalesRow } from './accountingSalesMapping'
-import { formatYearMonthLabel } from './accountingPl'
+import { formatYearMonthLabel, getYearlyProfitLossColumnOrder } from './accountingPl'
 import { formatFareYen } from '../services/fare'
 
 const escapeCsv = (value: string | number) => {
@@ -15,29 +25,84 @@ const escapeCsv = (value: string | number) => {
 
 const csvLine = (values: Array<string | number>) => values.map(escapeCsv).join(',')
 
+const appendPositiveExpenseRows = (
+  lines: string[],
+  sectionLabel: string,
+  categories: readonly (typeof EXPENSE_CATEGORIES)[number][],
+  breakdown: MonthlyProfitLoss['costOfSales'],
+) => {
+  categories
+    .filter((category) => breakdown[category] > 0)
+    .forEach((category) => {
+      lines.push(csvLine([sectionLabel, category, breakdown[category]]))
+    })
+}
+
 export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
   const deferredRows = EXPENSE_CATEGORIES.filter((category) => profitLoss.deferredCandidate[category] > 0).map(
     (category) => csvLine(['繰延資産候補', category, profitLoss.deferredCandidate[category]]),
   )
 
   const lines = [
-    csvLine(['月次PL', formatYearMonthLabel(profitLoss.targetYearMonth)]),
+    csvLine(['管理会計PL', formatYearMonthLabel(profitLoss.targetYearMonth)]),
     csvLine(['区分', '科目', '金額(円)']),
     ...SALES_CATEGORIES.map((category) => csvLine(['売上', category, profitLoss.sales[category]])),
-    csvLine(['売上', '売上合計', profitLoss.salesTotalYen]),
-    ...EXPENSE_CATEGORIES.filter((category) => profitLoss.variableExpenses[category] > 0).map((category) =>
-      csvLine(['変動費', category, profitLoss.variableExpenses[category]]),
-    ),
-    csvLine(['変動費', '変動費合計', profitLoss.variableExpensesTotalYen]),
-    ...EXPENSE_CATEGORIES.filter((category) => profitLoss.fixedCosts[category] > 0).map((category) =>
-      csvLine(['固定費', category, profitLoss.fixedCosts[category]]),
-    ),
-    csvLine(['固定費', '固定費合計', profitLoss.fixedCostsTotalYen]),
-    csvLine(['経費', '経費合計', profitLoss.expensesTotalYen]),
-    ...deferredRows,
-    csvLine(['繰延資産候補', '合計', profitLoss.deferredCandidateTotalYen]),
-    csvLine(['利益', '営業利益', profitLoss.operatingProfitYen]),
+    csvLine(['売上', '売上小計', profitLoss.salesTotalYen]),
   ]
+
+  appendPositiveExpenseRows(lines, '売上原価', COST_OF_SALES_CATEGORIES, profitLoss.costOfSales)
+  lines.push(csvLine(['売上原価', '売上原価小計', profitLoss.costOfSalesTotalYen]))
+  lines.push(csvLine(['粗利益', '粗利益', profitLoss.grossProfitYen]))
+
+  appendPositiveExpenseRows(lines, '固定費', FIXED_EXPENSE_CATEGORIES, profitLoss.fixedCosts)
+  lines.push(csvLine(['固定費', '固定費小計', profitLoss.fixedCostsTotalYen]))
+
+  appendPositiveExpenseRows(lines, '変動費', VARIABLE_EXPENSE_CATEGORIES, profitLoss.variableExpenses)
+  lines.push(csvLine(['変動費', '変動費小計', profitLoss.variableExpensesTotalYen]))
+
+  lines.push(...deferredRows)
+  lines.push(csvLine(['繰延資産候補', '合計', profitLoss.deferredCandidateTotalYen]))
+  lines.push(csvLine(['利益', '営業利益（純利益）', profitLoss.operatingProfitYen]))
+
+  return `\uFEFF${lines.join('\n')}`
+}
+
+export const buildYearlyPlCsv = (yearly: YearlyProfitLoss) => {
+  const columnOrder = getYearlyProfitLossColumnOrder()
+  const header = ['区分', '科目', ...columnOrder.map((key) => yearly.columnLabels[key])]
+  const lines = [csvLine([`${yearly.targetYear}年 管理会計PL`]), csvLine(header)]
+
+  const pushRow = (section: string, label: string, pick: (pl: MonthlyProfitLoss) => number) => {
+    lines.push(
+      csvLine([
+        section,
+        label,
+        ...columnOrder.map((key) => pick(yearly.columns[key])),
+      ]),
+    )
+  }
+
+  SALES_CATEGORIES.forEach((category) => {
+    pushRow('売上', category, (pl) => pl.sales[category])
+  })
+  pushRow('売上', '売上小計', (pl) => pl.salesTotalYen)
+
+  COST_OF_SALES_CATEGORIES.forEach((category) => {
+    pushRow('売上原価', category, (pl) => pl.costOfSales[category])
+  })
+  pushRow('売上原価', '売上原価小計', (pl) => pl.costOfSalesTotalYen)
+  pushRow('粗利益', '粗利益', (pl) => pl.grossProfitYen)
+
+  FIXED_EXPENSE_CATEGORIES.forEach((category) => {
+    pushRow('固定費', category, (pl) => pl.fixedCosts[category])
+  })
+  pushRow('固定費', '固定費小計', (pl) => pl.fixedCostsTotalYen)
+
+  VARIABLE_EXPENSE_CATEGORIES.forEach((category) => {
+    pushRow('変動費', category, (pl) => pl.variableExpenses[category])
+  })
+  pushRow('変動費', '変動費小計', (pl) => pl.variableExpensesTotalYen)
+  pushRow('利益', '営業利益（純利益）', (pl) => pl.operatingProfitYen)
 
   return `\uFEFF${lines.join('\n')}`
 }

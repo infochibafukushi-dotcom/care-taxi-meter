@@ -15,7 +15,11 @@ import type {
   ExpenseConfirmationStatus,
   StoredAccountingAdjustment,
 } from '../types/accounting'
-import { isExpenseCategorySelected } from '../types/accounting'
+import {
+  isExpenseCategorySelected,
+  normalizeExpenseCategory,
+  normalizeSalesCategory,
+} from '../types/accounting'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
@@ -36,8 +40,8 @@ const toStoredAdjustment = (snapshot: {
     storeId: String(data.storeId ?? ''),
     adjustmentType: (data.adjustmentType as StoredAccountingAdjustment['adjustmentType']) ?? 'sales',
     targetYearMonth: String(data.targetYearMonth ?? ''),
-    salesCategory: (data.salesCategory as StoredAccountingAdjustment['salesCategory']) ?? '',
-    expenseCategory: (data.expenseCategory as StoredAccountingAdjustment['expenseCategory']) ?? '',
+    salesCategory: normalizeSalesCategory(data.salesCategory),
+    expenseCategory: normalizeExpenseCategory(data.expenseCategory),
     amountYen: Number(data.amountYen ?? 0),
     description: String(data.description ?? ''),
     confirmationStatus: (data.confirmationStatus as ExpenseConfirmationStatus) ?? '未確認',
@@ -79,7 +83,7 @@ export async function createAccountingAdjustment(input: AccountingAdjustmentInpu
   }
 
   if (input.confirmationStatus === '確認済み') {
-    if (input.adjustmentType === 'sales' && !input.salesCategory) {
+    if (input.adjustmentType === 'sales' && !normalizeSalesCategory(input.salesCategory)) {
       throw new Error('売上区分を選択してください。')
     }
 
@@ -91,6 +95,8 @@ export async function createAccountingAdjustment(input: AccountingAdjustmentInpu
   const db = getFirestore(getFirebaseApp())
   const document = await addDoc(collection(db, collectionName), {
     ...input,
+    salesCategory: normalizeSalesCategory(input.salesCategory),
+    expenseCategory: normalizeExpenseCategory(input.expenseCategory),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })

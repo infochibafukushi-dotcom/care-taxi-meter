@@ -27,18 +27,18 @@ export const mapCaseRecordToSalesBreakdown = (caseRecord: StoredCaseRecord): Sal
 
   if (isPreFixedMeter) {
     // 事前確定M: basicFareYen に追加区間運賃を含む。careOptionFareYen に customFee 等を含む。
-    breakdown['運賃'] = toYen(caseRecord.basicFareYen)
-    breakdown['介助'] =
+    breakdown['運賃収入'] = toYen(caseRecord.basicFareYen)
+    breakdown['介助料収入'] =
       toYen(caseRecord.careOptionFareYen) +
       toYen(caseRecord.waitingFareYen) +
       toYen(caseRecord.escortFareYen)
-    breakdown['機材レンタル'] = toYen(caseRecord.specialVehicleFareYen)
+    breakdown['機材利用料収入'] = toYen(caseRecord.specialVehicleFareYen)
     breakdown['ストック'] = 0
-    breakdown['その他'] = toYen(caseRecord.expenseFareYen)
+    breakdown['その他売上'] = toYen(caseRecord.expenseFareYen)
     return breakdown
   }
 
-  breakdown['運賃'] =
+  breakdown['運賃収入'] =
     toYen(caseRecord.basicFareYen) +
     toYen(caseRecord.meterTimeFareYen) +
     toYen(caseRecord.waitingFareYen) +
@@ -46,16 +46,16 @@ export const mapCaseRecordToSalesBreakdown = (caseRecord: StoredCaseRecord): Sal
     toYen(caseRecord.dispatchFareYen) +
     toYen(caseRecord.additionalRouteFareYen)
 
-  breakdown['介助'] =
+  breakdown['介助料収入'] =
     toYen(caseRecord.escortFareYen) +
     toYen(caseRecord.careOptionFareYen) +
     toYen(caseRecord.additionalCareFareYen)
-  breakdown['機材レンタル'] = toYen(caseRecord.specialVehicleFareYen)
+  breakdown['機材利用料収入'] = toYen(caseRecord.specialVehicleFareYen)
   // ストック: 初期版ではメーター案件から自動取得しない（手動売上・将来のFC契約データ用）
   breakdown['ストック'] = 0
-  // customFeeFareYen はメーター上「その他」料金。FC月額/ストックの根拠はないためその他へ。
-  // expenseFareYen は立替実費の回収。初期版では売上「その他」に含める（後述の整合性注意あり）。
-  breakdown['その他'] = toYen(caseRecord.customFeeFareYen) + toYen(caseRecord.expenseFareYen)
+  // customFeeFareYen はメーター上「その他」料金。FC月額/ストックの根拠はないためその他売上へ。
+  // expenseFareYen は立替実費の回収。初期版では売上「その他売上」に含める（後述の整合性注意あり）。
+  breakdown['その他売上'] = toYen(caseRecord.customFeeFareYen) + toYen(caseRecord.expenseFareYen)
 
   return breakdown
 }

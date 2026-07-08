@@ -15,7 +15,7 @@ import type {
   FixedCostStatus,
   StoredAccountingFixedCost,
 } from '../types/accounting'
-import { isExpenseCategorySelected } from '../types/accounting'
+import { isExpenseCategorySelected, normalizeExpenseCategory } from '../types/accounting'
 import { deriveFixedCostStatus, getFixedCostCancelYearMonth } from '../utils/accountingFixedCost'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
@@ -50,7 +50,8 @@ const normalizeStoredFixedCost = (snapshot: {
     companyId: String(data.companyId ?? data.franchiseeId ?? ''),
     storeId: String(data.storeId ?? ''),
     name: String(data.name ?? ''),
-    expenseCategory: data.expenseCategory as StoredAccountingFixedCost['expenseCategory'],
+    expenseCategory: (normalizeExpenseCategory(data.expenseCategory) ||
+      data.expenseCategory) as StoredAccountingFixedCost['expenseCategory'],
     amountMode,
     monthlyAmountYen,
     annualAmountYen,

@@ -16,11 +16,13 @@ describe('expenseCategoryHelp', () => {
     )
   })
 
-  it('「車検」で車両費・保険料・租税公課がヒットする', () => {
+  it('「車検」で車検・保険・租税関連がヒットする', () => {
     const matched = filterExpenseCategoryHelpRows(EXPENSE_CATEGORY_HELP_ROWS, '車検')
     const categories = matched.map((row) => row.category)
 
-    expect(categories).toEqual(expect.arrayContaining(['車両費', '保険料', '租税公課']))
+    expect(categories).toEqual(
+      expect.arrayContaining(['車検・法定点検費', '車両保険・任意保険', '自動車税・重量税']),
+    )
   })
 
   it('介護タクシー例も「車検」で絞り込める', () => {

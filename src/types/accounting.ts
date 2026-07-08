@@ -37,61 +37,39 @@ export {
   normalizeTaxCategory,
 } from './accountingReceiptWorkflow'
 
-export const SALES_CATEGORIES = [
-  '運賃',
-  '介助',
-  '機材レンタル',
-  'ストック',
-  'その他',
-] as const
+export {
+  ACCOUNT_CATEGORY_MASTER,
+  ACCOUNT_PL_CATEGORIES,
+  ACCOUNT_PL_CATEGORY_LABELS,
+  COST_OF_SALES_CATEGORIES,
+  EXPENSE_CATEGORIES,
+  FIXED_COST_CATEGORY_OPTIONS,
+  FIXED_EXPENSE_CATEGORIES,
+  getAccountPlCategory,
+  getExpenseCategoriesByPlCategory,
+  isExpenseCategorySelected,
+  isSalesCategory,
+  LEGACY_EXPENSE_CATEGORY_MAP,
+  LEGACY_SALES_CATEGORY_MAP,
+  normalizeExpenseCategory,
+  normalizeSalesCategory,
+  SALES_CATEGORIES,
+  VARIABLE_EXPENSE_CATEGORIES,
+  type AccountPlCategory,
+  type CostOfSalesCategory,
+  type ExpenseCategory,
+  type FixedExpenseCategory,
+  type SalesCategory,
+  type VariableExpenseCategory,
+} from './accountingCategoryMaster'
 
-export type SalesCategory = (typeof SALES_CATEGORIES)[number]
-
-export const EXPENSE_CATEGORIES = [
-  '燃料費',
-  '車両費',
-  '高速・駐車場',
-  '通信費',
-  'システム費',
-  '保険料',
-  'リース料',
-  '消耗品費',
-  '水道光熱費',
-  '地代家賃',
-  '介護用品費',
-  '広告宣伝費',
-  '接待交際費',
-  '旅費交通費',
-  '租税公課',
-  '支払手数料',
-  '開業前立替金・繰延資産候補',
-  '開業費償却',
-  '創立費償却',
-  '研修費',
-  'その他経費',
-] as const
-
-export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
-
-/** 固定費登録フォーム用の科目候補（表示ラベルは既存勘定科目と整合） */
-export const FIXED_COST_CATEGORY_OPTIONS: ReadonlyArray<{ value: ExpenseCategory; label: string }> = [
-  { value: '燃料費', label: '燃料費' },
-  { value: '車両費', label: '車両費' },
-  { value: '保険料', label: '保険料' },
-  { value: '通信費', label: '通信費' },
-  { value: '水道光熱費', label: '水道光熱費' },
-  { value: '地代家賃', label: '地代家賃' },
-  { value: '高速・駐車場', label: '駐車場代' },
-  { value: '消耗品費', label: '消耗品費' },
-  { value: '介護用品費', label: '介護用品費' },
-  { value: '広告宣伝費', label: '広告宣伝費' },
-  { value: '支払手数料', label: '支払手数料' },
-  { value: '研修費', label: '研修費' },
-  { value: '租税公課', label: '租税公課' },
-  { value: '旅費交通費', label: '旅費交通費' },
-  { value: 'システム費', label: 'システム利用料' },
-  { value: 'その他経費', label: '雑費' },
-]
+import {
+  isExpenseCategorySelected,
+  normalizeExpenseCategory,
+  normalizeSalesCategory,
+  type ExpenseCategory,
+  type SalesCategory,
+} from './accountingCategoryMaster'
 
 export const FIXED_COST_AMOUNT_MODES = ['monthly', 'annual'] as const
 
@@ -382,22 +360,53 @@ export type MonthlyProfitLoss = {
   targetYearMonth: string
   sales: SalesCategoryBreakdown
   salesTotalYen: number
-  /** 変動費・通常経費（レシート経費＋調整） */
-  variableExpenses: ExpenseCategoryBreakdown
-  variableExpensesTotalYen: number
-  /** 固定費（sourceType: fixedCost） */
+  /** 売上原価（category: costOfSales） */
+  costOfSales: ExpenseCategoryBreakdown
+  costOfSalesTotalYen: number
+  /** 粗利益 = 売上合計 − 売上原価小計 */
+  grossProfitYen: number
+  /** 固定費（category: fixedExpense。固定費マスタ＋経費入力） */
   fixedCosts: ExpenseCategoryBreakdown
   fixedCostsTotalYen: number
   fixedCostCount: number
-  /** 変動費＋固定費の合算（営業利益計算用） */
+  /** 変動費（category: variableExpense） */
+  variableExpenses: ExpenseCategoryBreakdown
+  variableExpensesTotalYen: number
+  /** @deprecated 互換用。変動費＋固定費＋売上原価の合算 */
   expenses: ExpenseCategoryBreakdown
   expensesTotalYen: number
   deferredCandidate: ExpenseCategoryBreakdown
   deferredCandidateTotalYen: number
   deferredCandidateCount: number
+  /** 営業利益（純利益）= 粗利益 − 固定費小計 − 変動費小計 */
   operatingProfitYen: number
   caseRecordCount: number
   confirmedExpenseCount: number
+}
+
+/** 年次PL（前々期・前期・月別・年間合計） */
+export type YearlyProfitLossColumnKey =
+  | 'twoYearsAgo'
+  | 'previousYear'
+  | 'm01'
+  | 'm02'
+  | 'm03'
+  | 'm04'
+  | 'm05'
+  | 'm06'
+  | 'm07'
+  | 'm08'
+  | 'm09'
+  | 'm10'
+  | 'm11'
+  | 'm12'
+  | 'yearTotal'
+
+export type YearlyProfitLoss = {
+  /** 対象カレンダー年（1〜12月） */
+  targetYear: number
+  columns: Record<YearlyProfitLossColumnKey, MonthlyProfitLoss>
+  columnLabels: Record<YearlyProfitLossColumnKey, string>
 }
 
 export const normalizeReceiptStatus = (value: unknown, linkedExpenseId?: string): ReceiptStatus => {
@@ -456,12 +465,14 @@ export const getExpenseReceiptDate = (
 export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): AccountingExpenseInput => {
   const postingDate = getExpensePostingDate(input)
   const receiptDate = input.receiptDate || postingDate
+  const expenseCategory = normalizeExpenseCategory(input.expenseCategory)
 
   return {
     ...input,
     receiptDate,
     postingDate,
     transactionDate: postingDate,
+    expenseCategory,
     plTreatment: normalizePlTreatment(input.plTreatment),
   }
 }
@@ -473,6 +484,10 @@ export const normalizeExpensePatchForSave = (
 
   if (input.plTreatment !== undefined) {
     patch.plTreatment = normalizePlTreatment(input.plTreatment)
+  }
+
+  if (input.expenseCategory !== undefined) {
+    patch.expenseCategory = normalizeExpenseCategory(input.expenseCategory)
   }
 
   const postingDate = input.postingDate ?? input.transactionDate
@@ -488,9 +503,11 @@ export const normalizeExpensePatchForSave = (
   return patch
 }
 
-export const isExpenseCategorySelected = (
-  category: ExpenseCategory | '' | undefined,
-): category is ExpenseCategory => Boolean(category && EXPENSE_CATEGORIES.includes(category as ExpenseCategory))
+export const normalizeAdjustmentSalesCategory = (value: unknown): SalesCategory | '' =>
+  normalizeSalesCategory(value)
+
+export const normalizeAdjustmentExpenseCategory = (value: unknown): ExpenseCategory | '' =>
+  normalizeExpenseCategory(value)
 
 export const canConfirmExpense = (expense: Pick<AccountingExpenseInput, 'expenseCategory' | 'confirmationStatus'>) =>
   expense.confirmationStatus !== '無効' &&

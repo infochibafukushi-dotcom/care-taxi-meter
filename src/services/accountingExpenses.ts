@@ -21,6 +21,7 @@ import {
   canConfirmExpense,
   getExpensePostingDate,
   isExpenseCategorySelected,
+  normalizeExpenseCategory,
   normalizeExpenseInputForSave,
   normalizeExpensePatchForSave,
   normalizePlTreatment,
@@ -67,7 +68,7 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
     storeName: typeof data.storeName === 'string' ? data.storeName : '',
     phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : '',
     description: String(data.description ?? ''),
-    expenseCategory: (data.expenseCategory as StoredAccountingExpense['expenseCategory']) ?? '',
+    expenseCategory: normalizeExpenseCategory(data.expenseCategory),
     taxIncludedAmount: Number(data.taxIncludedAmount ?? 0),
     taxRate: Number(data.taxRate ?? 0),
     consumptionTaxAmount: Number(data.consumptionTaxAmount ?? 0),
@@ -127,8 +128,7 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
         ? (data.ocrParsedFields as StoredAccountingExpense['ocrParsedFields'])
         : undefined,
     ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
-    suggestedExpenseCategory:
-      (data.suggestedExpenseCategory as StoredAccountingExpense['suggestedExpenseCategory']) ?? '',
+    suggestedExpenseCategory: normalizeExpenseCategory(data.suggestedExpenseCategory),
     createdBy: String(data.createdBy ?? ''),
     createdByName: String(data.createdByName ?? ''),
     updatedBy: String(data.updatedBy ?? ''),

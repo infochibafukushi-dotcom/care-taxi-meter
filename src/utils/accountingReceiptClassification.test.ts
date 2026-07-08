@@ -20,7 +20,7 @@ describe('public fee classification', () => {
     })
     expect(hint.invoiceStatus).toBe('not_required')
     expect(hint.taxAmount).toBe(0)
-    expect(hint.accountTitle).toBe('支払手数料')
+    expect(hint.accountTitle).toBe('決済手数料')
     expect(hint.description).toBe('証明書発行手数料')
   })
 })

@@ -25,7 +25,7 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
       'のり',
       '封筒',
     ],
-    category: '消耗品費',
+    category: '事務用品・雑費',
   },
   {
     keywords: ['工具', 'ドライバー', 'レンチ', 'ペンチ', 'ハサミ', 'カッター'],
@@ -36,8 +36,8 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
     category: '消耗品費',
   },
   {
-    keywords: ['介護', 'おむつ', 'パッド', '杖', '車いす'],
-    category: '介護用品費',
+    keywords: ['介護', 'おむつ', 'パッド', '杖', '車いす', '介助用品'],
+    category: '介助用品消耗品',
   },
   {
     keywords: ['ガソリン', '軽油', '給油', '燃料'],
@@ -45,11 +45,27 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
   },
   {
     keywords: ['駐車', '高速', 'ETC', '通行料'],
-    category: '高速・駐車場',
+    category: '高速代・駐車場代',
   },
   {
     keywords: ['電話', '通信', 'SIM', 'インターネット', 'プロバイダ'],
     category: '通信費',
+  },
+  {
+    keywords: ['修繕', '修理', '板金', '塗装'],
+    category: '車両修繕費',
+  },
+  {
+    keywords: ['オイル', 'タイヤ'],
+    category: 'オイル・タイヤ費',
+  },
+  {
+    keywords: ['車検', '法定点検'],
+    category: '車検・法定点検費',
+  },
+  {
+    keywords: ['洗車'],
+    category: '洗車費',
   },
 ]
 

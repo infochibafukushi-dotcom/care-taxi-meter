@@ -138,10 +138,42 @@ body.route-accounting,
   margin: 0;
 }
 
+.accounting-pl-view-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
 .accounting-pl-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
+}
+
+.accounting-pl-gross strong {
+  color: #1d4ed8;
+}
+
+.accounting-pl-yearly-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.accounting-pl-yearly-table th,
+.accounting-pl-yearly-table td {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.accounting-pl-yearly-total {
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.accounting-pl-yearly-highlight {
+  font-weight: 700;
+  background: #ecfdf5;
 }
 
 .accounting-pl-list {
