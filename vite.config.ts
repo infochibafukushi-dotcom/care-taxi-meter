@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        globIgnores: ['**/tesseract/**'],
         navigateFallback: `${githubPagesBase}index.html`,
       },
     }),

@@ -1,5 +1,5 @@
-const MAX_OCR_DIMENSION = 2048
-const JPEG_QUALITY = 0.88
+const MAX_OCR_DIMENSION = 1280
+const JPEG_QUALITY = 0.75
 
 const loadImageElement = (blob: Blob) =>
   new Promise<HTMLImageElement>((resolve, reject) => {

@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+public/tesseract
 workers/**/.wrangler
 functions/lib
 functions/node_modules
