@@ -98,7 +98,7 @@ type AdminCenterSection =
   | "analytics"
   | "personalOperations"
   | "gpsRoutes"
-  | "system";
+  | "preOpeningReset";
 
 type SettingsSaveState = "error" | "idle" | "saved" | "saving";
 
@@ -148,9 +148,9 @@ const adminCenterCards: Array<{
     description: "保存済みGPS軌跡の件数・距離・期限を確認",
   },
   {
-    id: "system",
-    label: "開業前データリセット",
-    description: "予約・運行・売上・経理の過去データを削除",
+    id: "preOpeningReset",
+    label: "開業前テストデータ初期化",
+    description: "テスト運用データとログの完全初期化（開業後は使用不可）",
   },
 ];
 
@@ -2466,6 +2466,15 @@ export function AdminPage() {
             />
           ) : null}
 
+          {activeAdminSection === "preOpeningReset" ? (
+            <PreOpeningDataResetPanel
+              franchiseeId={currentFranchiseeId}
+              storeId={ownerDefaultStore.id}
+              executedBy={currentStaffId || currentStaffName}
+              storeLabel={ownerDefaultStore.name}
+            />
+          ) : null}
+
           {activeAdminSection === "personalOperations" ? (
             <div className="personal-operation-panel">
               <div className="personal-operation-header">
@@ -2715,18 +2724,6 @@ export function AdminPage() {
                 </section>
               </div>
             </div>
-          ) : null}
-
-          {activeAdminSection === "system" ? (
-            <PreOpeningDataResetPanel
-              currentRole={currentRole}
-              executedBy={currentStaffId}
-              executedByName={currentStaffName}
-              scope={{
-                franchiseeId: currentFranchiseeId,
-                storeId: currentStoreId,
-              }}
-            />
           ) : null}
         </section>
 

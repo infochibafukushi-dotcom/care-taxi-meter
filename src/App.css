@@ -8243,6 +8243,35 @@ html:not(.route-meter) .page--home {
   box-shadow: 0 4px 16px rgb(124 45 18 / 24%);
 }
 
+.test-reservation-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fde8e8;
+  border: 1px solid #f1aaaa;
+  color: #9b1c1c;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.test-reservation-badge {
+  display: inline-block;
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fde8e8;
+  border: 1px solid #f1aaaa;
+  color: #9b1c1c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pre-fixed-reservation-row--test {
+  border-color: #f1aaaa;
+  background: #fff8f0;
+}
+
 .review-demo-page .content-card,
 .review-demo-page .hero-card {
   margin-top: 12px;
@@ -9543,5 +9572,39 @@ html.route-meter .pre-fixed-flow-page {
   .pre-fixed-flow-actions .primary-action {
     min-height: 44px;
   }
+}
+
+.pre-opening-reset-panel .pre-opening-reset-scope {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 1rem 0;
+}
+
+.pre-opening-reset-panel .pre-opening-reset-scope div {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.pre-opening-reset-panel .pre-opening-reset-scope dt {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.pre-opening-reset-panel .pre-opening-reset-scope dd {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+}
+
+.pre-opening-reset-confirm {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  max-width: 320px;
+}
+
+.pre-opening-reset-actions {
+  margin-top: 1rem;
 }
 

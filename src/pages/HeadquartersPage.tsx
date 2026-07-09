@@ -16,6 +16,7 @@ import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { getActualFareYen } from '../utils/caseRecords'
 import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
+import { PreOpeningDataResetPanel } from '../components/admin/PreOpeningDataResetPanel'
 import {
   applySubscriptionPlanToCompany,
   defaultSubscriptionPlan,
@@ -180,6 +181,7 @@ export function HeadquartersPage() {
   const [draftCompany, setDraftCompany] = useState<Company>(createCompanyDraft(1))
   const [ownerLoginDraft, setOwnerLoginDraft] = useState<OwnerLoginDraft>(createOwnerLoginDraft())
   const [selectedCompanyId, setSelectedCompanyId] = useState('')
+  const [resetStoreId, setResetStoreId] = useState('')
   const [sortKey, setSortKey] = useState<CompanySortKey>('joinedAt')
   const [message, setMessage] = useState('加盟店情報を読み込み中です。')
   const [isLoading, setIsLoading] = useState(true)
@@ -222,6 +224,28 @@ export function HeadquartersPage() {
   const franchiseCompanyIds = useMemo(() => new Set(franchiseCompanies.map((company) => company.id)), [franchiseCompanies])
   const franchiseCaseRecords = useMemo(() => caseRecords.filter((caseRecord) => franchiseCompanyIds.has(caseRecord.companyId)), [caseRecords, franchiseCompanyIds])
   const selectedCompany = franchiseCompanies.find((company) => company.id === selectedCompanyId) ?? null
+  const resetStoreOptions = useMemo(
+    () =>
+      selectedCompanyId
+        ? stores.filter(
+            (store) => (store.franchiseeId || store.companyId) === selectedCompanyId,
+          )
+        : stores,
+    [selectedCompanyId, stores],
+  )
+  const resetStore =
+    resetStoreOptions.find((store) => store.id === resetStoreId) ?? resetStoreOptions[0] ?? null
+
+  useEffect(() => {
+    if (!resetStoreOptions.length) {
+      setResetStoreId('')
+      return
+    }
+    if (!resetStoreOptions.some((store) => store.id === resetStoreId)) {
+      setResetStoreId(resetStoreOptions[0].id)
+    }
+  }, [resetStoreId, resetStoreOptions])
+
   const currentMonthStart = getMonthStart(0)
   const nextMonthStart = getMonthStart(1)
   const previousMonthStart = getMonthStart(-1)
@@ -466,7 +490,7 @@ export function HeadquartersPage() {
         </div>
       </section>
       <nav className="hq-menu" aria-label="FC本部メニュー">
-        {['要対応加盟店','FC全体KPI','加盟店管理','FC収益分析','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
+        {['要対応加盟店','FC全体KPI','加盟店管理','開業前テストデータ初期化','FC収益分析','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
       </nav>
       <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
 
@@ -599,6 +623,55 @@ export function HeadquartersPage() {
             })}</tbody>
           </table>
         </div>
+      </section>
+
+      <section className="admin-section" id="開業前テストデータ初期化">
+        <h2>開業前テストデータ初期化</h2>
+        <p className="empty-note">
+          加盟店・店舗を選択し、開業前のテスト運用データとログを削除します。
+          監査ログ・実行ログも削除されます。開業後は使用しないでください。
+        </p>
+        <div className="settings-grid hq-form-grid">
+          <label>
+            加盟店
+            <select
+              value={selectedCompanyId}
+              onChange={(event) => setSelectedCompanyId(event.target.value)}
+            >
+              <option value="">選択してください</option>
+              {franchiseCompanies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            店舗
+            <select
+              value={resetStore?.id ?? ''}
+              onChange={(event) => setResetStoreId(event.target.value)}
+              disabled={!resetStoreOptions.length}
+            >
+              {resetStoreOptions.length ? null : <option value="">店舗なし</option>}
+              {resetStoreOptions.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {selectedCompany && resetStore ? (
+          <PreOpeningDataResetPanel
+            franchiseeId={selectedCompany.id}
+            storeId={resetStore.id}
+            executedBy={authSession?.id || workSession.currentSession?.staffId || 'hq_admin'}
+            storeLabel={resetStore.name}
+          />
+        ) : (
+          <p className="empty-note">加盟店と店舗を選択すると削除対象件数を表示できます。</p>
+        )}
       </section>
 
       <section className="admin-section" id="FC収益分析">

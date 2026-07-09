@@ -116,6 +116,7 @@ export const buildTripContextFromPreFixedSession = (
     },
     customerName: reservationMeta?.customerName?.trim() ?? '',
     scheduledAt: reservationMeta?.scheduledAt?.trim() || session.createdAt,
+    isTest: false,
   }
 }
 

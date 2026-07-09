@@ -4,7 +4,10 @@ import { logger } from 'firebase-functions'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 
 export { loginStaff } from './staffLogin'
-export { resetPreOpeningBusinessData } from './preOpeningDataReset'
+export {
+  executePreOpeningDataReset,
+  getPreOpeningResetCapability,
+} from './preOpeningDataReset'
 
 initializeApp()
 

@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "deploy": "firebase deploy --only functions:purgeExpiredGpsRoutes,functions:loginStaff,functions:resetPreOpeningBusinessData"
+    "deploy": "firebase deploy --only functions:purgeExpiredGpsRoutes,functions:loginStaff,functions:getPreOpeningResetCapability,functions:executePreOpeningDataReset"
   },
   "dependencies": {
     "firebase-admin": "^13.10.0",

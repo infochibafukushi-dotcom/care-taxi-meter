@@ -1,81 +1,60 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import {
-  isPreOpeningResetConfirmationValid,
-  summarizeCategoryCounts,
-} from './services/preOpeningDataReset'
-import { matchesReservationTenant } from './services/reservationPreOpeningReset'
-import { canResetPreOpeningBusinessData } from './types/permissions'
 
-describe('canResetPreOpeningBusinessData', () => {
-  it('allows owner and hq_admin only', () => {
-    expect(canResetPreOpeningBusinessData('owner')).toBe(true)
-    expect(canResetPreOpeningBusinessData('hq_admin')).toBe(true)
-    expect(canResetPreOpeningBusinessData('manager')).toBe(false)
-    expect(canResetPreOpeningBusinessData('driver')).toBe(false)
-    expect(canResetPreOpeningBusinessData('')).toBe(false)
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+const readSource = (relativePath: string) =>
+  readFileSync(resolve(root, relativePath), 'utf8')
+
+describe('reservationPreOpeningReset frontend service', () => {
+  it('does not call reservation-v4 admin APIs directly from the browser', () => {
+    const source = readSource('src/services/reservationPreOpeningReset.ts')
+    expect(source).not.toMatch(/\/api\/admin\/reservations\/pre-opening-reset/)
+    expect(source).not.toMatch(/admin_token|adminToken|RESERVATION_V4_ADMIN_TOKEN/i)
+    expect(source).not.toMatch(/\bfetch\s*\(/)
+    expect(source).toContain("httpsCallable")
+    expect(source).toContain('getPreOpeningResetCapability')
+    expect(source).toContain('executePreOpeningDataReset')
   })
 })
 
-describe('isPreOpeningResetConfirmationValid', () => {
-  it('accepts only RESET', () => {
-    expect(isPreOpeningResetConfirmationValid('RESET')).toBe(true)
-    expect(isPreOpeningResetConfirmationValid(' RESET ')).toBe(true)
-    expect(isPreOpeningResetConfirmationValid('reset')).toBe(false)
-    expect(isPreOpeningResetConfirmationValid('リセット')).toBe(false)
-    expect(isPreOpeningResetConfirmationValid('')).toBe(false)
+describe('preOpeningDataReset cloud function', () => {
+  it('uses server-side admin bearer token for reservation-v4', () => {
+    const source = readSource('functions/src/preOpeningDataReset.ts')
+    expect(source).toContain('RESERVATION_V4_ADMIN_TOKEN')
+    expect(source).toContain("Authorization: `Bearer ${token}`")
+    expect(source).toContain('/api/admin/reservations/pre-opening-reset/capability')
+    expect(source).toContain('/api/admin/reservations/pre-opening-reset')
+    expect(source).not.toMatch(/localStorage|sessionStorage/)
+  })
+
+  it('deletes scoped log collections in cloud function', () => {
+    const source = readSource('functions/src/preOpeningDataReset.ts')
+    expect(source).toContain("'auditLogs'")
+    expect(source).toContain("'maintenanceLogs'")
+    expect(source).toContain("'adminActionLogs'")
+    expect(source).toContain("'loginAttempts'")
+    expect(source).toContain("'operationLogs'")
+    expect(source).toContain("'debugLogs'")
+    expect(source).toContain("'errorLogs'")
+    expect(source).toContain("'resetLogs'")
+    expect(source).not.toContain('deleteUser')
+    expect(source).not.toContain("deleteCollectionByScope('staffMembers'")
+  })
+
+  it('restricts callable access to owner and hq_admin', () => {
+    const source = readSource('functions/src/preOpeningDataReset.ts')
+    expect(source).toContain("role !== 'owner' && role !== 'hq_admin'")
+    expect(source).toContain("confirmText !== PRE_OPENING_RESET_CONFIRM_TEXT")
   })
 })
 
-describe('summarizeCategoryCounts', () => {
-  it('groups collection counts into display categories', () => {
-    expect(
-      summarizeCategoryCounts(
-        {
-          caseRecords: 10,
-          workSessions: 3,
-          staffAttendance: 2,
-          caseCounters: 1,
-          accountingExpenses: 4,
-          accountingReceipts: 2,
-          accountingAdjustments: 1,
-          accountingExports: 1,
-          accountingSales: 0,
-          accountingSettlementAuxiliary: 1,
-          accountingFixedAssets: 1,
-        },
-        2,
-        5,
-        2,
-      ),
-    ).toEqual({
-      browserTemporaryData: 2,
-      reservationApiRecords: 5,
-      tripsAndSales: 16,
-      accounting: 10,
-      storageFiles: 2,
-    })
-  })
-})
-
-describe('matchesReservationTenant', () => {
-  it('requires both franchiseeId and storeId to match', () => {
-    expect(
-      matchesReservationTenant(
-        { franchiseeId: 'franchisee-a', storeId: 'store-a' },
-        { franchiseeId: 'franchisee-a', storeId: 'store-a' },
-      ),
-    ).toBe(true)
-    expect(
-      matchesReservationTenant(
-        { franchiseeId: 'franchisee-a', storeId: 'store-b' },
-        { franchiseeId: 'franchisee-a', storeId: 'store-a' },
-      ),
-    ).toBe(false)
-    expect(
-      matchesReservationTenant(
-        { franchiseeId: null, storeId: 'store-a' },
-        { franchiseeId: 'franchisee-a', storeId: 'store-a' },
-      ),
-    ).toBe(false)
+describe('driver-proxy does not expose admin reset routes', () => {
+  it('only allows driver reservation routes', () => {
+    const source = readSource('workers/driver-proxy/src/routing.ts')
+    expect(source).not.toMatch(/pre-opening-reset/)
+    expect(source).toContain('/api/driver/reservations')
   })
 })

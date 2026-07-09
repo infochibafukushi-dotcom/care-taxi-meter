@@ -41,7 +41,7 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
       'analytics',
       'personalOperations',
       'gpsRoutes',
-      'system',
+      'preOpeningReset',
     ].includes(sectionId)
   }
 
