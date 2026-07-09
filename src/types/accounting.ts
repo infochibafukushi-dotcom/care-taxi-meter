@@ -581,3 +581,14 @@ export const isExpenseDeleted = (expense: Pick<StoredAccountingExpense, 'isDelet
 export const isExpenseEligibleForReporting = (
   expense: Pick<StoredAccountingExpense, 'confirmationStatus' | 'isDeleted'>,
 ) => isConfirmedForPl(expense.confirmationStatus) && !isExpenseDeleted(expense)
+
+/** 帳簿日付（postingDate）が対象年月の確認済み・未削除経費 */
+export const filterReportingExpensesByPostingYearMonth = (
+  expenses: StoredAccountingExpense[],
+  targetYearMonth: string,
+) =>
+  expenses.filter(
+    (expense) =>
+      isExpenseEligibleForReporting(expense) &&
+      getExpensePostingDate(expense).startsWith(targetYearMonth),
+  )

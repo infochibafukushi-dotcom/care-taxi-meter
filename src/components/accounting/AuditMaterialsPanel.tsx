@@ -5,6 +5,7 @@ import type { StoredAccountingReceipt } from '../../services/accountingReceipts'
 import type { MonthlyProfitLoss, YearlyProfitLoss } from '../../types/accounting'
 import {
   COST_OF_SALES_CATEGORIES,
+  filterReportingExpensesByPostingYearMonth,
   FIXED_EXPENSE_CATEGORIES,
   getExpensePostingDate,
   SALES_CATEGORIES,
@@ -107,9 +108,9 @@ export function AuditMaterialsPanel({
   targetYear,
   onExportRecorded,
 }: AuditMaterialsPanelProps) {
-  const reportingExpenses = useMemo(
-    () => expenses.filter((expense) => expense.confirmationStatus === '確認済み' && !expense.isDeleted),
-    [expenses],
+  const reportingMonthExpenses = useMemo(
+    () => filterReportingExpensesByPostingYearMonth(expenses, targetYearMonth),
+    [expenses, targetYearMonth],
   )
 
   const smallAssets = useMemo(
@@ -151,7 +152,7 @@ export function AuditMaterialsPanel({
   const handleExport = async (exportType: AuditExportType) => {
     if (exportType === 'expenses') {
       const fileName = `audit-expenses-${targetYearMonth}.csv`
-      downloadCsvFile(fileName, buildExpensesCsv(reportingExpenses, targetYearMonth))
+      downloadCsvFile(fileName, buildExpensesCsv(reportingMonthExpenses, targetYearMonth))
       onExportRecorded(fileName)
       return
     }
@@ -233,7 +234,7 @@ export function AuditMaterialsPanel({
         fileName,
         title: `経費一覧 ${formatYearMonthLabel(targetYearMonth)}`,
         headers: ['日付', '取引先', '内容', '科目', '金額', 'PL区分', '備考'],
-        rows: reportingExpenses.map((expense) => [
+        rows: reportingMonthExpenses.map((expense) => [
           getExpensePostingDate(expense),
           expense.vendorName,
           expense.description,

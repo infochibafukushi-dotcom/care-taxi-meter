@@ -4,7 +4,7 @@ import type {
   StoredAccountingExpense,
   StoredAccountingFixedCost,
 } from '../types/accounting'
-import { getAccountPlCategory, normalizeExpenseCategory, normalizeSalesCategory } from '../types/accounting'
+import { getAccountPlCategory, normalizeExpenseCategory, normalizeExpensePatchForSave, normalizeSalesCategory } from '../types/accounting'
 import { calculateMonthlyProfitLoss, calculateYearlyProfitLoss } from './accountingPl'
 
 describe('accounting category master', () => {
@@ -203,5 +203,77 @@ describe('calculateYearlyProfitLoss', () => {
 
     expect(pl.fixedCosts['減価償却費']).toBe(5_000)
     expect(pl.fixedCostsTotalYen).toBe(5_000)
+  })
+})
+
+describe('postingDate-based PL aggregation (backdated entry)', () => {
+  it('includes expense in posting month PL, not in entry month (example 1)', () => {
+    const backdatedExpense = expense({
+      id: 'backdated-1',
+      receiptDate: '2026-07-20',
+      postingDate: '2026-07-20',
+      transactionDate: '2026-07-20',
+      taxIncludedAmount: 1_000,
+      createdAt: '2026-08-05T00:00:00.000Z',
+    })
+
+    const julyPl = calculateMonthlyProfitLoss({
+      caseRecords: [],
+      adjustments: [],
+      expenses: [backdatedExpense],
+      fixedCosts: [],
+      targetYearMonth: '2026-07',
+    })
+    const augustPl = calculateMonthlyProfitLoss({
+      caseRecords: [],
+      adjustments: [],
+      expenses: [backdatedExpense],
+      fixedCosts: [],
+      targetYearMonth: '2026-08',
+    })
+
+    expect(julyPl.variableExpenses['燃料費']).toBe(1_000)
+    expect(julyPl.confirmedExpenseCount).toBe(1)
+    expect(augustPl.variableExpenses['燃料費']).toBe(0)
+    expect(augustPl.confirmedExpenseCount).toBe(0)
+  })
+
+  it('uses postingDate for PL when receiptDate differs (example 2)', () => {
+    const splitDateExpense = expense({
+      id: 'split-date-1',
+      receiptDate: '2026-07-20',
+      postingDate: '2026-08-01',
+      transactionDate: '2026-08-01',
+      taxIncludedAmount: 1_000,
+      createdAt: '2026-08-05T00:00:00.000Z',
+    })
+
+    const julyPl = calculateMonthlyProfitLoss({
+      caseRecords: [],
+      adjustments: [],
+      expenses: [splitDateExpense],
+      fixedCosts: [],
+      targetYearMonth: '2026-07',
+    })
+    const augustPl = calculateMonthlyProfitLoss({
+      caseRecords: [],
+      adjustments: [],
+      expenses: [splitDateExpense],
+      fixedCosts: [],
+      targetYearMonth: '2026-08',
+    })
+
+    expect(julyPl.variableExpenses['燃料費']).toBe(0)
+    expect(augustPl.variableExpenses['燃料費']).toBe(1_000)
+    expect(augustPl.confirmedExpenseCount).toBe(1)
+  })
+
+  it('syncs transactionDate when postingDate changes on patch save', () => {
+    const patch = normalizeExpensePatchForSave({
+      postingDate: '2026-07-20',
+    })
+
+    expect(patch.postingDate).toBe('2026-07-20')
+    expect(patch.transactionDate).toBe('2026-07-20')
   })
 })

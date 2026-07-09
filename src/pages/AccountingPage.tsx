@@ -147,9 +147,13 @@ import {
   formatYenInputDisplay,
   hasAccountingFormReceiptImage,
   hasStoredAccountingReceiptImage,
+  isPostingDateInPastMonth,
   OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD,
   OCR_NOT_CONFIGURED_MESSAGE,
   parseYenInput,
+  PAST_MONTH_POSTING_DATE_NOTICE,
+  POSTING_DATE_FIELD_LABEL,
+  POSTING_DATE_HELP_TEXT,
   RECEIPT_IMAGE_REQUIRED_MESSAGE,
   shouldAutoApplyOcrCandidates,
   validateInvoiceNumberCandidate,
@@ -847,6 +851,14 @@ export function AccountingPage() {
       buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
     )
   }, [editingExpenseId, expenseForm, expenses])
+
+  const showPastMonthPostingNotice = useMemo(() => {
+    if (!expenseForm) {
+      return false
+    }
+
+    return isPostingDateInPastMonth(getExpensePostingDate(expenseForm))
+  }, [expenseForm])
 
   const applyTaxFields = (
     current: AccountingExpenseInput,
@@ -2927,13 +2939,19 @@ export function AccountingPage() {
                     />
                   </label>
                   <label>
-                    計上日
+                    {POSTING_DATE_FIELD_LABEL}
                     <input
                       type="date"
                       value={expenseForm.postingDate ?? getExpensePostingDate(expenseForm)}
                       onChange={(event) => handleExpenseFieldChange('postingDate', event.target.value)}
                     />
                   </label>
+                  <p className="accounting-note">{POSTING_DATE_HELP_TEXT}</p>
+                  {showPastMonthPostingNotice ? (
+                    <p className="accounting-warning" role="status">
+                      {PAST_MONTH_POSTING_DATE_NOTICE}
+                    </p>
+                  ) : null}
                   <label>
                     PL反映区分
                     <select
@@ -3172,7 +3190,7 @@ export function AccountingPage() {
                         <dd>{getExpenseReceiptDate(expense)}</dd>
                       </div>
                       <div>
-                        <dt>計上日</dt>
+                        <dt>{POSTING_DATE_FIELD_LABEL}</dt>
                         <dd>{getExpensePostingDate(expense)}</dd>
                       </div>
                       <div>
@@ -3229,7 +3247,7 @@ export function AccountingPage() {
                 <thead>
                   <tr>
                     <th>証憑日</th>
-                    <th>計上日</th>
+                    <th>{POSTING_DATE_FIELD_LABEL}</th>
                     <th>仕入先</th>
                     <th>内容</th>
                     <th>経費科目</th>

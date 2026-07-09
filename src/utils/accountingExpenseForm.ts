@@ -7,7 +7,29 @@ import type {
 import type { AccountingReceiptOcrCandidates } from '../types/accountingReceiptWorkflow'
 import { buildEmptyExpenseInput } from '../services/accountingExpenses'
 import { getExpensePostingDate } from '../types/accounting'
+import { getCurrentYearMonthInJapan } from './accountingPl'
 import { calculateConsumptionTaxFromIncluded, calculateTaxExcludedAmount } from './accountingTax'
+
+export const POSTING_DATE_FIELD_LABEL = '帳簿日付（PL反映日）'
+
+export const POSTING_DATE_HELP_TEXT =
+  '後から出てきた領収書は、実際に使った日付で入力してください。PL・決算資料はこの帳簿日付で集計されます。'
+
+export const PAST_MONTH_POSTING_DATE_NOTICE =
+  '過去月の日付が選択されています。この経費は選択した月のPLに反映されます。'
+
+/** 帳簿日付が当月より前の年月か（さかのぼり入力の注意表示用。入力は禁止しない） */
+export const isPostingDateInPastMonth = (
+  postingDate: string,
+  currentYearMonth = getCurrentYearMonthInJapan(),
+) => {
+  const month = postingDate.trim().slice(0, 7)
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return false
+  }
+
+  return month < currentYearMonth
+}
 
 /** 数字のみ抽出し先頭0を除去して number に変換（空欄は 0） */
 export const parseYenInput = (raw: string) => {
