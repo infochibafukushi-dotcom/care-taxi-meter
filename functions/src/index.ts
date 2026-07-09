@@ -6,7 +6,9 @@ import { onSchedule } from 'firebase-functions/v2/scheduler'
 export { loginStaff } from './staffLogin'
 export {
   executePreOpeningDataReset,
+  executePreOpeningReservationReset,
   getPreOpeningResetCapability,
+  getPreOpeningReservationResetCapability,
 } from './preOpeningDataReset'
 
 initializeApp()

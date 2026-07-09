@@ -149,7 +149,7 @@ const adminCenterCards: Array<{
   },
   {
     id: "preOpeningReset",
-    label: "開業前テストデータ初期化",
+    label: "開業前テストデータ初期化（完全）",
     description: "テスト運用データとログの完全初期化（開業後は使用不可）",
   },
 ];

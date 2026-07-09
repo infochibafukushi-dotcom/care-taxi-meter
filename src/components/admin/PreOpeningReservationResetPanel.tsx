@@ -1,76 +1,61 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  executePreOpeningDataReset,
-  fetchPreOpeningResetCapability,
-  preOpeningResetEmptyTargets,
+  executePreOpeningReservationReset,
+  fetchPreOpeningReservationResetCapability,
   preOpeningReservationDashboardEmptyCounts,
-  type PreOpeningResetCapabilityResult,
+  preOpeningReservationResetEmptyTargets,
   type PreOpeningReservationDashboardCounts,
-  type PreOpeningResetTargetCounts,
+  type PreOpeningReservationResetCapabilityResult,
 } from '../../services/reservationPreOpeningReset'
-import { clearPreOpeningLocalDeviceData } from '../../utils/preOpeningLocalDeviceData'
 
-type PreOpeningDataResetPanelProps = {
+type PreOpeningReservationResetPanelProps = {
   franchiseeId: string
   storeId: string
   executedBy: string
   storeLabel?: string
 }
 
-const TARGET_LABELS: Record<string, string> = {
-  caseRecords: '運行記録（案件）',
-  workSessions: '勤務セッション',
-  auditLogs: '監査ログ',
-  accountingReceipts: '経理レシート',
-  accountingExpenses: '経理経費',
-  accountingAdjustments: '経理調整',
-  accountingFixedCosts: '経理固定費',
-  accountingSales: '売上記録',
-  accountingExports: '経理エクスポート',
-  maintenanceLogs: 'メンテナンスログ',
-  adminActionLogs: '管理者操作ログ',
-  operationLogs: '操作ログ',
-  debugLogs: 'デバッグログ',
-  errorLogs: 'エラーログ',
-  resetLogs: 'リセットログ',
-  caseCounters: '案件採番カウンタ',
-  staffAttendance: '出勤記録',
-  loginAttempts: 'ログイン試行記録',
-  storageFiles: 'Storage 業務ファイル',
+const RESERVATION_TARGET_LABELS: Record<string, string> = {
   reservations: '予約本体',
-  blocks: '予約ブロック',
+  unhandled_reservations: '未対応予約',
   quotes: '見積',
   quote_consents: '同意情報',
-  meter_fixed_fare_runs: 'メーター固定運賃',
-  email_logs: 'メール送信ログ',
-  pre_opening_reset_logs: '開業前初期化ログ',
+  email_logs: 'メールログ',
 }
 
-const formatTargets = (targets: PreOpeningResetTargetCounts) => {
-  const rows: Array<[string, number]> = []
-  for (const [key, count] of Object.entries(targets.firestore)) {
-    if (count > 0) {
-      rows.push([TARGET_LABELS[key] ?? `Firestore ${key}`, count])
-    }
-  }
-  for (const [key, count] of Object.entries(targets.reservation)) {
-    if (count > 0) {
-      rows.push([TARGET_LABELS[key] ?? `reservation-v4 ${key}`, count])
-    }
-  }
-  if (rows.length === 0) {
-    rows.push(['削除対象', 0])
-  }
-  return rows
+const RESERVATION_TARGET_KEYS = [
+  'reservations',
+  'unhandled_reservations',
+  'quotes',
+  'quote_consents',
+  'email_logs',
+] as const
+
+const formatReservationTargetRows = (targets: Record<string, number>) =>
+  RESERVATION_TARGET_KEYS.map((key) => [
+    RESERVATION_TARGET_LABELS[key] ?? key,
+    Number(targets[key]) || 0,
+  ] as const)
+
+const formatDeletedSummary = (deleted: Record<string, number>) => {
+  const parts = [
+    `予約 ${deleted.reservations ?? 0} 件`,
+    `未対応 ${deleted.unhandled_reservations ?? 0} 件`,
+    `見積 ${deleted.quotes ?? 0} 件`,
+    `同意 ${deleted.quote_consents ?? 0} 件`,
+    `メールログ ${deleted.email_logs ?? 0} 件`,
+  ]
+  return parts.join('、')
 }
 
-export function PreOpeningDataResetPanel({
+export function PreOpeningReservationResetPanel({
   franchiseeId,
   storeId,
   executedBy,
   storeLabel,
-}: PreOpeningDataResetPanelProps) {
-  const [capability, setCapability] = useState<PreOpeningResetCapabilityResult | null>(null)
+}: PreOpeningReservationResetPanelProps) {
+  const [capability, setCapability] =
+    useState<PreOpeningReservationResetCapabilityResult | null>(null)
   const [dashboard, setDashboard] = useState<PreOpeningReservationDashboardCounts>(
     preOpeningReservationDashboardEmptyCounts(),
   )
@@ -80,7 +65,7 @@ export function PreOpeningDataResetPanel({
   const [isExecuting, setIsExecuting] = useState(false)
 
   const description =
-    '開業前のテスト運用で作成した予約・運行・売上・経理・ログ情報を完全に削除します。加盟店設定、店舗設定、スタッフ、車両、メーター設定、運賃設定、管理者設定は残ります。予約のみ削除する場合は予約管理DLの「開業前予約データ初期化」を使用してください。監査ログ・実行ログも削除されるため、開業後は使用しないでください。'
+    '開業前に作成した予約・見積・同意情報・予約メールログを削除します。運行記録や経理データは削除しません。'
 
   const loadCapability = useCallback(async () => {
     if (!franchiseeId.trim() || !storeId.trim()) {
@@ -93,11 +78,14 @@ export function PreOpeningDataResetPanel({
     setIsLoading(true)
     setMessage('削除対象件数を取得しています…')
     try {
-      const result = await fetchPreOpeningResetCapability(franchiseeId.trim(), storeId.trim())
+      const result = await fetchPreOpeningReservationResetCapability(
+        franchiseeId.trim(),
+        storeId.trim(),
+      )
       setCapability(result)
       setDashboard(result.dashboard)
       if (!result.supported) {
-        setMessage('reservation-v4 側の開業前初期化 API は未対応です。')
+        setMessage('reservation-v4 側の開業前予約初期化 API は未対応です。')
         return
       }
       setMessage('削除対象件数を取得しました。RESET と入力して実行してください。')
@@ -119,8 +107,12 @@ export function PreOpeningDataResetPanel({
   }, [loadCapability])
 
   const targetRows = useMemo(
-    () => formatTargets(capability?.targets ?? preOpeningResetEmptyTargets()),
-    [capability?.targets],
+    () =>
+      formatReservationTargetRows(
+        capability?.targets.reservation ??
+          preOpeningReservationResetEmptyTargets().reservation,
+      ),
+    [capability?.targets.reservation],
   )
 
   const handleExecute = async () => {
@@ -134,16 +126,16 @@ export function PreOpeningDataResetPanel({
     }
     if (
       !window.confirm(
-        '開業前テストデータを完全初期化します。予約・運行・売上・経理・監査ログ・実行ログも削除されます。予約のみ削除する場合は予約管理DLの「開業前予約データ初期化」を使用してください。この操作は元に戻せません。続行しますか？',
+        '開業前予約データを初期化します。予約・見積・同意情報・メールログのみ削除され、運行記録や経理データは残ります。この操作は元に戻せません。続行しますか？',
       )
     ) {
       return
     }
 
     setIsExecuting(true)
-    setMessage('開業前テストデータを初期化しています…')
+    setMessage('開業前予約データを初期化しています…')
     try {
-      const result = await executePreOpeningDataReset({
+      const result = await executePreOpeningReservationReset({
         franchiseeId: franchiseeId.trim(),
         storeId: storeId.trim(),
         confirmText,
@@ -153,11 +145,11 @@ export function PreOpeningDataResetPanel({
         setMessage('初期化処理が完了しませんでした。詳細を確認してください。')
         return
       }
-      clearPreOpeningLocalDeviceData()
+
       setConfirmText('')
       setDashboard(result.dashboard)
       setMessage(
-        `完全初期化完了。予約 ${result.deleted.reservation.reservations ?? 0} 件、案件 ${result.deleted.firestore.caseRecords ?? 0} 件、監査ログ ${result.deleted.firestore.auditLogs ?? 0} 件を削除しました。予約件数 ${result.dashboard.totalReservations} 件、未対応 ${result.dashboard.unhandledReservations} 件、確認済 ${result.dashboard.confirmedReservations} 件です。端末内の一時データもクリアしました。`,
+        `初期化完了。${formatDeletedSummary(result.deleted.reservation)} を削除しました。予約件数 ${result.dashboard.totalReservations} 件、未対応 ${result.dashboard.unhandledReservations} 件、確認済 ${result.dashboard.confirmedReservations} 件です。`,
       )
       await loadCapability()
     } catch (error) {
@@ -172,11 +164,14 @@ export function PreOpeningDataResetPanel({
   }
 
   return (
-    <section className="admin-master-panel pre-opening-reset-panel" aria-labelledby="pre-opening-reset-title">
+    <section
+      className="admin-master-panel pre-opening-reset-panel"
+      aria-labelledby="pre-opening-reservation-reset-title"
+    >
       <div className="admin-master-panel__header">
         <div>
-          <p className="eyebrow">Pre-opening Test Reset</p>
-          <h2 id="pre-opening-reset-title">開業前テストデータ初期化（完全）</h2>
+          <p className="eyebrow">Pre-opening Reservation Reset</p>
+          <h2 id="pre-opening-reservation-reset-title">開業前予約データ初期化</h2>
         </div>
         <button
           className="secondary-action"
@@ -189,8 +184,8 @@ export function PreOpeningDataResetPanel({
       </div>
 
       <p className="empty-note">{description}</p>
-      <p className="case-error">
-        開業後は使用しないでください。監査ログ・実行ログも削除されます。
+      <p className="pre-opening-reset-scope-note">
+        運行記録・売上・経理データは削除しません。完全初期化は別画面の「開業前テストデータ初期化」を使用してください。
       </p>
 
       <dl className="pre-opening-reset-scope">
@@ -242,30 +237,30 @@ export function PreOpeningDataResetPanel({
 
       <section className="pre-opening-reset-section" aria-label="削除対象件数">
         <h4>削除対象件数</h4>
-        <table className="admin-master-table pre-opening-reset-count-table">
-        <thead>
-          <tr>
-            <th>削除対象</th>
-            <th>件数</th>
-          </tr>
-        </thead>
-        <tbody>
-          {targetRows.map(([label, count]) => (
-            <tr key={label}>
-              <td>{label}</td>
-              <td>{count}</td>
+        <table className="pre-opening-reset-count-table">
+          <thead>
+            <tr>
+              <th>削除対象</th>
+              <th>件数</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {targetRows.map(([label, count]) => (
+              <tr key={label}>
+                <td>{label}</td>
+                <td>{count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <div className="pre-opening-reset-confirm-block">
-        <label className="pre-opening-reset-input-label" htmlFor="pre-opening-full-reset-confirm">
+        <label className="pre-opening-reset-input-label" htmlFor="pre-opening-reservation-reset-confirm">
           確認文字列（RESET）
         </label>
         <input
-          id="pre-opening-full-reset-confirm"
+          id="pre-opening-reservation-reset-confirm"
           className="pre-opening-reset-input"
           type="text"
           value={confirmText}
@@ -283,7 +278,7 @@ export function PreOpeningDataResetPanel({
           onClick={() => void handleExecute()}
           disabled={isLoading || isExecuting || !capability?.supported}
         >
-          {isExecuting ? '初期化実行中…' : '開業前テストデータを完全初期化'}
+          {isExecuting ? '初期化実行中…' : '開業前予約データ初期化'}
         </button>
       </div>
 

@@ -27,6 +27,19 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
 | GET | `/api/admin/reservations/pre-opening-reset/capability` |
 | POST | `/api/admin/reservations/pre-opening-reset` |
 
+`scope` クエリ / ボディ:
+
+| scope | 用途 |
+|-------|------|
+| `full` | 完全初期化（予約 + Firestore 業務データ） |
+| `reservations` | 予約のみ初期化（予約・見積・同意・メールログ） |
+
+`GET` 例:
+
+```text
+/api/admin/reservations/pre-opening-reset/capability?franchiseeId=...&storeId=...&scope=reservations
+```
+
 `POST` ボディ例:
 
 ```json
@@ -34,7 +47,29 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
   "franchiseeId": "current-franchisee",
   "storeId": "current-store",
   "confirmText": "RESET",
-  "executedBy": "staff-id"
+  "executedBy": "staff-id",
+  "scope": "reservations"
+}
+```
+
+`capability` レスポンスには予約管理DL向けの `dashboard` を含めてください。
+
+```json
+{
+  "supported": true,
+  "targets": {
+    "reservations": 13,
+    "unhandled_reservations": 13,
+    "confirmed_reservations": 0,
+    "quotes": 0,
+    "quote_consents": 0,
+    "email_logs": 0
+  },
+  "dashboard": {
+    "totalReservations": 13,
+    "unhandledReservations": 13,
+    "confirmedReservations": 0
+  }
 }
 ```
 

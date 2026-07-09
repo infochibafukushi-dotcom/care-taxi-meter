@@ -27,6 +27,8 @@ export const canAccessAccounting = (role: StaffRole | '') =>
 export const canResetPreOpeningBusinessData = (role: StaffRole | '') =>
   role === 'owner' || role === 'hq_admin'
 
+export const canResetPreOpeningReservationData = canResetPreOpeningBusinessData
+
 export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) => {
   if (role === 'hq_admin') {
     return false

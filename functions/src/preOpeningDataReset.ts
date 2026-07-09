@@ -7,6 +7,8 @@ import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/
 const PRE_OPENING_RESET_CONFIRM_TEXT = 'RESET'
 const DELETE_BATCH_SIZE = 450
 
+type PreOpeningResetScope = 'full' | 'reservations'
+
 const reservationV4AdminToken = defineSecret('RESERVATION_V4_ADMIN_TOKEN')
 const reservationV4Origin = defineString('RESERVATION_V4_ORIGIN')
 
@@ -43,13 +45,10 @@ type FirestoreTargetCounts = Record<string, number> & {
   storageFiles: number
 }
 
-type ResetTargets = {
-  firestore: FirestoreTargetCounts
-  reservation: ReservationTargetCounts
-}
-
 const emptyReservationTargets = (): ReservationTargetCounts => ({
   reservations: 0,
+  unhandled_reservations: 0,
+  confirmed_reservations: 0,
   blocks: 0,
   quotes: 0,
   quote_consents: 0,
@@ -57,6 +56,12 @@ const emptyReservationTargets = (): ReservationTargetCounts => ({
   email_logs: 0,
   pre_opening_reset_logs: 0,
 })
+
+type ReservationDashboardCounts = {
+  totalReservations: number
+  unhandledReservations: number
+  confirmedReservations: number
+}
 
 const emptyFirestoreTargets = (): FirestoreTargetCounts => {
   const counts = SCOPED_TENANT_COLLECTIONS.reduce<FirestoreTargetCounts>(
@@ -97,6 +102,28 @@ const buildStaffAttendanceId = ({
   storeId: string
 }) => [companyId, storeId, staffId].map((value) => value.replaceAll('/', '_')).join('_')
 
+type ReservationCapabilityResponse = {
+  supported?: boolean
+  franchiseeId?: string
+  storeId?: string
+  targets?: ReservationTargetCounts
+  dashboard?: ReservationDashboardCounts
+}
+
+type ReservationResetResponse = {
+  success?: boolean
+  franchiseeId?: string
+  storeId?: string
+  executedBy?: string
+  executedAt?: string
+  targets?: ReservationTargetCounts
+  deleted?: ReservationTargetCounts
+  failed?: ReservationTargetCounts
+  dashboard?: ReservationDashboardCounts
+  logId?: number | null
+  message?: string
+}
+
 const normalizeScopeInput = (data: Record<string, unknown> | undefined) => {
   const franchiseeId = toStringValue(data?.franchiseeId ?? data?.franchisee_id)
   const storeId = toStringValue(data?.storeId ?? data?.store_id)
@@ -104,6 +131,91 @@ const normalizeScopeInput = (data: Record<string, unknown> | undefined) => {
     throw new HttpsError('invalid-argument', 'franchiseeId と storeId は必須です')
   }
   return { franchiseeId, storeId }
+}
+
+const buildCapabilityPath = (
+  franchiseeId: string,
+  storeId: string,
+  resetScope: PreOpeningResetScope,
+) =>
+  `/api/admin/reservations/pre-opening-reset/capability?franchiseeId=${encodeURIComponent(franchiseeId)}&storeId=${encodeURIComponent(storeId)}&scope=${resetScope}`
+
+const normalizeReservationTargets = (value: unknown): ReservationTargetCounts => {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const counts = emptyReservationTargets()
+  for (const key of Object.keys(counts)) {
+    counts[key] = Number(source[key]) || 0
+  }
+  for (const [key, raw] of Object.entries(source)) {
+    if (!(key in counts)) {
+      counts[key] = Number(raw) || 0
+    }
+  }
+  return counts
+}
+
+const normalizeReservationDashboard = (
+  targets: ReservationTargetCounts,
+  dashboard: unknown,
+): ReservationDashboardCounts => {
+  const source =
+    dashboard && typeof dashboard === 'object' ? (dashboard as Record<string, unknown>) : {}
+  return {
+    totalReservations:
+      Number(source.totalReservations ?? source.total_reservations ?? targets.reservations) || 0,
+    unhandledReservations:
+      Number(
+        source.unhandledReservations ??
+          source.unhandled_reservations ??
+          targets.unhandled_reservations,
+      ) || 0,
+    confirmedReservations:
+      Number(
+        source.confirmedReservations ??
+          source.confirmed_reservations ??
+          targets.confirmed_reservations,
+      ) || 0,
+  }
+}
+
+const sumReservationTargetCounts = (targets: ReservationTargetCounts) =>
+  Object.values(targets).reduce((total, count) => total + Number(count || 0), 0)
+
+const assertReservationResetSupported = (
+  capability: {
+    supported: boolean
+    reservationTargets: ReservationTargetCounts
+  },
+  resetScope: PreOpeningResetScope,
+) => {
+  if (capability.supported) {
+    return
+  }
+
+  if (sumReservationTargetCounts(capability.reservationTargets) > 0) {
+    throw new HttpsError(
+      'failed-precondition',
+      resetScope === 'reservations'
+        ? 'reservation-v4 側の開業前予約初期化 API が未対応のため、予約データを削除できません。'
+        : 'reservation-v4 側の開業前初期化 API が未対応のため、予約データを削除できません。Firestore のみ削除しないでください。',
+    )
+  }
+}
+
+const assertReservationResetSucceeded = (
+  reservationResult: ReservationResetResponse,
+  resetScope: PreOpeningResetScope,
+) => {
+  if (reservationResult.success === true) {
+    return
+  }
+
+  const message =
+    toStringValue(reservationResult.message) ||
+    (resetScope === 'reservations'
+      ? '開業前予約データの初期化に失敗しました。'
+      : '開業前テストデータ初期化の予約削除に失敗しました。')
+  throw new HttpsError('internal', message)
 }
 
 const assertCallableAuth = (request: CallableRequest<Record<string, unknown>>): ResetRoleContext => {
@@ -156,10 +268,16 @@ const assertScopeAuthorized = async (
 const getReservationV4Config = () => {
   const origin = reservationV4Origin.value().trim().replace(/\/+$/, '')
   const token = reservationV4AdminToken.value().trim()
-  if (!origin || !token) {
+  if (!origin) {
     throw new HttpsError(
       'failed-precondition',
-      'reservation-v4 管理APIの接続設定が未完了です',
+      'RESERVATION_V4_ORIGIN が未設定です。Firebase Functions の環境設定を確認してください。',
+    )
+  }
+  if (!token) {
+    throw new HttpsError(
+      'failed-precondition',
+      'RESERVATION_V4_ADMIN_TOKEN が未設定です。Firebase Functions の Secret を確認してください。',
     )
   }
   return { origin, token }
@@ -197,7 +315,9 @@ async function callReservationV4AdminApi<T>(
   if (!response.ok) {
     const message =
       toStringValue(payload.message) ||
-      `reservation-v4 API error (${response.status})`
+      (response.status >= 500
+        ? `reservation-v4 管理APIでサーバーエラーが発生しました (${response.status})。`
+        : `reservation-v4 API error (${response.status})`)
     throw new HttpsError('internal', message)
   }
 
@@ -507,24 +627,66 @@ function buildFailedFirestoreCounts(
   return failed
 }
 
-type ReservationCapabilityResponse = {
-  supported?: boolean
-  franchiseeId?: string
-  storeId?: string
-  targets?: ReservationTargetCounts
+async function fetchReservationResetCapability(
+  franchiseeId: string,
+  storeId: string,
+  resetScope: PreOpeningResetScope,
+) {
+  const capability = await callReservationV4AdminApi<ReservationCapabilityResponse>(
+    buildCapabilityPath(franchiseeId, storeId, resetScope),
+    { method: 'GET' },
+  )
+  const reservationTargets = normalizeReservationTargets(capability.targets)
+  return {
+    supported: capability.supported === true,
+    reservationTargets,
+    dashboard: normalizeReservationDashboard(reservationTargets, capability.dashboard),
+  }
 }
 
-type ReservationResetResponse = {
-  success?: boolean
-  franchiseeId?: string
-  storeId?: string
-  executedBy?: string
-  executedAt?: string
-  targets?: ReservationTargetCounts
-  deleted?: ReservationTargetCounts
-  failed?: ReservationTargetCounts
-  logId?: number | null
-  message?: string
+async function executeReservationReset({
+  franchiseeId,
+  storeId,
+  executedBy,
+  resetScope,
+}: {
+  franchiseeId: string
+  storeId: string
+  executedBy: string
+  resetScope: PreOpeningResetScope
+}) {
+  const capability = await fetchReservationResetCapability(franchiseeId, storeId, resetScope)
+  assertReservationResetSupported(capability, resetScope)
+
+  const reservationResult = await callReservationV4AdminApi<ReservationResetResponse>(
+    '/api/admin/reservations/pre-opening-reset',
+    {
+      method: 'POST',
+      body: {
+        franchiseeId,
+        storeId,
+        confirmText: PRE_OPENING_RESET_CONFIRM_TEXT,
+        executedBy,
+        scope: resetScope,
+      },
+    },
+  )
+
+  assertReservationResetSucceeded(reservationResult, resetScope)
+
+  const deletedReservation = normalizeReservationTargets(reservationResult.deleted)
+  const failedReservation = normalizeReservationTargets(reservationResult.failed)
+  const targets = normalizeReservationTargets(reservationResult.targets ?? capability.reservationTargets)
+  const dashboard = normalizeReservationDashboard(targets, reservationResult.dashboard)
+
+  return {
+    capability,
+    reservationResult,
+    deletedReservation,
+    failedReservation,
+    targets,
+    dashboard,
+  }
 }
 
 export const getPreOpeningResetCapability = onCall(
@@ -539,20 +701,46 @@ export const getPreOpeningResetCapability = onCall(
 
     const [firestoreTargets, reservationCapability] = await Promise.all([
       countFirestoreTargets(scope.franchiseeId, scope.storeId),
-      callReservationV4AdminApi<ReservationCapabilityResponse>(
-        `/api/admin/reservations/pre-opening-reset/capability?franchiseeId=${encodeURIComponent(scope.franchiseeId)}&storeId=${encodeURIComponent(scope.storeId)}`,
-        { method: 'GET' },
-      ),
+      fetchReservationResetCapability(scope.franchiseeId, scope.storeId, 'full'),
     ])
 
     return {
-      supported: reservationCapability.supported === true,
+      supported: reservationCapability.supported,
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       targets: {
         firestore: firestoreTargets,
-        reservation: reservationCapability.targets ?? emptyReservationTargets(),
+        reservation: reservationCapability.reservationTargets,
       },
+      dashboard: reservationCapability.dashboard,
+    }
+  },
+)
+
+export const getPreOpeningReservationResetCapability = onCall(
+  {
+    region: 'asia-northeast1',
+    secrets: [reservationV4AdminToken],
+  },
+  async (request) => {
+    const auth = assertCallableAuth(request)
+    const scope = normalizeScopeInput(request.data)
+    await assertScopeAuthorized(auth, scope)
+
+    const reservationCapability = await fetchReservationResetCapability(
+      scope.franchiseeId,
+      scope.storeId,
+      'reservations',
+    )
+
+    return {
+      supported: reservationCapability.supported,
+      franchiseeId: scope.franchiseeId,
+      storeId: scope.storeId,
+      targets: {
+        reservation: reservationCapability.reservationTargets,
+      },
+      dashboard: reservationCapability.dashboard,
     }
   },
 )
@@ -577,55 +765,92 @@ export const executePreOpeningDataReset = onCall(
 
     const executedBy = toStringValue(request.data?.executedBy) || auth.uid
 
-    const targets: ResetTargets = {
-      firestore: await countFirestoreTargets(scope.franchiseeId, scope.storeId),
-      reservation: emptyReservationTargets(),
-    }
+    const firestoreTargets = await countFirestoreTargets(scope.franchiseeId, scope.storeId)
 
-    const capability = await callReservationV4AdminApi<ReservationCapabilityResponse>(
-      `/api/admin/reservations/pre-opening-reset/capability?franchiseeId=${encodeURIComponent(scope.franchiseeId)}&storeId=${encodeURIComponent(scope.storeId)}`,
-      { method: 'GET' },
-    )
-    targets.reservation = capability.targets ?? emptyReservationTargets()
+    const reservationReset = await executeReservationReset({
+      franchiseeId: scope.franchiseeId,
+      storeId: scope.storeId,
+      executedBy,
+      resetScope: 'full',
+    })
 
     const deletedFirestore = await deleteFirestoreScopedData(
       scope.franchiseeId,
       scope.storeId,
     )
 
-    const reservationResult = await callReservationV4AdminApi<ReservationResetResponse>(
-      '/api/admin/reservations/pre-opening-reset',
-      {
-        method: 'POST',
-        body: {
-          franchiseeId: scope.franchiseeId,
-          storeId: scope.storeId,
-          confirmText: PRE_OPENING_RESET_CONFIRM_TEXT,
-          executedBy,
-        },
-      },
-    )
-
-    const deletedReservation = reservationResult.deleted ?? emptyReservationTargets()
-    const failedReservation = reservationResult.failed ?? emptyReservationTargets()
-
     return {
-      success: reservationResult.success === true,
+      success: true,
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       executedBy,
-      executedAt: reservationResult.executedAt ?? new Date().toISOString(),
-      targets,
+      executedAt:
+        reservationReset.reservationResult.executedAt ?? new Date().toISOString(),
+      targets: {
+        firestore: firestoreTargets,
+        reservation: reservationReset.targets,
+      },
       deleted: {
         firestore: deletedFirestore,
-        reservation: deletedReservation,
+        reservation: reservationReset.deletedReservation,
       },
       failed: {
-        firestore: buildFailedFirestoreCounts(targets.firestore, deletedFirestore),
-        reservation: failedReservation,
+        firestore: buildFailedFirestoreCounts(firestoreTargets, deletedFirestore),
+        reservation: reservationReset.failedReservation,
       },
-      reservationLogId: reservationResult.logId ?? null,
-      reservationSupported: capability.supported === true,
+      dashboard: reservationReset.dashboard,
+      reservationLogId: reservationReset.reservationResult.logId ?? null,
+      reservationSupported: reservationReset.capability.supported,
+    }
+  },
+)
+
+export const executePreOpeningReservationReset = onCall(
+  {
+    region: 'asia-northeast1',
+    secrets: [reservationV4AdminToken],
+  },
+  async (request) => {
+    const auth = assertCallableAuth(request)
+    const scope = normalizeScopeInput(request.data)
+    await assertScopeAuthorized(auth, scope)
+
+    const confirmText = toStringValue(request.data?.confirmText)
+    if (confirmText !== PRE_OPENING_RESET_CONFIRM_TEXT) {
+      throw new HttpsError(
+        'invalid-argument',
+        'confirmText が不正です。RESET を指定してください。',
+      )
+    }
+
+    const executedBy = toStringValue(request.data?.executedBy) || auth.uid
+
+    const reservationReset = await executeReservationReset({
+      franchiseeId: scope.franchiseeId,
+      storeId: scope.storeId,
+      executedBy,
+      resetScope: 'reservations',
+    })
+
+    return {
+      success: true,
+      franchiseeId: scope.franchiseeId,
+      storeId: scope.storeId,
+      executedBy,
+      executedAt:
+        reservationReset.reservationResult.executedAt ?? new Date().toISOString(),
+      targets: {
+        reservation: reservationReset.targets,
+      },
+      deleted: {
+        reservation: reservationReset.deletedReservation,
+      },
+      failed: {
+        reservation: reservationReset.failedReservation,
+      },
+      dashboard: reservationReset.dashboard,
+      reservationLogId: reservationReset.reservationResult.logId ?? null,
+      reservationSupported: reservationReset.capability.supported,
     }
   },
 )
