@@ -84,6 +84,7 @@ import { ExpenseAssetBranchPanel } from '../components/accounting/ExpenseAssetBr
 import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedgerPanel'
 import { AuditMaterialsPanel } from '../components/accounting/AuditMaterialsPanel'
 import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPanel'
+import { TaxAdvisorPackagePanel } from '../components/accounting/TaxAdvisorPackagePanel'
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
 import {
   buildFixedAssetInputFromDraft,
@@ -164,6 +165,7 @@ type AccountingTab =
   | 'fixed-assets'
   | 'audit'
   | 'etax'
+  | 'tax-advisor'
   | 'export'
   | 'sales'
 
@@ -177,6 +179,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'audit', label: '監査資料' },
   { tab: 'export', label: 'CSV・PDF出力' },
   { tab: 'etax', label: 'e-Tax入力用決算資料' },
+  { tab: 'tax-advisor', label: '税理士相談用 一式資料' },
 ]
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
@@ -419,6 +422,7 @@ export function AccountingPage() {
   const staffId = accessScope.staffId ?? authSession?.id ?? workSession.currentSession?.staffId ?? ''
   const staffName =
     workSession.currentSession?.staffName ?? authSession?.name ?? '経理担当'
+  const storeName = workSession.currentSession?.storeName ?? ''
 
   const [activeTab, setActiveTab] = useState<AccountingTab>('expenses')
   const [targetYearMonth, setTargetYearMonth] = useState(getCurrentYearMonthInJapan())
@@ -2046,8 +2050,12 @@ export function AccountingPage() {
               key={tab}
               className={
                 activeTab === tab
-                  ? `accounting-main-menu-item is-active${tab === 'etax' ? ' is-etax-featured' : ''}`
-                  : `accounting-main-menu-item${tab === 'etax' ? ' is-etax-featured' : ''}`
+                  ? `accounting-main-menu-item is-active${
+                      tab === 'etax' ? ' is-etax-featured' : tab === 'tax-advisor' ? ' is-tax-advisor-featured' : ''
+                    }`
+                  : `accounting-main-menu-item${
+                      tab === 'etax' ? ' is-etax-featured' : tab === 'tax-advisor' ? ' is-tax-advisor-featured' : ''
+                    }`
               }
               type="button"
               onClick={() => setActiveTab(tab)}
@@ -3335,6 +3343,27 @@ export function AccountingPage() {
             onReloadAuxiliary={reloadSettlementAuxiliary}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onStatus={setStatusMessage}
+            onError={setErrorMessage}
+          />
+        ) : null}
+
+        {activeTab === 'tax-advisor' ? (
+          <TaxAdvisorPackagePanel
+            franchiseeId={tenantScope.franchiseeId}
+            storeId={tenantScope.storeId}
+            storeName={storeName}
+            initialTargetYear={targetYear}
+            staffId={staffId}
+            staffName={staffName}
+            caseRecords={caseRecords}
+            expenses={expenses}
+            adjustments={adjustments}
+            fixedCosts={fixedCosts}
+            fixedAssets={fixedAssets}
+            settlementAuxiliary={settlementAuxiliary}
+            allReceipts={allReceipts}
+            unorganizedReceipts={unorganizedReceipts}
+            onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onError={setErrorMessage}
           />
         ) : null}
