@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildETaxCheckItems, buildETaxInputStatus } from './accountingETaxData'
+import { buildETaxBsInput, buildETaxCheckItems, buildETaxInputStatus } from './accountingETaxData'
 import type { AccountingSettlementAuxiliaryInput } from '../types/accountingSettlementAuxiliary'
 
 const completeAuxiliary = {
@@ -118,5 +118,14 @@ describe('buildETaxCheckItems', () => {
     expect(inputStatus.reviewCount).toBe(0)
     expect(inputStatus.plannedCount).toBe(1)
     expect(inputStatus.actionRequiredItems).toHaveLength(0)
+  })
+})
+
+describe('buildETaxBsInput', () => {
+  it('includes zero-balance optional accounts as 該当なし', () => {
+    const lines = buildETaxBsInput([], '2027-03', completeAuxiliary)
+    const naLabels = lines.filter((line) => line.status === 'na').map((line) => line.label)
+
+    expect(naLabels).toEqual(['売掛金', '未収金', '仮払金', '未払金', '役員借入金'])
   })
 })

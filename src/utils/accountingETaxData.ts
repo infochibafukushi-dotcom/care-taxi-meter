@@ -418,6 +418,7 @@ export const buildETaxBsInput = (
     balanceLine('etax.bsInput.deposits', '普通預金', balance?.deposits),
     balanceLine('etax.bsInput.accountsReceivable', '売掛金', balance?.accountsReceivable),
     balanceLine('etax.bsInput.accruedIncome', '未収金', balance?.accruedIncome),
+    balanceLine('etax.bsInput.prepayments', '仮払金', balance?.prepayments),
     line('etax.bsInput.fixedAssetsNet', '固定資産', netFixedAssets || null, netFixedAssets > 0 ? 'set' : 'unset'),
     line(
       'etax.bsInput.accumulatedDepreciation',
