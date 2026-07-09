@@ -57,6 +57,8 @@ import {
 } from '../services/postSettlementLock'
 import {
   compactReservationTripContextForSnapshot,
+  logPreFixedRestoreDiagnostics,
+  resolvePreFixedConfirmedFareYen,
   resolveReservationTripContextForCasePage,
   shouldRestoreFixedFareRunFromSnapshot,
 } from '../services/reservationTripContext'
@@ -595,6 +597,20 @@ const buildPreFixedFarePassengerChangeException = (
   note: PRE_FIXED_FARE_PASSENGER_CHANGE_NOTE,
 })
 
+const GENERATE_CASE_NUMBER_TIMEOUT_MS = 15_000
+
+const withOperationTimeout = <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) =>
+  Promise.race<T>([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ])
+
 export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -604,36 +620,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     searchParams.get('reservationId')?.trim() ?? (reviewDemoMode ? REVIEW_DEMO_RESERVATION_ID : '')
   const preFixedSessionIdFromQuery = searchParams.get('preFixedSessionId')?.trim() ?? ''
   const sourceCaseRecordId = searchParams.get('caseRecordId') ?? ''
-  const [reservationTripContext] = useState<ReservationTripContext | null>(() => {
-    if (reservationIdFromQuery) {
-      return reviewDemoMode
-        ? readReviewDemoReservationTripContext(reservationIdFromQuery)
-        : resolveReservationTripContextForCasePage({
-            reservationIdFromQuery,
-            restoredSnapshot: reviewDemoMode
-              ? readReviewDemoActiveTripSnapshot()
-              : readActiveTripSnapshot(),
-          })
-    }
-
-    if (preFixedSessionIdFromQuery) {
-      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
-      if (session && session.consent.status === 'agreed') {
-        return buildTripContextFromPreFixedSession(session)
-      }
-    }
-
-    return reviewDemoMode
-      ? null
-      : resolveReservationTripContextForCasePage({
-          restoredSnapshot: readActiveTripSnapshot(),
-        })
-  })
-  const [restoredTripState] = useState(() => {
+  const [pageBootState] = useState(() => {
     const postSettlementLock = reviewDemoMode
       ? readReviewDemoPostSettlementLock()
       : readPostSettlementLock()
-    const activeTripSnapshot = reviewDemoMode
+    let activeTripSnapshot = reviewDemoMode
       ? readReviewDemoActiveTripSnapshot()
       : readActiveTripSnapshot()
 
@@ -643,11 +634,39 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       } else {
         clearActiveTripSnapshot()
       }
-      return { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
+      activeTripSnapshot = null
     }
 
-    return resolveActiveTripRestoration(activeTripSnapshot)
+    const restoredTripState = activeTripSnapshot
+      ? resolveActiveTripRestoration(activeTripSnapshot)
+      : { elapsedSeconds: 0, shouldBridgeGpsDistance: false, snapshot: null }
+    const restoredSnapshot = restoredTripState.snapshot
+
+    let reservationTripContext: ReservationTripContext | null = null
+    if (reservationIdFromQuery) {
+      reservationTripContext = reviewDemoMode
+        ? readReviewDemoReservationTripContext(reservationIdFromQuery)
+        : resolveReservationTripContextForCasePage({
+            reservationIdFromQuery,
+            restoredSnapshot,
+          })
+    } else if (preFixedSessionIdFromQuery) {
+      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
+      if (session && session.consent.status === 'agreed') {
+        reservationTripContext = buildTripContextFromPreFixedSession(session)
+      }
+    } else if (!reviewDemoMode) {
+      reservationTripContext = resolveReservationTripContextForCasePage({
+        restoredSnapshot,
+      })
+    }
+
+    return { restoredTripState, reservationTripContext }
   })
+  const restoredTripState = pageBootState.restoredTripState
+  const [reservationTripContext, setReservationTripContext] = useState<ReservationTripContext | null>(
+    pageBootState.reservationTripContext,
+  )
   const restoredTripSnapshot = restoredTripState.snapshot
   const [fixedFareRun, setFixedFareRun] = useState<{
     confirmedFareYen: number
@@ -655,10 +674,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     snapshotHash: string
   } | null>(() => {
     if (restoredTripSnapshot && shouldRestoreFixedFareRunFromSnapshot(restoredTripSnapshot)) {
+      const confirmedFareYen = resolvePreFixedConfirmedFareYen({
+        context: pageBootState.reservationTripContext,
+        snapshot: restoredTripSnapshot,
+      })
       return {
         reservationId: restoredTripSnapshot.reservationId!,
-        confirmedFareYen:
-          restoredTripSnapshot.confirmedFareYen ?? restoredTripSnapshot.fareTotalYen,
+        confirmedFareYen,
         snapshotHash: restoredTripSnapshot.snapshotHash ?? '',
       }
     }
@@ -957,6 +979,41 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const preFixedStartPersistKeyRef = useRef('')
 
   useEffect(() => {
+    if (reservationTripContext || !restoredTripSnapshot || reviewDemoMode) {
+      return
+    }
+
+    const hydratedContext = resolveReservationTripContextForCasePage({
+      reservationIdFromQuery,
+      restoredSnapshot: restoredTripSnapshot,
+    })
+    if (hydratedContext) {
+      setReservationTripContext(hydratedContext)
+    }
+  }, [reservationIdFromQuery, reservationTripContext, restoredTripSnapshot, reviewDemoMode])
+
+  useEffect(() => {
+    if (meterMode !== 'fixed' || reviewDemoMode) {
+      return
+    }
+
+    logPreFixedRestoreDiagnostics({
+      fixedFareRun,
+      reservationTripContext,
+      operationStartedAt: operationStartedAtRef.current,
+      status,
+      restoredTripSnapshot,
+    })
+  }, [
+    fixedFareRun,
+    meterMode,
+    reservationTripContext,
+    restoredTripSnapshot,
+    reviewDemoMode,
+    status,
+  ])
+
+  useEffect(() => {
     if (!reviewDemoMode) {
       return
     }
@@ -1120,7 +1177,12 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
   const canStartFixedTrip =
     meterMode === 'fixed' &&
-    Boolean(reservationTripContext) &&
+    Boolean(
+      reservationTripContext ||
+        (restoredTripSnapshot?.meterMode === 'fixed' &&
+          restoredTripSnapshot.reservationId &&
+          resolvePreFixedConfirmedFareYen({ snapshot: restoredTripSnapshot }) > 0),
+    ) &&
     (!fixedFareRun || status === '空車') &&
     Boolean(workSession.currentSession) &&
     Boolean(selectedVehicleId) &&
@@ -1149,7 +1211,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const canEndFixedTrip =
     meterMode === 'fixed' &&
     (status === '走行中' || status === '待機中' || status === '院内付き添い中') &&
-    Boolean(fixedFareRun || reservationTripContext)
+    Boolean(
+      fixedFareRun ||
+        reservationTripContext ||
+        restoredTripSnapshot?.reservationId ||
+        (restoredTripSnapshot?.meterMode === 'fixed' &&
+          resolvePreFixedConfirmedFareYen({ snapshot: restoredTripSnapshot }) > 0),
+    )
   /** 事前確定M: 精算中・終了後はルート変更不可 */
   const isFixedRouteChangeBlocked =
     meterMode === 'fixed' &&
@@ -1714,24 +1782,15 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     nightDrivingSeconds: nightPeriodMetrics.nightDrivingSeconds,
   })
 
-  const resolvedConfirmedFareYen = useMemo(() => {
-    if (fixedFareRun && Number.isFinite(fixedFareRun.confirmedFareYen)) {
-      return Math.max(Math.round(fixedFareRun.confirmedFareYen), 0)
-    }
-
-    if (reservationTripContext && Number.isFinite(reservationTripContext.confirmedFareYen)) {
-      return Math.max(Math.round(reservationTripContext.confirmedFareYen), 0)
-    }
-
-    if (
-      reservationTripContext &&
-      Number.isFinite(reservationTripContext.fixedFareTotalYen)
-    ) {
-      return Math.max(Math.round(reservationTripContext.fixedFareTotalYen), 0)
-    }
-
-    return 0
-  }, [fixedFareRun, reservationTripContext])
+  const resolvedConfirmedFareYen = useMemo(
+    () =>
+      resolvePreFixedConfirmedFareYen({
+        context: reservationTripContext,
+        snapshot: restoredTripSnapshot,
+        fixedFareRun,
+      }),
+    [fixedFareRun, reservationTripContext, restoredTripSnapshot],
+  )
 
   const isPreFixedRoundTrip = useMemo(
     () => isPreFixedFareRoundTrip(reservationTripContext),
@@ -2452,19 +2511,30 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         return
       }
 
-      if (!canStartFixedTrip || !workSession.currentSession || !reservationTripContext) {
+      const tripContext =
+        reservationTripContext ??
+        resolveReservationTripContextForCasePage({
+          reservationIdFromQuery,
+          restoredSnapshot: restoredTripSnapshot,
+        })
+
+      if (!canStartFixedTrip || !workSession.currentSession || !tripContext) {
         const message =
           !workSession.currentSession
             ? '出勤してから運行開始してください。'
             : !selectedVehicleId
               ? '案件車両を選択してください。'
-              : !reservationTripContext
+              : !tripContext
                 ? '事前確定運賃の連携情報が見つかりません。事前確定運賃メニューから再度開始してください。'
                 : '現在の状態では固定運賃で運行開始できません。'
         setCaseSaveState('error')
         setCaseSaveMessage(message)
         setTripStartNotice(message)
         return
+      }
+
+      if (!reservationTripContext) {
+        setReservationTripContext(tripContext)
       }
 
       const isPreTripRetry =
@@ -2484,25 +2554,41 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       setCaseSaveState('idle')
       setTripStartNotice('')
 
+      const previousFixedFareRun = fixedFareRunRef.current
+      const previousOperationStartedAt = operationStartedAtRef.current
+      let didTransitionToDriving = false
+
       try {
         let assignment = caseNumberAssignmentRef.current
         if (!assignment || caseNumber === '未採番') {
           assignment = reviewDemoMode
             ? createReviewDemoCaseNumberAssignment()
-            : await generateCaseNumber({
-                franchiseeId:
-                  workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
-                storeId: workSession.currentSession.storeId,
-                storeName: workSession.currentSession.storeName,
-              })
+            : await withOperationTimeout(
+                generateCaseNumber({
+                  franchiseeId:
+                    workSession.currentSession.franchiseeId || workSession.currentSession.companyId,
+                  storeId: workSession.currentSession.storeId,
+                  storeName: workSession.currentSession.storeName,
+                }),
+                GENERATE_CASE_NUMBER_TIMEOUT_MS,
+                '案件番号の採番がタイムアウトしました。通信状況を確認して再試行してください。',
+              )
           caseNumberAssignmentRef.current = assignment
           setCaseNumber(assignment.caseNumber)
         }
 
+        const confirmedFareYen = resolvePreFixedConfirmedFareYen({
+          context: tripContext,
+          snapshot: restoredTripSnapshot,
+        })
+        if (confirmedFareYen <= 0) {
+          throw new Error('確定運賃を復元できませんでした。予約連携情報を確認してください。')
+        }
+
         const nextFixedFareRun = {
-          reservationId: reservationTripContext.reservationId,
-          confirmedFareYen: reservationTripContext.confirmedFareYen,
-          snapshotHash: reservationTripContext.snapshotHash,
+          reservationId: tripContext.reservationId,
+          confirmedFareYen,
+          snapshotHash: tripContext.snapshotHash ?? '',
         }
         fixedFareRunRef.current = nextFixedFareRun
         setFixedFareRun(nextFixedFareRun)
@@ -2511,6 +2597,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         if (!handleStatusChange('走行中')) {
           throw new Error('運行ステータスの更新に失敗しました。再試行してください。')
         }
+        didTransitionToDriving = true
 
         setSettingsMessage(
           reviewDemoMode
@@ -2521,8 +2608,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         setCaseSaveMessage('固定運賃で運行を開始しました。')
         setTripStartNotice('')
       } catch (error) {
-        if (!fixedFareRunRef.current) {
-          operationStartedAtRef.current = ''
+        if (!didTransitionToDriving) {
+          fixedFareRunRef.current = previousFixedFareRun
+          setFixedFareRun(previousFixedFareRun)
+          operationStartedAtRef.current = previousOperationStartedAt
         }
         const message = error instanceof Error
           ? `運行開始に失敗しました。${error.message}`

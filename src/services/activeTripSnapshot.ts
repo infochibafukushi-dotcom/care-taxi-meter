@@ -23,6 +23,7 @@ import type {
   PreFixedFareRouteStop,
 } from '../types/preFixedFareRouteChange'
 import { parseMeterModeParam } from '../utils/meterConstants'
+import { normalizeReservationTripContext } from './reservationTripContext'
 import {
   emptyCapturedAddressLocation,
   type CapturedAddressLocation,
@@ -167,6 +168,25 @@ export const getIsoElapsedSeconds = (iso: string, nowMs = Date.now()) => {
 const isActivityTimerKey = (value: TimerKey | null | undefined): value is ActivityTimerKey =>
   value === 'waiting' || value === 'accompanying'
 
+export const inferSnapshotMeterMode = (
+  snapshot: Partial<ActiveTripSnapshot>,
+): MeterMode => {
+  const explicit = parseMeterModeParam(snapshot.meterMode)
+  if (explicit) {
+    return explicit
+  }
+
+  if (
+    snapshot.reservationTripContext ||
+    (typeof snapshot.reservationId === 'string' && snapshot.reservationId.trim()) ||
+    typeof snapshot.confirmedFareYen === 'number'
+  ) {
+    return 'fixed'
+  }
+
+  return 'gps'
+}
+
 export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
   try {
     const snapshotJson = localStorage.getItem(activeTripSnapshotStorageKey)
@@ -176,10 +196,13 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
     }
 
     const snapshot = JSON.parse(snapshotJson) as Partial<ActiveTripSnapshot>
+    const meterMode = inferSnapshotMeterMode(snapshot)
 
     if (!isProtectedOperationStatus(snapshot.status)) {
       return null
     }
+
+    const reservationTripContext = normalizeReservationTripContext(snapshot.reservationTripContext)
 
     return {
       activeTimer: snapshot.activeTimer ?? activeTimerMap[snapshot.status] ?? null,
@@ -232,11 +255,11 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
       selectedSpecialVehicleCharges: Array.isArray(snapshot.selectedSpecialVehicleCharges) ? snapshot.selectedSpecialVehicleCharges : [],
       selectedVehicleId: typeof snapshot.selectedVehicleId === 'string' ? snapshot.selectedVehicleId : '',
       status: snapshot.status,
-      meterMode: parseMeterModeParam(snapshot.meterMode) ?? 'gps',
+      meterMode,
       reservationId:
         typeof snapshot.reservationId === 'string' && snapshot.reservationId.trim()
           ? snapshot.reservationId.trim()
-          : undefined,
+          : reservationTripContext?.reservationId,
       confirmedFareYen:
         typeof snapshot.confirmedFareYen === 'number' && Number.isFinite(snapshot.confirmedFareYen)
           ? Math.max(Math.round(snapshot.confirmedFareYen), 0)
@@ -267,6 +290,7 @@ export const readActiveTripSnapshot = (): ActiveTripSnapshot | null => {
           ? Math.max(Math.floor(snapshot.preFixedSegmentIndex), 0)
           : undefined,
       preFixedFareException: mapPreFixedFareExceptionFromApi(snapshot.preFixedFareException),
+      reservationTripContext: reservationTripContext ?? undefined,
       timerStartedAt: normalizeTimerStartedAt(snapshot.timerStartedAt),
       taxiTickets: Array.isArray(snapshot.taxiTickets) ? snapshot.taxiTickets : [],
       timers: normalizeSnapshotTimerSeconds(snapshot.timers),

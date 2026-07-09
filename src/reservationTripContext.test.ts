@@ -3,6 +3,8 @@ import type { ActiveTripSnapshot } from './services/activeTripSnapshot'
 import {
   buildReservationTripContextFromActiveTripSnapshot,
   compactReservationTripContextForSnapshot,
+  normalizeReservationTripContext,
+  resolvePreFixedConfirmedFareYen,
   resolveReservationTripContextForCasePage,
   shouldRestoreFixedFareRunFromSnapshot,
 } from './services/reservationTripContext'
@@ -167,6 +169,36 @@ describe('compactReservationTripContextForSnapshot', () => {
     expect(compacted.routePlan).toBeNull()
     expect(compacted.reservationId).toBe(storedContext.reservationId)
     expect(compacted.quoteSnapshot.serviceFees).toHaveLength(3)
+  })
+})
+
+describe('normalizeReservationTripContext', () => {
+  it('accepts legacy session data with zero confirmed fare and total fare', () => {
+    const normalized = normalizeReservationTripContext({
+      reservationId: 'res-13100',
+      confirmedFareYen: 0,
+      fixedFareTotalYen: 13100,
+      snapshotHash: null,
+      pickupAddress: '千葉市中央区',
+      dropoffAddress: '千葉市若葉区',
+    })
+
+    expect(normalized?.confirmedFareYen).toBe(13100)
+    expect(normalized?.fixedFareTotalYen).toBe(13100)
+  })
+})
+
+describe('resolvePreFixedConfirmedFareYen', () => {
+  it('prefers fixed fare total when confirmed fare is zero', () => {
+    expect(
+      resolvePreFixedConfirmedFareYen({
+        context: {
+          ...storedContext,
+          confirmedFareYen: 0,
+          fixedFareTotalYen: 13100,
+        },
+      }),
+    ).toBe(13100)
   })
 })
 

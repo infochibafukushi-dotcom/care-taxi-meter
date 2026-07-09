@@ -73,62 +73,8 @@ export const buildReservationTripContextForMeterStart = (
   }
 }
 
-const isReservationTripContext = (value: unknown): value is ReservationTripContext => {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  const context = value as Partial<ReservationTripContext>
-  return (
-    typeof context.reservationId === 'string' &&
-    context.reservationId.trim().length > 0 &&
-    typeof context.confirmedFareYen === 'number' &&
-    typeof context.snapshotHash === 'string' &&
-    typeof context.pickupAddress === 'string' &&
-    typeof context.dropoffAddress === 'string'
-  )
-}
-
-export const saveReservationTripContext = (context: ReservationTripContext) => {
-  try {
-    sessionStorage.setItem(reservationTripContextStorageKey, JSON.stringify(context))
-  } catch (error) {
-    console.warn('Failed to save reservation trip context.', error)
-  }
-}
-
-export const readReservationTripContext = (
-  reservationId?: string,
-): ReservationTripContext | null => {
-  try {
-    const stored = sessionStorage.getItem(reservationTripContextStorageKey)
-    if (!stored) {
-      return null
-    }
-
-    const parsed = JSON.parse(stored) as unknown
-    if (!isReservationTripContext(parsed)) {
-      return null
-    }
-
-    if (reservationId && parsed.reservationId !== reservationId) {
-      return null
-    }
-
-    return parsed
-  } catch (error) {
-    console.warn('Failed to read reservation trip context.', error)
-    return null
-  }
-}
-
-export const clearReservationTripContext = () => {
-  try {
-    sessionStorage.removeItem(reservationTripContextStorageKey)
-  } catch (error) {
-    console.warn('Failed to clear reservation trip context.', error)
-  }
-}
+const toFiniteFareYen = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(Math.round(value), 0) : 0
 
 const emptyQuoteSnapshot = (): QuoteSnapshot => ({
   fixedFareTotal: 0,
@@ -149,6 +95,179 @@ const emptyConsent = (): ReservationConsent => ({
   source: '',
 })
 
+/** sessionStorage / snapshot 由来の旧形式も許容して正規化する */
+export const normalizeReservationTripContext = (value: unknown): ReservationTripContext | null => {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const raw = value as Partial<ReservationTripContext>
+  const reservationId = typeof raw.reservationId === 'string' ? raw.reservationId.trim() : ''
+  if (!reservationId) {
+    return null
+  }
+
+  const confirmedFareYen = toFiniteFareYen(raw.confirmedFareYen)
+  const fixedFareTotalYen = toFiniteFareYen(raw.fixedFareTotalYen) || confirmedFareYen
+  const resolvedConfirmedFareYen = confirmedFareYen || fixedFareTotalYen
+  const quoteSnapshot =
+    raw.quoteSnapshot && typeof raw.quoteSnapshot === 'object'
+      ? {
+          ...emptyQuoteSnapshot(),
+          ...raw.quoteSnapshot,
+          serviceFees: Array.isArray(raw.quoteSnapshot.serviceFees)
+            ? raw.quoteSnapshot.serviceFees
+            : [],
+        }
+      : {
+          ...emptyQuoteSnapshot(),
+          fixedFareTotal: resolvedConfirmedFareYen,
+        }
+  const consentSource =
+    raw.consent && typeof raw.consent === 'object' ? raw.consent : emptyConsent()
+  const snapshotHash =
+    typeof raw.snapshotHash === 'string'
+      ? raw.snapshotHash
+      : typeof consentSource.snapshotHash === 'string'
+        ? consentSource.snapshotHash
+        : ''
+
+  return {
+    reservationId,
+    estimateNo: typeof raw.estimateNo === 'string' ? raw.estimateNo : '',
+    confirmedFareYen: resolvedConfirmedFareYen,
+    fixedFareTotalYen,
+    snapshotHash,
+    consentAt: typeof raw.consentAt === 'string' ? raw.consentAt : consentSource.consentAt ?? '',
+    pickupAddress: typeof raw.pickupAddress === 'string' ? raw.pickupAddress : '',
+    dropoffAddress: typeof raw.dropoffAddress === 'string' ? raw.dropoffAddress : '',
+    usageSummary: Array.isArray(raw.usageSummary)
+      ? raw.usageSummary.filter((item): item is string => typeof item === 'string')
+      : [],
+    quoteSnapshot,
+    routePlan: raw.routePlan ?? null,
+    consent: {
+      ...emptyConsent(),
+      ...consentSource,
+      snapshotHash: snapshotHash || consentSource.snapshotHash || '',
+      quotedFareYen:
+        toFiniteFareYen(consentSource.quotedFareYen) || fixedFareTotalYen || resolvedConfirmedFareYen,
+    },
+    customerName: typeof raw.customerName === 'string' ? raw.customerName : '',
+    scheduledAt: typeof raw.scheduledAt === 'string' ? raw.scheduledAt : '',
+    ...(raw.isTest ? { isTest: true } : {}),
+  }
+}
+
+export const saveReservationTripContext = (context: ReservationTripContext) => {
+  try {
+    sessionStorage.setItem(reservationTripContextStorageKey, JSON.stringify(context))
+  } catch (error) {
+    console.warn('Failed to save reservation trip context.', error)
+  }
+}
+
+export const readReservationTripContext = (
+  reservationId?: string,
+): ReservationTripContext | null => {
+  try {
+    const stored = sessionStorage.getItem(reservationTripContextStorageKey)
+    if (!stored) {
+      return null
+    }
+
+    const parsed = JSON.parse(stored) as unknown
+    const normalized = normalizeReservationTripContext(parsed)
+    if (!normalized) {
+      return null
+    }
+
+    if (reservationId && normalized.reservationId !== reservationId) {
+      return null
+    }
+
+    return normalized
+  } catch (error) {
+    console.warn('Failed to read reservation trip context.', error)
+    return null
+  }
+}
+
+export const clearReservationTripContext = () => {
+  try {
+    sessionStorage.removeItem(reservationTripContextStorageKey)
+  } catch (error) {
+    console.warn('Failed to clear reservation trip context.', error)
+  }
+}
+
+export const resolvePreFixedConfirmedFareYen = ({
+  context = null,
+  snapshot = null,
+  fixedFareRun = null,
+}: {
+  context?: ReservationTripContext | null
+  snapshot?: ActiveTripSnapshot | null
+  fixedFareRun?: { confirmedFareYen: number } | null
+} = {}): number => {
+  if (fixedFareRun && Number.isFinite(fixedFareRun.confirmedFareYen)) {
+    const fromRun = Math.max(Math.round(fixedFareRun.confirmedFareYen), 0)
+    if (fromRun > 0) {
+      return fromRun
+    }
+  }
+
+  if (context) {
+    const fromConfirmed = Math.max(Math.round(context.confirmedFareYen), 0)
+    const fromTotal = Math.max(Math.round(context.fixedFareTotalYen), 0)
+    if (fromConfirmed > 0) {
+      return fromConfirmed
+    }
+    if (fromTotal > 0) {
+      return fromTotal
+    }
+  }
+
+  if (snapshot) {
+    return Math.max(
+      Math.round(snapshot.confirmedFareYen ?? snapshot.fareTotalYen ?? 0),
+      0,
+    )
+  }
+
+  return 0
+}
+
+export const logPreFixedRestoreDiagnostics = ({
+  fixedFareRun = null,
+  reservationTripContext = null,
+  operationStartedAt = '',
+  status,
+  restoredTripSnapshot = null,
+}: {
+  fixedFareRun?: { confirmedFareYen: number; reservationId: string; snapshotHash: string } | null
+  reservationTripContext?: ReservationTripContext | null
+  operationStartedAt?: string
+  status: string
+  restoredTripSnapshot?: ActiveTripSnapshot | null
+}) => {
+  console.info('[preFixedRestore]', {
+    status,
+    operationStartedAt: operationStartedAt || null,
+    fixedFareRun,
+    reservationId: reservationTripContext?.reservationId ?? restoredTripSnapshot?.reservationId ?? null,
+    confirmedFareYen: resolvePreFixedConfirmedFareYen({
+      context: reservationTripContext,
+      snapshot: restoredTripSnapshot,
+      fixedFareRun,
+    }),
+    hasReservationTripContext: Boolean(reservationTripContext),
+    snapshotMeterMode: restoredTripSnapshot?.meterMode ?? null,
+    snapshotFareTotalYen: restoredTripSnapshot?.fareTotalYen ?? null,
+    snapshotHasEmbeddedContext: Boolean(restoredTripSnapshot?.reservationTripContext),
+  })
+}
+
 /** 運行スナップショットから最低限の予約連携コンテキストを再構築する */
 export const buildReservationTripContextFromActiveTripSnapshot = (
   snapshot: ActiveTripSnapshot,
@@ -158,18 +277,18 @@ export const buildReservationTripContextFromActiveTripSnapshot = (
   }
 
   if (snapshot.reservationTripContext) {
-    return snapshot.reservationTripContext
+    return normalizeReservationTripContext(snapshot.reservationTripContext) ?? snapshot.reservationTripContext
   }
 
   const reservationId = snapshot.reservationId?.trim() ?? ''
-  if (!reservationId) {
+  const confirmedFareYen = resolvePreFixedConfirmedFareYen({ snapshot })
+  if (!reservationId && confirmedFareYen <= 0) {
     return null
   }
 
-  const confirmedFareYen = Math.max(
-    Math.round(snapshot.confirmedFareYen ?? snapshot.fareTotalYen ?? 0),
-    0,
-  )
+  if (!reservationId) {
+    return null
+  }
   const pickupAddress = snapshot.pickupLocation?.address?.trim() ?? ''
   const dropoffAddress = snapshot.dropoffLocation?.address?.trim() ?? ''
   const snapshotHash = snapshot.snapshotHash?.trim() ?? ''
