@@ -1,5 +1,6 @@
 // CORS alone cannot block direct curl access to this Worker.
 // Next phase: verify Firebase ID Token / JWT before proxying upstream.
+import { evaluateAdminProxyRoute } from './adminRouting'
 import { fetchNtaInvoiceRegistrant } from './invoiceLookup'
 import { evaluateInvoiceProxyRoute } from './invoiceRouting'
 import { evaluateDriverProxyRoute } from './routing'
@@ -173,6 +174,39 @@ const handleInvoiceProxyRequest = async (
   return jsonResponse(result.body, result.status, corsHeaders)
 }
 
+const handleAdminProxyRequest = async (
+  request: Request,
+  env: Env,
+  corsHeaders: Headers,
+  fetchImpl: typeof fetch,
+): Promise<Response> => {
+  const requestUrl = new URL(request.url)
+  const routeDecision = evaluateAdminProxyRoute(request.method, requestUrl.pathname)
+
+  if (routeDecision.kind === 'not_found') {
+    return new Response('Not Found', { status: 404, headers: corsHeaders })
+  }
+
+  if (routeDecision.kind === 'method_not_allowed') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
+  }
+
+  if (request.method.toUpperCase() === 'OPTIONS') {
+    if (!request.headers.get('Origin') || request.headers.get('Origin') !== env.ALLOWED_ORIGIN) {
+      return new Response(null, { status: 403 })
+    }
+
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
+  if (!env.METER_DRIVER_TOKEN?.trim() || !hasUpstreamTarget(env)) {
+    return new Response('Proxy is not configured', { status: 500, headers: corsHeaders })
+  }
+
+  const upstreamResponse = await fetchUpstream(request, env, fetchImpl)
+  return mergeCorsHeaders(upstreamResponse, corsHeaders)
+}
+
 export const handleDriverProxyRequest = async (
   request: Request,
   env: Env,
@@ -183,6 +217,10 @@ export const handleDriverProxyRequest = async (
 
   if (requestUrl.pathname.startsWith('/api/invoice/')) {
     return handleInvoiceProxyRequest(request, env, corsHeaders, fetchImpl)
+  }
+
+  if (requestUrl.pathname.startsWith('/api/admin/')) {
+    return handleAdminProxyRequest(request, env, corsHeaders, fetchImpl)
   }
 
   const routeDecision = evaluateDriverProxyRoute(

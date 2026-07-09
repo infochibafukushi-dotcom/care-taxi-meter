@@ -7711,6 +7711,110 @@ html:not(.route-meter) .page--home {
   width: 100%;
 }
 
+.pre-opening-reset-panel {
+  grid-column: 1 / -1;
+}
+
+.pre-opening-reset-section {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-opening-reset-section h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.pre-opening-reset-count-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pre-opening-reset-count-table th,
+.pre-opening-reset-count-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgb(220 38 38 / 18%);
+  text-align: left;
+}
+
+.pre-opening-reset-count-table td:last-child,
+.pre-opening-reset-count-table th:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pre-opening-reset-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #7f1d1d;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.pre-opening-reset-list--preserved {
+  color: #334155;
+}
+
+.pre-opening-reset-scope-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.pre-opening-reset-api-note {
+  margin: 0;
+  color: #9a3412;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.pre-opening-reset-confirm-block {
+  display: grid;
+  gap: 10px;
+}
+
+.pre-opening-reset-input-label {
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.pre-opening-reset-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgb(220 38 38 / 35%);
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.pre-opening-reset-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-opening-reset-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@media (min-width: 720px) {
+  .pre-opening-reset-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .reservation-fare-breakdown {
   display: grid;
   gap: 10px;

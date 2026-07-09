@@ -164,6 +164,13 @@ service cloud.firestore {
       allow delete: if isHqAdmin();
     }
 
+    match /maintenanceLogs/{logId} {
+      allow read: if isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchisee(resource.data))
+        || (isStoreManager() && sameStore(resource.data));
+      allow create, update, delete: if false;
+    }
+
     match /companies/{companyDocumentId} {
       allow read, write: if isHqAdmin();
       allow read: if isFranchiseeOwner() && companyDocumentId == franchiseeId();

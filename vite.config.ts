@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 const githubPagesBase = '/care-taxi-meter/'
 const appBasePath = githubPagesBase.replace(/\/$/, '')
 const driverApiProxyPath = `${appBasePath}/api/driver`
+const adminApiProxyPath = `${appBasePath}/api/admin`
 const invoiceApiProxyPath = `${appBasePath}/api/invoice`
 
 // https://vite.dev/config/
@@ -60,6 +61,7 @@ export default defineConfig(({ mode }) => {
   const proxy: Record<string, ProxyOptions> = {}
   if (reservationDriverProxy) {
     proxy[driverApiProxyPath] = reservationDriverProxy
+    proxy[adminApiProxyPath] = reservationDriverProxy
   }
   if (invoiceApiProxy) {
     proxy[invoiceApiProxyPath] = invoiceApiProxy

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { evaluateAdminProxyRoute } from './adminRouting.ts'
 import { handleDriverProxyRequest } from './index.ts'
 import { evaluateDriverProxyRoute } from './routing.ts'
 
@@ -70,6 +71,28 @@ describe('evaluateDriverProxyRoute', () => {
   it('rejects unsupported methods on known paths', () => {
     assert.equal(
       evaluateDriverProxyRoute('DELETE', '/api/driver/reservations/res-001', new URLSearchParams()).kind,
+      'method_not_allowed',
+    )
+  })
+})
+
+describe('evaluateAdminProxyRoute', () => {
+  it('allows pre-opening reset capability GET', () => {
+    const decision = evaluateAdminProxyRoute(
+      'GET',
+      '/api/admin/reservations/pre-opening-reset/capability',
+    )
+    assert.equal(decision.kind, 'allowed')
+  })
+
+  it('allows pre-opening reset POST', () => {
+    const decision = evaluateAdminProxyRoute('POST', '/api/admin/reservations/pre-opening-reset')
+    assert.equal(decision.kind, 'allowed')
+  })
+
+  it('rejects unsupported methods on admin paths', () => {
+    assert.equal(
+      evaluateAdminProxyRoute('DELETE', '/api/admin/reservations/pre-opening-reset').kind,
       'method_not_allowed',
     )
   })

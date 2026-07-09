@@ -24,6 +24,9 @@ export const managementRoles: StaffRole[] = ['manager', 'owner', 'hq_admin']
 export const canAccessAccounting = (role: StaffRole | '') =>
   role === 'owner' || role === 'hq_admin'
 
+export const canResetPreOpeningBusinessData = (role: StaffRole | '') =>
+  role === 'owner' || role === 'hq_admin'
+
 export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) => {
   if (role === 'hq_admin') {
     return false
@@ -38,6 +41,7 @@ export const canAccessAdminSection = (role: StaffRole | '', sectionId: string) =
       'analytics',
       'personalOperations',
       'gpsRoutes',
+      'system',
     ].includes(sectionId)
   }
 

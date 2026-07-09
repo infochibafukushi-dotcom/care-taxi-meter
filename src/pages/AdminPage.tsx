@@ -5,6 +5,7 @@ import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
 import { TimeMeterDiscountSettingsPanel } from "../components/admin/TimeMeterDiscountSettingsPanel";
 import { VehicleManagementPanel } from "../components/admin/VehicleManagementPanel";
 import { GpsRouteManagementPanel } from "../components/admin/GpsRouteManagementPanel";
+import { PreOpeningDataResetPanel } from "../components/admin/PreOpeningDataResetPanel";
 import { fetchCaseRecords } from "../services/caseRecords";
 import {
   fetchStaffMembers,
@@ -148,8 +149,8 @@ const adminCenterCards: Array<{
   },
   {
     id: "system",
-    label: "システム設定",
-    description: "システム管理者向け設定",
+    label: "開業前データリセット",
+    description: "予約・運行・売上・経理の過去データを削除",
   },
 ];
 
@@ -2717,28 +2718,15 @@ export function AdminPage() {
           ) : null}
 
           {activeAdminSection === "system" ? (
-            <div className="admin-system-panel">
-              <section>
-                <h3>データバックアップ</h3>
-                <p>
-                  Phase1では既存データ構造を維持し、バックアップ機能の新規実装は行いません。
-                </p>
-              </section>
-              <section>
-                <h3>バージョン情報</h3>
-                <p>加盟店運行管理 Phase1</p>
-              </section>
-              <section>
-                <h3>権限管理</h3>
-                <p>従業員管理の role 設定を利用します。FC本部のロール定義・権限設定は /hq のシステム設定で管理します。</p>
-              </section>
-              <section>
-                <h3>システム設定</h3>
-                <p>
-                  既存機能を保持したまま、今後の管理者向け設定の入口として利用します。
-                </p>
-              </section>
-            </div>
+            <PreOpeningDataResetPanel
+              currentRole={currentRole}
+              executedBy={currentStaffId}
+              executedByName={currentStaffName}
+              scope={{
+                franchiseeId: currentFranchiseeId,
+                storeId: currentStoreId,
+              }}
+            />
           ) : null}
         </section>
 

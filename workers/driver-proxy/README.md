@@ -10,6 +10,8 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
 
 ## 許可する API
 
+### Driver API
+
 | Method | Path |
 |--------|------|
 | GET | `/api/driver/reservations?date=YYYY-MM-DD` |
@@ -17,6 +19,26 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
 | POST | `/api/driver/reservations/:reservationId/start-fixed-fare` |
 | POST | `/api/driver/reservations/:reservationId/complete-fixed-fare` |
 | POST | `/api/driver/reservations/:reservationId/reset-fixed-fare` |
+
+### Admin API（開業前データリセット用・reservation-v4 側実装が必要）
+
+| Method | Path |
+|--------|------|
+| GET | `/api/admin/reservations/pre-opening-reset/capability` |
+| POST | `/api/admin/reservations/pre-opening-reset` |
+
+`POST` ボディ例:
+
+```json
+{
+  "franchiseeId": "current-franchisee",
+  "storeId": "current-store",
+  "confirmText": "RESET",
+  "executedBy": "staff-id"
+}
+```
+
+reservation-v4 に上記 API が未実装の場合、メーターアプリは Firestore / 端末内データのみ削除し、予約本体は残ります。
 
 その他のパスは `404`、許可パスへの未対応メソッドは `405` です。`OPTIONS` は CORS preflight 用に許可パスのみ受け付けます。
 
