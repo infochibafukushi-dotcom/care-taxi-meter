@@ -28,6 +28,21 @@ const toNumberOrNull = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const toIsoString = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: () => Date }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString()
+  }
+  return undefined
+}
+
 const toStringValue = (value: unknown, fallback = '') =>
   typeof value === 'string' ? value : fallback
 
@@ -146,8 +161,8 @@ const normalizeStoredSettlementAuxiliary = (
     : [],
   updatedBy: toStringValue(data.updatedBy),
   updatedByName: typeof data.updatedByName === 'string' ? data.updatedByName : undefined,
-  createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
-  updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+  createdAt: toIsoString(data.createdAt),
+  updatedAt: toIsoString(data.updatedAt),
 })
 
 export const buildSettlementAuxiliaryDocId = ({

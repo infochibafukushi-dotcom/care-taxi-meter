@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchCompanyById } from '../../services/companies'
 import { saveAccountingSettlementAuxiliary } from '../../services/accountingSettlementAuxiliary'
 import { subscribeMeterSettings, type MeterSettings } from '../../services/meterSettings'
@@ -100,11 +100,15 @@ export function SettlementAuxiliaryDataPanel({
   const [isSaving, setIsSaving] = useState(false)
   const [openSection, setOpenSection] = useState('company')
 
+  const [companyLoaded, setCompanyLoaded] = useState(false)
+
   useEffect(() => {
     let cancelled = false
+    setCompanyLoaded(false)
     void fetchCompanyById(franchiseeId).then((row) => {
       if (!cancelled) {
         setCompany(row)
+        setCompanyLoaded(true)
       }
     })
     return () => {
@@ -122,23 +126,37 @@ export function SettlementAuxiliaryDataPanel({
     return unsubscribe
   }, [franchiseeId, storeId])
 
-  const defaults = useMemo(
-    () =>
-      buildDefaultSettlementAuxiliary({
-        franchiseeId,
-        storeId,
-        targetYear,
-        company,
-        meterSettings,
-        staffId,
-        staffName,
-      }),
-    [company, franchiseeId, meterSettings, staffId, staffName, storeId, targetYear],
-  )
+  const initializationRef = useRef('')
 
   useEffect(() => {
-    setForm(mergeSettlementAuxiliary(stored, defaults))
-  }, [defaults, stored])
+    if (!companyLoaded && !stored) {
+      return
+    }
+
+    const nextKey = stored
+      ? `${stored.id}:${String(stored.updatedAt ?? '')}`
+      : `draft:${targetYear}:${franchiseeId}:${storeId}`
+
+    if (initializationRef.current === nextKey) {
+      return
+    }
+    initializationRef.current = nextKey
+
+    setForm(
+      mergeSettlementAuxiliary(
+        stored,
+        buildDefaultSettlementAuxiliary({
+          franchiseeId,
+          storeId,
+          targetYear,
+          company,
+          meterSettings,
+          staffId,
+          staffName,
+        }),
+      ),
+    )
+  }, [company, companyLoaded, franchiseeId, meterSettings, staffId, staffName, storeId, stored, targetYear])
 
   if (!form) {
     return <p className="empty-note">決算補助データを読み込み中です。</p>
