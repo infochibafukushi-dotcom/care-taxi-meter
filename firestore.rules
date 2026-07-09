@@ -375,6 +375,11 @@ service cloud.firestore {
         || (isStoreManager() && sameStore(data))
       );
     }
+    function canReadSettlementAuxiliaryDoc(docId) {
+      return isHqAdmin()
+        || (isFranchiseeOwner() && docId.matches('^' + franchiseeId() + '_.*'))
+        || (isStoreManager() && docId.matches('^' + franchiseeId() + '_' + storeId() + '_.*'));
+    }
     function validConfirmedExpenseCategory() {
       return request.resource.data.confirmationStatus != '確認済み'
         || (
@@ -439,7 +444,9 @@ service cloud.firestore {
     }
 
     match /accountingSettlementAuxiliary/{docId} {
-      allow read: if canReadAccounting(resource.data);
+      allow read: if resource == null
+        ? (isAccountingUser() && canReadSettlementAuxiliaryDoc(docId))
+        : canReadAccounting(resource.data);
       allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
       allow update: if isAccountingUser()
         && canReadAccounting(resource.data)

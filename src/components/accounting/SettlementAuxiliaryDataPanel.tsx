@@ -191,12 +191,15 @@ export function SettlementAuxiliaryDataPanel({
 
     setIsSaving(true)
     try {
-      await saveAccountingSettlementAuxiliary({
-        ...form,
-        targetYear,
-        updatedBy: staffId,
-        updatedByName: staffName,
-      })
+      await saveAccountingSettlementAuxiliary(
+        {
+          ...form,
+          targetYear,
+          updatedBy: staffId,
+          updatedByName: staffName,
+        },
+        { isNewDocument: !stored },
+      )
       await onReload()
       onStatus(`${targetYear}年度の決算補助データを保存しました。`)
     } catch (error) {

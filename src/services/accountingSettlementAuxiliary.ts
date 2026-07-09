@@ -198,7 +198,10 @@ export async function fetchAccountingSettlementAuxiliary(
   return matchesTenantScope(stored, scope) ? stored : null
 }
 
-export async function saveAccountingSettlementAuxiliary(input: AccountingSettlementAuxiliaryInput) {
+export async function saveAccountingSettlementAuxiliary(
+  input: AccountingSettlementAuxiliaryInput,
+  options?: { isNewDocument?: boolean },
+) {
   if (isReviewDemoRuntimeEnabled()) {
     return buildSettlementAuxiliaryDocId(input)
   }
@@ -214,7 +217,6 @@ export async function saveAccountingSettlementAuxiliary(input: AccountingSettlem
     targetYear: input.targetYear,
   })
   const docRef = doc(db, collectionName, docId)
-  const existing = await getDoc(docRef)
 
   await setDoc(
     docRef,
@@ -222,7 +224,7 @@ export async function saveAccountingSettlementAuxiliary(input: AccountingSettlem
       ...input,
       ...tenant,
       updatedAt: serverTimestamp(),
-      ...(existing.exists() ? {} : { createdAt: serverTimestamp() }),
+      ...(options?.isNewDocument ? { createdAt: serverTimestamp() } : {}),
     }),
     { merge: true },
   )
