@@ -1,5 +1,6 @@
 import type { TimerSeconds } from '../hooks/useOperationTimers'
 import type { CaseNumberAssignment, FareSnapshot } from './caseRecords'
+import type { ReservationTripContext } from './reservationTripContext'
 import type {
   ExpenseItem,
   ActivityHistoryEntry,
@@ -85,6 +86,8 @@ export type ActiveTripSnapshot = {
   preFixedSegmentIndex?: number
   /** 旅客都合変更による途中終了（精算前） */
   preFixedFareException?: PreFixedFareException | null
+  /** 事前確定M: 予約連携コンテキスト（復元時の sessionStorage 欠落対策） */
+  reservationTripContext?: ReservationTripContext
   /** Start timestamps for open waiting / accompanying / driving segments. */
   timerStartedAt?: TimerStartedAtMap
   taxiTickets: TaxiTicket[]

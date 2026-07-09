@@ -1,8 +1,10 @@
+import type { ActiveTripSnapshot } from './activeTripSnapshot'
 import type {
   DriverReservationDetail,
   QuoteSnapshot,
   ReservationConsent,
 } from '../types/reservation'
+import { isProtectedOperationStatus } from '../utils/meterConstants'
 import { resolveReservationIsTest } from '../utils/testReservation'
 
 export const reservationTripContextStorageKey = 'careTaxiMeterReservationTripContext'
@@ -127,3 +129,128 @@ export const clearReservationTripContext = () => {
     console.warn('Failed to clear reservation trip context.', error)
   }
 }
+
+const emptyQuoteSnapshot = (): QuoteSnapshot => ({
+  fixedFareTotal: 0,
+  serviceFees: [],
+  fareMode: 'pre_fixed_fare',
+  selectedRouteId: '',
+  selectedUsesToll: false,
+  distanceMeters: 0,
+  durationSeconds: 0,
+  preFixedFareConfirmable: true,
+})
+
+const emptyConsent = (): ReservationConsent => ({
+  consentAt: '',
+  consentTextVersion: '',
+  snapshotHash: '',
+  quotedFareYen: 0,
+  source: '',
+})
+
+/** 運行スナップショットから最低限の予約連携コンテキストを再構築する */
+export const buildReservationTripContextFromActiveTripSnapshot = (
+  snapshot: ActiveTripSnapshot,
+): ReservationTripContext | null => {
+  if (snapshot.meterMode !== 'fixed') {
+    return null
+  }
+
+  if (snapshot.reservationTripContext) {
+    return snapshot.reservationTripContext
+  }
+
+  const reservationId = snapshot.reservationId?.trim() ?? ''
+  if (!reservationId) {
+    return null
+  }
+
+  const confirmedFareYen = Math.max(
+    Math.round(snapshot.confirmedFareYen ?? snapshot.fareTotalYen ?? 0),
+    0,
+  )
+  const pickupAddress = snapshot.pickupLocation?.address?.trim() ?? ''
+  const dropoffAddress = snapshot.dropoffLocation?.address?.trim() ?? ''
+  const snapshotHash = snapshot.snapshotHash?.trim() ?? ''
+
+  return {
+    reservationId,
+    estimateNo: '',
+    confirmedFareYen,
+    fixedFareTotalYen: Math.max(Math.round(snapshot.fareTotalYen ?? confirmedFareYen), 0),
+    snapshotHash,
+    consentAt: '',
+    pickupAddress,
+    dropoffAddress,
+    usageSummary: [],
+    quoteSnapshot: {
+      ...emptyQuoteSnapshot(),
+      fixedFareTotal: confirmedFareYen,
+      selectedRouteId: '',
+    },
+    routePlan: null,
+    consent: {
+      ...emptyConsent(),
+      snapshotHash,
+      quotedFareYen: confirmedFareYen,
+    },
+    customerName: '',
+    scheduledAt: snapshot.capturedAt,
+  }
+}
+
+export type ResolveReservationTripContextOptions = {
+  reservationIdFromQuery?: string
+  restoredSnapshot?: ActiveTripSnapshot | null
+  readStoredContext?: typeof readReservationTripContext
+}
+
+/** メーター画面表示時に sessionStorage・復元スナップショットから予約連携を解決する */
+export const resolveReservationTripContextForCasePage = ({
+  reservationIdFromQuery = '',
+  restoredSnapshot = null,
+  readStoredContext = readReservationTripContext,
+}: ResolveReservationTripContextOptions = {}): ReservationTripContext | null => {
+  const queryReservationId = reservationIdFromQuery.trim()
+  const snapshotReservationId = restoredSnapshot?.reservationId?.trim() ?? ''
+
+  if (queryReservationId) {
+    return (
+      readStoredContext(queryReservationId) ??
+      (restoredSnapshot ? buildReservationTripContextFromActiveTripSnapshot(restoredSnapshot) : null)
+    )
+  }
+
+  const storedContext = readStoredContext()
+  if (storedContext) {
+    if (!snapshotReservationId || storedContext.reservationId === snapshotReservationId) {
+      return storedContext
+    }
+
+    return (
+      readStoredContext(snapshotReservationId) ??
+      buildReservationTripContextFromActiveTripSnapshot(restoredSnapshot!)
+    )
+  }
+
+  if (restoredSnapshot?.meterMode === 'fixed') {
+    return buildReservationTripContextFromActiveTripSnapshot(restoredSnapshot)
+  }
+
+  return null
+}
+
+export const shouldRestoreFixedFareRunFromSnapshot = (snapshot: ActiveTripSnapshot) =>
+  snapshot.meterMode === 'fixed' &&
+  typeof snapshot.reservationId === 'string' &&
+  snapshot.reservationId.trim().length > 0 &&
+  isProtectedOperationStatus(snapshot.status)
+
+/** localStorage 永続化向け。routePlan は preFixedOverallStops と重複し得るため除外する */
+export const compactReservationTripContextForSnapshot = (
+  context: ReservationTripContext,
+): ReservationTripContext => ({
+  ...context,
+  routePlan: null,
+})

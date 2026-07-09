@@ -552,7 +552,24 @@ export function HomePage() {
   ])
 
   const handleRestoreActiveTrip = () => {
-    navigate('/case')
+    if (!activeTripSnapshot) {
+      navigate('/case')
+      return
+    }
+
+    const params = new URLSearchParams()
+    if (activeTripSnapshot.meterMode) {
+      params.set('meterMode', activeTripSnapshot.meterMode)
+    }
+    if (activeTripSnapshot.reservationId?.trim()) {
+      params.set('reservationId', activeTripSnapshot.reservationId.trim())
+    }
+    if (activeTripSnapshot.selectedVehicleId?.trim()) {
+      params.set('vehicleId', activeTripSnapshot.selectedVehicleId.trim())
+    }
+
+    const query = params.toString()
+    navigate(query ? `/case?${query}` : '/case')
   }
 
   const activeTripRestoreNotice = activeTripSnapshot ? (
