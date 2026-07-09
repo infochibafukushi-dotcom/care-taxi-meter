@@ -54,6 +54,18 @@ describe('resolveReservationCategory', () => {
   it('classifies normal reservations', () => {
     expect(resolveReservationCategory(baseSummary({ fareType: '通常予約' }))).toBe('normal')
   })
+
+  it('classifies test reservations with null fare type as normal', () => {
+    expect(
+      resolveReservationCategory(
+        baseSummary({
+          fareType: null as unknown as string,
+          status: 'test',
+          isTest: true,
+        }),
+      ),
+    ).toBe('normal')
+  })
 })
 
 describe('isPreFixedReservationReady', () => {

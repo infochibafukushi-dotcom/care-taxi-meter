@@ -9255,6 +9255,17 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   color: #b45309;
 }
 
+.pre-fixed-reservation-badge--test {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.pre-fixed-unified-reservation-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .pre-fixed-unified-reservation-card__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

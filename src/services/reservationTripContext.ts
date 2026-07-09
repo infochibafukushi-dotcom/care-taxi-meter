@@ -3,6 +3,7 @@ import type {
   QuoteSnapshot,
   ReservationConsent,
 } from '../types/reservation'
+import { resolveReservationIsTest } from '../utils/testReservation'
 
 export const reservationTripContextStorageKey = 'careTaxiMeterReservationTripContext'
 
@@ -15,6 +16,7 @@ export type ReservationTripContext = {
   consentAt: string
   pickupAddress: string
   dropoffAddress: string
+  isTest?: boolean
   /** 予約 trip.usageSummary（往復/片道判定に使用） */
   usageSummary: string[]
   quoteSnapshot: QuoteSnapshot
@@ -29,6 +31,7 @@ export const buildReservationTripContext = (
 ): ReservationTripContext => ({
   reservationId: reservation.reservationId,
   estimateNo: reservation.estimateNo,
+  isTest: resolveReservationIsTest(reservation),
   confirmedFareYen: reservation.fixedFare.confirmedFareYen,
   fixedFareTotalYen: reservation.fixedFare.fixedFareTotalYen,
   snapshotHash: reservation.consent.snapshotHash,

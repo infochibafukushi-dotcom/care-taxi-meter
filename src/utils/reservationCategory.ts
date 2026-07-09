@@ -11,7 +11,9 @@ export const reservationCategoryLabels: Record<ReservationCategory, string> = {
 type ReservationCategoryInput = Pick<
   DriverReservationSummary,
   'fareType' | 'preFixedFareConfirmable' | 'confirmedFareYen' | 'consentAt'
->
+> & {
+  fareType?: string | null
+}
 
 const normalizeCategoryInput = (
   reservation: ReservationCategoryInput | DriverReservationDetail,
@@ -32,7 +34,7 @@ export const resolveReservationCategory = (
   reservation: ReservationCategoryInput | DriverReservationDetail,
 ): ReservationCategory => {
   const normalized = normalizeCategoryInput(reservation)
-  const fareType = normalized.fareType.trim()
+  const fareType = (normalized.fareType ?? '').trim()
 
   if (fareType.includes('電話')) {
     return 'phone'

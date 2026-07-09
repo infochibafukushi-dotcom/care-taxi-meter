@@ -79,6 +79,7 @@ import {
   openGoogleMapsNavigation,
 } from '../services/preFixedFareRoute'
 import { completeFixedFareRun } from '../services/reservationApi'
+import { readTestReservationFlag } from '../utils/testReservation'
 import { waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import {
   claimVehicleForCaseStart,
@@ -3434,6 +3435,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
               taxiTickets,
               waitingSeconds: adjustedWaitingSeconds,
             })
+      const linkedReservationId =
+        (meterMode === 'fixed' && fixedFareRun?.reservationId) ||
+        reservationTripContext?.reservationId ||
+        ''
+      const isTestReservation =
+        Boolean(reservationTripContext?.isTest) ||
+        (linkedReservationId ? readTestReservationFlag(linkedReservationId) : false)
 
       if (reviewDemoMode) {
         const savedRecord = buildReviewDemoSavedCaseRecord({
@@ -3519,6 +3527,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           : {}),
         ...preFixedFareSaveExtras,
         ...(preFixedFareContext ? { preFixedFareContext } : {}),
+        ...(isTestReservation ? { isTestReservation: true } : {}),
       })
       const savedRecord: StoredCaseRecord = {
         id: savedRecordRef.id,

@@ -76,6 +76,7 @@ export type CaseRecordInput = {
   timeComparisonFareYen?: number | null
   obdComparisonFareYen?: number | null
   reservationId?: string
+  isTestReservation?: boolean
   confirmedFareYen?: number
   snapshotHash?: string
   fareMode?: FareMode
@@ -253,6 +254,7 @@ export type CaseRecordDocument = {
   timeComparisonFareYen: number | null
   obdComparisonFareYen: number | null
   reservationId?: string
+  isTestReservation?: boolean
   confirmedFareYen?: number
   snapshotHash?: string
   fareMode?: FareMode
@@ -793,6 +795,7 @@ const toStoredCaseRecord = (
     timeComparisonFareYen: toNullableNumber(data.timeComparisonFareYen),
     obdComparisonFareYen: toNullableNumber(data.obdComparisonFareYen),
     reservationId: toString(data.reservationId) || undefined,
+    isTestReservation: toBoolean(data.isTestReservation) || undefined,
     confirmedFareYen: toNullableNumber(data.confirmedFareYen) ?? undefined,
     snapshotHash: toString(data.snapshotHash) || undefined,
     fareMode: toString(data.fareMode) === 'pre_fixed_fare' ? 'pre_fixed_fare' : undefined,
@@ -916,6 +919,7 @@ export async function saveCaseRecord({
   timeComparisonFareYen = null,
   obdComparisonFareYen = null,
   reservationId,
+  isTestReservation,
   confirmedFareYen,
   snapshotHash,
   fareMode,
@@ -1055,6 +1059,7 @@ export async function saveCaseRecord({
     timeComparisonFareYen,
     obdComparisonFareYen,
     ...(reservationId ? { reservationId } : {}),
+    ...(isTestReservation ? { isTestReservation: true } : {}),
     ...(typeof confirmedFareYen === 'number' && Number.isFinite(confirmedFareYen)
       ? { confirmedFareYen: Math.max(Math.round(confirmedFareYen), 0) }
       : {}),

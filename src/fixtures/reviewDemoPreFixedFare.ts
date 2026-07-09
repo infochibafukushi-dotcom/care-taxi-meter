@@ -23,6 +23,7 @@ export const reviewDemoPreFixedFareReservationDetail: DriverReservationDetail = 
   reservationId: REVIEW_DEMO_RESERVATION_ID,
   estimateNo: 'REVIEW-DEMO-001',
   status: 'active',
+  isTest: false,
   meterRunStatus: 'not_started',
   scheduledAt: REVIEW_DEMO_SCHEDULED_AT,
   customer: {
@@ -113,6 +114,7 @@ export const reviewDemoPreFixedFareReservationSummary: DriverReservationSummary 
   reservationId: REVIEW_DEMO_RESERVATION_ID,
   estimateNo: 'REVIEW-DEMO-001',
   status: 'active',
+  isTest: false,
   meterRunStatus: 'not_started',
   scheduledAt: REVIEW_DEMO_SCHEDULED_AT,
   date: '2026-09-01',

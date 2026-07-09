@@ -32,13 +32,13 @@ const formatJapanDateInputValue = (date = new Date()) => {
 
 const formatAddress = (address: string) => (address.trim() ? address : '住所未取得')
 
-const resolveRouteLabel = (routeId: string) => {
-  const normalized = routeId.trim().toUpperCase()
+const resolveRouteLabel = (routeId: string | null | undefined) => {
+  const normalized = (routeId ?? '').trim().toUpperCase()
   if (normalized === 'A' || normalized === 'B' || normalized === 'C' || normalized === 'D') {
     const id = normalized as PreFixedRouteCandidateId
     return `${id} ${preFixedRouteCandidateLabels[id]}`
   }
-  return routeId || '未設定'
+  return routeId?.trim() || '未設定'
 }
 
 type FlowStep = 'list' | 'detail' | 'consent'

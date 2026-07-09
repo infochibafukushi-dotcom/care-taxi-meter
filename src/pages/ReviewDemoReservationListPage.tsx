@@ -18,7 +18,8 @@ import { formatCaseDateTime } from '../utils/caseRecords'
 
 const formatAddress = (address: string) => (address.trim() ? address : '住所未取得')
 
-const formatOptionalText = (value: string) => (value.trim() ? value : '未設定')
+const formatOptionalText = (value: string | null | undefined) =>
+  (value ?? '').trim() ? (value ?? '').trim() : '未設定'
 
 export function ReviewDemoReservationListPage() {
   const [searchParams] = useSearchParams()

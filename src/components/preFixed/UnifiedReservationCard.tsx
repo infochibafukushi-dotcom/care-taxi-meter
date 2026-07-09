@@ -9,6 +9,7 @@ import {
   resolveReservationCategory,
   type ReservationCategory,
 } from '../../utils/reservationCategory'
+import { resolveReservationIsTest } from '../../utils/testReservation'
 
 const formatAddress = (address: string) => (address.trim() ? address : '住所未取得')
 
@@ -49,6 +50,7 @@ export function UnifiedReservationCard({
   actionLabel = '詳細',
 }: UnifiedReservationCardProps) {
   const category = resolveReservationCategory(reservation)
+  const isTestReservation = resolveReservationIsTest(reservation)
   const customerName = reservation.customerName.trim() || '未設定'
   const fareSummary = resolveFareSummary(category, reservation)
 
@@ -59,9 +61,16 @@ export function UnifiedReservationCard({
       onClick={() => onSelect(reservation.reservationId)}
     >
       <div className="pre-fixed-unified-reservation-card__header">
-        <span className={categoryBadgeClass[category]}>
-          {reservationCategoryLabels[category]}
-        </span>
+        <div className="pre-fixed-unified-reservation-card__badges">
+          {isTestReservation ? (
+            <span className="pre-fixed-reservation-badge pre-fixed-reservation-badge--test">
+              テスト予約
+            </span>
+          ) : null}
+          <span className={categoryBadgeClass[category]}>
+            {reservationCategoryLabels[category]}
+          </span>
+        </div>
         <span className="pre-fixed-unified-reservation-card__datetime">
           {formatCaseDateTime(reservation.scheduledAt)}
         </span>

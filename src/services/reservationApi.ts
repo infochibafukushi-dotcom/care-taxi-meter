@@ -5,11 +5,18 @@ import type {
   DriverReservationListItemApi,
   DriverReservationSummary,
   DriverReservationsListResponseApi,
+  QuoteSnapshotApi,
+  ReservationConsentApi,
 } from '../types/reservation'
 import {
   mapPreFixedFareExceptionFromApi,
   type CompleteFixedFareRunPayload,
 } from '../types/preFixedFare'
+import {
+  cacheTestReservationFlag,
+  normalizeNullableString,
+  resolveReservationIsTest,
+} from '../utils/testReservation'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 
 type ReservationApiErrorBody = {
@@ -162,35 +169,82 @@ async function postReservationApi<T>(
   return parseReservationJsonResponse<T>(response)
 }
 
+const EMPTY_QUOTE_SNAPSHOT: QuoteSnapshotApi = {
+  fixedFareTotal: 0,
+  serviceFees: [],
+  fareMode: '',
+  selectedRouteId: '',
+  selectedUsesToll: false,
+  distanceMeters: 0,
+  durationSeconds: 0,
+  preFixedFareConfirmable: false,
+}
+
+const EMPTY_CONSENT: ReservationConsentApi = {
+  consentAt: '',
+  consentTextVersion: '',
+  snapshotHash: '',
+  quotedFareYen: 0,
+  source: '',
+}
+
+const normalizeListItem = (
+  item: DriverReservationListItemApi,
+): DriverReservationSummary => {
+  const isTest = resolveReservationIsTest(item)
+  cacheTestReservationFlag(item.reservationId, isTest)
+
+  return {
+    ...item,
+    estimateNo: normalizeNullableString(item.estimateNo),
+    fareType: normalizeNullableString(item.fareType),
+    selectedRouteId: normalizeNullableString(item.selectedRouteId),
+    consentAt: normalizeNullableString(item.consentAt),
+    snapshotHash: normalizeNullableString(item.snapshotHash),
+    isTest,
+  }
+}
+
 export const mapDriverReservationListItem = (
   item: DriverReservationListItemApi,
-): DriverReservationSummary => ({
-  ...item,
-})
+): DriverReservationSummary => normalizeListItem(item)
 
 export const mapDriverReservationDetail = (
   reservation: DriverReservationDetailApi,
-): DriverReservationDetail => ({
-  reservationId: reservation.reservationId,
-  estimateNo: reservation.estimateNo,
-  status: reservation.status,
-  meterRunStatus: reservation.meterRunStatus,
-  scheduledAt: reservation.scheduledAt,
-  customer: reservation.customer,
-  trip: reservation.trip,
-  fixedFare: reservation.fixedFare,
-  consent: reservation.consent,
-  quoteSnapshot: reservation.quoteSnapshot,
-  routePlan: reservation.routePlan,
-  integrity: reservation.integrity,
-  franchiseeId: reservation.franchiseeId,
-  storeId: reservation.storeId,
-  snapshotHashVerified: reservation.integrity.snapshotHashVerified,
-  fareMatch: reservation.integrity.confirmedFareMatchesSnapshot,
-  fixedFareCompletionStatus: reservation.fixedFareCompletionStatus ?? null,
-  fixedFareCompletionReason: reservation.fixedFareCompletionReason ?? null,
-  preFixedFareException: mapPreFixedFareExceptionFromApi(reservation.preFixedFareException),
-})
+): DriverReservationDetail => {
+  const isTest = resolveReservationIsTest(reservation)
+  cacheTestReservationFlag(reservation.reservationId, isTest)
+  const consent = reservation.consent ?? EMPTY_CONSENT
+  const quoteSnapshot = reservation.quoteSnapshot ?? EMPTY_QUOTE_SNAPSHOT
+
+  return {
+    reservationId: reservation.reservationId,
+    estimateNo: normalizeNullableString(reservation.estimateNo),
+    status: reservation.status,
+    isTest,
+    meterRunStatus: reservation.meterRunStatus,
+    scheduledAt: reservation.scheduledAt,
+    customer: reservation.customer,
+    trip: reservation.trip,
+    fixedFare: {
+      ...reservation.fixedFare,
+      fareType: normalizeNullableString(reservation.fixedFare.fareType),
+      fareLockedAt: normalizeNullableString(reservation.fixedFare.fareLockedAt),
+      selectedRouteId: normalizeNullableString(reservation.fixedFare.selectedRouteId),
+    },
+    consent,
+    quoteSnapshot,
+    routePlan: reservation.routePlan,
+    integrity: reservation.integrity,
+    franchiseeId: reservation.franchiseeId,
+    storeId: reservation.storeId,
+    snapshotHashVerified: reservation.integrity.snapshotHashVerified,
+    fareMatch: reservation.integrity.confirmedFareMatchesSnapshot,
+    fixedFareCompletionStatus: reservation.fixedFareCompletionStatus ?? null,
+    fixedFareCompletionReason: reservation.fixedFareCompletionReason ?? null,
+    preFixedFareException: mapPreFixedFareExceptionFromApi(reservation.preFixedFareException),
+  }
+}
 
 export async function fetchDriverReservations(date: string): Promise<{
   date: string

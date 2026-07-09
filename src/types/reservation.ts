@@ -32,9 +32,9 @@ export type ReservationTripApi = {
 export type ReservationFixedFareApi = {
   confirmedFareYen: number
   fixedFareTotalYen: number
-  fareType: string
-  fareLockedAt: string
-  selectedRouteId: string
+  fareType: string | null
+  fareLockedAt: string | null
+  selectedRouteId: string | null
   selectedOverallRouteId: string | null
   useToll: boolean
   preFixedFareConfirmable: boolean
@@ -60,17 +60,18 @@ export type QuoteSnapshotApi = {
 }
 
 export type ReservationIntegrityApi = {
-  snapshotHash: string
-  computedSnapshotHash: string
+  snapshotHash: string | null
+  computedSnapshotHash: string | null
   snapshotHashVerified: boolean
   confirmedFareMatchesSnapshot: boolean
-  consentSnapshotHashMatches: boolean
+  consentSnapshotHashMatches: boolean | null
 }
 
 export type DriverReservationListItemApi = {
   reservationId: string
-  estimateNo: string
+  estimateNo: string | null
   status: string
+  isTest?: boolean
   meterRunStatus: string
   scheduledAt: string
   date: string
@@ -81,27 +82,28 @@ export type DriverReservationListItemApi = {
   destinationAddress: string
   confirmedFareYen: number
   fixedFareTotalYen: number
-  fareType: string
+  fareType: string | null
   preFixedFareConfirmable: boolean
   useToll: boolean
-  selectedRouteId: string
-  consentAt: string
-  snapshotHash: string
+  selectedRouteId: string | null
+  consentAt: string | null
+  snapshotHash: string | null
   franchiseeId: string | null
   storeId: string | null
 }
 
 export type DriverReservationDetailApi = {
   reservationId: string
-  estimateNo: string
+  estimateNo: string | null
   status: string
+  isTest?: boolean
   meterRunStatus: string
   scheduledAt: string
   customer: ReservationCustomerApi
   trip: ReservationTripApi
   fixedFare: ReservationFixedFareApi
-  consent: ReservationConsentApi
-  quoteSnapshot: QuoteSnapshotApi
+  consent: ReservationConsentApi | null
+  quoteSnapshot: QuoteSnapshotApi | null
   routePlan: unknown | null
   integrity: ReservationIntegrityApi
   franchiseeId: string | null
@@ -138,6 +140,7 @@ export type DriverReservationDetail = {
   reservationId: string
   estimateNo: string
   status: string
+  isTest: boolean
   meterRunStatus: string
   scheduledAt: string
   customer: ReservationCustomer
@@ -160,6 +163,7 @@ export { isPreFixedFarePassengerChangeCompletion as isPreFixedFarePassengerChang
 
 export const reservationStatusLabels: Record<string, string> = {
   active: '有効',
+  test: 'テスト予約',
 }
 
 export const meterRunStatusLabels: Record<string, string> = {

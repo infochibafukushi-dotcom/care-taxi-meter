@@ -23,12 +23,13 @@ import { formatFareYen } from '../services/fare'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import { formatElapsedTime } from '../utils/time'
 import { logDiagnostic } from '../utils/diagnostics'
+import { resolveReservationIsTest } from '../utils/testReservation'
 
 const formatAddress = (address: string) =>
   address.trim() ? address : '住所未取得'
 
-const formatOptionalText = (value: string) =>
-  value.trim() ? value : '未設定'
+const formatOptionalText = (value: string | null | undefined) =>
+  (value ?? '').trim() ? (value ?? '').trim() : '未設定'
 
 const formatVerificationBadge = (verified: boolean) =>
   verified ? 'OK' : '要確認'
@@ -260,6 +261,7 @@ export function ReservationDetailPage() {
   }
 
   const reservation = state.reservation
+  const isTestReservation = reservation ? resolveReservationIsTest(reservation) : false
   const meterRunStatus = reservation?.meterRunStatus ?? ''
   const activeTripRestoreState =
     meterRunStatus === 'in_progress' && reservationId
@@ -292,6 +294,13 @@ export function ReservationDetailPage() {
             </Link>
             <p className="eyebrow">Reservation Detail</p>
             <h1 id="reservation-detail-title">予約詳細</h1>
+            {isTestReservation ? (
+              <p className="reservation-detail-test-badge" role="status">
+                <span className="pre-fixed-reservation-badge pre-fixed-reservation-badge--test">
+                  テスト予約
+                </span>
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -389,6 +398,9 @@ export function ReservationDetailPage() {
 
             <section className="reservation-detail-section" aria-label="検証結果">
               <h2>検証結果</h2>
+              {isTestReservation ? (
+                <p className="save-note">テスト予約のため、スナップショット検証は対象外です。</p>
+              ) : (
               <div className="reservation-verification-badges">
                 <span
                   className={`reservation-verification-badge reservation-verification-badge--${
@@ -410,9 +422,10 @@ export function ReservationDetailPage() {
                     reservation.integrity.consentSnapshotHashMatches ? 'ok' : 'warn'
                   }`}
                 >
-                  同意スナップショット: {formatVerificationBadge(reservation.integrity.consentSnapshotHashMatches)}
+                  同意スナップショット: {formatVerificationBadge(Boolean(reservation.integrity.consentSnapshotHashMatches))}
                 </span>
               </div>
+              )}
             </section>
 
             <section className="reservation-detail-section" aria-label="基本情報">
@@ -456,12 +469,14 @@ export function ReservationDetailPage() {
                   <dt>確定運賃（予約時同意額）</dt>
                   <dd>{formatFareYen(reservation.fixedFare.confirmedFareYen)}円</dd>
                 </div>
-                <div><dt>運賃種別</dt><dd>{reservation.fixedFare.fareType}</dd></div>
+                <div><dt>運賃種別</dt><dd>{formatOptionalText(reservation.fixedFare.fareType)}</dd></div>
                 <div><dt>高速利用</dt><dd>{reservation.fixedFare.useToll ? 'あり' : 'なし'}</dd></div>
                 <div><dt>ルートID</dt><dd>{formatOptionalText(reservation.fixedFare.selectedRouteId)}</dd></div>
-                <div><dt>料金確定日時</dt><dd>{formatCaseDateTime(reservation.fixedFare.fareLockedAt)}</dd></div>
+                <div><dt>料金確定日時</dt><dd>{reservation.fixedFare.fareLockedAt ? formatCaseDateTime(reservation.fixedFare.fareLockedAt) : '未設定'}</dd></div>
               </dl>
 
+              {!isTestReservation ? (
+              <>
               <div className="reservation-fare-breakdown">
                 <h3>確定運賃の内訳</h3>
                 <p className="reservation-fare-breakdown-note">
@@ -505,20 +520,26 @@ export function ReservationDetailPage() {
               <dl className="reservation-detail-dl">
                 <div><dt>見積距離</dt><dd>{(reservation.quoteSnapshot.distanceMeters / 1000).toFixed(1)} km</dd></div>
                 <div><dt>見積時間</dt><dd>{formatElapsedTime(reservation.quoteSnapshot.durationSeconds)}</dd></div>
-                <div><dt>見積モード</dt><dd>{reservation.quoteSnapshot.fareMode}</dd></div>
+                <div><dt>見積モード</dt><dd>{formatOptionalText(reservation.quoteSnapshot.fareMode)}</dd></div>
               </dl>
+              </>
+              ) : (
+                <p className="save-note">テスト予約のため、確定運賃の内訳は表示されません。</p>
+              )}
             </section>
 
+            {!isTestReservation ? (
             <section className="reservation-detail-section" aria-label="同意証跡">
               <h2>同意証跡</h2>
               <dl className="reservation-detail-dl">
-                <div><dt>同意日時</dt><dd>{formatCaseDateTime(reservation.consent.consentAt)}</dd></div>
+                <div><dt>同意日時</dt><dd>{reservation.consent.consentAt ? formatCaseDateTime(reservation.consent.consentAt) : '未設定'}</dd></div>
                 <div><dt>同意文バージョン</dt><dd>{formatOptionalText(reservation.consent.consentTextVersion)}</dd></div>
                 <div><dt>見積運賃</dt><dd>{formatFareYen(reservation.consent.quotedFareYen)}円</dd></div>
                 <div><dt>ソース</dt><dd>{formatOptionalText(reservation.consent.source)}</dd></div>
-                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{reservation.consent.snapshotHash}</dd></div>
+                <div><dt>スナップショットハッシュ</dt><dd className="reservation-hash">{formatOptionalText(reservation.consent.snapshotHash)}</dd></div>
               </dl>
             </section>
+            ) : null}
           </div>
         ) : null}
       </section>

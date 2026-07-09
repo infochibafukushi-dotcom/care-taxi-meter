@@ -171,7 +171,7 @@ export function ReviewDemoReservationDetailPage() {
               </span>
               <span className="reservation-verification-badge reservation-verification-badge--ok">
                 同意スナップショット:{' '}
-                {formatVerificationBadge(reservation.integrity.consentSnapshotHashMatches)}
+                {formatVerificationBadge(Boolean(reservation.integrity.consentSnapshotHashMatches))}
               </span>
             </div>
           </section>
