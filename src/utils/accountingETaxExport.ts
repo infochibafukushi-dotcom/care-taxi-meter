@@ -1,3 +1,4 @@
+import { formatETaxCheckItemStatus } from './accountingETaxData'
 import type { ETaxExportableSectionId, ETaxPackage, ETaxReportLine } from '../types/accountingETax'
 import {
   COST_OF_SALES_CATEGORIES,
@@ -103,7 +104,8 @@ export const buildETaxAccountBreakdownDetailCsv = (pkg: ETaxPackage) => {
       )
     })
     if (section.rows.length === 0) {
-      lines.push(csvLine([section.sectionId, section.sectionLabel, `${section.mappingIdPrefix}.empty`, '未設定']))
+      const emptyLabel = section.emptyStatus === 'na' ? '該当なし' : '未設定'
+      lines.push(csvLine([section.sectionId, section.sectionLabel, `${section.mappingIdPrefix}.empty`, emptyLabel]))
     }
   })
 
@@ -114,9 +116,15 @@ export const buildETaxInputStatusCsv = (pkg: ETaxPackage) =>
   withBom(
     [
       csvLine([`e-Tax入力用 入力状況 ${pkg.company.fiscalYearLabel}`]),
-      csvLine(['mappingId', '区分', '項目', '状態']),
-      ...pkg.missingItems.map((item) =>
-        csvLine([item.mappingId, item.category, item.label, item.status === 'planned' ? '今後対応予定' : '未設定']),
+      csvLine(['mappingId', '区分', '項目', '状態', '詳細']),
+      ...pkg.checkItems.map((item) =>
+        csvLine([
+          item.mappingId,
+          item.category,
+          item.label,
+          formatETaxCheckItemStatus(item.status),
+          item.detail ?? '',
+        ]),
       ),
     ].join(CSV_EOL),
   )

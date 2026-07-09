@@ -9,7 +9,7 @@ import type {
   StoredAccountingFixedCost,
 } from '../../types/accounting'
 import type { StoredAccountingFixedAsset } from '../../types/accountingFixedAssets'
-import type { ETaxExportableSectionId, ETaxSectionId } from '../../types/accountingETax'
+import type { ETaxCheckItem, ETaxExportableSectionId, ETaxSectionId } from '../../types/accountingETax'
 import type { StoredAccountingSettlementAuxiliary } from '../../types/accountingSettlementAuxiliary'
 import type { Company } from '../../types/work'
 import { formatPlAmount } from '../../utils/accountingCsv'
@@ -20,7 +20,7 @@ import {
   VARIABLE_EXPENSE_CATEGORIES,
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
-import { buildETaxPackage } from '../../utils/accountingETaxData'
+import { buildETaxPackage, formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
 import {
   exportETaxBulkCsv,
   exportETaxBulkPdf,
@@ -75,6 +75,48 @@ const NON_EXPORT_SECTIONS = new Set<ETaxSectionId>([
   'pdf-bulk',
   'csv-bulk',
 ])
+
+function InputStatusSummary({ inputStatus }: { inputStatus: ReturnType<typeof buildETaxPackage>['inputStatus'] }) {
+  return (
+    <dl className="accounting-etax-status-counts">
+      <div className="is-required">
+        <dt>要入力</dt>
+        <dd>{inputStatus.requiredCount} 件</dd>
+      </div>
+      <div className="is-na">
+        <dt>該当なし</dt>
+        <dd>{inputStatus.naCount} 件</dd>
+      </div>
+      <div className="is-review">
+        <dt>要確認</dt>
+        <dd>{inputStatus.reviewCount} 件</dd>
+      </div>
+      <div className="is-planned">
+        <dt>今後対応予定</dt>
+        <dd>{inputStatus.plannedCount} 件</dd>
+      </div>
+    </dl>
+  )
+}
+
+function CheckItemList({ items }: { items: ETaxCheckItem[] }) {
+  if (items.length === 0) {
+    return <p className="save-note">不足項目はありません。</p>
+  }
+
+  return (
+    <ul className="accounting-etax-missing-list">
+      {items.map((item) => (
+        <li key={item.mappingId} className={`is-${item.status}`}>
+          <span className="accounting-etax-missing-category">{item.category}</span>
+          <strong>{item.label}</strong>
+          <span>{formatETaxCheckItemStatus(item.status)}</span>
+          {item.detail ? <span className="accounting-etax-check-detail">{item.detail}</span> : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function ReportLineList({ lines }: { lines: Array<{ mappingId: string; label: string; displayValue: string; status: string }> }) {
   return (
@@ -357,7 +399,9 @@ export function ETaxSettlementPanel({
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={section.headers.length}>未設定</td>
+                          <td colSpan={section.headers.length}>
+                            {section.emptyStatus === 'na' ? '該当なし' : '未設定'}
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -487,22 +531,16 @@ export function ETaxSettlementPanel({
         </div>
         <h2>{activeSection === 'input-status' ? '入力状況チェック' : '不足項目一覧'}</h2>
         {activeSection === 'input-status' ? (
-          <p className="accounting-note">
-            入力済み {pkg.inputStatus.completedChecks} / {pkg.inputStatus.totalChecks} 項目
-          </p>
+          <>
+            <InputStatusSummary inputStatus={pkg.inputStatus} />
+            <p className="accounting-note">全 {pkg.inputStatus.totalCount} 項目を確認しました。</p>
+          </>
         ) : (
-          <p className="accounting-note">エラーではなく、転記前の確認リストです。</p>
+          <p className="accounting-note">エラーではなく、転記前の確認リストです（要入力・要確認のみ）。</p>
         )}
-        <ul className="accounting-etax-missing-list">
-          {pkg.missingItems.map((item) => (
-            <li key={item.mappingId} className={`is-${item.status}`}>
-              <span className="accounting-etax-missing-category">{item.category}</span>
-              <strong>{item.label}</strong>
-              <span>{item.status === 'planned' ? '今後対応予定' : '未設定'}</span>
-            </li>
-          ))}
-        </ul>
-        {pkg.missingItems.length === 0 ? <p className="save-note">不足項目はありません。</p> : null}
+        <CheckItemList
+          items={activeSection === 'input-status' ? pkg.checkItems : pkg.actionRequiredItems}
+        />
       </section>
     )
   }
@@ -537,19 +575,18 @@ export function ETaxSettlementPanel({
       </section>
 
       <section className="accounting-etax-status-card" aria-label="入力状況サマリー">
-        <p>
-          入力状況: {pkg.inputStatus.completedChecks} / {pkg.inputStatus.totalChecks} 項目
-        </p>
-        {pkg.missingItems.length > 0 ? (
+        <InputStatusSummary inputStatus={pkg.inputStatus} />
+        {pkg.actionRequiredItems.length > 0 ? (
           <ul className="accounting-etax-missing-preview">
-            {pkg.missingItems.slice(0, 4).map((item) => (
-              <li key={item.mappingId}>
-                {item.label}：{item.status === 'planned' ? '今後対応予定' : '未設定'}
+            {pkg.actionRequiredItems.slice(0, 4).map((item) => (
+              <li key={item.mappingId} className={`is-${item.status}`}>
+                {item.label}：{formatETaxCheckItemStatus(item.status)}
+                {item.detail ? `（${item.detail}）` : ''}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="save-note">不足項目はありません。</p>
+          <p className="save-note">要入力・要確認の項目はありません。</p>
         )}
       </section>
 

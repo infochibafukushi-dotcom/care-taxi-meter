@@ -1,7 +1,7 @@
 /** e-Tax転記欄との将来マッピング用ID */
 export type ETaxMappingId = string
 
-export type ETaxValueStatus = 'set' | 'unset' | 'planned'
+export type ETaxValueStatus = 'set' | 'unset' | 'na' | 'planned'
 
 export type ETaxReportLine = {
   mappingId: ETaxMappingId
@@ -78,19 +78,31 @@ export type ETaxAccountBreakdownSection = {
   mappingIdPrefix: string
   headers: string[]
   rows: ETaxBreakdownDetailRow[]
+  /** rows が空のときの表示（未設定 / 該当なし） */
+  emptyStatus?: 'unset' | 'na'
 }
 
-export type ETaxMissingItem = {
+export type ETaxCheckStatus = 'required' | 'na' | 'review' | 'planned'
+
+export type ETaxCheckItem = {
   mappingId: ETaxMappingId
   label: string
-  status: 'unset' | 'planned'
+  status: ETaxCheckStatus
   category: string
+  detail?: string
 }
 
+/** @deprecated use ETaxCheckItem */
+export type ETaxMissingItem = ETaxCheckItem
+
 export type ETaxInputStatusSummary = {
-  totalChecks: number
-  completedChecks: number
-  missingItems: ETaxMissingItem[]
+  requiredCount: number
+  naCount: number
+  reviewCount: number
+  plannedCount: number
+  totalCount: number
+  checkItems: ETaxCheckItem[]
+  actionRequiredItems: ETaxCheckItem[]
 }
 
 export type ETaxPackage = {
@@ -107,5 +119,9 @@ export type ETaxPackage = {
   consumptionTax: ETaxReportLine[]
   auxiliaryDataLines: ETaxReportLine[]
   inputStatus: ETaxInputStatusSummary
-  missingItems: ETaxMissingItem[]
+  checkItems: ETaxCheckItem[]
+  /** 要入力・要確認のみ（不足項目一覧用） */
+  actionRequiredItems: ETaxCheckItem[]
+  /** @deprecated use actionRequiredItems */
+  missingItems: ETaxCheckItem[]
 }

@@ -68,6 +68,8 @@ export type SettlementOfficerLoanRow = {
 
 export type SettlementReceivableRow = {
   id: string
+  /** 売掛金 / 未収金 の区分（一致チェック用） */
+  receivableKind: 'accountsReceivable' | 'accruedIncome'
   counterpartyName: string
   registrationNumber: string
   description: string

@@ -411,6 +411,32 @@ export function SettlementAuxiliaryDataPanel({
           {form.receivables.map((row) => (
             <div key={row.id} className="accounting-settlement-row-card">
               <div className="accounting-form-grid">
+                <label className="accounting-form-field">
+                  <span>区分</span>
+                  <select
+                    value={row.receivableKind ?? 'accountsReceivable'}
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              receivables: current.receivables.map((item) =>
+                                item.id === row.id
+                                  ? {
+                                      ...item,
+                                      receivableKind: event.target.value as 'accountsReceivable' | 'accruedIncome',
+                                    }
+                                  : item,
+                              ),
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <option value="accountsReceivable">売掛金</option>
+                    <option value="accruedIncome">未収金</option>
+                  </select>
+                </label>
                 <TextField label="相手先名" value={row.counterpartyName} onChange={(value) => setForm((current) => current ? { ...current, receivables: current.receivables.map((item) => item.id === row.id ? { ...item, counterpartyName: value } : item) } : current)} />
                 <TextField label="登録番号/法人番号" value={row.registrationNumber} onChange={(value) => setForm((current) => current ? { ...current, receivables: current.receivables.map((item) => item.id === row.id ? { ...item, registrationNumber: value } : item) } : current)} />
                 <TextField label="内容" value={row.description} onChange={(value) => setForm((current) => current ? { ...current, receivables: current.receivables.map((item) => item.id === row.id ? { ...item, description: value } : item) } : current)} />

@@ -1811,6 +1811,7 @@ body.route-accounting,
 }
 
 .accounting-etax-line.is-unset dd,
+.accounting-etax-line.is-na dd,
 .accounting-etax-line.is-planned dd {
   color: #5b6472;
   font-style: italic;
@@ -1869,6 +1870,48 @@ body.route-accounting,
   background: #f8fafc;
 }
 
+.accounting-etax-status-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.accounting-etax-status-counts div {
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color, #d8dee8);
+  background: #fff;
+}
+
+.accounting-etax-status-counts dt {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #5b6472;
+}
+
+.accounting-etax-status-counts dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.accounting-etax-status-counts .is-required dd {
+  color: #b42318;
+}
+
+.accounting-etax-status-counts .is-review dd {
+  color: #b54708;
+}
+
+.accounting-etax-status-counts .is-na dd {
+  color: #027a48;
+}
+
+.accounting-etax-status-counts .is-planned dd {
+  color: #5b6472;
+}
+
 .accounting-etax-missing-preview,
 .accounting-etax-missing-list {
   margin: 0.5rem 0 0;
@@ -1890,6 +1933,32 @@ body.route-accounting,
   border: 1px solid var(--border-color, #d8dee8);
   border-radius: 0.5rem;
   background: #fff;
+}
+
+.accounting-etax-missing-list li.is-required {
+  border-color: #fecdca;
+  background: #fffafa;
+}
+
+.accounting-etax-missing-list li.is-review {
+  border-color: #fedf89;
+  background: #fffaeb;
+}
+
+.accounting-etax-missing-list li.is-na {
+  border-color: #abefc6;
+  background: #f6fef9;
+}
+
+.accounting-etax-missing-list li.is-planned {
+  border-color: #e4e7ec;
+  background: #f8fafc;
+}
+
+.accounting-etax-check-detail {
+  grid-column: 1 / -1;
+  color: #5b6472;
+  font-size: 0.85rem;
 }
 
 .accounting-etax-missing-category {
@@ -1954,7 +2023,8 @@ body.route-accounting,
 
 @media (max-width: 480px) {
   .accounting-form-grid,
-  .accounting-etax-missing-list li {
+  .accounting-etax-missing-list li,
+  .accounting-etax-status-counts {
     grid-template-columns: 1fr;
   }
 

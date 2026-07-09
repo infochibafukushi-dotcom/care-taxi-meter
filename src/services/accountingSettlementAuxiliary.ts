@@ -86,6 +86,7 @@ const normalizeOfficerLoan = (row: Record<string, unknown>): SettlementOfficerLo
 
 const normalizeReceivable = (row: Record<string, unknown>): SettlementReceivableRow => ({
   id: toStringValue(row.id, `receivable-${Date.now()}`),
+  receivableKind: row.receivableKind === 'accruedIncome' ? 'accruedIncome' : 'accountsReceivable',
   counterpartyName: toStringValue(row.counterpartyName),
   registrationNumber: toStringValue(row.registrationNumber),
   description: toStringValue(row.description),

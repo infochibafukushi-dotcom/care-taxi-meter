@@ -9,10 +9,11 @@ import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
 import type {
   ETaxAccountBreakdownSection,
   ETaxBreakdownDetailRow,
+  ETaxCheckItem,
+  ETaxCheckStatus,
   ETaxCompanyProfile,
   ETaxFixedAssetRow,
   ETaxInputStatusSummary,
-  ETaxMissingItem,
   ETaxPackage,
   ETaxReportLine,
   ETaxSmallAssetRow,
@@ -33,13 +34,31 @@ import { corporateNumberFromInvoiceNumber } from '../services/invoiceRegistrantL
 import type { Company } from '../types/work'
 import type { MeterSettings } from '../services/meterSettings'
 import {
-  hasSettlementAmount,
+  formatSettlementAmountDisplay,
+  getSettlementAmountStatus,
+  hasPositiveSettlementAmount,
   hasSettlementCount,
   hasSettlementText,
+  isSettlementAmountEntered,
+  SETTLEMENT_NOT_APPLICABLE,
+  sumReceivableBreakdownByKind,
+  sumSettlementBreakdownBalances,
 } from './accountingSettlementAuxiliaryForm'
 
 const UNSET = '未設定'
 const PLANNED = '今後対応予定'
+
+export const ETaxCheckStatusLabels: Record<ETaxCheckStatus, string> = {
+  required: '要入力',
+  na: '該当なし',
+  review: '要確認',
+  planned: '今後対応予定',
+}
+
+export const formatETaxCheckItemStatus = (status: ETaxCheckStatus) => ETaxCheckStatusLabels[status]
+
+/** @deprecated use formatETaxCheckItemStatus */
+export const formatETaxMissingItemStatus = formatETaxCheckItemStatus
 
 const line = (
   mappingId: string,
@@ -53,11 +72,13 @@ const line = (
   displayValue:
     status === 'unset'
       ? UNSET
-      : status === 'planned'
-        ? PLANNED
-        : typeof amountYen === 'number'
-          ? String(amountYen)
-          : UNSET,
+      : status === 'na'
+        ? SETTLEMENT_NOT_APPLICABLE
+        : status === 'planned'
+          ? PLANNED
+          : typeof amountYen === 'number'
+            ? String(amountYen)
+            : UNSET,
   status,
 })
 
@@ -91,7 +112,16 @@ const balanceLine = (
   mappingId: string,
   label: string,
   amountYen: number | null | undefined,
-): ETaxReportLine => line(mappingId, label, amountYen, hasSettlementAmount(amountYen) ? 'set' : 'unset')
+): ETaxReportLine => {
+  const status = getSettlementAmountStatus(amountYen)
+  return {
+    mappingId,
+    label,
+    amountYen: isSettlementAmountEntered(amountYen) ? amountYen : null,
+    displayValue: formatSettlementAmountDisplay(amountYen),
+    status,
+  }
+}
 
 export const getFiscalYearMonths = (calendarYear: number) => {
   const months: string[] = []
@@ -442,13 +472,35 @@ const buildBreakdownSection = (
   mappingIdPrefix: string,
   headers: string[],
   rows: ETaxBreakdownDetailRow[],
+  emptyStatus: 'unset' | 'na' = 'unset',
 ): ETaxAccountBreakdownSection => ({
   sectionId,
   sectionLabel,
   mappingIdPrefix,
   headers,
   rows,
+  emptyStatus,
 })
+
+const resolveBreakdownEmptyStatus = (balance: number | null | undefined): 'unset' | 'na' => {
+  const status = getSettlementAmountStatus(balance)
+  return status === 'na' ? 'na' : 'unset'
+}
+
+const resolveReceivableBreakdownEmptyStatus = (
+  accountsReceivable: number | null | undefined,
+  accruedIncome: number | null | undefined,
+): 'unset' | 'na' => {
+  const receivableStatus = getSettlementAmountStatus(accountsReceivable)
+  const accruedStatus = getSettlementAmountStatus(accruedIncome)
+  if (receivableStatus === 'unset' || accruedStatus === 'unset') {
+    return 'unset'
+  }
+  if (hasPositiveSettlementAmount(accountsReceivable) || hasPositiveSettlementAmount(accruedIncome)) {
+    return 'unset'
+  }
+  return 'na'
+}
 
 export const buildETaxAccountBreakdown = (
   auxiliary: AccountingSettlementAuxiliaryInput | null,
@@ -476,6 +528,8 @@ export const buildETaxAccountBreakdownDetail = (
   fixedAssets: StoredAccountingFixedAsset[],
   asOfYearMonth: string,
 ): ETaxAccountBreakdownSection[] => {
+  const balance = auxiliary?.yearEndBalance
+
   const bankRows: ETaxBreakdownDetailRow[] = (auxiliary?.bankAccounts ?? []).map((row) => ({
     mappingId: `etax.breakdown.bank.${row.id}`,
     values: [
@@ -483,7 +537,7 @@ export const buildETaxAccountBreakdownDetail = (
       row.branchName,
       row.accountType,
       row.accountLastFour,
-      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      formatSettlementAmountDisplay(row.yearEndBalance),
       row.notes || '―',
     ],
   }))
@@ -491,20 +545,21 @@ export const buildETaxAccountBreakdownDetail = (
   const receivableRows: ETaxBreakdownDetailRow[] = (auxiliary?.receivables ?? []).map((row) => ({
     mappingId: `etax.breakdown.receivable.${row.id}`,
     values: [
+      row.receivableKind === 'accruedIncome' ? '未収金' : '売掛金',
       row.counterpartyName,
       row.registrationNumber,
       row.description,
       row.occurrenceDate,
-      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      formatSettlementAmountDisplay(row.yearEndBalance),
       row.notes || '―',
     ],
   }))
 
-  const prepaymentRows: ETaxBreakdownDetailRow[] = hasSettlementAmount(auxiliary?.yearEndBalance.prepayments)
+  const prepaymentRows: ETaxBreakdownDetailRow[] = hasPositiveSettlementAmount(balance?.prepayments)
     ? [
         {
           mappingId: 'etax.breakdown.prepayments.summary',
-          values: ['仮払金合計', '', '', '', String(auxiliary?.yearEndBalance.prepayments), ''],
+          values: ['仮払金合計', '', '', '', String(balance?.prepayments), ''],
         },
       ]
     : []
@@ -516,7 +571,7 @@ export const buildETaxAccountBreakdownDetail = (
       row.registrationNumber,
       row.description,
       row.occurrenceDate,
-      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      formatSettlementAmountDisplay(row.yearEndBalance),
       row.notes || '―',
     ],
   }))
@@ -526,8 +581,8 @@ export const buildETaxAccountBreakdownDetail = (
     values: [
       row.lenderName,
       row.loanDate,
-      hasSettlementAmount(row.originalAmount) ? String(row.originalAmount) : UNSET,
-      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      formatSettlementAmountDisplay(row.originalAmount),
+      formatSettlementAmountDisplay(row.yearEndBalance),
       row.repaymentDueDate || UNSET,
       row.interestRate || UNSET,
       row.hasCollateral || UNSET,
@@ -541,7 +596,7 @@ export const buildETaxAccountBreakdownDetail = (
       row.officerName,
       row.occurrenceDate,
       row.description,
-      hasSettlementAmount(row.yearEndBalance) ? String(row.yearEndBalance) : UNSET,
+      formatSettlementAmountDisplay(row.yearEndBalance),
       row.notes || '―',
     ],
   }))
@@ -560,6 +615,29 @@ export const buildETaxAccountBreakdownDetail = (
     }),
   )
 
+  const resolveDetailEmptyStatus = (
+    rows: ETaxBreakdownDetailRow[],
+    amount: number | null | undefined,
+  ): 'unset' | 'na' =>
+    rows.length > 0
+      ? 'unset'
+      : hasPositiveSettlementAmount(amount)
+        ? 'unset'
+        : resolveBreakdownEmptyStatus(amount)
+
+  const resolveReceivableDetailEmptyStatus = (rows: ETaxBreakdownDetailRow[]): 'unset' | 'na' => {
+    if (rows.length > 0) {
+      return 'unset'
+    }
+    if (
+      hasPositiveSettlementAmount(balance?.accountsReceivable) ||
+      hasPositiveSettlementAmount(balance?.accruedIncome)
+    ) {
+      return 'unset'
+    }
+    return resolveReceivableBreakdownEmptyStatus(balance?.accountsReceivable, balance?.accruedIncome)
+  }
+
   return [
     buildBreakdownSection(
       'bank',
@@ -567,13 +645,15 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.bank',
       ['金融機関名', '支店名', '口座種別', '口座番号下4桁', '期末残高', '備考'],
       bankRows,
+      resolveDetailEmptyStatus(bankRows, balance?.deposits),
     ),
     buildBreakdownSection(
       'receivable',
       '売掛金・未収金の内訳',
       'etax.breakdown.receivable',
-      ['相手先名', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
+      ['区分', '相手先名', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
       receivableRows,
+      resolveReceivableDetailEmptyStatus(receivableRows),
     ),
     buildBreakdownSection(
       'prepayment',
@@ -581,6 +661,7 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.prepayments',
       ['項目', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
       prepaymentRows,
+      resolveDetailEmptyStatus(prepaymentRows, balance?.prepayments),
     ),
     buildBreakdownSection(
       'payable',
@@ -588,6 +669,7 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.payable',
       ['相手先名', '登録番号/法人番号', '内容', '発生日', '期末残高', '備考'],
       payableRows,
+      resolveDetailEmptyStatus(payableRows, balance?.accountsPayable),
     ),
     buildBreakdownSection(
       'loan',
@@ -595,6 +677,7 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.loan',
       ['借入先', '借入日', '当初借入額', '期末残高', '返済期限', '利率', '担保有無', '備考'],
       loanRows,
+      resolveDetailEmptyStatus(loanRows, balance?.borrowings),
     ),
     buildBreakdownSection(
       'officer-loan',
@@ -602,6 +685,7 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.officerLoan',
       ['役員名', '発生日', '内容', '期末残高', '備考'],
       officerLoanRows,
+      resolveDetailEmptyStatus(officerLoanRows, balance?.officerLoans),
     ),
     buildBreakdownSection(
       'fixed-asset',
@@ -609,6 +693,7 @@ export const buildETaxAccountBreakdownDetail = (
       'etax.breakdown.fixedAsset',
       ['資産名', '区分', '取得日', '取得価額', '累計償却', '帳簿価額'],
       fixedAssetRows,
+      fixedAssetRows.length > 0 ? 'unset' : 'na',
     ),
   ]
 }
@@ -884,83 +969,150 @@ export const buildETaxAuxiliaryDataLines = (
   ]
 }
 
-const pushMissing = (
-  items: ETaxMissingItem[],
+const pushBalanceCheck = (
+  items: ETaxCheckItem[],
+  mappingId: string,
+  label: string,
+  category: string,
+  amount: number | null | undefined,
+) => {
+  const amountStatus = getSettlementAmountStatus(amount)
+  if (amountStatus === 'unset') {
+    items.push({ mappingId, label, status: 'required', category })
+    return
+  }
+  if (amountStatus === 'na') {
+    items.push({ mappingId, label, status: 'na', category })
+  }
+}
+
+const pushTextCheck = (
+  items: ETaxCheckItem[],
   mappingId: string,
   label: string,
   category: string,
   isComplete: boolean,
 ) => {
   if (!isComplete) {
-    items.push({ mappingId, label, status: 'unset', category })
+    items.push({ mappingId, label, status: 'required', category })
   }
 }
 
-export const buildETaxMissingItems = (
+const pushCountCheck = (
+  items: ETaxCheckItem[],
+  mappingId: string,
+  label: string,
+  category: string,
+  isComplete: boolean,
+) => {
+  if (!isComplete) {
+    items.push({ mappingId, label, status: 'required', category })
+  }
+}
+
+const pushBalanceBreakdownMatchCheck = (
+  items: ETaxCheckItem[],
+  mappingId: string,
+  label: string,
+  balance: number | null | undefined,
+  breakdownSum: number,
+  breakdownCount: number,
+) => {
+  if (!hasPositiveSettlementAmount(balance)) {
+    return
+  }
+  if (breakdownCount === 0) {
+    items.push({
+      mappingId: `${mappingId}.missingBreakdown`,
+      label: `${label}内訳`,
+      status: 'required',
+      category: '内訳明細',
+    })
+    return
+  }
+  if (balance !== breakdownSum) {
+    items.push({
+      mappingId: `${mappingId}.mismatch`,
+      label: `${label}（残高と内訳の一致）`,
+      status: 'review',
+      category: '一致確認',
+      detail: `残高 ${balance} / 内訳合計 ${breakdownSum}`,
+    })
+  }
+}
+
+export const buildETaxCheckItems = (
   auxiliary: AccountingSettlementAuxiliaryInput | null,
-): ETaxMissingItem[] => {
-  const items: ETaxMissingItem[] = []
+): ETaxCheckItem[] => {
+  const items: ETaxCheckItem[] = []
   const basic = auxiliary?.companyBasic
   const balance = auxiliary?.yearEndBalance
 
-  pushMissing(items, 'etax.check.businessDescription', '事業内容', '会社基本情報', hasSettlementText(basic?.businessDescription))
-  pushMissing(items, 'etax.check.officerCount', '役員数', '会社基本情報', hasSettlementCount(basic?.officerCount))
-  pushMissing(items, 'etax.check.employeeCount', '従業員数', '会社基本情報', hasSettlementCount(basic?.employeeCount))
+  pushTextCheck(items, 'etax.check.businessDescription', '事業内容', '会社基本情報', hasSettlementText(basic?.businessDescription))
+  pushCountCheck(items, 'etax.check.officerCount', '役員数', '会社基本情報', hasSettlementCount(basic?.officerCount))
+  pushCountCheck(items, 'etax.check.employeeCount', '従業員数', '会社基本情報', hasSettlementCount(basic?.employeeCount))
 
-  pushMissing(items, 'etax.check.cash', '現金残高', '期末残高', hasSettlementAmount(balance?.cash))
-  pushMissing(items, 'etax.check.deposits', '普通預金残高', '期末残高', hasSettlementAmount(balance?.deposits))
-  pushMissing(items, 'etax.check.accountsReceivable', '売掛金残高', '期末残高', hasSettlementAmount(balance?.accountsReceivable))
-  pushMissing(items, 'etax.check.accruedIncome', '未収金残高', '期末残高', hasSettlementAmount(balance?.accruedIncome))
-  pushMissing(items, 'etax.check.prepayments', '仮払金残高', '期末残高', hasSettlementAmount(balance?.prepayments))
-  pushMissing(items, 'etax.check.accountsPayable', '未払金残高', '期末残高', hasSettlementAmount(balance?.accountsPayable))
-  pushMissing(items, 'etax.check.borrowings', '借入金残高', '期末残高', hasSettlementAmount(balance?.borrowings))
-  pushMissing(items, 'etax.check.officerLoans', '役員借入金残高', '期末残高', hasSettlementAmount(balance?.officerLoans))
-  pushMissing(items, 'etax.check.capital', '資本金', '期末残高', hasSettlementAmount(balance?.capital))
-  pushMissing(items, 'etax.check.retainedEarnings', '利益剰余金', '期末残高', hasSettlementAmount(balance?.retainedEarnings))
+  pushBalanceCheck(items, 'etax.check.cash', '現金残高', '期末残高', balance?.cash)
+  pushBalanceCheck(items, 'etax.check.deposits', '普通預金残高', '期末残高', balance?.deposits)
+  pushBalanceCheck(items, 'etax.check.accountsReceivable', '売掛金残高', '期末残高', balance?.accountsReceivable)
+  pushBalanceCheck(items, 'etax.check.accruedIncome', '未収金残高', '期末残高', balance?.accruedIncome)
+  pushBalanceCheck(items, 'etax.check.prepayments', '仮払金残高', '期末残高', balance?.prepayments)
+  pushBalanceCheck(items, 'etax.check.accountsPayable', '未払金残高', '期末残高', balance?.accountsPayable)
+  pushBalanceCheck(items, 'etax.check.borrowings', '借入金残高', '期末残高', balance?.borrowings)
+  pushBalanceCheck(items, 'etax.check.officerLoans', '役員借入金残高', '期末残高', balance?.officerLoans)
+  pushBalanceCheck(items, 'etax.check.capital', '資本金', '期末残高', balance?.capital)
+  pushBalanceCheck(items, 'etax.check.retainedEarnings', '利益剰余金', '期末残高', balance?.retainedEarnings)
 
-  if (hasSettlementAmount(balance?.deposits) && (auxiliary?.bankAccounts.length ?? 0) === 0) {
-    items.push({
-      mappingId: 'etax.check.bankAccounts',
-      label: '預金内訳',
-      status: 'unset',
-      category: '内訳明細',
-    })
-  }
-  if (hasSettlementAmount(balance?.borrowings) && (auxiliary?.loans.length ?? 0) === 0) {
-    items.push({
-      mappingId: 'etax.check.loans',
-      label: '借入金内訳',
-      status: 'unset',
-      category: '内訳明細',
-    })
-  }
-  if (hasSettlementAmount(balance?.officerLoans) && (auxiliary?.officerLoans.length ?? 0) === 0) {
-    items.push({
-      mappingId: 'etax.check.officerLoanBreakdown',
-      label: '役員借入金内訳',
-      status: 'unset',
-      category: '内訳明細',
-    })
-  }
-  if (
-    (hasSettlementAmount(balance?.accountsReceivable) || hasSettlementAmount(balance?.accruedIncome)) &&
-    (auxiliary?.receivables.length ?? 0) === 0
-  ) {
-    items.push({
-      mappingId: 'etax.check.receivables',
-      label: '売掛金・未収金内訳',
-      status: 'unset',
-      category: '内訳明細',
-    })
-  }
-  if (hasSettlementAmount(balance?.accountsPayable) && (auxiliary?.payables.length ?? 0) === 0) {
-    items.push({
-      mappingId: 'etax.check.payables',
-      label: '未払金内訳',
-      status: 'unset',
-      category: '内訳明細',
-    })
-  }
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.deposits',
+    '普通預金',
+    balance?.deposits,
+    sumSettlementBreakdownBalances(auxiliary?.bankAccounts ?? []),
+    auxiliary?.bankAccounts.length ?? 0,
+  )
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.borrowings',
+    '借入金',
+    balance?.borrowings,
+    sumSettlementBreakdownBalances(auxiliary?.loans ?? []),
+    auxiliary?.loans.length ?? 0,
+  )
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.accountsReceivable',
+    '売掛金',
+    balance?.accountsReceivable,
+    sumReceivableBreakdownByKind(auxiliary?.receivables ?? [], 'accountsReceivable'),
+    (auxiliary?.receivables ?? []).filter(
+      (row) => (row.receivableKind ?? 'accountsReceivable') === 'accountsReceivable',
+    ).length,
+  )
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.accruedIncome',
+    '未収金',
+    balance?.accruedIncome,
+    sumReceivableBreakdownByKind(auxiliary?.receivables ?? [], 'accruedIncome'),
+    (auxiliary?.receivables ?? []).filter((row) => row.receivableKind === 'accruedIncome').length,
+  )
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.accountsPayable',
+    '未払金',
+    balance?.accountsPayable,
+    sumSettlementBreakdownBalances(auxiliary?.payables ?? []),
+    auxiliary?.payables.length ?? 0,
+  )
+  pushBalanceBreakdownMatchCheck(
+    items,
+    'etax.check.officerLoans',
+    '役員借入金',
+    balance?.officerLoans,
+    sumSettlementBreakdownBalances(auxiliary?.officerLoans ?? []),
+    auxiliary?.officerLoans.length ?? 0,
+  )
 
   items.push({
     mappingId: 'etax.check.consumptionTax',
@@ -972,15 +1124,22 @@ export const buildETaxMissingItems = (
   return items
 }
 
-export const buildETaxInputStatus = (missingItems: ETaxMissingItem[]): ETaxInputStatusSummary => {
-  const unsetCount = missingItems.filter((item) => item.status === 'unset').length
-  const totalChecks = missingItems.length
-  const completedChecks = totalChecks - unsetCount
+/** @deprecated use buildETaxCheckItems */
+export const buildETaxMissingItems = buildETaxCheckItems
+
+export const buildETaxInputStatus = (checkItems: ETaxCheckItem[]): ETaxInputStatusSummary => {
+  const actionRequiredItems = checkItems.filter(
+    (item) => item.status === 'required' || item.status === 'review',
+  )
 
   return {
-    totalChecks,
-    completedChecks,
-    missingItems,
+    requiredCount: checkItems.filter((item) => item.status === 'required').length,
+    naCount: checkItems.filter((item) => item.status === 'na').length,
+    reviewCount: checkItems.filter((item) => item.status === 'review').length,
+    plannedCount: checkItems.filter((item) => item.status === 'planned').length,
+    totalCount: checkItems.length,
+    checkItems,
+    actionRequiredItems,
   }
 }
 
@@ -1025,7 +1184,8 @@ export const buildETaxPackage = ({
     targetYear,
   })
   const smallAssets = fixedAssets.filter((asset) => asset.assetKind === 'small' && !asset.isDeleted)
-  const missingItems = buildETaxMissingItems(auxiliary)
+  const checkItems = buildETaxCheckItems(auxiliary)
+  const inputStatus = buildETaxInputStatus(checkItems)
 
   return {
     company: companyProfile,
@@ -1047,7 +1207,9 @@ export const buildETaxPackage = ({
     businessOverview: buildETaxBusinessOverview(companyProfile, pl, expenses, auxiliary, monthlyRows),
     consumptionTax: buildETaxConsumptionTaxSummary(pl, expenses, targetYear),
     auxiliaryDataLines: buildETaxAuxiliaryDataLines(auxiliary),
-    inputStatus: buildETaxInputStatus(missingItems),
-    missingItems,
+    inputStatus,
+    checkItems,
+    actionRequiredItems: inputStatus.actionRequiredItems,
+    missingItems: inputStatus.actionRequiredItems,
   }
 }

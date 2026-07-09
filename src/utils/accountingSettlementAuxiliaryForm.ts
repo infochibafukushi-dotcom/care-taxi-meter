@@ -48,8 +48,11 @@ export const buildEmptyOfficerLoanRow = (): SettlementOfficerLoanRow => ({
   notes: '',
 })
 
-export const buildEmptyReceivableRow = (): SettlementReceivableRow => ({
+export const buildEmptyReceivableRow = (
+  receivableKind: SettlementReceivableRow['receivableKind'] = 'accountsReceivable',
+): SettlementReceivableRow => ({
   id: createSettlementRowId('receivable'),
+  receivableKind,
   counterpartyName: '',
   registrationNumber: '',
   description: '',
@@ -161,10 +164,57 @@ export const getSettlementBalanceAmount = (
   return typeof value === 'number' ? value : null
 }
 
+export const SETTLEMENT_UNSET = '未設定'
+export const SETTLEMENT_NOT_APPLICABLE = '該当なし'
+
 export const hasSettlementText = (value: string | null | undefined) => Boolean(value?.trim())
 
-export const hasSettlementAmount = (value: number | null | undefined) =>
+/** 未入力でない（0円入力済みを含む） */
+export const isSettlementAmountEntered = (value: number | null | undefined): value is number =>
   typeof value === 'number' && !Number.isNaN(value)
+
+/** @deprecated use isSettlementAmountEntered */
+export const hasSettlementAmount = isSettlementAmountEntered
+
+export const hasPositiveSettlementAmount = (value: number | null | undefined) =>
+  isSettlementAmountEntered(value) && value > 0
+
+export type SettlementAmountStatus = 'unset' | 'na' | 'set'
+
+export const getSettlementAmountStatus = (value: number | null | undefined): SettlementAmountStatus => {
+  if (!isSettlementAmountEntered(value)) {
+    return 'unset'
+  }
+  if (value === 0) {
+    return 'na'
+  }
+  return 'set'
+}
+
+export const formatSettlementAmountDisplay = (value: number | null | undefined): string => {
+  const status = getSettlementAmountStatus(value)
+  if (status === 'unset') {
+    return SETTLEMENT_UNSET
+  }
+  if (status === 'na') {
+    return SETTLEMENT_NOT_APPLICABLE
+  }
+  return String(value)
+}
+
+export const sumSettlementBreakdownBalances = (
+  rows: ReadonlyArray<{ yearEndBalance: number | null }>,
+): number =>
+  rows.reduce(
+    (sum, row) => sum + (isSettlementAmountEntered(row.yearEndBalance) ? row.yearEndBalance : 0),
+    0,
+  )
+
+export const sumReceivableBreakdownByKind = (
+  rows: ReadonlyArray<SettlementReceivableRow>,
+  kind: SettlementReceivableRow['receivableKind'],
+): number =>
+  sumSettlementBreakdownBalances(rows.filter((row) => (row.receivableKind ?? 'accountsReceivable') === kind))
 
 export const hasSettlementCount = (value: number | null | undefined) =>
   typeof value === 'number' && !Number.isNaN(value) && value >= 0
