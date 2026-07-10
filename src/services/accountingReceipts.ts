@@ -17,6 +17,7 @@ import { getFirebaseApp } from '../lib/firebase'
 import type {
   AccountingReceiptCandidateFields,
   AccountingReceiptConfirmedFields,
+  AccountingReceiptDocumentType,
   AccountingReceiptEditHistoryEntry,
   AccountingReceiptInput,
   AccountingReceiptOcrCandidates,
@@ -24,6 +25,10 @@ import type {
   ReceiptStatus,
   StoredAccountingReceipt,
 } from '../types/accounting'
+import {
+  buildAccountingReceiptStorageFileName,
+  isAccountingReceiptPdfMime,
+} from '../utils/accountingReceiptFile'
 import {
   detectSourceDevice,
   mapLegacyStatusToWorkflow,
@@ -51,6 +56,9 @@ const collectionName = 'accountingReceipts'
 export const OCR_IMAGE_UNAVAILABLE_MESSAGE =
   'OCRに使用できる画像URLがありません。もう一度撮影してください。'
 
+export const OCR_PDF_IMAGE_UNAVAILABLE_MESSAGE =
+  'OCR用画像を取得できませんでした。PDFを再アップロードしてください。'
+
 const guessMimeTypeFromPath = (storagePath: string) => {
   const lower = storagePath.toLowerCase()
   if (lower.endsWith('.png')) {
@@ -61,6 +69,10 @@ const guessMimeTypeFromPath = (storagePath: string) => {
   }
   if (lower.endsWith('.heic') || lower.endsWith('.heif')) {
     return 'image/heic'
+  }
+
+  if (lower.endsWith('.pdf')) {
+    return 'application/pdf'
   }
 
   return 'image/jpeg'
@@ -99,10 +111,46 @@ const readTimestampAsIso = (value: unknown) => {
   return undefined
 }
 
-const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unknown> }): StoredAccountingReceipt => {
+const resolveReceiptDocumentType = (
+  data: Record<string, unknown>,
+  mimeType: string,
+): AccountingReceiptDocumentType => {
+  if (data.documentType === 'pdf' || data.documentType === 'image') {
+    return data.documentType
+  }
+
+  return isAccountingReceiptPdfMime(mimeType) ? 'pdf' : 'image'
+}
+
+export const toStoredReceipt = (snapshot: {
+  id: string
+  data: () => Record<string, unknown>
+}): StoredAccountingReceipt => {
   const data = snapshot.data()
   const linkedExpenseId = typeof data.linkedExpenseId === 'string' ? data.linkedExpenseId : ''
-  const downloadUrl = String(data.downloadUrl ?? data.imageUrl ?? '')
+  const mimeType = String(data.mimeType ?? data.contentType ?? '')
+  const documentType = resolveReceiptDocumentType(data, mimeType)
+  const legacyDownloadUrl = String(data.downloadUrl ?? data.imageUrl ?? '')
+  const legacyStoragePath = String(data.storagePath ?? '')
+  const originalStoragePath = String(data.originalStoragePath ?? legacyStoragePath)
+  const originalDownloadUrl = String(data.originalDownloadUrl ?? legacyDownloadUrl)
+  const ocrImageStoragePath = String(
+    data.ocrImageStoragePath ?? (documentType === 'pdf' ? '' : legacyStoragePath),
+  )
+  const ocrImageDownloadUrl = String(
+    data.ocrImageDownloadUrl ??
+      (documentType === 'pdf'
+        ? ''
+        : String(data.imageUrl ?? data.downloadUrl ?? '')),
+  )
+  const downloadUrl =
+    documentType === 'pdf'
+      ? originalDownloadUrl || legacyDownloadUrl
+      : ocrImageDownloadUrl || legacyDownloadUrl
+  const imageUrl =
+    documentType === 'pdf'
+      ? ocrImageDownloadUrl || String(data.imageUrl ?? '')
+      : String(data.imageUrl ?? (ocrImageDownloadUrl || downloadUrl))
   const status = normalizeReceiptStatus(data.status ?? data.receiptStatus, linkedExpenseId || undefined)
   const ocrParsedFields =
     data.ocrParsedFields && typeof data.ocrParsedFields === 'object'
@@ -128,13 +176,34 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     franchiseeId: String(data.franchiseeId ?? data.companyId ?? ''),
     companyId: String(data.companyId ?? data.franchiseeId ?? ''),
     storeId: String(data.storeId ?? ''),
-    storagePath: String(data.storagePath ?? ''),
+    storagePath: legacyStoragePath || originalStoragePath || ocrImageStoragePath,
     downloadUrl,
-    imageUrl: String(data.imageUrl ?? downloadUrl),
-    mimeType: String(data.mimeType ?? data.contentType ?? ''),
-    fileName: String(data.fileName ?? ''),
-    fileSizeBytes: Number(data.fileSizeBytes ?? data.size ?? 0),
+    imageUrl,
+    mimeType,
+    fileName: String(data.fileName ?? data.originalFileName ?? ''),
+    fileSizeBytes: Number(data.fileSizeBytes ?? data.originalFileSizeBytes ?? data.size ?? 0),
     imageHash: typeof data.imageHash === 'string' ? data.imageHash : '',
+    documentType,
+    originalStoragePath,
+    originalDownloadUrl,
+    originalFileName: typeof data.originalFileName === 'string' ? data.originalFileName : String(data.fileName ?? ''),
+    originalMimeType: typeof data.originalMimeType === 'string' ? data.originalMimeType : mimeType,
+    originalFileSizeBytes:
+      typeof data.originalFileSizeBytes === 'number'
+        ? data.originalFileSizeBytes
+        : Number(data.fileSizeBytes ?? data.size ?? 0),
+    ocrImageStoragePath,
+    ocrImageDownloadUrl,
+    ocrImageFileName: typeof data.ocrImageFileName === 'string' ? data.ocrImageFileName : '',
+    ocrImageMimeType:
+      typeof data.ocrImageMimeType === 'string'
+        ? data.ocrImageMimeType
+        : documentType === 'pdf'
+          ? 'image/jpeg'
+          : mimeType || 'image/jpeg',
+    ocrImageSizeBytes:
+      typeof data.ocrImageSizeBytes === 'number' ? data.ocrImageSizeBytes : undefined,
+    pdfPageCount: typeof data.pdfPageCount === 'number' ? data.pdfPageCount : undefined,
     status,
     receiptStatus,
     linkedExpenseId: linkedExpenseId || undefined,
@@ -179,6 +248,32 @@ const toStoredReceipt = (snapshot: { id: string; data: () => Record<string, unkn
     invalidatedAt: typeof data.invalidatedAt === 'string' ? data.invalidatedAt : undefined,
   }
 }
+
+export const getAccountingReceiptPreviewImageUrl = (receipt: StoredAccountingReceipt) => {
+  if (receipt.ocrImageDownloadUrl?.trim()) {
+    return receipt.ocrImageDownloadUrl.trim()
+  }
+
+  if (receipt.imageUrl?.trim() && !isAccountingReceiptPdfMime(receipt.mimeType) && !isAccountingReceiptPdfMime(receipt.originalMimeType)) {
+    return receipt.imageUrl.trim()
+  }
+
+  if (
+    receipt.documentType !== 'pdf' &&
+    !isAccountingReceiptPdfMime(receipt.mimeType) &&
+    receipt.downloadUrl?.trim()
+  ) {
+    return receipt.downloadUrl.trim()
+  }
+
+  return ''
+}
+
+export const getAccountingReceiptOriginalFileUrl = (receipt: StoredAccountingReceipt) =>
+  receipt.originalDownloadUrl?.trim() ||
+  (receipt.documentType === 'pdf' || isAccountingReceiptPdfMime(receipt.mimeType)
+    ? receipt.downloadUrl?.trim() || ''
+    : '')
 
 export async function fetchAccountingReceipts(scope?: TenantAccessScope) {
   if (isReviewDemoRuntimeEnabled()) {
@@ -242,6 +337,163 @@ const buildEditHistoryUnion = (
     changedFields,
   }) as unknown as AccountingReceiptEditHistoryEntry[]
 
+export type UploadAccountingReceiptFileResult = {
+  receiptId: string
+  originalDownloadUrl: string
+  originalStoragePath: string
+  ocrImageDownloadUrl: string
+  ocrImageStoragePath: string
+  imageHash: string
+  documentType: AccountingReceiptDocumentType
+  pdfPageCount?: number
+  /** 後方互換: OCR プレビュー画像 URL */
+  downloadUrl: string
+  /** 後方互換: OCR プレビュー画像パス */
+  storagePath: string
+}
+
+const uploadStorageFile = async (storagePath: string, file: File) => {
+  const storage = getStorage(getFirebaseApp())
+  const storageRef = ref(storage, storagePath)
+  await uploadBytes(storageRef, file, {
+    contentType: file.type || 'application/octet-stream',
+  })
+  return getDownloadURL(storageRef)
+}
+
+export async function uploadAccountingReceiptFile({
+  originalFile,
+  ocrImageFile,
+  documentType,
+  pdfPageCount,
+  franchiseeId,
+  storeId,
+  uploadedBy,
+  uploadedByName,
+  memo,
+  candidateFields,
+}: {
+  originalFile: File
+  ocrImageFile: File
+  documentType: AccountingReceiptDocumentType
+  pdfPageCount?: number
+  franchiseeId: string
+  storeId: string
+  uploadedBy: string
+  uploadedByName: string
+  memo?: string
+  candidateFields?: AccountingReceiptCandidateFields
+}): Promise<UploadAccountingReceiptFileResult> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return {
+      receiptId: 'review-demo-receipt',
+      originalDownloadUrl: '',
+      originalStoragePath: '',
+      ocrImageDownloadUrl: '',
+      ocrImageStoragePath: '',
+      imageHash: '',
+      documentType,
+      pdfPageCount,
+      downloadUrl: '',
+      storagePath: '',
+    }
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const tenant = resolveAccountingTenantFields({ franchiseeId, storeId })
+  const sourceDevice = detectSourceDevice()
+  const imageHash = await computeFileSha256(originalFile)
+  const uniqueSuffix = Date.now().toString(36)
+  const originalFileName = buildAccountingReceiptStorageFileName(originalFile.name, {
+    forceExtension: documentType === 'pdf' ? 'pdf' : undefined,
+    uniqueSuffix,
+  })
+  const ocrFileName = buildAccountingReceiptStorageFileName(ocrImageFile.name, {
+    forceExtension: 'jpg',
+    uniqueSuffix,
+  })
+
+  const receiptRef = await addDoc(
+    collection(db, collectionName),
+    removeUndefinedFields({
+      ...tenant,
+      storagePath: '',
+      downloadUrl: '',
+      imageUrl: '',
+      mimeType: originalFile.type || (documentType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+      fileName: originalFile.name,
+      fileSizeBytes: originalFile.size,
+      imageHash,
+      documentType,
+      originalFileName: originalFile.name,
+      originalMimeType: originalFile.type || (documentType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+      originalFileSizeBytes: originalFile.size,
+      ocrImageFileName: ocrImageFile.name,
+      ocrImageMimeType: ocrImageFile.type || 'image/jpeg',
+      ocrImageSizeBytes: ocrImageFile.size,
+      pdfPageCount: documentType === 'pdf' ? pdfPageCount : undefined,
+      status: 'unorganized' satisfies ReceiptStatus,
+      receiptStatus: 'draft' satisfies AccountingReceiptWorkflowStatus,
+      sourceDevice,
+      memo: memo ?? '',
+      ...candidateFields,
+      uploadedBy,
+      uploadedByName,
+      createdBy: uploadedBy,
+      updatedBy: uploadedBy,
+      editHistory: [
+        {
+          editedAt: new Date().toISOString(),
+          editedBy: uploadedBy,
+          sourceDevice,
+          changedFields: ['create', documentType === 'pdf' ? 'pdf' : 'image'],
+        },
+      ],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  )
+
+  const originalStoragePath =
+    documentType === 'pdf'
+      ? `accounting/${franchiseeId}/${storeId}/receipts/${receiptRef.id}/original/${originalFileName}`
+      : `accounting/${franchiseeId}/${storeId}/receipts/${receiptRef.id}/original/${originalFileName}`
+  const ocrImageStoragePath =
+    documentType === 'pdf'
+      ? `accounting/${franchiseeId}/${storeId}/receipts/${receiptRef.id}/ocr/${ocrFileName}`
+      : originalStoragePath
+
+  const originalDownloadUrl = await uploadStorageFile(originalStoragePath, originalFile)
+  const ocrImageDownloadUrl =
+    documentType === 'pdf'
+      ? await uploadStorageFile(ocrImageStoragePath, ocrImageFile)
+      : originalDownloadUrl
+
+  await updateDoc(doc(db, collectionName, receiptRef.id), {
+    storagePath: originalStoragePath,
+    downloadUrl: originalDownloadUrl,
+    imageUrl: ocrImageDownloadUrl,
+    originalStoragePath,
+    originalDownloadUrl,
+    ocrImageStoragePath,
+    ocrImageDownloadUrl,
+    updatedAt: serverTimestamp(),
+  })
+
+  return {
+    receiptId: receiptRef.id,
+    originalDownloadUrl,
+    originalStoragePath,
+    ocrImageDownloadUrl,
+    ocrImageStoragePath,
+    imageHash,
+    documentType,
+    pdfPageCount: documentType === 'pdf' ? pdfPageCount : undefined,
+    downloadUrl: ocrImageDownloadUrl,
+    storagePath: ocrImageStoragePath,
+  }
+}
+
 export async function uploadAccountingReceiptImage({
   file,
   franchiseeId,
@@ -259,72 +511,23 @@ export async function uploadAccountingReceiptImage({
   memo?: string
   candidateFields?: AccountingReceiptCandidateFields
 }) {
-  if (isReviewDemoRuntimeEnabled()) {
-    return {
-      receiptId: 'review-demo-receipt',
-      downloadUrl: '',
-      storagePath: '',
-    }
-  }
-
-  const db = getFirestore(getFirebaseApp())
-  const tenant = resolveAccountingTenantFields({ franchiseeId, storeId })
-
-  const sourceDevice = detectSourceDevice()
-  const imageHash = await computeFileSha256(file)
-  const receiptRef = await addDoc(
-    collection(db, collectionName),
-    removeUndefinedFields({
-      ...tenant,
-      storagePath: '',
-      downloadUrl: '',
-      imageUrl: '',
-      mimeType: file.type || 'application/octet-stream',
-      fileName: file.name,
-      fileSizeBytes: file.size,
-      imageHash,
-      status: 'unorganized' satisfies ReceiptStatus,
-      receiptStatus: 'draft' satisfies AccountingReceiptWorkflowStatus,
-      sourceDevice,
-      memo: memo ?? '',
-      ...candidateFields,
-      uploadedBy,
-      uploadedByName,
-      createdBy: uploadedBy,
-      updatedBy: uploadedBy,
-      editHistory: [
-        {
-          editedAt: new Date().toISOString(),
-          editedBy: uploadedBy,
-          sourceDevice,
-          changedFields: ['create', 'image'],
-        },
-      ],
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }),
-  )
-
-  const storagePath = `accounting/${franchiseeId}/${storeId}/receipts/${receiptRef.id}/${file.name}`
-  const storage = getStorage(getFirebaseApp())
-  const storageRef = ref(storage, storagePath)
-  await uploadBytes(storageRef, file, {
-    contentType: file.type || 'application/octet-stream',
-  })
-  const downloadUrl = await getDownloadURL(storageRef)
-
-  await updateDoc(doc(db, collectionName, receiptRef.id), {
-    storagePath,
-    downloadUrl,
-    imageUrl: downloadUrl,
-    updatedAt: serverTimestamp(),
+  const uploaded = await uploadAccountingReceiptFile({
+    originalFile: file,
+    ocrImageFile: file,
+    documentType: 'image',
+    franchiseeId,
+    storeId,
+    uploadedBy,
+    uploadedByName,
+    memo,
+    candidateFields,
   })
 
   return {
-    receiptId: receiptRef.id,
-    downloadUrl,
-    storagePath,
-    imageHash,
+    receiptId: uploaded.receiptId,
+    downloadUrl: uploaded.downloadUrl,
+    storagePath: uploaded.storagePath,
+    imageHash: uploaded.imageHash,
   }
 }
 
@@ -556,6 +759,72 @@ export async function loadAccountingReceiptImageBlob({
   }
 }
 
+/**
+ * OCR 用画像 Blob を優先順位に従って取得します。
+ * PDF 原本は画像として扱いません。
+ */
+export async function loadAccountingReceiptOcrImageBlob({
+  imageBlob,
+  ocrImageDownloadUrl,
+  ocrImageStoragePath,
+  legacyDownloadUrl,
+  legacyStoragePath,
+  mimeType,
+}: {
+  imageBlob?: Blob | File | null
+  ocrImageDownloadUrl?: string
+  ocrImageStoragePath?: string
+  legacyDownloadUrl?: string
+  legacyStoragePath?: string
+  mimeType?: string
+}): Promise<Blob> {
+  if (imageBlob && imageBlob.size > 0) {
+    if (isAccountingReceiptPdfMime(imageBlob.type)) {
+      throw new Error(OCR_PDF_IMAGE_UNAVAILABLE_MESSAGE)
+    }
+    return imageBlob
+  }
+
+  const ocrPath = ocrImageStoragePath?.trim() ?? ''
+  if (ocrPath) {
+    return loadAccountingReceiptImageBlob({
+      storagePath: ocrPath,
+      downloadUrl: ocrImageDownloadUrl,
+      mimeType: 'image/jpeg',
+    })
+  }
+
+  const ocrUrl = ocrImageDownloadUrl?.trim() ?? ''
+  if (ocrUrl) {
+    return loadAccountingReceiptImageBlob({
+      downloadUrl: ocrUrl,
+      mimeType: 'image/jpeg',
+    })
+  }
+
+  const legacyPath = legacyStoragePath?.trim() ?? ''
+  const legacyUrl = legacyDownloadUrl?.trim() ?? ''
+  const legacyMime = mimeType?.trim() || (legacyPath ? guessMimeTypeFromPath(legacyPath) : '')
+
+  if (isAccountingReceiptPdfMime(legacyMime)) {
+    throw new Error(OCR_PDF_IMAGE_UNAVAILABLE_MESSAGE)
+  }
+
+  if (legacyPath || legacyUrl) {
+    if (legacyPath && isAccountingReceiptPdfMime(guessMimeTypeFromPath(legacyPath))) {
+      throw new Error(OCR_PDF_IMAGE_UNAVAILABLE_MESSAGE)
+    }
+
+    return loadAccountingReceiptImageBlob({
+      downloadUrl: legacyUrl,
+      storagePath: legacyPath,
+      mimeType: legacyMime || undefined,
+    })
+  }
+
+  throw new Error(OCR_PDF_IMAGE_UNAVAILABLE_MESSAGE)
+}
+
 export async function linkAccountingReceiptToExpense({
   receiptId,
   expenseId,
@@ -629,19 +898,30 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
   }
 
   let storageImageWasMissing = false
-  const storagePath = receipt.storagePath.trim()
-  if (storagePath) {
+  const paths = new Set(
+    [
+      receipt.originalStoragePath,
+      receipt.ocrImageStoragePath,
+      receipt.storagePath,
+    ]
+      .map((path) => path?.trim() ?? '')
+      .filter(Boolean),
+  )
+
+  const storage = getStorage(getFirebaseApp())
+  for (const storagePath of paths) {
     try {
-      const storage = getStorage(getFirebaseApp())
       await deleteObject(ref(storage, storagePath))
     } catch (error) {
       if (isStorageObjectNotFound(error)) {
         storageImageWasMissing = true
       } else if (isPermissionDenied(error)) {
-        throw new Error('領収書画像の削除権限がありません。Storage rules を確認してください。', { cause: error })
+        throw new Error('証憑ファイルの削除権限がありません。Storage rules を確認してください。', {
+          cause: error,
+        })
       } else {
         const detail = error instanceof Error ? error.message : '不明なエラー'
-        throw new Error(`領収書画像の削除に失敗しました。${detail}`, { cause: error })
+        throw new Error(`証憑ファイルの削除に失敗しました。${detail}`, { cause: error })
       }
     }
   }

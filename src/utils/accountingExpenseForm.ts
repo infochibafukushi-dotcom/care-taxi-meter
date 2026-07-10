@@ -74,12 +74,73 @@ export const shouldAutoApplyOcrCandidates = (confidence?: number) =>
 export const RECEIPT_IMAGE_REQUIRED_MESSAGE = '先に領収書画像をアップロードしてください。'
 
 export const hasAccountingFormReceiptImage = (
-  form: Pick<AccountingExpenseInput, 'receiptImageUrl' | 'receiptStoragePath' | 'receiptId'>,
-) => Boolean(form.receiptImageUrl?.trim() || form.receiptStoragePath?.trim() || form.receiptId?.trim())
+  form: Pick<
+    AccountingExpenseInput,
+    | 'receiptImageUrl'
+    | 'receiptStoragePath'
+    | 'receiptPreviewImageUrl'
+    | 'receiptPreviewStoragePath'
+    | 'receiptId'
+  >,
+) =>
+  Boolean(
+    form.receiptPreviewImageUrl?.trim() ||
+      form.receiptPreviewStoragePath?.trim() ||
+      form.receiptImageUrl?.trim() ||
+      form.receiptStoragePath?.trim() ||
+      form.receiptId?.trim(),
+  )
 
-export const hasStoredAccountingReceiptImage = (
-  receipt: Pick<StoredAccountingReceipt, 'downloadUrl' | 'storagePath' | 'imageUrl'>,
-) => Boolean(receipt.downloadUrl?.trim() || receipt.imageUrl?.trim() || receipt.storagePath?.trim())
+/** 証憑ファイル（PDF原本または画像）が保存されているか */
+export const hasStoredAccountingReceiptFile = (
+  receipt: Pick<
+    StoredAccountingReceipt,
+    | 'downloadUrl'
+    | 'storagePath'
+    | 'imageUrl'
+    | 'originalDownloadUrl'
+    | 'originalStoragePath'
+    | 'ocrImageDownloadUrl'
+    | 'ocrImageStoragePath'
+  >,
+) =>
+  Boolean(
+    receipt.originalDownloadUrl?.trim() ||
+      receipt.originalStoragePath?.trim() ||
+      receipt.ocrImageDownloadUrl?.trim() ||
+      receipt.ocrImageStoragePath?.trim() ||
+      receipt.downloadUrl?.trim() ||
+      receipt.imageUrl?.trim() ||
+      receipt.storagePath?.trim(),
+  )
+
+/** OCR 可能なプレビュー画像があるか */
+export const hasStoredAccountingReceiptOcrImage = (
+  receipt: Pick<
+    StoredAccountingReceipt,
+    | 'downloadUrl'
+    | 'storagePath'
+    | 'imageUrl'
+    | 'ocrImageDownloadUrl'
+    | 'ocrImageStoragePath'
+    | 'mimeType'
+    | 'originalMimeType'
+    | 'documentType'
+  >,
+) => {
+  if (receipt.ocrImageDownloadUrl?.trim() || receipt.ocrImageStoragePath?.trim()) {
+    return true
+  }
+
+  if (receipt.documentType === 'pdf' || receipt.mimeType === 'application/pdf' || receipt.originalMimeType === 'application/pdf') {
+    return false
+  }
+
+  return Boolean(receipt.downloadUrl?.trim() || receipt.imageUrl?.trim() || receipt.storagePath?.trim())
+}
+
+/** @deprecated 後方互換。OCR 可能なプレビュー画像の有無を判定します */
+export const hasStoredAccountingReceiptImage = hasStoredAccountingReceiptOcrImage
 
 /** T + 13桁（合計14文字）の簡易チェック */
 export const validateInvoiceNumberCandidate = (value: string) => {
@@ -260,13 +321,34 @@ export const buildExpenseFormFromReceipt = ({
     receipt.suggestedExpenseCategory ||
     ''
 
+  const isPdf =
+    receipt.documentType === 'pdf' ||
+    receipt.mimeType === 'application/pdf' ||
+    receipt.originalMimeType === 'application/pdf'
+  const previewImageUrl =
+    receipt.ocrImageDownloadUrl ||
+    (!isPdf ? receipt.imageUrl || receipt.downloadUrl : '') ||
+    ''
+  const previewStoragePath =
+    receipt.ocrImageStoragePath || (!isPdf ? receipt.storagePath : '') || ''
+  const originalFileUrl =
+    receipt.originalDownloadUrl || (isPdf ? receipt.downloadUrl : previewImageUrl) || ''
+  const originalStoragePath =
+    receipt.originalStoragePath || (isPdf ? receipt.storagePath : previewStoragePath) || ''
+
   return {
     ...base,
     receiptId: receipt.id,
     receiptStatus: receipt.receiptStatus ?? 'draft',
     imageHash: receipt.imageHash || '',
-    receiptImageUrl: receipt.downloadUrl || receipt.imageUrl || '',
-    receiptStoragePath: receipt.storagePath,
+    receiptImageUrl: previewImageUrl,
+    receiptStoragePath: previewStoragePath,
+    receiptPreviewImageUrl: previewImageUrl,
+    receiptPreviewStoragePath: previewStoragePath,
+    receiptFileUrl: originalFileUrl,
+    receiptFileStoragePath: originalStoragePath,
+    receiptFileName: receipt.originalFileName || receipt.fileName || '',
+    receiptFileMimeType: receipt.originalMimeType || receipt.mimeType || '',
     receiptDate: receiptDate || base.receiptDate,
     postingDate: postingDate || getExpensePostingDate(base),
     transactionDate: postingDate || getExpensePostingDate(base),

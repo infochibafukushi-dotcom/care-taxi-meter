@@ -958,6 +958,48 @@ body.route-accounting,
   background: #f8fafc;
 }
 
+.accounting-unorganized-thumb-wrap {
+  position: relative;
+}
+
+.accounting-unorganized-pdf-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.25rem;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.accounting-receipt-pdf-meta {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.accounting-receipt-pdf-meta--editor {
+  margin-bottom: 0.65rem;
+}
+
+.accounting-receipt-pdf-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.accounting-receipt-pdf-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  width: fit-content;
+}
+
 .accounting-unorganized-thumb--empty {
   display: flex;
   align-items: center;

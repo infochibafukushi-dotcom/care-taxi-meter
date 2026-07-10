@@ -23,17 +23,25 @@ import {
   deleteAccountingReceipt,
   fetchAccountingReceipts,
   fetchUnorganizedAccountingReceipts,
+  getAccountingReceiptOriginalFileUrl,
+  getAccountingReceiptPreviewImageUrl,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
   rejectAccountingReceiptWorkflow,
   resolveAccountingReceiptDownloadUrl,
   saveConfirmedAccountingReceipt,
   saveReceiptOnly,
-  uploadAccountingReceiptImage,
+  uploadAccountingReceiptFile,
   type StoredAccountingReceipt,
 } from '../services/accountingReceipts'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
 import { lookupInvoiceRegistrant } from '../services/invoiceRegistrantLookup'
+import {
+  ACCOUNTING_RECEIPT_FILE_ACCEPT,
+  isAccountingReceiptPdfMime,
+  validateAccountingReceiptUploadFile,
+} from '../utils/accountingReceiptFile'
 import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
+import { createAccountingPdfPreview } from '../utils/accountingReceiptPdf'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
@@ -146,7 +154,7 @@ import {
   formatOcrProcessedAt,
   formatYenInputDisplay,
   hasAccountingFormReceiptImage,
-  hasStoredAccountingReceiptImage,
+  hasStoredAccountingReceiptOcrImage,
   isPostingDateInPastMonth,
   OCR_AUTO_APPLY_CONFIDENCE_THRESHOLD,
   OCR_NOT_CONFIGURED_MESSAGE,
@@ -742,6 +750,35 @@ export function AccountingPage() {
   const showExpenseFareSalesWarning = monthExpenseFareTotalYen > 0 || profitLoss.sales['その他売上'] > 0
 
   const hasFormReceiptImage = Boolean(expenseForm && hasAccountingFormReceiptImage(expenseForm))
+  const linkedReceiptForForm = useMemo(() => {
+    const receiptId = expenseForm?.receiptId?.trim()
+    if (!receiptId) {
+      return undefined
+    }
+    return allReceipts.find((row) => row.id === receiptId) ?? unorganizedReceipts.find((row) => row.id === receiptId)
+  }, [allReceipts, expenseForm?.receiptId, unorganizedReceipts])
+  const expenseReceiptPreviewUrl =
+    receiptPreviewObjectUrl ||
+    expenseForm?.receiptPreviewImageUrl ||
+    expenseForm?.receiptImageUrl ||
+    (linkedReceiptForForm ? getAccountingReceiptPreviewImageUrl(linkedReceiptForForm) : '') ||
+    ''
+  const expenseReceiptIsPdf = Boolean(
+    isAccountingReceiptPdfMime(expenseForm?.receiptFileMimeType) ||
+      isAccountingReceiptPdfMime(linkedReceiptForForm?.mimeType) ||
+      isAccountingReceiptPdfMime(linkedReceiptForForm?.originalMimeType) ||
+      linkedReceiptForForm?.documentType === 'pdf',
+  )
+  const expenseReceiptOriginalUrl =
+    expenseForm?.receiptFileUrl ||
+    (linkedReceiptForForm ? getAccountingReceiptOriginalFileUrl(linkedReceiptForForm) : '') ||
+    ''
+  const expenseReceiptFileName =
+    expenseForm?.receiptFileName ||
+    linkedReceiptForForm?.originalFileName ||
+    linkedReceiptForForm?.fileName ||
+    ''
+  const expenseReceiptPageCount = linkedReceiptForForm?.pdfPageCount
 
   const buildFreshExpenseForm = () =>
     buildEmptyExpenseInput({
@@ -1145,11 +1182,31 @@ export function AccountingPage() {
     setOcrProgressMessage('')
 
     try {
-      const normalizedFile = await normalizeAccountingReceiptImage(file)
-      setReceiptPreviewFromFile(normalizedFile)
+      const validation = validateAccountingReceiptUploadFile(file)
+      if (!validation.ok) {
+        throw new Error(validation.message)
+      }
 
-      const uploaded = await uploadAccountingReceiptImage({
-        file: normalizedFile,
+      let originalFile = file
+      let ocrImageFile: File
+      let pdfPageCount: number | undefined
+
+      if (validation.documentType === 'pdf') {
+        const preview = await createAccountingPdfPreview(file)
+        ocrImageFile = preview.previewFile
+        pdfPageCount = preview.pageCount
+      } else {
+        ocrImageFile = await normalizeAccountingReceiptImage(file)
+        originalFile = ocrImageFile
+      }
+
+      setReceiptPreviewFromFile(ocrImageFile)
+
+      const uploaded = await uploadAccountingReceiptFile({
+        originalFile,
+        ocrImageFile,
+        documentType: validation.documentType,
+        pdfPageCount,
         franchiseeId: tenantScope.franchiseeId,
         storeId: tenantScope.storeId,
         uploadedBy: staffId,
@@ -1161,20 +1218,31 @@ export function AccountingPage() {
           ? {
               ...current,
               receiptId: uploaded.receiptId,
-              receiptImageUrl: uploaded.downloadUrl,
-              receiptStoragePath: uploaded.storagePath,
+              receiptImageUrl: uploaded.ocrImageDownloadUrl,
+              receiptStoragePath: uploaded.ocrImageStoragePath,
+              receiptPreviewImageUrl: uploaded.ocrImageDownloadUrl,
+              receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
+              receiptFileUrl: uploaded.originalDownloadUrl,
+              receiptFileStoragePath: uploaded.originalStoragePath,
+              receiptFileName: originalFile.name,
+              receiptFileMimeType: originalFile.type || (validation.documentType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
               imageHash: uploaded.imageHash,
             }
           : current,
       )
       setRecentReceiptBlobs((current) => ({
         ...current,
-        [uploaded.receiptId]: normalizedFile,
+        [uploaded.receiptId]: ocrImageFile,
       }))
-      setStatusMessage('証憑画像をアップロードしました。OCR読取で候補を反映できます。')
+      await reloadUnorganizedReceipts()
+      setStatusMessage(
+        validation.documentType === 'pdf'
+          ? 'PDF原本とOCR用画像をアップロードしました。OCRは1ページ目を対象にします。'
+          : '証憑画像をアップロードしました。OCR読取で候補を反映できます。',
+      )
     } catch (error) {
       clearReceiptPreviewObjectUrl()
-      setErrorMessage(error instanceof Error ? error.message : '証憑画像のアップロードに失敗しました。')
+      setErrorMessage(error instanceof Error ? error.message : '証憑ファイルのアップロードに失敗しました。')
     } finally {
       setIsUploadingReceipt(false)
       if (input) {
@@ -1242,26 +1310,51 @@ export function AccountingPage() {
     setOcrProgressMessage('OCR読取を開始しました。')
 
     try {
+      const previewUrl =
+        expenseForm.receiptPreviewImageUrl || expenseForm.receiptImageUrl
+      const previewPath =
+        expenseForm.receiptPreviewStoragePath || expenseForm.receiptStoragePath
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
-        downloadUrl: expenseForm.receiptImageUrl,
-        storagePath: expenseForm.receiptStoragePath,
+        downloadUrl: previewUrl,
+        storagePath: previewPath,
       })
 
-      if (!downloadUrl && !expenseForm.receiptStoragePath?.trim() && !recentReceiptBlobs[expenseForm.receiptId ?? '']) {
+      if (
+        !downloadUrl &&
+        !previewPath?.trim() &&
+        !recentReceiptBlobs[expenseForm.receiptId ?? '']
+      ) {
         setErrorMessage(OCR_IMAGE_UNAVAILABLE_MESSAGE)
         return
       }
 
       if (downloadUrl && downloadUrl !== expenseForm.receiptImageUrl) {
         setExpenseForm((current) =>
-          current ? { ...current, receiptImageUrl: downloadUrl } : current,
+          current
+            ? {
+                ...current,
+                receiptImageUrl: downloadUrl,
+                receiptPreviewImageUrl: downloadUrl,
+              }
+            : current,
         )
       }
 
       const receiptId = expenseForm.receiptId ?? ''
+      const linkedReceipt = allReceipts.find((row) => row.id === receiptId)
       const result = await runAccountingReceiptOcr({
+        ocrImageDownloadUrl:
+          expenseForm.receiptPreviewImageUrl ||
+          linkedReceipt?.ocrImageDownloadUrl ||
+          downloadUrl ||
+          expenseForm.receiptImageUrl,
+        ocrImageStoragePath:
+          expenseForm.receiptPreviewStoragePath ||
+          linkedReceipt?.ocrImageStoragePath ||
+          expenseForm.receiptStoragePath,
         downloadUrl: downloadUrl || expenseForm.receiptImageUrl,
         storagePath: expenseForm.receiptStoragePath,
+        mimeType: expenseForm.receiptFileMimeType || linkedReceipt?.mimeType,
         receiptId,
         imageBlob: receiptId ? recentReceiptBlobs[receiptId] : undefined,
         onProgress: (progress) => {
@@ -1426,7 +1519,7 @@ export function AccountingPage() {
   }
 
   const handleRunOcrOnUnorganizedReceipt = async (receipt: StoredAccountingReceipt) => {
-    if (!hasStoredAccountingReceiptImage(receipt)) {
+    if (!hasStoredAccountingReceiptOcrImage(receipt)) {
       setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
       return
     }
@@ -1440,12 +1533,18 @@ export function AccountingPage() {
     }))
 
     try {
+      const previewUrl = getAccountingReceiptPreviewImageUrl(receipt)
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
-        downloadUrl: receipt.downloadUrl,
-        storagePath: receipt.storagePath,
+        downloadUrl: previewUrl || receipt.ocrImageDownloadUrl,
+        storagePath: receipt.ocrImageStoragePath || receipt.storagePath,
       })
 
-      if (!downloadUrl && !receipt.storagePath?.trim() && !recentReceiptBlobs[receipt.id]) {
+      if (
+        !downloadUrl &&
+        !receipt.ocrImageStoragePath?.trim() &&
+        !receipt.storagePath?.trim() &&
+        !recentReceiptBlobs[receipt.id]
+      ) {
         const message = OCR_IMAGE_UNAVAILABLE_MESSAGE
         setErrorMessage(message)
         setOcrStatusByReceiptId((current) => ({ ...current, [receipt.id]: message }))
@@ -1453,8 +1552,10 @@ export function AccountingPage() {
       }
 
       const result = await runAccountingReceiptOcr({
-        downloadUrl: downloadUrl || receipt.downloadUrl,
-        storagePath: receipt.storagePath,
+        ocrImageDownloadUrl: receipt.ocrImageDownloadUrl || downloadUrl || previewUrl,
+        ocrImageStoragePath: receipt.ocrImageStoragePath,
+        downloadUrl: downloadUrl || previewUrl || receipt.downloadUrl,
+        storagePath: receipt.ocrImageStoragePath || receipt.storagePath,
         receiptId: receipt.id,
         fileName: receipt.fileName,
         mimeType: receipt.mimeType,
@@ -2502,9 +2603,9 @@ export function AccountingPage() {
                   />
                 </label>
                 <label className="accounting-receipt-upload-button secondary-action">
-                  画像を選択
+                  画像・PDFを選択
                   <input
-                    accept="image/*"
+                    accept={ACCOUNTING_RECEIPT_FILE_ACCEPT}
                     className="accounting-hidden-input"
                     disabled={isUploadingReceipt || isRunningOcr}
                     type="file"
@@ -2535,25 +2636,51 @@ export function AccountingPage() {
                   {errorMessage}
                 </p>
               ) : null}
-              {isUploadingReceipt ? <p className="accounting-note">証憑画像をアップロード中…</p> : null}
+              {isUploadingReceipt ? <p className="accounting-note">証憑ファイルをアップロード中…</p> : null}
               {isRunningOcr && ocrProgressMessage ? (
                 <p className="accounting-note accounting-ocr-status" role="status">
                   {ocrProgressMessage}
                 </p>
               ) : null}
-              {receiptPreviewObjectUrl || expenseForm.receiptImageUrl ? (
+              {expenseReceiptPreviewUrl ? (
                 <div className="accounting-receipt-preview accounting-receipt-preview--flow">
-                  <img
-                    alt="証憑プレビュー"
-                    src={receiptPreviewObjectUrl || expenseForm.receiptImageUrl}
-                  />
-                  {expenseForm.receiptStoragePath ? (
-                    <p className="accounting-receipt-path">{expenseForm.receiptStoragePath}</p>
+                  <img alt="証憑プレビュー" src={expenseReceiptPreviewUrl} />
+                  {expenseReceiptIsPdf ? (
+                    <div className="accounting-receipt-pdf-meta">
+                      <p className="accounting-receipt-pdf-title">PDF証憑</p>
+                      <p>ファイル名：{expenseReceiptFileName || '―'}</p>
+                      <p>
+                        {expenseReceiptPageCount != null
+                          ? `全${expenseReceiptPageCount}ページ`
+                          : 'PDF原本は全ページ保存されています'}
+                      </p>
+                      <p>OCR対象：1ページ目</p>
+                      <p className="accounting-note">
+                        PDF原本は全ページ保存されています。OCRは1ページ目を対象にしています。
+                      </p>
+                      {expenseReceiptOriginalUrl ? (
+                        <a
+                          className="secondary-action accounting-receipt-pdf-open"
+                          href={expenseReceiptOriginalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          PDF原本を開く
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {expenseForm.receiptStoragePath || expenseForm.receiptFileStoragePath ? (
+                    <p className="accounting-receipt-path">
+                      {expenseForm.receiptFileStoragePath || expenseForm.receiptStoragePath}
+                    </p>
                   ) : null}
                 </div>
-              ) : expenseForm.receiptStoragePath ? (
+              ) : expenseForm.receiptStoragePath || expenseForm.receiptFileStoragePath ? (
                 <p className="accounting-note accounting-receipt-preview--flow">
-                  証憑画像をアップロード済みです（{expenseForm.receiptStoragePath}）。OCR読取を実行できます。
+                  証憑ファイルをアップロード済みです（
+                  {expenseForm.receiptFileStoragePath || expenseForm.receiptStoragePath}
+                  ）。OCR読取を実行できます。
                 </p>
               ) : null}
               {expenseForm.ocrConfidence != null ? (
@@ -2563,7 +2690,7 @@ export function AccountingPage() {
 
             <section className="accounting-expense-editor" aria-label="経費確認・編集">
               <aside className="accounting-expense-editor-image" aria-label="領収書画像">
-                {receiptPreviewObjectUrl || expenseForm.receiptImageUrl ? (
+                {expenseReceiptPreviewUrl ? (
                   <>
                     <div className="accounting-expense-image-toolbar">
                       <button
@@ -2596,11 +2723,33 @@ export function AccountingPage() {
                         入力リセット
                       </button>
                     </div>
+                    {expenseReceiptIsPdf ? (
+                      <div className="accounting-receipt-pdf-meta accounting-receipt-pdf-meta--editor">
+                        <p className="accounting-receipt-pdf-title">PDF証憑</p>
+                        <p>ファイル名：{expenseReceiptFileName || '―'}</p>
+                        <p>
+                          {expenseReceiptPageCount != null
+                            ? `全${expenseReceiptPageCount}ページ`
+                            : 'PDF原本は全ページ保存されています'}
+                        </p>
+                        <p>OCR対象：1ページ目</p>
+                        {expenseReceiptOriginalUrl ? (
+                          <a
+                            className="secondary-action accounting-receipt-pdf-open"
+                            href={expenseReceiptOriginalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            PDF原本を開く
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="accounting-expense-image-viewport">
                       <img
                         alt="領収書"
                         className="accounting-expense-image"
-                        src={receiptPreviewObjectUrl || expenseForm.receiptImageUrl}
+                        src={expenseReceiptPreviewUrl}
                         style={{ transform: `scale(${receiptImageZoom})` }}
                       />
                     </div>
@@ -3039,11 +3188,29 @@ export function AccountingPage() {
                       </div>
                       <div>
                         <dt>imageUrl</dt>
-                        <dd>{expenseForm.receiptImageUrl || '―'}</dd>
+                        <dd>{expenseForm.receiptPreviewImageUrl || expenseForm.receiptImageUrl || '―'}</dd>
                       </div>
                       <div>
                         <dt>storagePath</dt>
-                        <dd>{expenseForm.receiptStoragePath || '―'}</dd>
+                        <dd>
+                          {expenseForm.receiptPreviewStoragePath || expenseForm.receiptStoragePath || '―'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>原本ファイル</dt>
+                        <dd>
+                          {expenseForm.receiptFileUrl ? (
+                            <a
+                              href={expenseForm.receiptFileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {expenseForm.receiptFileName || expenseForm.receiptFileUrl}
+                            </a>
+                          ) : (
+                            '―'
+                          )}
+                        </dd>
                       </div>
                       <div>
                         <dt>receiptId / receiptStatus</dt>

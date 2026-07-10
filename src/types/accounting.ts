@@ -221,8 +221,18 @@ export type AccountingExpenseInput = AccountingTenantFields &
     invoiceLookupMethod?: string
     taxCategory?: TaxCategory
     invoiceStatus?: InvoiceStatus
+    /** OCR・画面プレビュー用画像 URL（後方互換） */
     receiptImageUrl?: string
+    /** OCR・画面プレビュー用 Storage パス（後方互換） */
     receiptStoragePath?: string
+    /** 利用者がアップロードした証憑原本 URL（PDF 含む） */
+    receiptFileUrl?: string
+    receiptFileStoragePath?: string
+    receiptFileName?: string
+    receiptFileMimeType?: string
+    /** OCR・画面プレビュー用画像 */
+    receiptPreviewImageUrl?: string
+    receiptPreviewStoragePath?: string
     receiptId?: string
     /** 未整理領収書ワークフロー状態（フォーム読み込み時） */
     receiptStatus?: AccountingReceiptWorkflowStatus
@@ -283,6 +293,8 @@ export type AccountingReceiptCandidateFields = {
   taxRateCandidate?: number
 }
 
+export type AccountingReceiptDocumentType = 'image' | 'pdf'
+
 export type AccountingReceiptInput = AccountingTenantFields &
   AccountingReceiptCandidateFields &
   AccountingOcrData & {
@@ -293,8 +305,23 @@ export type AccountingReceiptInput = AccountingTenantFields &
     mimeType: string
     fileName: string
     fileSizeBytes: number
-    /** 領収書画像の SHA-256 ハッシュ（二重計上検知用） */
+    /** 領収書画像の SHA-256 ハッシュ（二重計上検知用）。PDF の場合は原本のハッシュ */
     imageHash?: string
+    documentType?: AccountingReceiptDocumentType
+    /** 利用者がアップロードした証憑原本 */
+    originalStoragePath?: string
+    originalDownloadUrl?: string
+    originalFileName?: string
+    originalMimeType?: string
+    originalFileSizeBytes?: number
+    /** OCR・画面プレビューに使う画像 */
+    ocrImageStoragePath?: string
+    ocrImageDownloadUrl?: string
+    ocrImageFileName?: string
+    ocrImageMimeType?: string
+    ocrImageSizeBytes?: number
+    /** PDF の場合の総ページ数 */
+    pdfPageCount?: number
     status: ReceiptStatus
     /** ワークフロー状態 draft / ocr_ready / confirmed / rejected */
     receiptStatus?: AccountingReceiptWorkflowStatus

@@ -132,6 +132,15 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
         : undefined,
     receiptImageUrl: typeof data.receiptImageUrl === 'string' ? data.receiptImageUrl : '',
     receiptStoragePath: typeof data.receiptStoragePath === 'string' ? data.receiptStoragePath : '',
+    receiptFileUrl: typeof data.receiptFileUrl === 'string' ? data.receiptFileUrl : '',
+    receiptFileStoragePath:
+      typeof data.receiptFileStoragePath === 'string' ? data.receiptFileStoragePath : '',
+    receiptFileName: typeof data.receiptFileName === 'string' ? data.receiptFileName : '',
+    receiptFileMimeType: typeof data.receiptFileMimeType === 'string' ? data.receiptFileMimeType : '',
+    receiptPreviewImageUrl:
+      typeof data.receiptPreviewImageUrl === 'string' ? data.receiptPreviewImageUrl : '',
+    receiptPreviewStoragePath:
+      typeof data.receiptPreviewStoragePath === 'string' ? data.receiptPreviewStoragePath : '',
     receiptId: typeof data.receiptId === 'string' ? data.receiptId : '',
     imageHash: typeof data.imageHash === 'string' ? data.imageHash : '',
     confirmationStatus: (data.confirmationStatus as ExpenseConfirmationStatus) ?? '未確認',
@@ -371,6 +380,12 @@ export const buildEmptyExpenseInput = ({
     invoiceRegistrant: undefined,
     receiptImageUrl: '',
     receiptStoragePath: '',
+    receiptFileUrl: '',
+    receiptFileStoragePath: '',
+    receiptFileName: '',
+    receiptFileMimeType: '',
+    receiptPreviewImageUrl: '',
+    receiptPreviewStoragePath: '',
     receiptId: '',
     lineItems: [],
     confirmationStatus: '未確認',

@@ -12,7 +12,7 @@ import {
   verifyAccountingTesseractAssets,
 } from '../utils/accountingTesseractPaths'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
-import { loadAccountingReceiptImageBlob } from './accountingReceipts'
+import { loadAccountingReceiptOcrImageBlob } from './accountingReceipts'
 import {
   applyInvoiceRegistrantLookupToParsedFields,
   lookupInvoiceRegistrant,
@@ -49,6 +49,8 @@ export const ACCOUNTING_OCR_PROGRESS_MESSAGES: Record<AccountingReceiptOcrProgre
 type RunAccountingReceiptOcrInput = {
   downloadUrl?: string
   storagePath?: string
+  ocrImageDownloadUrl?: string
+  ocrImageStoragePath?: string
   receiptId?: string
   fileName?: string
   mimeType?: string
@@ -189,15 +191,19 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
 
   logOcrStep('blob-load-start', {
     hasBlob: Boolean(input.imageBlob && input.imageBlob.size > 0),
+    hasOcrImageDownloadUrl: Boolean(input.ocrImageDownloadUrl?.trim()),
+    hasOcrImageStoragePath: Boolean(input.ocrImageStoragePath?.trim()),
     hasDownloadUrl: Boolean(input.downloadUrl?.trim()),
     hasStoragePath: Boolean(input.storagePath?.trim()),
   })
   reportProgress(input.onProgress, 'loading-image')
 
-  const imageBlob = await loadAccountingReceiptImageBlob({
+  const imageBlob = await loadAccountingReceiptOcrImageBlob({
     imageBlob: input.imageBlob,
-    downloadUrl: input.downloadUrl,
-    storagePath: input.storagePath,
+    ocrImageDownloadUrl: input.ocrImageDownloadUrl,
+    ocrImageStoragePath: input.ocrImageStoragePath,
+    legacyDownloadUrl: input.downloadUrl,
+    legacyStoragePath: input.storagePath,
     mimeType: input.mimeType,
   })
   logOcrStep('blob-load-done', { size: imageBlob.size, type: imageBlob.type })
@@ -334,7 +340,11 @@ export async function runAccountingReceiptOcr(
   input: RunAccountingReceiptOcrInput,
 ): Promise<AccountingReceiptOcrResult> {
   const hasImageSource = Boolean(
-    input.imageBlob || input.downloadUrl?.trim() || input.storagePath?.trim(),
+    input.imageBlob ||
+      input.ocrImageDownloadUrl?.trim() ||
+      input.ocrImageStoragePath?.trim() ||
+      input.downloadUrl?.trim() ||
+      input.storagePath?.trim(),
   )
 
   if (!hasImageSource) {
