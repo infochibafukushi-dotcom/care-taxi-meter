@@ -12,7 +12,14 @@ const VALID_SOURCE_FLOWS = new Set<PreFixedSourceFlow>([
   'manual',
 ])
 
-const SERVICE_FEE_KEYS_EXCLUDED_FROM_ASSIST = new Set(['specialVehicleFee'])
+const SERVICE_FEE_KEYS_EXCLUDED_FROM_ASSIST = new Set([
+  'specialVehicleFee',
+  'pickupFee',
+  'waitingFee',
+  'escortFee',
+  'waiting30min',
+  'escort30min',
+])
 
 const readViaAddresses = (routePlan: unknown): string[] => {
   if (!routePlan || typeof routePlan !== 'object') {

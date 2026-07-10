@@ -149,7 +149,7 @@ export const defaultTimeMeterSettings: TimeMeterSettings = {
 }
 
 const defaultTimeMeterModeSettings: MeterSettingsByMode['time'] = {
-  additionalFare: { unitFareYen: 2000, unitSeconds: fixedTimeFareUnitSeconds },
+  additionalFare: { unitFareYen: CHARTER_UNIT_FARE_YEN, unitSeconds: fixedTimeFareUnitSeconds },
   assistItems: careOptionMaster,
   baseFareYen: CHARTER_UNIT_FARE_YEN,
   baseMinutes: CHARTER_UNIT_MINUTES,

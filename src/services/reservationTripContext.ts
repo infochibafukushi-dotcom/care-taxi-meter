@@ -108,15 +108,26 @@ export const normalizeReservationTripContext = (value: unknown): ReservationTrip
   }
 
   const confirmedFareYen = toFiniteFareYen(raw.confirmedFareYen)
-  const fixedFareTotalYen = toFiniteFareYen(raw.fixedFareTotalYen) || confirmedFareYen
-  const resolvedConfirmedFareYen = confirmedFareYen || fixedFareTotalYen
+  const fixedFareTotalYen = toFiniteFareYen(raw.fixedFareTotalYen)
+  const quoteSnapshotRaw =
+    raw.quoteSnapshot && typeof raw.quoteSnapshot === 'object' ? raw.quoteSnapshot : null
+  const snapshotFixedFareTotal = toFiniteFareYen(
+    (quoteSnapshotRaw as { fixedFareTotal?: unknown } | null)?.fixedFareTotal,
+  )
+  /** confirmedFareYen が 0 のとき fixedFareTotalYen（全額）を本体に使うと serviceFees と二重加算になる */
+  const resolvedConfirmedFareYen =
+    confirmedFareYen > 0
+      ? confirmedFareYen
+      : snapshotFixedFareTotal > 0
+        ? snapshotFixedFareTotal
+        : 0
   const quoteSnapshot =
-    raw.quoteSnapshot && typeof raw.quoteSnapshot === 'object'
+    quoteSnapshotRaw
       ? {
           ...emptyQuoteSnapshot(),
-          ...raw.quoteSnapshot,
-          serviceFees: Array.isArray(raw.quoteSnapshot.serviceFees)
-            ? raw.quoteSnapshot.serviceFees
+          ...quoteSnapshotRaw,
+          serviceFees: Array.isArray(quoteSnapshotRaw.serviceFees)
+            ? quoteSnapshotRaw.serviceFees
             : [],
         }
       : {
@@ -136,7 +147,7 @@ export const normalizeReservationTripContext = (value: unknown): ReservationTrip
     reservationId,
     estimateNo: typeof raw.estimateNo === 'string' ? raw.estimateNo : '',
     confirmedFareYen: resolvedConfirmedFareYen,
-    fixedFareTotalYen,
+    fixedFareTotalYen: fixedFareTotalYen || resolvedConfirmedFareYen,
     snapshotHash,
     consentAt: typeof raw.consentAt === 'string' ? raw.consentAt : consentSource.consentAt ?? '',
     pickupAddress: typeof raw.pickupAddress === 'string' ? raw.pickupAddress : '',
@@ -219,20 +230,23 @@ export const resolvePreFixedConfirmedFareYen = ({
 
   if (context) {
     const fromConfirmed = Math.max(Math.round(context.confirmedFareYen), 0)
-    const fromTotal = Math.max(Math.round(context.fixedFareTotalYen), 0)
     if (fromConfirmed > 0) {
       return fromConfirmed
     }
-    if (fromTotal > 0) {
-      return fromTotal
+    const fromSnapshotFixed = Math.max(
+      Math.round(context.quoteSnapshot?.fixedFareTotal ?? 0),
+      0,
+    )
+    if (fromSnapshotFixed > 0) {
+      return fromSnapshotFixed
     }
   }
 
   if (snapshot) {
-    return Math.max(
-      Math.round(snapshot.confirmedFareYen ?? snapshot.fareTotalYen ?? 0),
-      0,
-    )
+    const fromSnapshotConfirmed = Math.max(Math.round(snapshot.confirmedFareYen ?? 0), 0)
+    if (fromSnapshotConfirmed > 0) {
+      return fromSnapshotConfirmed
+    }
   }
 
   return 0

@@ -108,12 +108,12 @@ export const basicFareSettings: BasicFareSettings = {
 
 export const waitingFareSettings: TimeFareSettings = {
   unitSeconds: 1800,
-  unitFareYen: 100,
+  unitFareYen: 800,
 };
 
 export const escortFareSettings: TimeFareSettings = {
   unitSeconds: 1800,
-  unitFareYen: 300,
+  unitFareYen: 1600,
 };
 
 export const meterTimeFareSettings: MeterTimeFareSettings = {
@@ -131,12 +131,21 @@ export const specialVehicleMenuMaster: SpecialVehicleMenuItem[] = [
 ];
 
 export const careOptionMaster: CareOptionMasterItem[] = [
-  { id: "basicAssist", name: "基本介助", amount: 500, enabled: true, sortOrder: 1 },
-  { id: "indoorAssist", name: "室内介助", amount: 500, enabled: true, sortOrder: 2 },
-  { id: "stairsAssist", name: "階段介助", amount: 1000, enabled: true, sortOrder: 3 },
-  { id: "wheelchairAssist", name: "車椅子介助", amount: 500, enabled: true, sortOrder: 4 },
-  { id: "stretcherAssist", name: "ストレッチャー", amount: 1500, enabled: true, sortOrder: 5 },
-  { id: "recliningAssist", name: "リクライニング", amount: 1000, enabled: true, sortOrder: 6 },
+  { id: "boardingAssist", name: "乗降介助", amount: 1100, enabled: true, sortOrder: 1 },
+  { id: "bodyAssist", name: "身体介助", amount: 1600, enabled: true, sortOrder: 2 },
+  { id: "stairsAssist", name: "階段介助", amount: 0, enabled: true, sortOrder: 3 },
+  { id: "standardWheelchair", name: "標準車いす", amount: 0, enabled: true, sortOrder: 4 },
+  { id: "recliningWheelchair", name: "リクライニング車いす", amount: 2500, enabled: true, sortOrder: 5 },
+  { id: "stretcherEquipment", name: "ストレッチャー", amount: 4000, enabled: true, sortOrder: 6 },
+];
+
+/** @deprecated 旧名称・旧料金 — 読み込み互換のみ */
+export const deprecatedCareOptionMaster: CareOptionMasterItem[] = [
+  { id: "basicAssist", name: "基本介助", amount: 500, enabled: false, sortOrder: 90 },
+  { id: "indoorAssist", name: "室内介助", amount: 500, enabled: false, sortOrder: 91 },
+  { id: "wheelchairAssist", name: "車椅子介助", amount: 500, enabled: false, sortOrder: 92 },
+  { id: "stretcherAssist", name: "ストレッチャー", amount: 1500, enabled: false, sortOrder: 93 },
+  { id: "recliningAssist", name: "リクライニング", amount: 1000, enabled: false, sortOrder: 94 },
 ];
 
 export const expenseSettings: ExpenseSettings = {
@@ -157,7 +166,7 @@ export type DiscountSettings = {
 };
 
 export const DEFAULT_DISCOUNT_SETTINGS: DiscountSettings = {
-  name: "割引",
+  name: "障害者割引",
   method: "percentage",
   value: 10,
 };

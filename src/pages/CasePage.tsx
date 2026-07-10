@@ -37,6 +37,10 @@ import {
   specialVehicleMenuMaster,
   waitingFareSettings,
 } from '../services/fare'
+import {
+  shouldExcludeServiceFeeFromMeterReadd,
+  STAIR_FLOOR_OPTIONS,
+} from '../services/fareMasterService'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { saveGpsRoute } from '../services/gpsRoutes'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
@@ -714,6 +718,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     Boolean(restoredTripSnapshot) && restoredTripSnapshot?.meterMode !== 'fixed',
   )
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
+  const [isStairAssistModalOpen, setIsStairAssistModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
@@ -1688,6 +1693,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         continue
       }
 
+      if (shouldExcludeServiceFeeFromMeterReadd(fee.key)) {
+        continue
+      }
+
       const entry: SelectedCareOption = {
         amountYen: Math.round(fee.amount),
         id: createId(fee.key),
@@ -2191,6 +2200,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       return
     }
 
+    if (masterItem.id === 'stairsAssist') {
+      setIsStairAssistModalOpen(true)
+      return
+    }
+
     const isSelected = selectedCareOptionIds.has(masterItem.id)
 
     setSelectedCareOptions((currentOptions) => {
@@ -2216,6 +2230,28 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         name: masterItem.name,
       })
     }
+  }
+
+  const confirmStairAssistSelection = (option: (typeof STAIR_FLOOR_OPTIONS)[number]) => {
+    if (!canAddAssistCharge) {
+      return
+    }
+
+    setSelectedCareOptions((currentOptions) => [
+      ...currentOptions.filter((optionItem) => optionItem.masterId !== 'stairsAssist'),
+      {
+        amountYen: option.amount,
+        id: createId(option.id),
+        masterId: 'stairsAssist',
+        name: `階段介助（${option.label}）`,
+      },
+    ])
+    setIsStairAssistModalOpen(false)
+    rememberHistory({
+      amountYen: option.amount,
+      mode: 'care',
+      name: `階段介助（${option.label}）`,
+    })
   }
 
   const toggleDispatchCharge = (dispatchItem: DispatchMenuItem) => {
@@ -5431,6 +5467,40 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 </div>
               </section>
 
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isStairAssistModalOpen ? (
+        <div className="settings-backdrop" role="presentation">
+          <section
+            aria-labelledby="stair-modal-title"
+            aria-modal="true"
+            className="settings-modal r9-operation-modal"
+            role="dialog"
+          >
+            <header className="settings-header">
+              <div>
+                <span>STAIR</span>
+                <h2 id="stair-modal-title">階段介助</h2>
+              </div>
+              <button type="button" onClick={() => setIsStairAssistModalOpen(false)}>
+                キャンセル
+              </button>
+            </header>
+            <div className="r9-modal-button-grid r9-modal-button-grid--care">
+              {STAIR_FLOOR_OPTIONS.map((option) => (
+                <button
+                  className="r9-modal-choice"
+                  key={option.id}
+                  type="button"
+                  onClick={() => confirmStairAssistSelection(option)}
+                >
+                  <span>{option.label}</span>
+                  <strong>{formatFareYen(option.amount)}円</strong>
+                </button>
+              ))}
             </div>
           </section>
         </div>
