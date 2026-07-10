@@ -252,6 +252,13 @@ service cloud.firestore {
 
     match /staffAttendance/{attendanceId} {
       allow read, create, update: if isHqAdmin();
+      // get: 未作成ドキュメントも owner/manager/driver が存在確認できる（初回出勤時の transaction.get 用）
+      allow get: if isFranchiseeOwner()
+        && (resource == null || sameFranchisee(resource.data));
+      allow get: if isStoreManager()
+        && (resource == null || sameStore(resource.data));
+      allow get: if isDriver()
+        && (resource == null || ownStaffData(resource.data));
       allow read: if isFranchiseeOwner() && sameFranchisee(resource.data);
       allow create: if isFranchiseeOwner() && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
       allow update: if isFranchiseeOwner() && sameFranchisee(resource.data) && sameFranchisee(request.resource.data) && hasTenant(request.resource.data);
