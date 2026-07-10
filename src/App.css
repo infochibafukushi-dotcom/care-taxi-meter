@@ -4790,6 +4790,62 @@ html:not(.route-meter) .page--home {
   min-width: 1180px;
 }
 
+.admin-master-table--staff {
+  min-width: 1260px;
+}
+
+.admin-master-table th.admin-master-table__actions,
+.admin-master-table td.admin-master-table__actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  min-width: 108px;
+  background: #fff;
+  box-shadow: -8px 0 12px rgb(15 23 42 / 6%);
+}
+
+.admin-master-table th.admin-master-table__actions {
+  z-index: 3;
+}
+
+.staff-complete-delete-button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dc2626;
+  border-radius: 10px;
+  color: #dc2626;
+  background: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.staff-complete-delete-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.staff-complete-delete-button--submit {
+  color: #fff;
+  background: #dc2626;
+}
+
+.staff-complete-delete-modal p {
+  margin: 0 0 12px;
+  line-height: 1.6;
+}
+
+.staff-complete-delete-list {
+  margin: 0 0 12px;
+  padding-left: 1.2rem;
+  line-height: 1.6;
+}
+
+.staff-complete-delete-actions {
+  margin-top: 16px;
+}
+
 .login-card {
   display: grid;
   align-content: center;

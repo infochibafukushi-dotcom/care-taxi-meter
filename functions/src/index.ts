@@ -10,6 +10,7 @@ export {
   getPreOpeningResetCapability,
   getPreOpeningReservationResetCapability,
 } from './preOpeningDataReset'
+export { deleteStaffMemberCompletely } from './deleteStaffMemberCompletely'
 
 initializeApp()
 

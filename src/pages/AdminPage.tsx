@@ -1246,6 +1246,74 @@ export function AdminPage() {
 
   const canEditStaff =
     currentRole === "owner" || currentRole === "manager" || currentRole === "hq_admin";
+  const canCompleteDeleteStaff =
+    currentRole === "owner" && !hqViewingSession;
+
+  const reloadAdminSummaryData = async () => {
+    const caseRecordsQuery = {
+      franchiseeId: currentFranchiseeId,
+      storeId: currentStoreId,
+      role: currentRole,
+      staffId: currentStaffId,
+    };
+    const { endIso, startIso } = getCurrentJapanMonth();
+    const closedSessionsScope = {
+      franchiseeId: currentFranchiseeId,
+      role: currentRole,
+      staffId: currentRole === "driver" ? currentStaffId : undefined,
+      storeId: currentStoreId,
+    };
+
+    const [caseRecords, workSessions, workingCount, loadedStaffMembers] = await Promise.all([
+      fetchCaseRecords(caseRecordsQuery),
+      fetchClosedWorkSessionsInClockOutRange({
+        endIso,
+        scope: closedSessionsScope,
+        startIso,
+      }),
+      fetchWorkingWorkSessionCount({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+        role: currentRole,
+      }),
+      fetchStaffMembers({
+        franchiseeId: currentFranchiseeId,
+        storeId: currentStoreId,
+        role: currentRole,
+      }),
+    ]);
+
+    setSummaryState((currentState) => ({
+      ...currentState,
+      errorMessage: "",
+      isLoading: false,
+      caseRecords,
+      workSessions,
+    }));
+    setWorkingStaffCount(workingCount);
+    setStaffMembers(loadedStaffMembers);
+  };
+
+  const handleStaffCompleteDeleteSuccess = async (deletedStaffId: string, successMessage: string) => {
+    setStaffMembers((currentStaffMembers) =>
+      currentStaffMembers.filter((staffMember) => staffMember.id !== deletedStaffId),
+    );
+
+    if (selectedPersonalStaffId === deletedStaffId) {
+      setSelectedPersonalStaffId(currentStaffId);
+    }
+
+    try {
+      await reloadAdminSummaryData();
+      setMasterMessage(successMessage);
+    } catch (error) {
+      setMasterMessage(
+        error instanceof Error
+          ? `${successMessage} ただし集計データの再読み込みに失敗しました。${error.message}`
+          : `${successMessage} ただし集計データの再読み込みに失敗しました。`,
+      );
+    }
+  };
 
   const handleStaffSave = async () => {
     if (!canEditStaff) {
@@ -1611,6 +1679,10 @@ export function AdminPage() {
               canAssignHqAdmin={currentRole === "hq_admin"}
               canSelectStore={!isFranchiseeOwnerAdmin}
               canEdit={canEditStaff}
+              canCompleteDelete={canCompleteDeleteStaff}
+              currentStaffId={currentStaffId}
+              currentFranchiseeId={currentFranchiseeId}
+              onCompleteDeleteSuccess={handleStaffCompleteDeleteSuccess}
             />
           ) : null}
 
