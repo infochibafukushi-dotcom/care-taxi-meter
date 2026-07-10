@@ -106,6 +106,7 @@ export default defineConfig(({ mode }) => {
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         globIgnores: ['**/tesseract/**'],
         navigateFallback: `${githubPagesBase}index.html`,

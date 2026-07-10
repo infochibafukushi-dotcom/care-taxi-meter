@@ -250,7 +250,7 @@ function getLegacyMeterSettingsRef() {
   return doc(db, legacySettingsCollectionName, meterSettingsDocumentId)
 }
 
-function getMeterSettingsRef(scope?: TenantScope) {
+export function getMeterSettingsRef(scope?: TenantScope) {
   const db = getFirestore(getFirebaseApp())
   return doc(db, settingsCollectionName, getMeterSettingsDocumentId(scope))
 }

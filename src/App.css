@@ -9035,6 +9035,12 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   gap: 10px;
 }
 
+.pre-fixed-meter-settings-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .pre-fixed-menu-action {
   width: 100%;
   min-height: 52px;
