@@ -1,31 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { PreFixedRouteMapPanel } from '../components/preFixed/PreFixedRouteMapPanel'
-import { OWN_WHEELCHAIR_ID } from '../constants/preFixedManual'
+import { PreFixedManualFareSettingsPanel } from '../components/preFixed/PreFixedManualFareSettingsPanel'
+import {
+  PreFixedRouteMapPanel,
+  buildRouteMapMarkers,
+} from '../components/preFixed/PreFixedRouteMapPanel'
+import { PreFixedRouteCandidateCard } from '../components/preFixed/PreFixedRouteCandidateCard'
 import { useWorkSession } from '../hooks/useWorkSession'
 import {
-  applyWaitingEscortPlan,
   buildDefaultFareSelection,
-  buildOwnWheelchairItem,
+  calculateManualPreFixedServiceYen,
   calculateManualPreFixedTotalYen,
-  formatWaitingEscortUnitLabel,
   isSpecialVehicleEligible,
-  listOtherEquipmentItems,
-  listRentalEquipmentItems,
-  rentalEquipmentDisplayName,
-  resolveStairFloorOption,
 } from '../services/preFixedManualFare'
 import {
   METER_SETTINGS_FETCH_ERROR_MESSAGE,
   METER_SETTINGS_LOADING_MESSAGE,
   canCalculateManualFare,
   canProceedToManualFareSettings,
-  formatConfiguredFareLabel,
-  isAssistItemConfigured,
-  isDispatchMenuItemConfigured,
-  isSpecialVehicleMenuItemConfigured,
-  resolveConfiguredAssistAmount,
-  resolveConfiguredMenuItemAmount,
   resolveManualFlowMeterSettingsErrorMessage,
 } from '../services/preFixedManualMeterSettings'
 import { useStoreMeterSettings } from '../hooks/useStoreMeterSettings'
@@ -37,7 +29,6 @@ import {
   resolveTripTypeFromPoints,
 } from '../services/preFixedManualRoute'
 import { formatFareYen } from '../services/fare'
-import { STAIR_FLOOR_OPTIONS } from '../services/fareMasterService'
 import {
   agreePreFixedMeterSession,
   buildTripContextFromPreFixedSession,
@@ -57,7 +48,6 @@ import { fetchVehicles } from '../services/vehicles'
 import type { Vehicle } from '../types/work'
 import type {
   ManualRouteKind,
-  ManualWaitingEscortPlan,
   PreFixedManualFareSelection,
   PreFixedRouteCandidate,
   PreFixedRouteCandidateId,
@@ -73,12 +63,8 @@ const routeKindLabels: Record<ManualRouteKind, string> = {
   multi: '複数経由',
 }
 
-const waitingEscortLabels: Record<ManualWaitingEscortPlan, string> = {
-  none: 'なし',
-  waiting: '待機あり',
-  escort: '付添あり',
-  both: '待機・付添あり',
-}
+const ROUTE_FETCH_ERROR_MESSAGE =
+  'ルートを取得できませんでした。出発地と目的地を確認して、もう一度検索してください。'
 
 const createEmptyDestination = (): RoutePoint =>
   createRoutePoint({ label: '', address: '', source: 'manual' })
@@ -116,19 +102,75 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
   const [routeError, setRouteError] = useState('')
   const [consentChecked, setConsentChecked] = useState(false)
   const [consentError, setConsentError] = useState('')
+  const [vehicleLoadComplete, setVehicleLoadComplete] = useState(!vehicleId)
+  const hasInitializedAutomaticFeesRef = useRef(false)
+  const userEditedFareSelectionRef = useRef(false)
 
   useEffect(() => {
     if (!vehicleId || !accessScope.franchiseeId) {
+      setVehicleLoadComplete(true)
       return
     }
 
-    void fetchVehicles(accessScope).then((vehicles) => {
-      const matched = vehicles.find((vehicle) => vehicle.id === vehicleId)
-      if (matched) {
-        setSelectedVehicle(matched)
-      }
-    })
+    setVehicleLoadComplete(false)
+    void fetchVehicles(accessScope)
+      .then((vehicles) => {
+        const matched = vehicles.find((vehicle) => vehicle.id === vehicleId)
+        if (matched) {
+          setSelectedVehicle(matched)
+        }
+      })
+      .finally(() => {
+        setVehicleLoadComplete(true)
+      })
   }, [accessScope, vehicleId])
+
+  useEffect(() => {
+    if (hasInitializedAutomaticFeesRef.current || userEditedFareSelectionRef.current) {
+      return
+    }
+    if (meterSettingsState.status !== 'ready' || !storeMeterSettings || !vehicleLoadComplete) {
+      return
+    }
+
+    const dispatchItem = storeMeterSettings.dispatchMenuItems.find(
+      (item) => item.id === 'reservedPickup',
+    )
+    const specialItem = storeMeterSettings.specialVehicleMenuItems.find(
+      (item) => item.id === 'oneBoxLift',
+    )
+    setFareSelection(
+      buildDefaultFareSelection({
+        dispatchItem,
+        specialVehicleItem: specialItem,
+        waitingFare: storeMeterSettings.waitingFare,
+        escortFare: storeMeterSettings.escortFare,
+        vehicleEligible: isSpecialVehicleEligible(selectedVehicle?.vehicleType),
+      }),
+    )
+    hasInitializedAutomaticFeesRef.current = true
+  }, [meterSettingsState.status, storeMeterSettings, selectedVehicle, vehicleLoadComplete])
+
+  const routeMapMarkers = useMemo(() => {
+    const filledDestinations = destinations.filter((destination) => destination.address.trim())
+    const segments = buildSegmentsFromOrderedPoints(pickup, filledDestinations)
+    if (!segments || !pickup.address.trim()) {
+      return []
+    }
+    return buildRouteMapMarkers(pickup, segments.stops, segments.destination)
+  }, [pickup, destinations])
+
+  const routeServiceFeesYen = useMemo(
+    () => (fareSelection ? calculateManualPreFixedServiceYen(fareSelection) : 0),
+    [fareSelection],
+  )
+
+  const handleFareSelectionChange = (
+    updater: (current: PreFixedManualFareSelection) => PreFixedManualFareSelection,
+  ) => {
+    userEditedFareSelectionRef.current = true
+    setFareSelection((current) => (current ? updater(current) : current))
+  }
 
   const selectedRoute = useMemo(
     () => routeCandidates.find((route) => route.id === selectedRouteId) ?? routeCandidates[0],
@@ -267,6 +309,7 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
 
     setIsCalculatingRoutes(true)
     setRouteError('')
+    setRouteCandidates([])
 
     try {
       const candidates = await calculatePreFixedRouteCandidates({
@@ -276,6 +319,8 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
         serviceItems: [],
         basicFare: storeMeterSettings.basicFare,
         includeServiceFees: false,
+        minCandidates: 2,
+        maxCandidates: 2,
       })
 
       const withLabels = candidates.map((candidate) => ({
@@ -284,7 +329,7 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
       }))
 
       if (withLabels.length === 0) {
-        setRouteError('ルートを計算できませんでした。住所を確認してください。')
+        setRouteError(ROUTE_FETCH_ERROR_MESSAGE)
         return
       }
 
@@ -292,7 +337,11 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
       setSelectedRouteId(withLabels[0]?.id ?? 'A')
       setStep('routes')
     } catch (error) {
-      setRouteError(error instanceof Error ? error.message : 'ルート計算に失敗しました。')
+      setRouteError(
+        error instanceof Error && error.message.trim()
+          ? ROUTE_FETCH_ERROR_MESSAGE
+          : ROUTE_FETCH_ERROR_MESSAGE,
+      )
     } finally {
       setIsCalculatingRoutes(false)
     }
@@ -309,8 +358,15 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
     }
     const nextSelection = fareSelection ?? initFareSelection()
     if (!nextSelection) {
-      setStepError(METER_SETTINGS_FETCH_ERROR_MESSAGE)
+      setStepError(
+        meterSettingsState.status === 'loading'
+          ? METER_SETTINGS_LOADING_MESSAGE
+          : METER_SETTINGS_FETCH_ERROR_MESSAGE,
+      )
       return
+    }
+    if (!hasInitializedAutomaticFeesRef.current) {
+      hasInitializedAutomaticFeesRef.current = true
     }
     setFareSelection(nextSelection)
     setStepError('')
@@ -442,8 +498,7 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
         ← 事前確定運賃メニューへ
       </Link>
       {renderStepIndicator()}
-      <p className="eyebrow">Route Kind</p>
-      <h1>運行ルートの種類</h1>
+      <h1>運行ルートを選択</h1>
       <div className="pre-fixed-choice-list">
         {(Object.keys(routeKindLabels) as ManualRouteKind[]).map((kind) => (
           <button
@@ -681,43 +736,26 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
         ← 目的地入力に戻る
       </button>
       {renderStepIndicator()}
-      <p className="eyebrow">Routes</p>
       <h1>ルート候補</h1>
-      {routeCandidates.length < 2 ? (
-        <p className="save-note" role="status">
-          取得できたルート候補は{routeCandidates.length}件です。
-        </p>
-      ) : null}
 
-      <PreFixedRouteMapPanel candidates={routeCandidates} selectedRouteId={selectedRouteId} />
+      <PreFixedRouteMapPanel
+        candidates={routeCandidates}
+        selectedRouteId={selectedRouteId}
+        markers={routeMapMarkers}
+        isLoading={isCalculatingRoutes}
+      />
 
       <div className="pre-fixed-route-card-list">
         {routeCandidates.map((route) => (
-          <button
+          <PreFixedRouteCandidateCard
             key={route.id}
-            className={`pre-fixed-route-card${selectedRouteId === route.id ? ' is-selected' : ''}`}
-            type="button"
-            onClick={() => setSelectedRouteId(route.id)}
-          >
-            <div className="pre-fixed-route-card__header">
-              <strong>
-                {route.id} {route.label}
-              </strong>
-              <span className="pre-fixed-amount">{formatFareYen(route.fixedFareYen)}円</span>
-            </div>
-            <p>
-              {formatRouteDurationLabel(route.durationSeconds)}
-              {' / '}
-              {formatRouteDistanceLabel(route.distanceMeters)}
-            </p>
-            {route.stopOrderLabels?.length ? (
-              <ul className="pre-fixed-route-stop-order">
-                {route.stopOrderLabels.map((label) => (
-                  <li key={`${route.id}-${label}`}>{label}</li>
-                ))}
-              </ul>
-            ) : null}
-          </button>
+            route={route}
+            isSelected={selectedRouteId === route.id}
+            routeFareYen={route.fixedFareYen}
+            serviceFeesYen={routeServiceFeesYen}
+            preFixedTotalYen={route.fixedFareYen + routeServiceFeesYen}
+            onSelect={() => setSelectedRouteId(route.id)}
+          />
         ))}
       </div>
 
@@ -748,352 +786,28 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
       )
     }
 
-    const rentalItems = listRentalEquipmentItems(storeMeterSettings.assistItems)
-    const otherEquipment = listOtherEquipmentItems(storeMeterSettings.assistItems)
-    const ownWheelchairSelected = fareSelection.equipmentItems.some((item) => item.id === OWN_WHEELCHAIR_ID)
-    const dispatchConfigured = isDispatchMenuItemConfigured(
-      storeMeterSettings.dispatchMenuItems,
-      'reservedPickup',
-    )
-    const specialVehicleConfigured = isSpecialVehicleMenuItemConfigured(
-      storeMeterSettings.specialVehicleMenuItems,
-      'oneBoxLift',
-    )
-    const boardingAssistConfigured = isAssistItemConfigured(storeMeterSettings.assistItems, 'boardingAssist')
-    const bodyAssistConfigured = isAssistItemConfigured(storeMeterSettings.assistItems, 'bodyAssist')
-    const stairsAssistConfigured = isAssistItemConfigured(storeMeterSettings.assistItems, 'stairsAssist')
-
     return (
       <section className="content-card pre-fixed-flow-card">
         <button className="text-link" type="button" onClick={() => setStep('routes')}>
           ← ルート選択に戻る
         </button>
         {renderStepIndicator()}
-        <p className="eyebrow">Fare</p>
         <h1>運賃・各種料金</h1>
 
-        <dl className="pre-fixed-detail-grid">
-          <div>
-            <dt>運賃</dt>
-            <dd>{formatFareYen(selectedRoute.fixedFareYen)}円</dd>
-          </div>
-        </dl>
-
-        <h2 className="pre-fixed-section-title">自動計算料金</h2>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={fareSelection.dispatchEnabled}
-            disabled={!dispatchConfigured}
-            onChange={(event) =>
-              setFareSelection((current) =>
-                current
-                  ? {
-                      ...current,
-                      dispatchEnabled: event.target.checked,
-                      dispatchFareYen: event.target.checked
-                        ? resolveConfiguredMenuItemAmount(
-                            storeMeterSettings.dispatchMenuItems,
-                            'reservedPickup',
-                          ) ?? 0
-                        : 0,
-                    }
-                  : current,
-              )
+        <PreFixedManualFareSettingsPanel
+          storeMeterSettings={storeMeterSettings}
+          vehicleType={selectedVehicle?.vehicleType}
+          fareSelection={fareSelection}
+          routeFareYen={selectedRoute.fixedFareYen}
+          preFixedTotalYen={preFixedTotalYen}
+          stepError={stepError}
+          onFareSelectionChange={handleFareSelectionChange}
+          onConfirm={() => {
+            if (validateFareSettings()) {
+              setStep('confirm')
             }
-          />
-          <span>迎車料金</span>
-          <strong>
-            {formatConfiguredFareLabel(
-              dispatchConfigured ? fareSelection.dispatchFareYen : null,
-            )}
-          </strong>
-        </label>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={fareSelection.specialVehicleEnabled}
-            disabled={!specialVehicleConfigured || !isSpecialVehicleEligible(selectedVehicle?.vehicleType)}
-            onChange={(event) =>
-              setFareSelection((current) =>
-                current
-                  ? {
-                      ...current,
-                      specialVehicleEnabled: event.target.checked,
-                      specialVehicleFareYen: event.target.checked
-                        ? resolveConfiguredMenuItemAmount(
-                            storeMeterSettings.specialVehicleMenuItems,
-                            'oneBoxLift',
-                          ) ?? 0
-                        : 0,
-                    }
-                  : current,
-              )
-            }
-          />
-          <span>特殊車両料金</span>
-          <strong>
-            {formatConfiguredFareLabel(
-              specialVehicleConfigured ? fareSelection.specialVehicleFareYen : null,
-            )}
-          </strong>
-        </label>
-
-        <h2 className="pre-fixed-section-title">介助内容</h2>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={fareSelection.boardingAssist}
-            disabled={!boardingAssistConfigured}
-            onChange={(event) =>
-              setFareSelection((current) =>
-                current
-                  ? {
-                      ...current,
-                      boardingAssist: event.target.checked,
-                      boardingAssistFareYen: event.target.checked
-                        ? resolveConfiguredAssistAmount(storeMeterSettings.assistItems, 'boardingAssist') ?? 0
-                        : 0,
-                    }
-                  : current,
-              )
-            }
-          />
-          <span>乗降介助</span>
-          <strong>
-            {formatConfiguredFareLabel(
-              boardingAssistConfigured ? fareSelection.boardingAssistFareYen : null,
-            )}
-          </strong>
-        </label>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={fareSelection.bodyAssist}
-            disabled={!bodyAssistConfigured}
-            onChange={(event) =>
-              setFareSelection((current) =>
-                current
-                  ? {
-                      ...current,
-                      bodyAssist: event.target.checked,
-                      bodyAssistFareYen: event.target.checked
-                        ? resolveConfiguredAssistAmount(storeMeterSettings.assistItems, 'bodyAssist') ?? 0
-                        : 0,
-                    }
-                  : current,
-              )
-            }
-          />
-          <span>身体介助</span>
-          <strong>
-            {formatConfiguredFareLabel(
-              bodyAssistConfigured ? fareSelection.bodyAssistFareYen : null,
-            )}
-          </strong>
-        </label>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={fareSelection.stairsAssist}
-            disabled={!stairsAssistConfigured}
-            onChange={(event) =>
-              setFareSelection((current) =>
-                current
-                  ? {
-                      ...current,
-                      stairsAssist: event.target.checked,
-                      stairFloorId: event.target.checked ? current.stairFloorId : undefined,
-                      stairFloorLabel: event.target.checked ? current.stairFloorLabel : undefined,
-                      stairAssistFareYen: event.target.checked ? current.stairAssistFareYen : 0,
-                    }
-                  : current,
-              )
-            }
-          />
-          <span>階段介助</span>
-          <strong>
-            {formatConfiguredFareLabel(
-              stairsAssistConfigured ? fareSelection.stairAssistFareYen : null,
-            )}
-          </strong>
-        </label>
-        {fareSelection.stairsAssist ? (
-          <label className="pre-fixed-full-width">
-            介助先の建物階数を選択してください
-            <select
-              value={fareSelection.stairFloorId ?? ''}
-              onChange={(event) => {
-                const option = resolveStairFloorOption(event.target.value)
-                setFareSelection((current) =>
-                  current
-                    ? {
-                        ...current,
-                        stairFloorId: option?.id,
-                        stairFloorLabel: option?.label,
-                        stairAssistFareYen: option?.amount ?? 0,
-                      }
-                    : current,
-                )
-              }}
-            >
-              <option value="">選択してください</option>
-              {STAIR_FLOOR_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}（{formatFareYen(option.amount)}円）
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
-        <h2 className="pre-fixed-section-title">使用する車いす・機材</h2>
-        <label className="pre-fixed-assist-item">
-          <input
-            type="checkbox"
-            checked={ownWheelchairSelected}
-            onChange={(event) => {
-              const ownItem = buildOwnWheelchairItem()
-              setFareSelection((current) => {
-                if (!current) return current
-                if (!event.target.checked) {
-                  return {
-                    ...current,
-                    equipmentItems: current.equipmentItems.filter((item) => item.id !== OWN_WHEELCHAIR_ID),
-                  }
-                }
-                return {
-                  ...current,
-                  equipmentItems: [
-                    ...current.equipmentItems.filter((item) => item.id !== OWN_WHEELCHAIR_ID),
-                    ownItem,
-                  ],
-                }
-              })
-            }}
-          />
-          <span>利用者所有の車いす</span>
-          <strong>0円</strong>
-        </label>
-        {rentalItems.map((item) => {
-          const selected = fareSelection.equipmentItems.some((entry) => entry.id === item.id)
-          return (
-            <label key={item.id} className="pre-fixed-assist-item">
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={(event) => {
-                  setFareSelection((current) => {
-                    if (!current) return current
-                    if (!event.target.checked) {
-                      return {
-                        ...current,
-                        equipmentItems: current.equipmentItems.filter((entry) => entry.id !== item.id),
-                      }
-                    }
-                    return {
-                      ...current,
-                      equipmentItems: [
-                        ...current.equipmentItems.filter((entry) => entry.id !== item.id),
-                        {
-                          id: item.id,
-                          name: rentalEquipmentDisplayName(item.id, item.name),
-                          amountYen: Math.max(item.amount, 0),
-                        },
-                      ],
-                    }
-                  })
-                }}
-              />
-              <span>{rentalEquipmentDisplayName(item.id, item.name)}</span>
-              <strong>{formatFareYen(item.amount)}円</strong>
-            </label>
-          )
-        })}
-        {otherEquipment.map((item) => {
-          const selected = fareSelection.equipmentItems.some((entry) => entry.id === item.id)
-          return (
-            <label key={item.id} className="pre-fixed-assist-item">
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={(event) => {
-                  setFareSelection((current) => {
-                    if (!current) return current
-                    if (!event.target.checked) {
-                      return {
-                        ...current,
-                        equipmentItems: current.equipmentItems.filter((entry) => entry.id !== item.id),
-                      }
-                    }
-                    return {
-                      ...current,
-                      equipmentItems: [
-                        ...current.equipmentItems.filter((entry) => entry.id !== item.id),
-                        {
-                          id: item.id,
-                          name: item.name,
-                          amountYen: Math.max(item.amount, 0),
-                        },
-                      ],
-                    }
-                  })
-                }}
-              />
-              <span>{item.name}</span>
-              <strong>{formatFareYen(item.amount)}円</strong>
-            </label>
-          )
-        })}
-
-        <h2 className="pre-fixed-section-title">待機・付添</h2>
-        <div className="pre-fixed-choice-list">
-          {(Object.keys(waitingEscortLabels) as ManualWaitingEscortPlan[]).map((plan) => (
-            <button
-              key={plan}
-              className={`pre-fixed-choice-button${fareSelection.waitingEscortPlan === plan ? ' is-selected' : ''}`}
-              type="button"
-              onClick={() =>
-                setFareSelection((current) =>
-                  current ? applyWaitingEscortPlan(current, plan) : current,
-                )
-              }
-            >
-              {waitingEscortLabels[plan]}
-            </button>
-          ))}
-        </div>
-        {fareSelection.waitingEscortPlan === 'waiting' || fareSelection.waitingEscortPlan === 'both' ? (
-          <p className="save-note">
-            待機料金：{formatWaitingEscortUnitLabel(fareSelection.waitingUnitFareYen)}
-          </p>
-        ) : null}
-        {fareSelection.waitingEscortPlan === 'escort' || fareSelection.waitingEscortPlan === 'both' ? (
-          <p className="save-note">
-            付添料金：{formatWaitingEscortUnitLabel(fareSelection.escortUnitFareYen)}
-          </p>
-        ) : null}
-
-        <div className="pre-fixed-consent-summary__total">
-          <p>事前確定料金</p>
-          <p className="pre-fixed-amount">{formatFareYen(preFixedTotalYen)}円</p>
-        </div>
-
-        {stepError ? <p className="case-error" role="alert">{stepError}</p> : null}
-
-        <div className="pre-fixed-flow-actions">
-          <button
-            className="primary-action"
-            type="button"
-            onClick={() => {
-              if (validateFareSettings()) {
-                setStep('confirm')
-              }
-            }}
-          >
-            確認画面へ
-          </button>
-        </div>
+          }}
+        />
       </section>
     )
   }
@@ -1114,7 +828,6 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
           ← 料金設定に戻る
         </button>
         {renderStepIndicator()}
-        <p className="eyebrow">Confirm</p>
         <h1>運行ルートと運賃の確認</h1>
 
         <h2 className="pre-fixed-section-title">ルート</h2>

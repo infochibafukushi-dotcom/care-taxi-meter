@@ -9258,7 +9258,187 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
 
 .pre-fixed-route-card.is-selected {
   border-color: #2563eb;
+  border-width: 3px;
   background: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.pre-fixed-route-card--compact {
+  position: relative;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.pre-fixed-route-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pre-fixed-route-card__selected-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.pre-fixed-route-card__meta {
+  margin: 0;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.pre-fixed-route-card__breakdown--compact {
+  gap: 4px;
+}
+
+.pre-fixed-route-card__check {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  color: #2563eb;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.pre-fixed-route-map-shell {
+  position: relative;
+  width: 100%;
+}
+
+.pre-fixed-route-map-shell.is-loading::after {
+  content: 'ルートを検索中…';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 250, 252, 0.82);
+  color: #334155;
+  font-weight: 700;
+}
+
+.pre-fixed-fare-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pre-fixed-fare-category {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.pre-fixed-fare-category__title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.pre-fixed-fare-category--auto {
+  background: #f8f7fc;
+}
+
+.pre-fixed-fare-category--assist {
+  background: #f3f8ff;
+}
+
+.pre-fixed-fare-category--rental {
+  background: #f4fbf6;
+}
+
+.pre-fixed-fare-category--waiting {
+  background: #fff8ef;
+}
+
+.pre-fixed-fare-option-card {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.pre-fixed-fare-option-card.pre-fixed-fare-category--auto {
+  background: #f4f0ff;
+  border-color: #a99bdd;
+}
+
+.pre-fixed-fare-option-card.pre-fixed-fare-category--assist {
+  background: #eaf4ff;
+  border-color: #7aade8;
+}
+
+.pre-fixed-fare-option-card.pre-fixed-fare-category--rental {
+  background: #eef9f1;
+  border-color: #84be91;
+}
+
+.pre-fixed-fare-option-card.pre-fixed-fare-category--waiting {
+  background: #fff4e5;
+  border-color: #e7a85b;
+}
+
+.pre-fixed-fare-option-card.is-selected {
+  border-width: 3px;
+  filter: brightness(0.97);
+}
+
+.pre-fixed-fare-option-card.is-disabled {
+  opacity: 0.55;
+}
+
+.pre-fixed-fare-option-card__button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pre-fixed-fare-option-card__button:disabled {
+  cursor: not-allowed;
+}
+
+.pre-fixed-fare-option-card__title {
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.pre-fixed-fare-option-card__amount {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pre-fixed-fare-option-card__check {
+  color: #2563eb;
+  font-weight: 900;
+}
+
+.pre-fixed-fare-option-card__extra {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.pre-fixed-fare-option-card__extra select {
+  width: 100%;
 }
 
 .pre-fixed-route-card__header {

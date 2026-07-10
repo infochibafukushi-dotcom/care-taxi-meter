@@ -84,6 +84,7 @@ export async function ensureGoogleMapsApiLoaded(apiKey: string): Promise<void> {
     url.searchParams.set('region', 'JP')
     url.searchParams.set('v', 'weekly')
     url.searchParams.set('loading', 'async')
+    url.searchParams.set('libraries', 'geometry')
     url.searchParams.set('callback', GOOGLE_MAPS_CALLBACK_NAME)
 
     script.id = GOOGLE_MAPS_SCRIPT_ID

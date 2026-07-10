@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildDefaultFareSelection,
+  calculateManualPreFixedServiceYen,
   calculateManualPreFixedTotalYen,
   buildServiceFeesFromManualSelection,
 } from './services/preFixedManualFare'
@@ -13,7 +15,10 @@ import {
   calculatePrepaidWaitingEscortBillableYen,
   waitingFareSettings,
 } from './services/fare'
+import { preFixedRouteCandidateLabels } from './types/preFixedMeterSession'
 import type { PreFixedManualFareSelection } from './types/preFixedMeterSession'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const baseSelection = (): PreFixedManualFareSelection => ({
   dispatchEnabled: true,
@@ -104,5 +109,108 @@ describe('calculatePrepaidWaitingEscortBillableYen', () => {
 
   it('starts billing from second 1 when no prepaid unit', () => {
     expect(calculatePrepaidWaitingEscortBillableYen(1, settings, 0)).toBe(settings.unitFareYen)
+  })
+})
+
+describe('manual flow route labels', () => {
+  it('uses A 推奨ルート and B 距離優先ルート titles', () => {
+    expect(preFixedRouteCandidateLabels.A).toBe('推奨ルート')
+    expect(preFixedRouteCandidateLabels.B).toBe('距離優先ルート')
+  })
+})
+
+describe('buildDefaultFareSelection automatic fees', () => {
+  const waitingFare = waitingFareSettings
+  const escortFare = { ...waitingFareSettings, unitFareYen: 1600 }
+
+  it('enables reserved pickup when dispatch item is enabled', () => {
+    const selection = buildDefaultFareSelection({
+      dispatchItem: { id: 'reservedPickup', name: '予約迎車', amount: 800, enabled: true, sortOrder: 1 },
+      specialVehicleItem: { id: 'oneBoxLift', name: '1BOXリフト車両', amount: 1000, enabled: true, sortOrder: 1 },
+      waitingFare,
+      escortFare,
+      vehicleEligible: false,
+    })
+    expect(selection.dispatchEnabled).toBe(true)
+    expect(selection.dispatchFareYen).toBe(800)
+    expect(selection.specialVehicleEnabled).toBe(false)
+  })
+
+  it('enables special vehicle fee when vehicle is eligible', () => {
+    const selection = buildDefaultFareSelection({
+      dispatchItem: { id: 'reservedPickup', name: '予約迎車', amount: 800, enabled: true, sortOrder: 1 },
+      specialVehicleItem: { id: 'oneBoxLift', name: '1BOXリフト車両', amount: 1000, enabled: true, sortOrder: 1 },
+      waitingFare,
+      escortFare,
+      vehicleEligible: true,
+    })
+    expect(selection.specialVehicleEnabled).toBe(true)
+    expect(selection.specialVehicleFareYen).toBe(1000)
+  })
+
+  it('keeps special vehicle off when vehicle is not eligible', () => {
+    const selection = buildDefaultFareSelection({
+      specialVehicleItem: { id: 'oneBoxLift', name: '1BOXリフト車両', amount: 1000, enabled: true, sortOrder: 1 },
+      waitingFare,
+      escortFare,
+      vehicleEligible: false,
+    })
+    expect(selection.specialVehicleEnabled).toBe(false)
+    expect(selection.specialVehicleFareYen).toBe(0)
+  })
+})
+
+describe('calculateManualPreFixedServiceYen', () => {
+  it('sums service fees without route fare', () => {
+    const serviceYen = calculateManualPreFixedServiceYen(baseSelection())
+    const total = calculateManualPreFixedTotalYen({ routeFareYen: 2500, selection: baseSelection() })
+    expect(total - 2500).toBe(serviceYen)
+  })
+})
+
+describe('manual flow UI wiring', () => {
+  const flowSource = readFileSync(resolve(process.cwd(), 'src/pages/PreFixedManualCreateFlow.tsx'), 'utf8')
+  const mapSource = readFileSync(
+    resolve(process.cwd(), 'src/components/preFixed/PreFixedRouteMapPanel.tsx'),
+    'utf8',
+  )
+
+  it('reuses PreFixedRouteMapPanel and shared polyline decode like かんたん見積もり', () => {
+    expect(flowSource).toContain('PreFixedRouteMapPanel')
+    expect(flowSource).toContain('buildRouteMapMarkers')
+    expect(mapSource).toContain("from '../../utils/polyline'")
+    expect(mapSource).toContain('decodePolylinePath')
+  })
+
+  it('shows route kind heading and options without TRIP TYPE eyebrow', () => {
+    expect(flowSource).toContain('運行ルートを選択')
+    expect(flowSource).toContain("single: '目的地'")
+    expect(flowSource).toContain("multi: '複数経由'")
+    expect(flowSource).not.toContain('TRIP TYPE')
+    expect(flowSource).not.toContain('ROUTES')
+    expect(flowSource).not.toContain('SERVICE ITEMS')
+  })
+
+  it('requests at least two route candidates for manual flow', () => {
+    expect(flowSource).toContain('minCandidates: 2')
+    expect(flowSource).toContain('maxCandidates: 2')
+  })
+
+  it('uses compact route cards and fare settings panel with category classes', () => {
+    expect(flowSource).toContain('PreFixedRouteCandidateCard')
+    expect(flowSource).toContain('PreFixedManualFareSettingsPanel')
+    const css = readFileSync(resolve(process.cwd(), 'src/App.css'), 'utf8')
+    expect(css).toContain('.pre-fixed-fare-category--auto')
+    expect(css).toContain('.pre-fixed-fare-category--assist')
+    expect(css).toContain('.pre-fixed-fare-category--rental')
+    expect(css).toContain('.pre-fixed-fare-category--waiting')
+    expect(css).toContain('.pre-fixed-route-card--compact')
+    expect(css).toContain('.pre-fixed-route-card.is-selected')
+    expect(css).toContain('.pre-fixed-fare-option-card.is-selected')
+  })
+
+  it('tracks automatic fee initialization without re-enabling after manual edits', () => {
+    expect(flowSource).toContain('hasInitializedAutomaticFeesRef')
+    expect(flowSource).toContain('userEditedFareSelectionRef')
   })
 })

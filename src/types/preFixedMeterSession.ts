@@ -85,7 +85,7 @@ export type PreFixedManualFareSelection = {
 
 export const preFixedRouteCandidateLabels: Record<PreFixedRouteCandidateId, string> = {
   A: '推奨ルート',
-  B: '距離優先',
+  B: '距離優先ルート',
   C: '時間優先',
   D: '別ルート',
 }

@@ -1,16 +1,16 @@
-import { useEffect, useRef } from 'react'
-import type { PreFixedRouteCandidate } from '../../types/preFixedMeterSession'
+import { useEffect, useRef, useState } from 'react'
+import type { PreFixedRouteCandidate, RoutePoint } from '../../types/preFixedMeterSession'
 import { ensureGoogleMapsApiLoaded } from '../../utils/googleMapsLoader'
-
-type LatLng = {
-  lat: number
-  lng: number
-}
+import { decodePolylinePath, type LatLngLiteral } from '../../utils/polyline'
 
 type GoogleMapsMap = {
-  fitBounds: (bounds: unknown) => void
-  setCenter: (center: LatLng) => void
+  fitBounds: (bounds: unknown, padding?: number) => void
+  setCenter: (center: LatLngLiteral) => void
   setZoom: (zoom: number) => void
+}
+
+type GoogleMapsMarker = {
+  setMap: (map: GoogleMapsMap | null) => void
 }
 
 type GoogleMapsPolyline = {
@@ -18,7 +18,7 @@ type GoogleMapsPolyline = {
 }
 
 type GoogleMapsLatLngBounds = {
-  extend: (point: LatLng) => void
+  extend: (point: LatLngLiteral) => void
 }
 
 type GoogleMapsNamespace = {
@@ -26,16 +26,23 @@ type GoogleMapsNamespace = {
   Map: new (
     element: HTMLElement,
     options: {
-      center: LatLng
+      center: LatLngLiteral
       fullscreenControl: boolean
       mapTypeControl: boolean
       streetViewControl: boolean
       zoom: number
     },
   ) => GoogleMapsMap
+  Marker: new (options: {
+    map: GoogleMapsMap
+    position: LatLngLiteral
+    label?: string | { text: string; color?: string }
+    title?: string
+    zIndex?: number
+  }) => GoogleMapsMarker
   Polyline: new (options: {
     map: GoogleMapsMap
-    path: LatLng[]
+    path: LatLngLiteral[]
     strokeColor: string
     strokeOpacity: number
     strokeWeight: number
@@ -43,42 +50,75 @@ type GoogleMapsNamespace = {
   }) => GoogleMapsPolyline
   geometry?: {
     encoding?: {
-      decodePath: (encoded: string) => LatLng[]
+      decodePath: (encoded: string) => LatLngLiteral[]
     }
   }
 }
 
 const getGoogleMaps = () => {
   const maps = (window as Window & { google?: { maps?: GoogleMapsNamespace } }).google?.maps
-  if (!maps?.Map || !maps.Polyline || !maps.LatLngBounds) {
+  if (!maps?.Map || !maps.Polyline || !maps.LatLngBounds || !maps.Marker) {
     throw new Error('Google Maps API is unavailable.')
   }
   return maps
 }
 
-const decodePolyline = (encoded: string): LatLng[] => {
-  const maps = getGoogleMaps()
-  if (maps.geometry?.encoding?.decodePath) {
-    return maps.geometry.encoding.decodePath(encoded)
-  }
-  return []
+const MAP_LOAD_ERROR_MESSAGE =
+  '地図を表示できませんでした。通信状況を確認して再読み込みしてください。'
+
+export type RouteMapMarker = {
+  point: RoutePoint
+  role: 'pickup' | 'waypoint' | 'destination'
+  label: string
 }
 
-type PreFixedRouteMapPanelProps = {
+export type PreFixedRouteMapPanelProps = {
   candidates: PreFixedRouteCandidate[]
   selectedRouteId: PreFixedRouteCandidate['id']
+  markers?: RouteMapMarker[]
+  isLoading?: boolean
+  reloadToken?: number
+}
+
+export function buildRouteMapMarkers(
+  pickup: RoutePoint,
+  stops: RoutePoint[],
+  destination: RoutePoint,
+): RouteMapMarker[] {
+  const result: RouteMapMarker[] = [
+    { point: pickup, role: 'pickup', label: '出発' },
+    ...stops.map((point, index) => ({
+      point,
+      role: 'waypoint' as const,
+      label: `${index + 1}`,
+    })),
+    { point: destination, role: 'destination', label: '到着' },
+  ]
+
+  return result.filter((marker) => marker.point.lat != null && marker.point.lng != null)
 }
 
 export function PreFixedRouteMapPanel({
   candidates,
   selectedRouteId,
+  markers = [],
+  isLoading = false,
+  reloadToken = 0,
 }: PreFixedRouteMapPanelProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<GoogleMapsMap | null>(null)
   const polylinesRef = useRef<GoogleMapsPolyline[]>([])
+  const mapMarkersRef = useRef<GoogleMapsMarker[]>([])
+  const [mapError, setMapError] = useState('')
 
   useEffect(() => {
-    if (candidates.length === 0) {
+    polylinesRef.current.forEach((line) => line.setMap(null))
+    polylinesRef.current = []
+    mapMarkersRef.current.forEach((marker) => marker.setMap(null))
+    mapMarkersRef.current = []
+
+    if (isLoading || candidates.length === 0) {
+      setMapError('')
       return undefined
     }
 
@@ -88,6 +128,9 @@ export function PreFixedRouteMapPanel({
       try {
         const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
         if (!apiKey) {
+          if (isMounted) {
+            setMapError(MAP_LOAD_ERROR_MESSAGE)
+          }
           return
         }
 
@@ -102,9 +145,6 @@ export function PreFixedRouteMapPanel({
         }
 
         const maps = getGoogleMaps()
-        polylinesRef.current.forEach((line) => line.setMap(null))
-        polylinesRef.current = []
-
         const map =
           mapRef.current ??
           new maps.Map(mapElement, {
@@ -118,6 +158,30 @@ export function PreFixedRouteMapPanel({
 
         const bounds = new maps.LatLngBounds()
         let hasBounds = false
+        const googleDecode = maps.geometry?.encoding?.decodePath
+
+        for (const marker of markers) {
+          if (marker.point.lat == null || marker.point.lng == null) {
+            continue
+          }
+          const position = { lat: marker.point.lat, lng: marker.point.lng }
+          bounds.extend(position)
+          hasBounds = true
+          mapMarkersRef.current.push(
+            new maps.Marker({
+              map,
+              position,
+              label: marker.label,
+              title:
+                marker.role === 'pickup'
+                  ? '出発地'
+                  : marker.role === 'destination'
+                    ? '最終目的地'
+                    : `経由地${marker.label}`,
+              zIndex: marker.role === 'pickup' ? 5 : marker.role === 'destination' ? 4 : 3,
+            }),
+          )
+        }
 
         for (const candidate of candidates) {
           const encoded = candidate.polyline?.trim()
@@ -125,7 +189,7 @@ export function PreFixedRouteMapPanel({
             continue
           }
 
-          const path = decodePolyline(encoded)
+          const path = decodePolylinePath(encoded, googleDecode)
           if (path.length === 0) {
             continue
           }
@@ -149,10 +213,17 @@ export function PreFixedRouteMapPanel({
         }
 
         if (hasBounds) {
-          map.fitBounds(bounds)
+          map.fitBounds(bounds, 48)
+        }
+
+        if (isMounted) {
+          setMapError('')
         }
       } catch (error) {
         console.warn('Failed to render pre-fixed route map.', error)
+        if (isMounted) {
+          setMapError(MAP_LOAD_ERROR_MESSAGE)
+        }
       }
     }
 
@@ -161,14 +232,26 @@ export function PreFixedRouteMapPanel({
     return () => {
       isMounted = false
     }
-  }, [candidates, selectedRouteId])
+  }, [candidates, selectedRouteId, markers, isLoading, reloadToken])
 
   return (
-    <div
-      ref={mapContainerRef}
-      className="pre-fixed-route-map-panel"
-      aria-label="ルート候補マップ"
-      role="img"
-    />
+    <div className="pre-fixed-route-map-shell">
+      <div
+        ref={mapContainerRef}
+        className={`pre-fixed-route-map-panel${isLoading ? ' is-loading' : ''}`}
+        aria-label="ルート候補マップ"
+        role="img"
+      />
+      {isLoading ? (
+        <p className="save-note pre-fixed-route-map-status" role="status">
+          ルートを検索しています…
+        </p>
+      ) : null}
+      {mapError ? (
+        <p className="case-error pre-fixed-route-map-status" role="alert">
+          {mapError}
+        </p>
+      ) : null}
+    </div>
   )
 }

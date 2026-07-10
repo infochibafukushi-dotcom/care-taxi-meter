@@ -6,7 +6,58 @@ import {
   INITIAL_FARE_YEN,
 } from './constants/fareConstants'
 import { basicFareSettings, calculateBasicFareYen } from './services/fare'
-import { calculateSelectedServiceFeesYen } from './services/preFixedRouteQuote'
+import {
+  calculateSelectedServiceFeesYen,
+  ensureMinimumRouteCandidates,
+} from './services/preFixedRouteQuote'
+import type { PreFixedRouteCandidate } from './types/preFixedMeterSession'
+import { preFixedRouteCandidateLabels } from './types/preFixedMeterSession'
+
+const sampleCandidate = (
+  id: PreFixedRouteCandidate['id'],
+  overrides: Partial<PreFixedRouteCandidate> = {},
+): PreFixedRouteCandidate => ({
+  id,
+  label: preFixedRouteCandidateLabels[id],
+  distanceMeters: 3300,
+  durationSeconds: 540,
+  fixedFareYen: 1620,
+  serviceFeesYen: 0,
+  totalYen: 1620,
+  tollIncluded: false,
+  polyline: 'encoded-path',
+  ...overrides,
+})
+
+describe('ensureMinimumRouteCandidates', () => {
+  it('returns A and B when only one route is available', () => {
+    const single = [sampleCandidate('A')]
+    const result = ensureMinimumRouteCandidates(single, 2)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.id).toBe('A')
+    expect(result[1]?.id).toBe('B')
+    expect(result[1]?.label).toBe('距離優先ルート')
+    expect(result[1]?.polyline).toBe(single[0]?.polyline)
+  })
+
+  it('keeps distinct routes when two or more are available', () => {
+    const routes = [
+      sampleCandidate('A', { distanceMeters: 3300, polyline: 'route-a' }),
+      sampleCandidate('B', { distanceMeters: 4100, polyline: 'route-b' }),
+    ]
+    const result = ensureMinimumRouteCandidates(routes, 2)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.polyline).toBe('route-a')
+    expect(result[1]?.polyline).toBe('route-b')
+  })
+
+  it('does not remove duplicate A/B when distances and fares match', () => {
+    const routes = ensureMinimumRouteCandidates([sampleCandidate('A')], 2)
+    expect(routes[0]?.fixedFareYen).toBe(routes[1]?.fixedFareYen)
+    expect(routes[0]?.distanceMeters).toBe(routes[1]?.distanceMeters)
+    expect(routes).toHaveLength(2)
+  })
+})
 
 /**
  * 予約なし手動フロー・予約連携作成フローともに

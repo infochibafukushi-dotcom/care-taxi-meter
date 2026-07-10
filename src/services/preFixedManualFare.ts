@@ -112,6 +112,9 @@ export const calculateManualPreFixedTotalYen = ({
   return total
 }
 
+export const calculateManualPreFixedServiceYen = (selection: PreFixedManualFareSelection): number =>
+  calculateManualPreFixedTotalYen({ routeFareYen: 0, selection })
+
 export const applyWaitingEscortPlan = (
   selection: PreFixedManualFareSelection,
   plan: ManualWaitingEscortPlan,

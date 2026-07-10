@@ -4,6 +4,52 @@ import type { RoutePoint, PreFixedRouteCandidate, PreFixedRouteCandidateId } fro
 import { preFixedRouteCandidateLabels } from '../types/preFixedMeterSession'
 
 const ROUTE_IDS: PreFixedRouteCandidateId[] = ['A', 'B', 'C', 'D']
+const MANUAL_FLOW_ROUTE_IDS: PreFixedRouteCandidateId[] = ['A', 'B']
+
+const buildCandidateFromSource = (
+  source: Awaited<ReturnType<typeof calculateAdditionalRouteCandidates>>[number],
+  id: PreFixedRouteCandidateId,
+  basicFare: BasicFareSettings,
+  serviceFeesYen: number,
+): PreFixedRouteCandidate => {
+  const distanceMeters = Math.round(Math.max(source.distanceKm, 0.1) * 1000)
+  const durationSeconds = Math.max(source.durationSeconds, 60)
+  const fixedFareYen = calculateBasicFareYen(source.distanceKm, basicFare)
+
+  return {
+    id,
+    label: preFixedRouteCandidateLabels[id],
+    distanceMeters,
+    durationSeconds,
+    fixedFareYen,
+    serviceFeesYen,
+    totalYen: fixedFareYen + serviceFeesYen,
+    tollIncluded: source.useToll,
+    polyline: source.encodedPolyline,
+  }
+}
+
+export const ensureMinimumRouteCandidates = (
+  candidates: PreFixedRouteCandidate[],
+  minimum = 2,
+): PreFixedRouteCandidate[] => {
+  if (candidates.length === 0) {
+    return []
+  }
+
+  const result = [...candidates]
+  while (result.length < minimum) {
+    const source = result[0]
+    const nextId = MANUAL_FLOW_ROUTE_IDS[result.length] ?? 'B'
+    result.push({
+      ...source,
+      id: nextId,
+      label: preFixedRouteCandidateLabels[nextId],
+    })
+  }
+
+  return result
+}
 
 export const calculateSelectedServiceFeesYen = (items: AssistItem[]) =>
   items
@@ -29,6 +75,8 @@ export async function calculatePreFixedRouteCandidates({
   serviceItems,
   basicFare = basicFareSettings,
   includeServiceFees = true,
+  minCandidates = 1,
+  maxCandidates = 4,
 }: {
   pickup: RoutePoint
   stops: RoutePoint[]
@@ -36,6 +84,8 @@ export async function calculatePreFixedRouteCandidates({
   serviceItems: AssistItem[]
   basicFare?: BasicFareSettings
   includeServiceFees?: boolean
+  minCandidates?: number
+  maxCandidates?: number
 }): Promise<PreFixedRouteCandidate[]> {
   const origin = toWaypointInput(pickup)
   const waypoints = stops.map(toWaypointInput)
@@ -108,24 +158,13 @@ export async function calculatePreFixedRouteCandidates({
     usedSources.push(uniqueCandidates[0])
   }
 
-  return usedSources.map((source, index) => {
+  const mapped = usedSources.map((source, index) => {
     const id = ROUTE_IDS[index] ?? ROUTE_IDS[ROUTE_IDS.length - 1]
-    const distanceMeters = Math.round(Math.max(source.distanceKm, 0.1) * 1000)
-    const durationSeconds = Math.max(source.durationSeconds, 60)
-    const fixedFareYen = calculateBasicFareYen(source.distanceKm, basicFare)
-
-    return {
-      id,
-      label: preFixedRouteCandidateLabels[id],
-      distanceMeters,
-      durationSeconds,
-      fixedFareYen,
-      serviceFeesYen,
-      totalYen: fixedFareYen + serviceFeesYen,
-      tollIncluded: source.useToll,
-      polyline: source.encodedPolyline,
-    } satisfies PreFixedRouteCandidate
+    return buildCandidateFromSource(source, id, basicFare, serviceFeesYen)
   })
+
+  const withMinimum = ensureMinimumRouteCandidates(mapped, minCandidates)
+  return withMinimum.slice(0, maxCandidates)
 }
 
 export const formatRouteDurationLabel = (durationSeconds: number) => {
