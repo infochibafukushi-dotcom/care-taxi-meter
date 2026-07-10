@@ -6,7 +6,6 @@ const DEFAULT_API_BASE =
   'https://throbbing-bush-8f59.info-chibafukushi.workers.dev'
 
 const CACHE_KEY = 'careTaxiMeterFareMasterCache'
-const CACHE_TTL_MS = 5 * 60 * 1000
 
 export type FareMasterMeterPayload = {
   fareMasterId: string | null
@@ -21,12 +20,11 @@ export type FareMasterMeterPayload = {
 
 type CacheEntry = { fetchedAt: number; data: FareMasterMeterPayload }
 
-function readCache(): FareMasterMeterPayload | null {
+function readLastGoodCache(): FareMasterMeterPayload | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as CacheEntry
-    if (Date.now() - parsed.fetchedAt > CACHE_TTL_MS) return null
     return parsed.data
   } catch {
     return null
@@ -85,7 +83,7 @@ export async function resolveFareMasterForMeter(scope: {
   try {
     return await fetchActiveFareMaster(scope)
   } catch (error) {
-    const cached = readCache()
+    const cached = readLastGoodCache()
     if (cached) {
       return { ...cached, fareSource: 'cached_master', fallbackReason: String(error) }
     }

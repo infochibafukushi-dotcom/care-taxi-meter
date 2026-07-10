@@ -54,6 +54,8 @@ export type ActiveTripSnapshot = {
   }
   dropoffLocation: CapturedAddressLocation
   fareSnapshot: FareSnapshot | null
+  fareSource?: 'reservation_snapshot' | 'active_master' | 'cached_master' | 'system_fallback'
+  effectiveFareSnapshot?: Record<string, unknown> | null
   fareTotalYen: number
   gps: {
     currentSpeedKmh: number | null

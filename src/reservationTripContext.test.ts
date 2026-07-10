@@ -173,7 +173,7 @@ describe('compactReservationTripContextForSnapshot', () => {
 })
 
 describe('normalizeReservationTripContext', () => {
-  it('accepts legacy session data with zero confirmed fare and total fare', () => {
+  it('accepts legacy session data with zero confirmed fare without promoting fixedFareTotalYen', () => {
     const normalized = normalizeReservationTripContext({
       reservationId: 'res-13100',
       confirmedFareYen: 0,
@@ -183,13 +183,13 @@ describe('normalizeReservationTripContext', () => {
       dropoffAddress: '千葉市若葉区',
     })
 
-    expect(normalized?.confirmedFareYen).toBe(13100)
+    expect(normalized?.confirmedFareYen).toBe(0)
     expect(normalized?.fixedFareTotalYen).toBe(13100)
   })
 })
 
 describe('resolvePreFixedConfirmedFareYen', () => {
-  it('prefers fixed fare total when confirmed fare is zero', () => {
+  it('uses quoteSnapshot fixedFareTotal when confirmed fare is zero', () => {
     expect(
       resolvePreFixedConfirmedFareYen({
         context: {
@@ -198,7 +198,7 @@ describe('resolvePreFixedConfirmedFareYen', () => {
           fixedFareTotalYen: 13100,
         },
       }),
-    ).toBe(13100)
+    ).toBe(10000)
   })
 })
 

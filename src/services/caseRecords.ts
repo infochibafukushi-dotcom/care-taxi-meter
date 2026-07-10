@@ -149,6 +149,13 @@ export type FareSnapshot = {
   assistItems: CareOptionMasterItem[]
   expensePresets: Array<ExpensePreset & { amount: number; enabled: boolean; sortOrder: number }>
   capturedAt: string
+  fareMasterId?: string | null
+  fareVersionId?: string | null
+  fareVersion?: string | null
+  fareSource?: 'reservation_snapshot' | 'active_master' | 'cached_master' | 'system_fallback' | null
+  fallbackReason?: string | null
+  effectiveFareSnapshot?: Record<string, unknown> | null
+  reservationFareSnapshot?: Record<string, unknown> | null
 }
 
 export type CaseNumberAssignment = {

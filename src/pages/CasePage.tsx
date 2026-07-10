@@ -41,6 +41,11 @@ import {
   shouldExcludeServiceFeeFromMeterReadd,
   STAIR_FLOOR_OPTIONS,
 } from '../services/fareMasterService'
+import {
+  resolveTripFareForMeter,
+  applyTripFarePricingToState,
+  type EffectiveFareMeta,
+} from '../services/fareMasterTripResolver'
 import { fetchCaseRecord, generateCaseNumber, saveCaseRecord } from '../services/caseRecords'
 import { saveGpsRoute } from '../services/gpsRoutes'
 import { fetchCompanyById, getCompanyMeterPermissions } from '../services/companies'
@@ -452,6 +457,7 @@ const createFareSnapshot = ({
   meterSettings,
   specialVehicleMenuItems,
   waitingFare,
+  fareMeta,
 }: {
   assistItems: CareOptionMasterItem[]
   basicFare: BasicFareSettings
@@ -461,6 +467,7 @@ const createFareSnapshot = ({
   meterSettings: MeterSettings
   specialVehicleMenuItems: SpecialVehicleMenuItem[]
   waitingFare: TimeFareSettings
+  fareMeta?: EffectiveFareMeta | null
 }): FareSnapshot => ({
   assistItems: assistItems.map((item) => ({ ...item })),
   basicFare: { ...basicFare },
@@ -499,6 +506,17 @@ const createFareSnapshot = ({
     timeBands: [],
   },
   waitingFare: { ...waitingFare },
+  ...(fareMeta
+    ? {
+        fareMasterId: fareMeta.fareMasterId,
+        fareVersionId: fareMeta.fareVersionId,
+        fareVersion: fareMeta.fareVersion,
+        fareSource: fareMeta.fareSource,
+        fallbackReason: fareMeta.fallbackReason ?? null,
+        effectiveFareSnapshot: fareMeta.effectiveFareSnapshot,
+        reservationFareSnapshot: fareMeta.reservationFareSnapshot ?? null,
+      }
+    : {}),
 })
 
 const getReverseGeocodeCauseLabel = ({
@@ -696,6 +714,19 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [caseNumber, setCaseNumber] = useState(restoredTripSnapshot?.caseNumber ?? '未採番')
   const [, setIsFareSnapshotLocked] = useState(Boolean(restoredTripSnapshot?.fareSnapshot))
   const fareSnapshotRef = useRef<FareSnapshot | null>(restoredTripSnapshot?.fareSnapshot ?? null)
+  const effectiveFareMetaRef = useRef<EffectiveFareMeta | null>(
+    restoredTripSnapshot?.effectiveFareSnapshot
+      ? {
+          fareSource: restoredTripSnapshot.fareSource ?? 'active_master',
+          fareMasterId: restoredTripSnapshot.fareSnapshot?.fareMasterId ?? null,
+          fareVersionId: restoredTripSnapshot.fareSnapshot?.fareVersionId ?? null,
+          fareVersion: restoredTripSnapshot.fareSnapshot?.fareVersion ?? null,
+          effectiveFareSnapshot: restoredTripSnapshot.effectiveFareSnapshot,
+          capturedAt: restoredTripSnapshot.fareSnapshot?.capturedAt ?? new Date().toISOString(),
+        }
+      : null,
+  )
+  const fareMasterPricingLoadedRef = useRef(false)
   const caseNumberAssignmentRef = useRef<CaseNumberAssignment | null>(
     restoredTripSnapshot?.caseNumberAssignment ?? null,
   )
@@ -1491,6 +1522,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
           return
         }
 
+        if (fareMasterPricingLoadedRef.current) {
+          latestMeterSettingsRef.current = settings
+          setCurrentExpensePresets(settings.expensePresets)
+          setSettingsMessage('D1料金マスター適用中（Firestoreは端末互換設定のみ反映）。')
+          return
+        }
+
         latestMeterSettingsRef.current = settings
         const selectedSettings = selectMeterModeSettings(settings, resolveMeterSettingsMode(meterMode))
         setCurrentMeterSettings(selectedSettings)
@@ -1524,6 +1562,51 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       unsubscribe()
     }
   }, [currentFranchiseeId, currentStoreId, meterMode])
+
+  useEffect(() => {
+    if (reviewDemoMode || fareSnapshotRef.current) {
+      return undefined
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const resolved = await resolveTripFareForMeter({
+          franchiseeId: currentFranchiseeId,
+          storeId: currentStoreId,
+          reservationContext: reservationTripContext,
+          preferReservationSnapshot: meterMode === 'fixed',
+        })
+        if (cancelled || fareSnapshotRef.current) return
+        effectiveFareMetaRef.current = resolved.meta
+        fareMasterPricingLoadedRef.current = true
+        applyTripFarePricingToState(resolved.pricing, {
+          setBasicFare: setCurrentBasicFareSettings,
+          setWaitingFare: setCurrentWaitingFareSettings,
+          setEscortFare: setCurrentEscortFareSettings,
+          setAssistItems: setCurrentCareOptionMaster,
+          setDispatchItems: setCurrentDispatchMenuItems,
+          setSpecialVehicleItems: setCurrentSpecialVehicleMenuItems,
+        })
+        setSettingsMessage(
+          `料金マスター適用: ${resolved.meta.fareSource}${resolved.meta.fareVersion ? ` (${resolved.meta.fareVersion})` : ''}`,
+        )
+      } catch (error) {
+        if (!cancelled) {
+          setSettingsMessage(
+            error instanceof Error
+              ? `料金マスター取得失敗: ${error.message}`
+              : '料金マスター取得失敗',
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentFranchiseeId, currentStoreId, meterMode, reservationTripContext, reviewDemoMode])
 
 
   useEffect(() => {
@@ -1989,6 +2072,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       },
       dropoffLocation,
       fareSnapshot: fareSnapshotRef.current,
+      fareSource: fareSnapshotRef.current?.fareSource ?? effectiveFareMetaRef.current?.fareSource,
+      effectiveFareSnapshot:
+        fareSnapshotRef.current?.effectiveFareSnapshot ??
+        effectiveFareMetaRef.current?.effectiveFareSnapshot ??
+        null,
       fareTotalYen: settlementBreakdown.totalFareYen,
       gps: {
         currentSpeedKmh: gps.currentSpeedKmh,
@@ -2715,6 +2803,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         meterSettings: currentMeterSettings,
         specialVehicleMenuItems: currentSpecialVehicleMenuItems,
         waitingFare: currentWaitingFareSettings,
+        fareMeta: effectiveFareMetaRef.current,
       })
 
       caseNumberAssignmentRef.current = assignment
