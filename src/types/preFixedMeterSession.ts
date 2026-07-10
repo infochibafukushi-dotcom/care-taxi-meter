@@ -84,10 +84,10 @@ export type PreFixedManualFareSelection = {
 }
 
 export const preFixedRouteCandidateLabels: Record<PreFixedRouteCandidateId, string> = {
-  A: '推奨ルート',
-  B: '距離優先ルート',
-  C: '時間優先',
-  D: '別ルート',
+  A: '時間優先',
+  B: '一般道優先',
+  C: '距離優先',
+  D: '有料道路優先',
 }
 
 export type PreFixedSourceFlow =

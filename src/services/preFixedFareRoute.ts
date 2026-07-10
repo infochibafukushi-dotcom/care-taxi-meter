@@ -425,6 +425,270 @@ const buildFallbackCandidates = (
   ]
 }
 
+export type PreFixedDirectionsRouteSource = {
+  distanceKm: number
+  durationSeconds: number
+  encodedPolyline?: string
+  useToll: boolean
+  summary?: string
+}
+
+type GoogleDirectionsRoute = GoogleDirectionsResult['routes'][number]
+
+const toRouteSource = (route: GoogleDirectionsRoute): PreFixedDirectionsRouteSource => {
+  const distanceMeters = route.legs.reduce(
+    (total, leg) => total + (leg.distance?.value ?? 0),
+    0,
+  )
+  const durationSeconds = route.legs.reduce(
+    (total, leg) => total + (leg.duration?.value ?? 0),
+    0,
+  )
+  const distanceKm = Math.max(distanceMeters / 1000, 0.1)
+
+  return {
+    distanceKm: Number(distanceKm.toFixed(1)),
+    durationSeconds: Math.max(durationSeconds, 60),
+    encodedPolyline: route.overview_polyline?.points,
+    useToll: false,
+    summary: route.summary,
+  }
+}
+
+const routeSourceKey = (source: PreFixedDirectionsRouteSource) =>
+  `${source.encodedPolyline ?? ''}:${source.distanceKm.toFixed(1)}:${source.durationSeconds}`
+
+const isSameRouteSource = (
+  left?: PreFixedDirectionsRouteSource,
+  right?: PreFixedDirectionsRouteSource,
+) => {
+  if (!left || !right) {
+    return false
+  }
+  return routeSourceKey(left) === routeSourceKey(right)
+}
+
+const pickFastestRouteSource = (
+  routes: GoogleDirectionsRoute[],
+): PreFixedDirectionsRouteSource | undefined => {
+  if (routes.length === 0) {
+    return undefined
+  }
+
+  return routes
+    .map(toRouteSource)
+    .sort((a, b) => a.durationSeconds - b.durationSeconds)[0]
+}
+
+const collectUniqueRouteSources = (
+  routeGroups: GoogleDirectionsRoute[][],
+): PreFixedDirectionsRouteSource[] => {
+  const unique: PreFixedDirectionsRouteSource[] = []
+  const seen = new Set<string>()
+
+  for (const routes of routeGroups) {
+    for (const route of routes) {
+      const source = toRouteSource(route)
+      const key = routeSourceKey(source)
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      unique.push(source)
+    }
+  }
+
+  return unique
+}
+
+const buildDirectionsBaseRequest = (
+  origin: RouteWaypointInput,
+  waypoints: RouteWaypointInput[],
+  destination: RouteWaypointInput,
+) => {
+  const originQuery = resolveWaypointQuery(origin)
+  const destinationQuery = resolveWaypointQuery(destination)
+  if (!originQuery || !destinationQuery) {
+    return null
+  }
+
+  const request: Record<string, unknown> = {
+    origin: originQuery,
+    destination: destinationQuery,
+    travelMode: 'DRIVING',
+    provideRouteAlternatives: true,
+    region: 'JP',
+    language: 'ja',
+  }
+
+  if (waypoints.length > 0) {
+    request.waypoints = waypoints
+      .map((point) => resolveWaypointQuery(point))
+      .filter(Boolean)
+      .map((location) => ({ location, stopover: true }))
+  }
+
+  return request
+}
+
+const requestDirectionsRoutes = async (
+  directionsService: GoogleDirectionsService,
+  request: Record<string, unknown>,
+): Promise<GoogleDirectionsRoute[]> => {
+  const result = await new Promise<GoogleDirectionsResult | null>((resolve) => {
+    directionsService.route(request, (response, status) => {
+      if (status === 'OK' && response?.routes?.length) {
+        resolve(response)
+        return
+      }
+      resolve(null)
+    })
+  })
+
+  return result?.routes ?? []
+}
+
+const buildFallbackRouteSources = (
+  origin: RouteWaypointInput,
+  waypoints: RouteWaypointInput[],
+  destination: RouteWaypointInput,
+): PreFixedDirectionsRouteSource[] => {
+  const points = [origin, ...waypoints, destination]
+  let totalDistanceKm = 0
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const from = points[index]
+    const to = points[index + 1]
+    if (
+      typeof from.latitude === 'number' &&
+      typeof from.longitude === 'number' &&
+      typeof to.latitude === 'number' &&
+      typeof to.longitude === 'number'
+    ) {
+      totalDistanceKm += haversineDistanceKm(
+        { lat: from.latitude, lng: from.longitude },
+        { lat: to.latitude, lng: to.longitude },
+      )
+    } else {
+      totalDistanceKm += 3
+    }
+  }
+
+  const roadDistanceKm = Math.max(totalDistanceKm * 1.25, 0.5)
+  const altDistanceKm = Math.max(roadDistanceKm * 1.15, roadDistanceKm + 0.4)
+
+  return [
+    {
+      distanceKm: Number(roadDistanceKm.toFixed(1)),
+      durationSeconds: estimateDurationSeconds(roadDistanceKm),
+      useToll: false,
+    },
+    {
+      distanceKm: Number(altDistanceKm.toFixed(1)),
+      durationSeconds: estimateDurationSeconds(altDistanceKm),
+      useToll: false,
+    },
+  ]
+}
+
+const padGeneralRoadSource = (
+  timePriority: PreFixedDirectionsRouteSource,
+  index: number,
+): PreFixedDirectionsRouteSource => ({
+  ...timePriority,
+  distanceKm: Number((timePriority.distanceKm * (1 + index * 0.08)).toFixed(1)),
+  durationSeconds: Math.round(timePriority.durationSeconds * (1 + index * 0.08)),
+})
+
+/**
+ * かんたん見積もり / 予約なし手動フロー共通の A〜D ルート種別ソースを生成する。
+ */
+export async function calculatePreFixedDirectionsRouteSources({
+  origin,
+  waypoints,
+  destination,
+}: {
+  origin: RouteWaypointInput
+  waypoints: RouteWaypointInput[]
+  destination: RouteWaypointInput
+}): Promise<PreFixedDirectionsRouteSource[]> {
+  const directionsService = await getDirectionsService()
+  const baseRequest = buildDirectionsBaseRequest(origin, waypoints, destination)
+
+  if (!directionsService || !baseRequest) {
+    return buildFallbackRouteSources(origin, waypoints, destination)
+  }
+
+  const [standardRoutes, generalRoadRoutes, avoidTollRoutes] = await Promise.all([
+    requestDirectionsRoutes(directionsService, baseRequest),
+    requestDirectionsRoutes(directionsService, {
+      ...baseRequest,
+      avoidHighways: true,
+      avoidTolls: true,
+    }),
+    requestDirectionsRoutes(directionsService, {
+      ...baseRequest,
+      avoidTolls: true,
+    }),
+  ])
+
+  if (standardRoutes.length === 0) {
+    return buildFallbackRouteSources(origin, waypoints, destination)
+  }
+
+  const timePriority = pickFastestRouteSource(standardRoutes)
+  if (!timePriority) {
+    return buildFallbackRouteSources(origin, waypoints, destination)
+  }
+
+  let generalRoad = pickFastestRouteSource(generalRoadRoutes)
+  if (!generalRoad || isSameRouteSource(timePriority, generalRoad)) {
+    generalRoad = padGeneralRoadSource(timePriority, 1)
+  }
+
+  const allUnique = collectUniqueRouteSources([
+    standardRoutes,
+    generalRoadRoutes,
+    avoidTollRoutes,
+  ])
+  const shortestOverall = [...allUnique].sort((a, b) => a.distanceKm - b.distanceKm)[0]
+
+  const avoidTollBest = pickFastestRouteSource(avoidTollRoutes)
+  const tollCandidate = pickFastestRouteSource(standardRoutes)
+  const tollUsesHighway =
+    tollCandidate &&
+    avoidTollBest &&
+    !isSameRouteSource(tollCandidate, avoidTollBest) &&
+    (tollCandidate.durationSeconds < avoidTollBest.durationSeconds ||
+      tollCandidate.distanceKm < avoidTollBest.distanceKm)
+
+  const slots: PreFixedDirectionsRouteSource[] = [timePriority, generalRoad]
+
+  if (
+    shortestOverall &&
+    !isSameRouteSource(shortestOverall, timePriority) &&
+    !isSameRouteSource(shortestOverall, generalRoad) &&
+    shortestOverall.distanceKm <= timePriority.distanceKm &&
+    shortestOverall.distanceKm <= generalRoad.distanceKm
+  ) {
+    slots.push({ ...shortestOverall, useToll: false })
+  }
+
+  if (tollCandidate && tollUsesHighway) {
+    const tollPriority = { ...tollCandidate, useToll: true }
+    const alreadyIncluded = slots.some((slot) => isSameRouteSource(slot, tollPriority))
+    if (!alreadyIncluded) {
+      slots.push(tollPriority)
+    }
+  }
+
+  while (slots.length < 2) {
+    slots.push(padGeneralRoadSource(timePriority, slots.length))
+  }
+
+  return slots.slice(0, 4)
+}
+
 export async function calculateAdditionalRouteCandidates({
   origin,
   waypoints,

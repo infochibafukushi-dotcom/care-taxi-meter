@@ -9238,9 +9238,52 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   border-radius: 10px;
 }
 
-.pre-fixed-route-card-list {
+.pre-fixed-route-selection-step {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+.pre-fixed-route-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.pre-fixed-route-selection-notice {
+  margin: 0;
+}
+
+.pre-fixed-route-card-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pre-fixed-route-step-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pre-fixed-route-step-footer--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 4px;
+  padding: 12px 0 max(8px, env(safe-area-inset-bottom));
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0) 0%,
+    rgb(255 255 255 / 0.92) 24%,
+    #fff 100%
+  );
+}
+
+.pre-fixed-route-card-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 

@@ -100,3 +100,35 @@ export async function ensureGoogleMapsApiLoaded(apiKey: string): Promise<void> {
 
   return googleMapsScriptPromise
 }
+
+export async function loadGoogleMapsPolylineDecoder(
+  apiKey: string,
+): Promise<((encoded: string) => Array<{ lat: number; lng: number }>) | undefined> {
+  await ensureGoogleMapsApiLoaded(apiKey)
+
+  const maps = getLoaderWindow().google?.maps as
+    | {
+        geometry?: { encoding?: { decodePath: (encoded: string) => Array<{ lat: number; lng: number }> } }
+        importLibrary?: (libraryName: string) => Promise<unknown>
+      }
+    | undefined
+
+  if (maps?.geometry?.encoding?.decodePath) {
+    return maps.geometry.encoding.decodePath.bind(maps.geometry.encoding)
+  }
+
+  if (maps?.importLibrary) {
+    try {
+      const geometry = (await maps.importLibrary('geometry')) as {
+        encoding?: { decodePath: (encoded: string) => Array<{ lat: number; lng: number }> }
+      }
+      if (geometry.encoding?.decodePath) {
+        return geometry.encoding.decodePath.bind(geometry.encoding)
+      }
+    } catch (error) {
+      console.warn('Failed to load Google Maps geometry library.', error)
+    }
+  }
+
+  return undefined
+}

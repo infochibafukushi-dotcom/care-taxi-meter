@@ -20,10 +20,9 @@ import {
 } from '../services/preFixedMeterSession'
 import {
   calculatePreFixedRouteCandidates,
-  formatRouteDistanceLabel,
-  formatRouteDurationLabel,
 } from '../services/preFixedRouteQuote'
-import { PreFixedRouteMapPanel } from '../components/preFixed/PreFixedRouteMapPanel'
+import { PreFixedRouteSelectionStep } from '../components/preFixed/PreFixedRouteSelectionStep'
+import { buildRouteMapMarkers } from '../components/preFixed/PreFixedRouteMapPanel'
 import { fetchDriverReservation, startFixedFareRun } from '../services/reservationApi'
 import { saveReservationTripContext } from '../services/reservationTripContext'
 import { readActiveTripSnapshot } from '../services/activeTripSnapshot'
@@ -930,64 +929,36 @@ function PreFixedReservationCreateFlow({
     )
   }
 
-  const renderRoutesStep = () => (
+  const renderRoutesStep = () => {
+    const segments = buildRouteSegments({ pickup, visitDestinations, returnToPickup })
+    const routeMapMarkers =
+      segments && pickup.address.trim()
+        ? buildRouteMapMarkers(pickup, segments.stops, segments.destination)
+        : []
+
+    return (
     <section className="content-card pre-fixed-flow-card pre-fixed-routes-step">
       <button className="text-link" type="button" onClick={() => setStep('destinations')}>
         ← 訪問先入力に戻る
       </button>
-      <p className="eyebrow">Routes</p>
       <h1>ルート候補</h1>
 
-      <PreFixedRouteMapPanel candidates={routeCandidates} selectedRouteId={selectedRouteId} />
-
-      <div className="pre-fixed-route-card-list">
-        {routeCandidates.map((route) => (
-          <button
-            key={route.id}
-            className={`pre-fixed-route-card${selectedRouteId === route.id ? ' is-selected' : ''}`}
-            type="button"
-            onClick={() => setSelectedRouteId(route.id)}
-          >
-            <div className="pre-fixed-route-card__header">
-              <strong>{route.id} {route.label}</strong>
-              <span className="pre-fixed-amount">{formatFareYen(route.totalYen)}円</span>
-            </div>
-            <p>
-              {formatRouteDurationLabel(route.durationSeconds)}
-              {' / '}
-              {formatRouteDistanceLabel(route.distanceMeters)}
-            </p>
-            <dl className="pre-fixed-route-card__breakdown">
-              <div>
-                <dt>事前確定運賃</dt>
-                <dd>{formatFareYen(route.fixedFareYen)}円</dd>
-              </div>
-              <div>
-                <dt>介助料金</dt>
-                <dd>{formatFareYen(assistFeeTotal)}円</dd>
-              </div>
-              {specialVehicleTotal > 0 ? (
-                <div>
-                  <dt>車両使用料</dt>
-                  <dd>{formatFareYen(specialVehicleTotal)}円</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>請求予定合計</dt>
-                <dd>{formatFareYen(route.totalYen)}円</dd>
-              </div>
-            </dl>
-          </button>
-        ))}
-      </div>
-
-      <div className="pre-fixed-flow-actions">
-        <button className="primary-action" type="button" onClick={() => setStep('consent')}>
-          選択して同意確認へ
-        </button>
-      </div>
+      <PreFixedRouteSelectionStep
+        routeCandidates={routeCandidates}
+        selectedRouteId={selectedRouteId}
+        onSelectRoute={setSelectedRouteId}
+        resolvePreFixedTotalYen={(route) => route.totalYen}
+        markers={routeMapMarkers}
+        isLoading={isCalculatingRoutes}
+        onNext={() => setStep('consent')}
+        nextLabel="選択して同意確認へ"
+        totalLabel="概算合計"
+        fareEstimateLabel="運賃目安"
+        notice={routeError ? <p className="case-error" role="alert">{routeError}</p> : null}
+      />
     </section>
-  )
+    )
+  }
 
   const renderConsentStep = () => (
     <section className="content-card pre-fixed-flow-card">

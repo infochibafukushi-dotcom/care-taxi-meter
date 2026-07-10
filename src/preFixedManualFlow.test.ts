@@ -113,9 +113,11 @@ describe('calculatePrepaidWaitingEscortBillableYen', () => {
 })
 
 describe('manual flow route labels', () => {
-  it('uses A 推奨ルート and B 距離優先ルート titles', () => {
-    expect(preFixedRouteCandidateLabels.A).toBe('推奨ルート')
-    expect(preFixedRouteCandidateLabels.B).toBe('距離優先ルート')
+  it('uses A-D labels matching かんたん見積もり', () => {
+    expect(preFixedRouteCandidateLabels.A).toBe('時間優先')
+    expect(preFixedRouteCandidateLabels.B).toBe('一般道優先')
+    expect(preFixedRouteCandidateLabels.C).toBe('距離優先')
+    expect(preFixedRouteCandidateLabels.D).toBe('有料道路優先')
   })
 })
 
@@ -170,15 +172,17 @@ describe('calculateManualPreFixedServiceYen', () => {
 
 describe('manual flow UI wiring', () => {
   const flowSource = readFileSync(resolve(process.cwd(), 'src/pages/PreFixedManualCreateFlow.tsx'), 'utf8')
+  const createPageSource = readFileSync(resolve(process.cwd(), 'src/pages/PreFixedCreatePage.tsx'), 'utf8')
   const mapSource = readFileSync(
     resolve(process.cwd(), 'src/components/preFixed/PreFixedRouteMapPanel.tsx'),
     'utf8',
   )
 
-  it('reuses PreFixedRouteMapPanel and shared polyline decode like かんたん見積もり', () => {
-    expect(flowSource).toContain('PreFixedRouteMapPanel')
+  it('uses shared route selection step and polyline decode like かんたん見積もり', () => {
+    expect(flowSource).toContain('PreFixedRouteSelectionStep')
+    expect(createPageSource).toContain('PreFixedRouteSelectionStep')
     expect(flowSource).toContain('buildRouteMapMarkers')
-    expect(mapSource).toContain("from '../../utils/polyline'")
+    expect(mapSource).toContain('loadGoogleMapsPolylineDecoder')
     expect(mapSource).toContain('decodePolylinePath')
   })
 
@@ -191,20 +195,20 @@ describe('manual flow UI wiring', () => {
     expect(flowSource).not.toContain('SERVICE ITEMS')
   })
 
-  it('requests at least two route candidates for manual flow', () => {
-    expect(flowSource).toContain('minCandidates: 2')
-    expect(flowSource).toContain('maxCandidates: 2')
+  it('does not cap route candidates to manual-only A/B', () => {
+    expect(flowSource).not.toContain('minCandidates: 2')
+    expect(flowSource).not.toContain('maxCandidates: 2')
+    expect(flowSource).toContain('PreFixedRouteSelectionStep')
   })
 
   it('uses compact route cards and fare settings panel with category classes', () => {
-    expect(flowSource).toContain('PreFixedRouteCandidateCard')
     expect(flowSource).toContain('PreFixedManualFareSettingsPanel')
     const css = readFileSync(resolve(process.cwd(), 'src/App.css'), 'utf8')
     expect(css).toContain('.pre-fixed-fare-category--auto')
     expect(css).toContain('.pre-fixed-fare-category--assist')
     expect(css).toContain('.pre-fixed-fare-category--rental')
     expect(css).toContain('.pre-fixed-fare-category--waiting')
-    expect(css).toContain('.pre-fixed-route-card--compact')
+    expect(css).toContain('.pre-fixed-route-candidate-grid')
     expect(css).toContain('.pre-fixed-route-card.is-selected')
     expect(css).toContain('.pre-fixed-fare-option-card.is-selected')
   })

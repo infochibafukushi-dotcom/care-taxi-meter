@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PreFixedManualFareSettingsPanel } from '../components/preFixed/PreFixedManualFareSettingsPanel'
-import {
-  PreFixedRouteMapPanel,
-  buildRouteMapMarkers,
-} from '../components/preFixed/PreFixedRouteMapPanel'
-import { PreFixedRouteCandidateCard } from '../components/preFixed/PreFixedRouteCandidateCard'
+import { buildRouteMapMarkers } from '../components/preFixed/PreFixedRouteMapPanel'
+import { PreFixedRouteSelectionStep } from '../components/preFixed/PreFixedRouteSelectionStep'
 import { useWorkSession } from '../hooks/useWorkSession'
 import {
   buildDefaultFareSelection,
@@ -319,8 +316,6 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
         serviceItems: [],
         basicFare: storeMeterSettings.basicFare,
         includeServiceFees: false,
-        minCandidates: 2,
-        maxCandidates: 2,
       })
 
       const withLabels = candidates.map((candidate) => ({
@@ -738,42 +733,28 @@ export function PreFixedManualCreateFlow({ vehicleId, menuPath }: PreFixedManual
       {renderStepIndicator()}
       <h1>ルート候補</h1>
 
-      <PreFixedRouteMapPanel
-        candidates={routeCandidates}
+      <PreFixedRouteSelectionStep
+        routeCandidates={routeCandidates}
         selectedRouteId={selectedRouteId}
+        onSelectRoute={setSelectedRouteId}
+        resolvePreFixedTotalYen={(route) => route.fixedFareYen + routeServiceFeesYen}
         markers={routeMapMarkers}
         isLoading={isCalculatingRoutes}
-      />
-
-      <div className="pre-fixed-route-card-list">
-        {routeCandidates.map((route) => (
-          <PreFixedRouteCandidateCard
-            key={route.id}
-            route={route}
-            isSelected={selectedRouteId === route.id}
-            routeFareYen={route.fixedFareYen}
-            serviceFeesYen={routeServiceFeesYen}
-            preFixedTotalYen={route.fixedFareYen + routeServiceFeesYen}
-            onSelect={() => setSelectedRouteId(route.id)}
-          />
-        ))}
-      </div>
-
-      {renderMeterSettingsStatus()}
-      {stepError ? <p className="case-error" role="alert">{stepError}</p> : null}
-
-      <div className="pre-fixed-flow-actions">
-        <button
-          className="primary-action"
-          type="button"
-          disabled={!canProceedToManualFareSettings(meterSettingsState)}
-          onClick={goToFareSettings}
-        >
-          {meterSettingsState.status === 'loading'
+        onNext={goToFareSettings}
+        nextLabel={
+          meterSettingsState.status === 'loading'
             ? METER_SETTINGS_LOADING_MESSAGE
-            : '選択して料金設定へ'}
-        </button>
-      </div>
+            : '選択して料金設定へ'
+        }
+        nextDisabled={!canProceedToManualFareSettings(meterSettingsState)}
+        notice={routeError ? <p className="case-error" role="alert">{routeError}</p> : null}
+        footer={
+          <>
+            {renderMeterSettingsStatus()}
+            {stepError ? <p className="case-error" role="alert">{stepError}</p> : null}
+          </>
+        }
+      />
     </section>
   )
 
