@@ -36,6 +36,7 @@ import type {
   PreFixedTripType,
   RoutePoint,
 } from '../types/preFixedMeterSession'
+import { PreFixedManualCreateFlow } from './PreFixedManualCreateFlow'
 import { captureAddressLocationFromCoordinates } from '../utils/reverseGeocode'
 import { resolveReservationCategory } from '../utils/reservationCategory'
 
@@ -218,19 +219,37 @@ const resolveSourceFlow = (reservation: DriverReservationDetail | null): PreFixe
 }
 
 export function PreFixedCreatePage() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const workSession = useWorkSession()
-  const accessScope = useMemo(
-    () => tenantAccessScopeFromSessionSource(workSession.currentSession),
-    [workSession.currentSession],
-  )
   const vehicleId = searchParams.get('vehicleId')?.trim() ?? ''
   const reservationId = searchParams.get('reservationId')?.trim() ?? ''
   const isFromReservation = reservationId.length > 0
   const menuPath = vehicleId
     ? `/case/pre-fixed?vehicleId=${encodeURIComponent(vehicleId)}`
     : '/case/pre-fixed'
+
+  if (!isFromReservation) {
+    return <PreFixedManualCreateFlow vehicleId={vehicleId} menuPath={menuPath} />
+  }
+
+  return <PreFixedReservationCreateFlow vehicleId={vehicleId} reservationId={reservationId} menuPath={menuPath} />
+}
+
+function PreFixedReservationCreateFlow({
+  vehicleId,
+  reservationId,
+  menuPath,
+}: {
+  vehicleId: string
+  reservationId: string
+  menuPath: string
+}) {
+  const navigate = useNavigate()
+  const workSession = useWorkSession()
+  const accessScope = useMemo(
+    () => tenantAccessScopeFromSessionSource(workSession.currentSession),
+    [workSession.currentSession],
+  )
+  const isFromReservation = true
   const listPath = vehicleId
     ? `/case/pre-fixed/reservations?vehicleId=${encodeURIComponent(vehicleId)}`
     : '/case/pre-fixed/reservations'

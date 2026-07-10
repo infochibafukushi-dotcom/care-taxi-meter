@@ -26,7 +26,7 @@ export function PreFixedMeterMenuPage() {
             className="primary-action pre-fixed-menu-action"
             to={`/case/pre-fixed/create${querySuffix}`}
           >
-            新規入力開始（予約なし）
+            予約なしで開始
           </Link>
         </div>
       </section>

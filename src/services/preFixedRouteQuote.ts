@@ -28,17 +28,19 @@ export async function calculatePreFixedRouteCandidates({
   destination,
   serviceItems,
   basicFare = basicFareSettings,
+  includeServiceFees = true,
 }: {
   pickup: RoutePoint
   stops: RoutePoint[]
   destination: RoutePoint
   serviceItems: AssistItem[]
   basicFare?: BasicFareSettings
+  includeServiceFees?: boolean
 }): Promise<PreFixedRouteCandidate[]> {
   const origin = toWaypointInput(pickup)
   const waypoints = stops.map(toWaypointInput)
   const dest = toWaypointInput(destination)
-  const serviceFeesYen = calculateSelectedServiceFeesYen(serviceItems)
+  const serviceFeesYen = includeServiceFees ? calculateSelectedServiceFeesYen(serviceItems) : 0
 
   const rawCandidates = await calculateAdditionalRouteCandidates({
     origin,
@@ -47,8 +49,23 @@ export async function calculatePreFixedRouteCandidates({
     fareSettings: basicFare,
   })
 
-  const sortedByDistance = [...rawCandidates].sort((a, b) => a.distanceKm - b.distanceKm)
-  const sortedByDuration = [...rawCandidates].sort((a, b) => a.durationSeconds - b.durationSeconds)
+  if (rawCandidates.length === 0) {
+    return []
+  }
+
+  const uniqueCandidates: typeof rawCandidates = []
+  const seen = new Set<string>()
+  for (const candidate of rawCandidates) {
+    const key = `${candidate.id}:${candidate.encodedPolyline ?? ''}:${candidate.distanceKm}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    uniqueCandidates.push(candidate)
+  }
+
+  const sortedByDistance = [...uniqueCandidates].sort((a, b) => a.distanceKm - b.distanceKm)
+  const sortedByDuration = [...uniqueCandidates].sort((a, b) => a.durationSeconds - b.durationSeconds)
 
   const pickUnique = (primary: typeof rawCandidates[0] | undefined, ...fallbacks: Array<typeof rawCandidates[0] | undefined>) => {
     for (const candidate of [primary, ...fallbacks]) {
@@ -56,15 +73,15 @@ export async function calculatePreFixedRouteCandidates({
         return candidate
       }
     }
-    return rawCandidates[0]
+    return uniqueCandidates[0]
   }
 
-  const recommended = rawCandidates[0]
+  const recommended = uniqueCandidates[0]
   const shortest = sortedByDistance[0]
   const fastest = sortedByDuration[0]
   const alternative =
-    rawCandidates.find((item) => item.id !== recommended?.id && item.id !== shortest?.id) ??
-    rawCandidates[rawCandidates.length - 1]
+    uniqueCandidates.find((item) => item.id !== recommended?.id && item.id !== shortest?.id) ??
+    uniqueCandidates[uniqueCandidates.length - 1]
 
   const sourceMap: Array<typeof rawCandidates[0] | undefined> = [
     pickUnique(recommended, shortest, fastest, alternative),
@@ -73,8 +90,26 @@ export async function calculatePreFixedRouteCandidates({
     pickUnique(alternative, recommended, shortest, fastest),
   ]
 
-  return ROUTE_IDS.map((id, index) => {
-    const source = sourceMap[index] ?? rawCandidates[0]
+  const usedSources: typeof rawCandidates = []
+  const usedKeys = new Set<string>()
+  for (const source of sourceMap) {
+    if (!source) {
+      continue
+    }
+    const key = `${source.id}:${source.encodedPolyline ?? ''}:${source.distanceKm}`
+    if (usedKeys.has(key)) {
+      continue
+    }
+    usedKeys.add(key)
+    usedSources.push(source)
+  }
+
+  if (usedSources.length === 0 && uniqueCandidates[0]) {
+    usedSources.push(uniqueCandidates[0])
+  }
+
+  return usedSources.map((source, index) => {
+    const id = ROUTE_IDS[index] ?? ROUTE_IDS[ROUTE_IDS.length - 1]
     const distanceMeters = Math.round(Math.max(source.distanceKm, 0.1) * 1000)
     const durationSeconds = Math.max(source.durationSeconds, 60)
     const fixedFareYen = calculateBasicFareYen(source.distanceKm, basicFare)

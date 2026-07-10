@@ -35,6 +35,13 @@ export type RoutePoint = {
 
 export type PreFixedRouteCandidateId = 'A' | 'B' | 'C' | 'D'
 
+export type PreFixedRouteSegment = {
+  fromLabel: string
+  toLabel: string
+  distanceMeters: number
+  durationSeconds: number
+}
+
 export type PreFixedRouteCandidate = {
   id: PreFixedRouteCandidateId
   label: string
@@ -45,6 +52,35 @@ export type PreFixedRouteCandidate = {
   totalYen: number
   polyline?: string
   tollIncluded?: boolean
+  segments?: PreFixedRouteSegment[]
+  stopOrderLabels?: string[]
+}
+
+export type ManualRouteKind = 'single' | 'multi'
+
+export type ManualWaitingEscortPlan = 'none' | 'waiting' | 'escort' | 'both'
+
+export type PreFixedManualFareSelection = {
+  dispatchEnabled: boolean
+  dispatchFareYen: number
+  specialVehicleEnabled: boolean
+  specialVehicleFareYen: number
+  boardingAssist: boolean
+  boardingAssistFareYen: number
+  bodyAssist: boolean
+  bodyAssistFareYen: number
+  stairsAssist: boolean
+  stairFloorId?: string
+  stairFloorLabel?: string
+  stairAssistFareYen: number
+  equipmentItems: Array<{ id: string; name: string; amountYen: number }>
+  waitingEscortPlan: ManualWaitingEscortPlan
+  waitingFirstUnitYen: number
+  escortFirstUnitYen: number
+  waitingUnitSeconds: number
+  escortUnitSeconds: number
+  waitingUnitFareYen: number
+  escortUnitFareYen: number
 }
 
 export const preFixedRouteCandidateLabels: Record<PreFixedRouteCandidateId, string> = {
@@ -96,6 +132,14 @@ export type PreFixedMeterSession = {
   status: PreFixedMeterSessionStatus
   createdAt: string
   updatedAt: string
+  /** 予約なし手動フロー（v2）— 既存セッションには存在しない */
+  manualFlowVersion?: 2
+  routeKind?: ManualRouteKind
+  savedInitialPickup?: RoutePoint
+  orderedDestinations?: RoutePoint[]
+  fareSelection?: PreFixedManualFareSelection
+  preFixedTotalYen?: number
+  fareSettingsSnapshot?: Record<string, unknown>
 }
 
 export const PRE_FIXED_CONSENT_TERMS_VERSION = '2026-07-01'

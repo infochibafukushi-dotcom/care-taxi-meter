@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   calculatePreFixedWaitingEscortFareYen,
+  calculatePrepaidWaitingEscortBillableYen,
   PRE_FIXED_ROUND_TRIP_FREE_SECONDS,
   waitingFareSettings,
 } from './services/fare'
@@ -91,6 +92,15 @@ describe('calculatePreFixedWaitingEscortFareYen', () => {
   it('uses the standard time fare rule for one-way trips', () => {
     expect(calculatePreFixedWaitingEscortFareYen(1, settings, false)).toBe(
       settings.unitFareYen,
+    )
+  })
+})
+
+describe('calculatePrepaidWaitingEscortBillableYen', () => {
+  it('charges nothing until the prepaid unit is exceeded', () => {
+    expect(calculatePrepaidWaitingEscortBillableYen(30, waitingFareSettings, 1)).toBe(0)
+    expect(calculatePrepaidWaitingEscortBillableYen(1801, waitingFareSettings, 1)).toBe(
+      waitingFareSettings.unitFareYen,
     )
   })
 })

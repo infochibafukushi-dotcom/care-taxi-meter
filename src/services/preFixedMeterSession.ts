@@ -1,6 +1,8 @@
 import type { AssistItem } from './fare'
 import type { ReservationTripContext } from './reservationTripContext'
 import type {
+  ManualRouteKind,
+  PreFixedManualFareSelection,
   PreFixedMeterSession,
   PreFixedRouteCandidateId,
   PreFixedSourceFlow,
@@ -9,6 +11,7 @@ import type {
 } from '../types/preFixedMeterSession'
 import { PRE_FIXED_CONSENT_TERMS_VERSION } from '../types/preFixedMeterSession'
 import type { PreFixedFareRouteStop } from '../types/preFixedFareRouteChange'
+import { buildServiceFeesFromManualSelection } from './preFixedManualFare'
 
 export const preFixedMeterSessionStorageKey = 'careTaxiMeterPreFixedSession'
 
@@ -76,42 +79,59 @@ export const buildTripContextFromPreFixedSession = (
   },
 ): ReservationTripContext => {
   const selectedRoute = session.routeCandidates.find((route) => route.id === session.selectedRouteId)
-  const serviceFees = session.selectedServiceItems
-    .filter((item) => item.enabled)
-    .map((item) => ({
-      key: item.id,
-      label: item.name,
-      amount: item.amount,
-    }))
+  const isManualV2 = session.manualFlowVersion === 2 && session.fareSelection
+
+  const serviceFees = isManualV2
+    ? buildServiceFeesFromManualSelection(session.fareSelection!)
+    : session.selectedServiceItems
+        .filter((item) => item.enabled)
+        .map((item) => ({
+          key: item.id,
+          label: item.name,
+          amount: item.amount,
+        }))
+
+  const fixedFareTotalYen = isManualV2
+    ? Math.max(session.preFixedTotalYen ?? session.fare.totalYen, 0)
+    : session.fare.totalYen
+
+  const confirmedFareYen = isManualV2 ? fixedFareTotalYen : session.fare.fixedFareYen
 
   return {
     reservationId: session.reservationId ?? `manual-${session.id}`,
     estimateNo:
       reservationMeta?.estimateNo?.trim() ||
       (session.reservationId ? '' : `現場-${session.id.slice(-8)}`),
-    confirmedFareYen: session.fare.fixedFareYen,
-    fixedFareTotalYen: session.fare.totalYen,
+    confirmedFareYen,
+    fixedFareTotalYen,
     snapshotHash: `manual-${session.id}`,
     consentAt: session.consent.agreedAt ?? session.updatedAt,
     pickupAddress: session.pickup.address,
     dropoffAddress: session.destination.address,
     usageSummary: tripTypeToUsageSummary(session.tripType),
     quoteSnapshot: {
-      fixedFareTotal: session.fare.fixedFareYen,
-      serviceFees,
+      fixedFareTotal: isManualV2 ? fixedFareTotalYen : session.fare.fixedFareYen,
+      serviceFees: isManualV2 ? [] : serviceFees,
       fareMode: 'pre_fixed_fare',
       selectedRouteId: session.selectedRouteId,
       selectedUsesToll: selectedRoute?.tollIncluded ?? false,
       distanceMeters: selectedRoute?.distanceMeters ?? 0,
       durationSeconds: selectedRoute?.durationSeconds ?? 0,
       preFixedFareConfirmable: true,
+      ...(isManualV2
+        ? {
+            manualWaitingEscortPlan: session.fareSelection!.waitingEscortPlan,
+            manualWaitingPrepaidYen: session.fareSelection!.waitingFirstUnitYen,
+            manualEscortPrepaidYen: session.fareSelection!.escortFirstUnitYen,
+          }
+        : {}),
     },
     routePlan: buildRoutePlanFromSession(session),
     consent: {
       consentAt: session.consent.agreedAt ?? '',
       consentTextVersion: session.consent.termsVersion,
       snapshotHash: `manual-${session.id}`,
-      quotedFareYen: session.fare.totalYen,
+      quotedFareYen: fixedFareTotalYen,
       source: session.sourceFlow,
     },
     customerName: reservationMeta?.customerName?.trim() ?? '',
@@ -170,6 +190,106 @@ export const createPreFixedMeterSession = ({
     createdAt: now,
     updatedAt: now,
   }
+}
+
+export const createManualPreFixedMeterSession = ({
+  routeKind,
+  pickup,
+  savedInitialPickup,
+  orderedDestinations,
+  stops,
+  destination,
+  tripType,
+  routeCandidates,
+  selectedRouteId,
+  fareSelection,
+  preFixedTotalYen,
+  fareSettingsSnapshot,
+  agreedBy,
+}: {
+  routeKind: ManualRouteKind
+  pickup: RoutePoint
+  savedInitialPickup: RoutePoint
+  orderedDestinations: RoutePoint[]
+  stops: RoutePoint[]
+  destination: RoutePoint
+  tripType: PreFixedTripType
+  routeCandidates: PreFixedMeterSession['routeCandidates']
+  selectedRouteId: PreFixedRouteCandidateId
+  fareSelection: PreFixedManualFareSelection
+  preFixedTotalYen: number
+  fareSettingsSnapshot: Record<string, unknown>
+  agreedBy?: string
+}): PreFixedMeterSession => {
+  const selectedRoute = routeCandidates.find((route) => route.id === selectedRouteId) ?? routeCandidates[0]
+  const serviceFeesYen = preFixedTotalYen - (selectedRoute?.fixedFareYen ?? 0)
+  const now = new Date().toISOString()
+
+  return {
+    id: createSessionId(),
+    meterMode: 'fixed',
+    sourceFlow: 'manual',
+    tripType,
+    pickup,
+    stops,
+    destination,
+    selectedServiceItems: [],
+    routeCandidates,
+    selectedRouteId,
+    fare: {
+      fixedFareYen: selectedRoute?.fixedFareYen ?? 0,
+      serviceFeesYen: Math.max(serviceFeesYen, 0),
+      actualExpensesYen: 0,
+      totalYen: preFixedTotalYen,
+    },
+    consent: {
+      status: 'not_agreed',
+      termsVersion: PRE_FIXED_CONSENT_TERMS_VERSION,
+      agreedBy,
+    },
+    status: 'quoted',
+    createdAt: now,
+    updatedAt: now,
+    manualFlowVersion: 2,
+    routeKind,
+    savedInitialPickup,
+    orderedDestinations,
+    fareSelection,
+    preFixedTotalYen,
+    fareSettingsSnapshot,
+  }
+}
+
+export const readManualWaitingEscortPlanFromContext = (
+  context: ReservationTripContext | null,
+): {
+  plan: 'none' | 'waiting' | 'escort' | 'both'
+  waitingPrepaidUnits: number
+  escortPrepaidUnits: number
+} => {
+  const snapshot = context?.quoteSnapshot as
+    | {
+        manualWaitingEscortPlan?: 'none' | 'waiting' | 'escort' | 'both'
+        manualWaitingPrepaidYen?: number
+        manualEscortPrepaidYen?: number
+      }
+    | undefined
+
+  const plan = snapshot?.manualWaitingEscortPlan ?? 'none'
+  const waitingPrepaidUnits =
+    plan === 'waiting' || plan === 'both'
+      ? (snapshot?.manualWaitingPrepaidYen ?? 0) > 0
+        ? 1
+        : 0
+      : 0
+  const escortPrepaidUnits =
+    plan === 'escort' || plan === 'both'
+      ? (snapshot?.manualEscortPrepaidYen ?? 0) > 0
+        ? 1
+        : 0
+      : 0
+
+  return { plan, waitingPrepaidUnits, escortPrepaidUnits }
 }
 
 const isPreFixedMeterSession = (value: unknown): value is PreFixedMeterSession => {

@@ -74,6 +74,7 @@ import {
 import type { ReservationTripContext } from '../services/reservationTripContext'
 import {
   buildTripContextFromPreFixedSession,
+  readManualWaitingEscortPlanFromContext,
   readPreFixedMeterSession,
 } from '../services/preFixedMeterSession'
 import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
@@ -689,6 +690,19 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [reservationTripContext, setReservationTripContext] = useState<ReservationTripContext | null>(
     pageBootState.reservationTripContext,
   )
+
+  const manualWaitingEscort = useMemo(
+    () => readManualWaitingEscortPlanFromContext(reservationTripContext),
+    [reservationTripContext],
+  )
+
+  const isManualPreFixedV2 = useMemo(() => {
+    const snapshot = reservationTripContext?.quoteSnapshot as
+      | { manualWaitingEscortPlan?: string }
+      | undefined
+    return snapshot?.manualWaitingEscortPlan !== undefined
+  }, [reservationTripContext])
+
   const restoredTripSnapshot = restoredTripState.snapshot
   const [fixedFareRun, setFixedFareRun] = useState<{
     confirmedFareYen: number
@@ -1234,13 +1248,19 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const canStartWaiting =
     meterMode === 'fixed'
       ? caseSaveState !== 'saving' &&
-        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext)))
+        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext))) &&
+        (!isManualPreFixedV2 ||
+          manualWaitingEscort.plan === 'waiting' ||
+          manualWaitingEscort.plan === 'both')
       : status === '走行中' && caseSaveState !== 'saving'
   const canEndWaiting = status === '待機中' && caseSaveState !== 'saving' && billableTimeStarted.waiting
   const canStartAccompanying =
     meterMode === 'fixed'
       ? caseSaveState !== 'saving' &&
-        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext)))
+        (status === '走行中' || (status === '空車' && Boolean(reservationTripContext))) &&
+        (!isManualPreFixedV2 ||
+          manualWaitingEscort.plan === 'escort' ||
+          manualWaitingEscort.plan === 'both')
       : status === '走行中' && caseSaveState !== 'saving'
   const canEndAccompanying = status === '院内付き添い中' && caseSaveState !== 'saving'
   const canOpenSettlement = status === '走行中' && meterMode !== 'fixed'
@@ -1903,7 +1923,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         expenses,
         waitingSeconds: waitingFareSeconds,
         escortSeconds: escortFareSeconds,
-        isRoundTrip: isPreFixedRoundTrip,
+        isRoundTrip: isManualPreFixedV2 ? false : isPreFixedRoundTrip,
+        waitingPrepaidUnits: isManualPreFixedV2 ? manualWaitingEscort.waitingPrepaidUnits : 0,
+        escortPrepaidUnits: isManualPreFixedV2 ? manualWaitingEscort.escortPrepaidUnits : 0,
         isDisabilityDiscount,
         taxiTickets,
         settings: {
@@ -1930,6 +1952,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     fareBreakdown,
     isDisabilityDiscount,
     isPreFixedRoundTrip,
+    isManualPreFixedV2,
+    manualWaitingEscort.escortPrepaidUnits,
+    manualWaitingEscort.waitingPrepaidUnits,
     meterMode,
     resolvedConfirmedFareYen,
     reviewDemoMode,
@@ -4437,6 +4462,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const accompanyingClockLabel = formatTimerClock(adjustedAccompanyingSeconds, true)
   const waitingToggleLabel = status === '待機中' ? '待機終了' : '待機開始'
   const accompanyingToggleLabel = status === '院内付き添い中' ? '付き添い終了' : '付き添い開始'
+  const showFixedWaitingButton =
+    !isManualPreFixedV2 ||
+    manualWaitingEscort.plan === 'waiting' ||
+    manualWaitingEscort.plan === 'both'
+  const showFixedEscortButton =
+    !isManualPreFixedV2 ||
+    manualWaitingEscort.plan === 'escort' ||
+    manualWaitingEscort.plan === 'both'
   const canUndoRecentActivity = Boolean(
     activeActivity &&
     status === activityStatusMap[activeActivity.type],
@@ -4808,6 +4841,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                     </div>
                   ) : null}
                   <div className={`pre-fixed-main-action-grid${isFixedPreTrip ? ' pre-fixed-main-action-grid--pretrip' : ''}`}>
+                    {showFixedWaitingButton ? (
                     <button
                       className={`pre-fixed-main-action ${status === '待機中' ? 'pre-fixed-main-action--active' : ''}`}
                       type="button"
@@ -4817,6 +4851,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       <strong>{waitingToggleLabel}</strong>
                       <small>{waitingClockLabel}</small>
                     </button>
+                    ) : null}
+                    {showFixedEscortButton ? (
                     <button
                       className={`pre-fixed-main-action pre-fixed-main-action--escort ${status === '院内付き添い中' ? 'pre-fixed-main-action--active' : ''}`}
                       type="button"
@@ -4826,6 +4862,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       <strong>{accompanyingToggleLabel}</strong>
                       <small>{accompanyingClockLabel}</small>
                     </button>
+                    ) : null}
                     {isFixedInOperation ? (
                       <>
                         <button

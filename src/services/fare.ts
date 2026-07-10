@@ -231,6 +231,24 @@ export function calculatePreFixedWaitingEscortFareYen(
   );
 }
 
+/**
+ * 予約なし事前確定M: 見積時に最初の30分を含めている場合の追加分のみ計算する。
+ * 0分01秒〜30分00秒は追加分0円、30分01秒から次の30分単位を加算。
+ */
+export function calculatePrepaidWaitingEscortBillableYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+  prepaidUnits: number,
+) {
+  if (elapsedSeconds <= 0) {
+    return 0;
+  }
+
+  const totalYen = calculateTimeFareYen(elapsedSeconds, settings);
+  const prepaidYen = Math.max(prepaidUnits, 0) * settings.unitFareYen;
+  return Math.max(totalYen - prepaidYen, 0);
+}
+
 export function calculateMeterTimeFareYen(
   elapsedSeconds: number,
   settings: TimeFareSettings,
@@ -556,6 +574,8 @@ export function buildFixedFareBreakdown({
   waitingSeconds = 0,
   escortSeconds = 0,
   isRoundTrip = true,
+  waitingPrepaidUnits = 0,
+  escortPrepaidUnits = 0,
   isDisabilityDiscount = false,
   taxiTickets = [],
   settings = {},
@@ -574,6 +594,10 @@ export function buildFixedFareBreakdown({
   escortSeconds?: number;
   /** 往復の場合は最初の30分を無料扱い（事前確定M専用） */
   isRoundTrip?: boolean;
+  /** 予約なし手動フロー: 見積に含めた待機の30分単位数 */
+  waitingPrepaidUnits?: number;
+  /** 予約なし手動フロー: 見積に含めた付添の30分単位数 */
+  escortPrepaidUnits?: number;
   isDisabilityDiscount?: boolean;
   taxiTickets?: Array<{ amount: number }>;
   settings?: {
@@ -585,16 +609,30 @@ export function buildFixedFareBreakdown({
   const originalConfirmedFareYen = Math.max(Math.round(confirmedFareYen), 0);
   const routeFareYen = Math.max(Math.round(additionalRouteFareYen), 0);
   const manualAdditionalCareFareYen = Math.max(Math.round(additionalCareFareYen), 0);
-  const waitingFareYen = calculatePreFixedWaitingEscortFareYen(
-    waitingSeconds,
-    settings.waitingFare ?? waitingFareSettings,
-    isRoundTrip,
-  );
-  const escortFareYen = calculatePreFixedWaitingEscortFareYen(
-    escortSeconds,
-    settings.escortFare ?? escortFareSettings,
-    isRoundTrip,
-  );
+  const waitingFareYen =
+    waitingPrepaidUnits > 0
+      ? calculatePrepaidWaitingEscortBillableYen(
+          waitingSeconds,
+          settings.waitingFare ?? waitingFareSettings,
+          waitingPrepaidUnits,
+        )
+      : calculatePreFixedWaitingEscortFareYen(
+          waitingSeconds,
+          settings.waitingFare ?? waitingFareSettings,
+          isRoundTrip,
+        );
+  const escortFareYen =
+    escortPrepaidUnits > 0
+      ? calculatePrepaidWaitingEscortBillableYen(
+          escortSeconds,
+          settings.escortFare ?? escortFareSettings,
+          escortPrepaidUnits,
+        )
+      : calculatePreFixedWaitingEscortFareYen(
+          escortSeconds,
+          settings.escortFare ?? escortFareSettings,
+          isRoundTrip,
+        );
   // 追加介助料は元の事前確定運賃に含まれる介助とは別明細。選択介助・その他・ルート変更分を合算する。
   const customFeeFareYen = calculateCustomFeeTotalYen(customFees);
   const careOptionFareYen =

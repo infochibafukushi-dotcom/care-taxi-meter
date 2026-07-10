@@ -9114,6 +9114,31 @@ html.route-meter.pre-fixed-meter .pre-fixed-status-stack .r9-status-button--sett
   font-weight: 800;
 }
 
+.pre-fixed-section-title {
+  margin: 1.25rem 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.pre-fixed-route-stop-order {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  color: #475569;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.pre-fixed-return-start-button {
+  margin-bottom: 0.75rem;
+}
+
+.pre-fixed-confirm-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 1rem 0;
+}
+
 .pre-fixed-consent-checkbox {
   display: flex;
   align-items: flex-start;
