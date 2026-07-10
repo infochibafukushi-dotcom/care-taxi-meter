@@ -75,6 +75,8 @@ GitHub Pages 本番向けに、フロントから `reservation-v4` の driver AP
 
 reservation-v4 に上記 API が未実装の場合、メーターアプリは Firestore / 端末内データのみ削除し、予約本体は残ります。
 
+| `GET` | `/api/driver/fare-master/active` | 料金マスター active 取得（Bearer は proxy が付与） |
+
 その他のパスは `404`、許可パスへの未対応メソッドは `405` です。`OPTIONS` は CORS preflight 用に許可パスのみ受け付けます。
 
 ## 環境変数
@@ -84,7 +86,8 @@ reservation-v4 に上記 API が未実装の場合、メーターアプリは Fi
 | `METER_DRIVER_TOKEN` | Secret | reservation-v4 driver API 用 Bearer トークン |
 | `RESERVATION_V4_ORIGIN` | Var | HTTP フォールバック用の上流 origin（本番は Service Binding 推奨） |
 | `RESERVATION_V4` | Service Binding | reservation-v4 Worker（`throbbing-bush-8f59`）へのバインド |
-| `ALLOWED_ORIGIN` | Var | CORS 許可する GitHub Pages の origin（例: `https://<org>.github.io`） |
+| `ALLOWED_ORIGINS` | Var | CORS 許可 origin のカンマ区切り（本番 Pages + localhost 等） |
+| `ALLOWED_ORIGIN` | Var | 後方互換用の単一 origin |
 
 ## デプロイ例
 

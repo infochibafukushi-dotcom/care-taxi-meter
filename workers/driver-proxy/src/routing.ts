@@ -32,6 +32,16 @@ export const evaluateDriverProxyRoute = (
     return { kind: 'not_found' }
   }
 
+  if (pathname === '/api/driver/fare-master/active') {
+    if (normalizedMethod === 'GET') {
+      return { kind: 'allowed' }
+    }
+    if (normalizedMethod === 'POST' || normalizedMethod === 'PUT' || normalizedMethod === 'PATCH' || normalizedMethod === 'DELETE') {
+      return { kind: 'method_not_allowed' }
+    }
+    return { kind: 'not_found' }
+  }
+
   if (normalizedMethod === 'GET' && pathname === '/api/driver/reservations') {
     const date = searchParams.get('date')?.trim() ?? ''
     return date && DATE_QUERY_PATTERN.test(date)

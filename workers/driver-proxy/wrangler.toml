@@ -3,8 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2025-06-01"
 
 [vars]
+ALLOWED_ORIGINS = "https://infochibafukushi-dotcom.github.io,http://localhost:5173"
 ALLOWED_ORIGIN = "http://localhost:5173"
-RESERVATION_V4_ORIGIN = "https://reservation-v4.example.com"
+RESERVATION_V4_ORIGIN = "https://throbbing-bush-8f59.info-chibafukushi.workers.dev"
 # NTA_INVOICE_API_ID — set via `wrangler secret put NTA_INVOICE_API_ID` (recommended)
 # or as a var after National Tax Agency application ID is issued.
 

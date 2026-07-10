@@ -16,6 +16,7 @@ import {
 import type { ReservationTripContext } from './reservationTripContext'
 import {
   fetchActiveFareMaster,
+  readScopedFareMasterCache,
   type FareMasterMeterPayload,
 } from './fareMasterService'
 
@@ -45,19 +46,8 @@ export type EffectiveFareMeta = {
   capturedAt: string
 }
 
-const CACHE_KEY = 'careTaxiMeterFareMasterCache'
-
-type CacheEntry = { fetchedAt: number; data: FareMasterMeterPayload }
-
-function readLongLivedCache(): FareMasterMeterPayload | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as CacheEntry
-    return parsed.data
-  } catch {
-    return null
-  }
+function readLongLivedCache(franchiseeId?: string, storeId?: string): FareMasterMeterPayload | null {
+  return readScopedFareMasterCache(franchiseeId, storeId)
 }
 
 function mapAssistItems(raw: unknown): CareOptionMasterItem[] {
@@ -170,7 +160,6 @@ export function buildReservationSnapshotMeta(
 export async function resolveTripFareForMeter({
   franchiseeId,
   storeId,
-  token,
   reservationContext = null,
   preferReservationSnapshot = true,
 }: {
@@ -183,21 +172,16 @@ export async function resolveTripFareForMeter({
   if (preferReservationSnapshot) {
     const reservationMeta = buildReservationSnapshotMeta(reservationContext)
     if (reservationMeta) {
-      let pricing: TripFarePricing | null = null
-      try {
-        const payload = await fetchActiveFareMaster({ franchiseeId, storeId, token })
-        pricing = mapFareMasterPayloadToPricing(payload)
-      } catch {
-        const cached = readLongLivedCache()
-        if (cached) pricing = mapFareMasterPayloadToPricing(cached)
-      }
-      if (!pricing) pricing = mapFareMasterPayloadToPricing(buildSystemFallbackPayload())
+      const cached = readLongLivedCache(franchiseeId, storeId)
+      const pricing = cached
+        ? mapFareMasterPayloadToPricing(cached)
+        : mapFareMasterPayloadToPricing(buildSystemFallbackPayload())
       return { pricing, meta: reservationMeta }
     }
   }
 
   try {
-    const payload = await fetchActiveFareMaster({ franchiseeId, storeId, token })
+    const payload = await fetchActiveFareMaster({ franchiseeId, storeId })
     const source = payload.fareSource === 'cached_master' ? 'cached_master' : 'active_master'
     return {
       pricing: mapFareMasterPayloadToPricing(payload),
@@ -212,7 +196,7 @@ export async function resolveTripFareForMeter({
       },
     }
   } catch (error) {
-    const cached = readLongLivedCache()
+    const cached = readLongLivedCache(franchiseeId, storeId)
     if (cached) {
       return {
         pricing: mapFareMasterPayloadToPricing(cached),

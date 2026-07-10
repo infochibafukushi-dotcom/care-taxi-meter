@@ -3,25 +3,32 @@
 import { evaluateAdminProxyRoute } from './adminRouting'
 import { fetchNtaInvoiceRegistrant } from './invoiceLookup'
 import { evaluateInvoiceProxyRoute } from './invoiceRouting'
+import {
+  isAllowedOrigin,
+  parseAllowedOrigins,
+  resolveCorsOrigin,
+} from './originPolicy'
 import { evaluateDriverProxyRoute } from './routing'
 
 export interface Env {
   METER_DRIVER_TOKEN: string
   RESERVATION_V4_ORIGIN: string
   ALLOWED_ORIGIN: string
+  ALLOWED_ORIGINS?: string
   RESERVATION_V4?: Fetcher
   /** 国税庁インボイス公表システム Web-API アプリケーションID */
   NTA_INVOICE_API_ID?: string
 }
 
-const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type'] as const
+const FORWARDED_REQUEST_HEADERS = ['accept'] as const
 
-const buildCorsHeaders = (request: Request, allowedOrigin: string) => {
+const buildCorsHeaders = (request: Request, allowedOrigins: string[]) => {
   const headers = new Headers()
   const requestOrigin = request.headers.get('Origin')
+  const corsOrigin = resolveCorsOrigin(requestOrigin, allowedOrigins)
 
-  if (requestOrigin && requestOrigin === allowedOrigin) {
-    headers.set('Access-Control-Allow-Origin', allowedOrigin)
+  if (corsOrigin) {
+    headers.set('Access-Control-Allow-Origin', corsOrigin)
     headers.set('Vary', 'Origin')
   }
 
@@ -29,6 +36,13 @@ const buildCorsHeaders = (request: Request, allowedOrigin: string) => {
   headers.set('Access-Control-Allow-Headers', 'Accept, Content-Type')
   headers.set('Access-Control-Max-Age', '86400')
   return headers
+}
+
+const rejectDisallowedOrigin = (request: Request, allowedOrigins: string[]) => {
+  const origin = request.headers.get('Origin')
+  if (!origin) return null
+  if (isAllowedOrigin(origin, allowedOrigins)) return null
+  return new Response('Forbidden', { status: 403 })
 }
 
 const mergeCorsHeaders = (response: Response, corsHeaders: Headers) => {
@@ -73,6 +87,13 @@ const buildUpstreamHeaders = (request: Request, token: string) => {
       headers.set(headerName, value)
     }
   })
+
+  if (request.method.toUpperCase() === 'POST') {
+    const contentType = request.headers.get('content-type')
+    if (contentType) {
+      headers.set('content-type', contentType)
+    }
+  }
 
   return headers
 }
@@ -122,6 +143,7 @@ const fetchUpstream = (
 const handleInvoiceProxyRequest = async (
   request: Request,
   env: Env,
+  allowedOrigins: string[],
   corsHeaders: Headers,
   fetchImpl: typeof fetch,
 ): Promise<Response> => {
@@ -144,11 +166,10 @@ const handleInvoiceProxyRequest = async (
     return jsonResponse({ status: 'error', message: routeDecision.message }, 400, corsHeaders)
   }
 
-  if (request.method.toUpperCase() === 'OPTIONS') {
-    if (!request.headers.get('Origin') || request.headers.get('Origin') !== env.ALLOWED_ORIGIN) {
-      return new Response(null, { status: 403 })
-    }
+  const originRejected = rejectDisallowedOrigin(request, allowedOrigins)
+  if (originRejected) return originRejected
 
+  if (request.method.toUpperCase() === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
 
@@ -177,6 +198,7 @@ const handleInvoiceProxyRequest = async (
 const handleAdminProxyRequest = async (
   request: Request,
   env: Env,
+  allowedOrigins: string[],
   corsHeaders: Headers,
   fetchImpl: typeof fetch,
 ): Promise<Response> => {
@@ -191,11 +213,10 @@ const handleAdminProxyRequest = async (
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
   }
 
-  if (request.method.toUpperCase() === 'OPTIONS') {
-    if (!request.headers.get('Origin') || request.headers.get('Origin') !== env.ALLOWED_ORIGIN) {
-      return new Response(null, { status: 403 })
-    }
+  const originRejected = rejectDisallowedOrigin(request, allowedOrigins)
+  if (originRejected) return originRejected
 
+  if (request.method.toUpperCase() === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
 
@@ -213,14 +234,15 @@ export const handleDriverProxyRequest = async (
   fetchImpl: typeof fetch = fetch,
 ): Promise<Response> => {
   const requestUrl = new URL(request.url)
-  const corsHeaders = buildCorsHeaders(request, env.ALLOWED_ORIGIN)
+  const allowedOrigins = parseAllowedOrigins(env)
+  const corsHeaders = buildCorsHeaders(request, allowedOrigins)
 
   if (requestUrl.pathname.startsWith('/api/invoice/')) {
-    return handleInvoiceProxyRequest(request, env, corsHeaders, fetchImpl)
+    return handleInvoiceProxyRequest(request, env, allowedOrigins, corsHeaders, fetchImpl)
   }
 
   if (requestUrl.pathname.startsWith('/api/admin/')) {
-    return handleAdminProxyRequest(request, env, corsHeaders, fetchImpl)
+    return handleAdminProxyRequest(request, env, allowedOrigins, corsHeaders, fetchImpl)
   }
 
   const routeDecision = evaluateDriverProxyRoute(
@@ -237,11 +259,10 @@ export const handleDriverProxyRequest = async (
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
   }
 
-  if (request.method.toUpperCase() === 'OPTIONS') {
-    if (!request.headers.get('Origin') || request.headers.get('Origin') !== env.ALLOWED_ORIGIN) {
-      return new Response(null, { status: 403 })
-    }
+  const originRejected = rejectDisallowedOrigin(request, allowedOrigins)
+  if (originRejected) return originRejected
 
+  if (request.method.toUpperCase() === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
 

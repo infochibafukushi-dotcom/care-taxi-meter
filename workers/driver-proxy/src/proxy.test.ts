@@ -8,6 +8,7 @@ const env = {
   METER_DRIVER_TOKEN: 'test-meter-token',
   RESERVATION_V4_ORIGIN: 'https://reservation-v4.example.com',
   ALLOWED_ORIGIN: 'https://pages.example.com',
+  ALLOWED_ORIGINS: 'https://pages.example.com,http://localhost:5173',
 }
 
 describe('evaluateDriverProxyRoute', () => {
@@ -59,6 +60,24 @@ describe('evaluateDriverProxyRoute', () => {
       ).kind,
       'allowed',
     )
+  })
+
+  it('allows fare master active GET', () => {
+    const decision = evaluateDriverProxyRoute(
+      'GET',
+      '/api/driver/fare-master/active',
+      new URLSearchParams(),
+    )
+    assert.equal(decision.kind, 'allowed')
+  })
+
+  it('rejects fare master POST', () => {
+    const decision = evaluateDriverProxyRoute(
+      'POST',
+      '/api/driver/fare-master/active',
+      new URLSearchParams(),
+    )
+    assert.equal(decision.kind, 'method_not_allowed')
   })
 
   it('rejects unknown paths', () => {
@@ -260,6 +279,132 @@ describe('handleDriverProxyRequest', () => {
     assert.deepEqual(JSON.parse(upstreamBody), completionBody)
   })
 
+  it('proxies fare master active GET with bearer token and no client secret leak', async () => {
+    let upstreamRequest: Request | null = null
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamRequest = new Request(input, init)
+      return new Response(
+        JSON.stringify({
+          success: true,
+          fareSource: 'active_master',
+          fareMasterId: 'fmv-headquarters-v1',
+          meterSettings: { waitingFare: { unitFareYen: 800 } },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+    }
+
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/fare-master/active', {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer client-token',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+      }),
+      env,
+      fetchImpl,
+    )
+
+    const body = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'), env.ALLOWED_ORIGIN)
+    assert.equal(body.fareSource, 'active_master')
+    assert.ok(upstreamRequest)
+    assert.equal(
+      upstreamRequest.url,
+      'https://reservation-v4.example.com/api/driver/fare-master/active',
+    )
+    assert.equal(upstreamRequest.headers.get('Authorization'), 'Bearer test-meter-token')
+    assert.equal(upstreamRequest.headers.get('Authorization')?.includes('client-token'), false)
+    const serialized = JSON.stringify(body)
+    assert.equal(serialized.includes('test-meter-token'), false)
+  })
+
+  it('returns 403 for disallowed browser origins on fare master GET', async () => {
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/fare-master/active', {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Origin: 'https://evil.example.com',
+        },
+      }),
+      env,
+      async () => new Response('should not be called', { status: 500 }),
+    )
+
+    assert.equal(response.status, 403)
+  })
+
+  it('returns 405 for fare master POST', async () => {
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/fare-master/active', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+        body: JSON.stringify({}),
+      }),
+      env,
+      async () => new Response('should not be called', { status: 500 }),
+    )
+
+    assert.equal(response.status, 405)
+  })
+
+  it('forwards upstream 401 for fare master GET', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ success: false, message: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })
+
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/fare-master/active', {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+      }),
+      env,
+      fetchImpl,
+    )
+
+    assert.equal(response.status, 401)
+    const body = await response.json()
+    assert.equal(body.message, 'Unauthorized')
+    assert.equal(JSON.stringify(body).includes('test-meter-token'), false)
+  })
+
+  it('forwards upstream 500 for fare master GET', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ success: false, message: 'upstream failed' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      })
+
+    const response = await handleDriverProxyRequest(
+      new Request('https://proxy.example.com/api/driver/fare-master/active', {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Origin: env.ALLOWED_ORIGIN,
+        },
+      }),
+      env,
+      fetchImpl,
+    )
+
+    assert.equal(response.status, 500)
+  })
+
   it('returns 404 for disallowed paths', async () => {
     const response = await handleDriverProxyRequest(
       new Request('https://proxy.example.com/api/driver/admin', {
@@ -285,7 +430,7 @@ describe('handleDriverProxyRequest', () => {
     assert.equal(response.status, 405)
   })
 
-  it('does not allow CORS for mismatched origins', async () => {
+  it('rejects browser requests from mismatched origins', async () => {
     const response = await handleDriverProxyRequest(
       new Request('https://proxy.example.com/api/driver/reservations?date=2026-06-26', {
         method: 'GET',
@@ -295,7 +440,7 @@ describe('handleDriverProxyRequest', () => {
       async () => new Response(JSON.stringify({ success: true }), { status: 200 }),
     )
 
-    assert.equal(response.headers.get('Access-Control-Allow-Origin'), null)
+    assert.equal(response.status, 403)
   })
 
   it('rejects OPTIONS preflight from mismatched origins', async () => {
