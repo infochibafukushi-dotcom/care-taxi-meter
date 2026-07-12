@@ -205,30 +205,38 @@ export function calculateTimeFareYen(
   );
 }
 
-/** 事前確定M: 往復は最初の30分無料、片道は通常の時間料金ルール */
-export const PRE_FIXED_ROUND_TRIP_FREE_SECONDS = 30 * 60;
+/**
+ * 事前確定Mの待機・付き添い料金。
+ * 画面注意文どおり unitSeconds（既定30分）未満は無料。
+ * 到達後は unitSeconds ごとに切り捨て加算（例: 30分=1単位、60分=2単位）。
+ *
+ * 通常メーターの calculateTimeFareYen（開始直後に切り上げ1単位）とは意図的に別仕様。
+ * isRoundTrip は互換のため残すが、片道・往復とも同じ無料閾値を適用する。
+ */
+export const PRE_FIXED_WAITING_ESCORT_FREE_SECONDS = 30 * 60
+
+/** @deprecated PRE_FIXED_WAITING_ESCORT_FREE_SECONDS と同一。往復専用無料の意味では使わない */
+export const PRE_FIXED_ROUND_TRIP_FREE_SECONDS = PRE_FIXED_WAITING_ESCORT_FREE_SECONDS
 
 export function calculatePreFixedWaitingEscortFareYen(
   elapsedSeconds: number,
   settings: TimeFareSettings,
-  isRoundTrip: boolean,
+  _isRoundTrip = false,
 ) {
-  if (elapsedSeconds <= 0) {
-    return 0;
+  const safeElapsedSeconds = Math.max(0, Math.floor(elapsedSeconds))
+  if (safeElapsedSeconds <= 0) {
+    return 0
   }
 
-  if (!isRoundTrip) {
-    return calculateTimeFareYen(elapsedSeconds, settings);
+  const unitSeconds = Math.max(1, Math.floor(settings.unitSeconds) || PRE_FIXED_WAITING_ESCORT_FREE_SECONDS)
+  const unitFareYen = Math.max(0, Math.round(settings.unitFareYen) || 0)
+
+  // unitSeconds 未満（例: 0〜1799秒）は無料。ちょうど unitSeconds で初回1単位。
+  if (safeElapsedSeconds < unitSeconds) {
+    return 0
   }
 
-  if (elapsedSeconds <= PRE_FIXED_ROUND_TRIP_FREE_SECONDS) {
-    return 0;
-  }
-
-  return calculateTimeFareYen(
-    elapsedSeconds - PRE_FIXED_ROUND_TRIP_FREE_SECONDS,
-    settings,
-  );
+  return Math.floor(safeElapsedSeconds / unitSeconds) * unitFareYen
 }
 
 /**
@@ -592,7 +600,7 @@ export function buildFixedFareBreakdown({
   expenses: Array<{ amountYen: number }>;
   waitingSeconds?: number;
   escortSeconds?: number;
-  /** 往復の場合は最初の30分を無料扱い（事前確定M専用） */
+  /** 事前確定Mの待機・付き添いは unitSeconds 未満無料（片道・往復共通）。互換のため残置 */
   isRoundTrip?: boolean;
   /** 予約なし手動フロー: 見積に含めた待機の30分単位数 */
   waitingPrepaidUnits?: number;
@@ -694,7 +702,7 @@ export function buildFixedFareBreakdown({
     discountValue,
     taxiTicketAmountYen,
     totalFareYen,
-    // 事前確定M専用内訳（通常メーターの基本運賃・割引・介助料金等は出さない）
+    // 事前確定M専用内訳。割引・タクシー券も明細に含め、合計と請求額が一致するようにする。
     lineItems: [
       {
         label: hasExtras ? "元の事前確定運賃" : "事前確定運賃",
@@ -704,6 +712,8 @@ export function buildFixedFareBreakdown({
       { label: "追加介助料", amountYen: careOptionFareYen },
       { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
+      { label: discountName, amountYen: -disabilityDiscountAmount },
+      { label: "タクシー券", amountYen: -taxiTicketAmountYen },
     ],
     meterMode: "fixed",
     timeMeter: null,

@@ -1,0 +1,789 @@
+/* Pre-fixed meter run UI (A): dashboard, timers, actions, fare modal, assist/extra editors. */
+/* Scoped for meterMode=fixed. Do not include create/route (E) styles. */
+
+.pre-fixed-assist-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pre-fixed-assist-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.pre-fixed-assist-step--done {
+  background: #f8fafc;
+}
+
+.pre-fixed-assist-step__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pre-fixed-assist-step__eyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.pre-fixed-assist-step__title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.pre-fixed-assist-step__note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.pre-fixed-assist-step__summary {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.pre-fixed-assist-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pre-fixed-assist-choice-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  align-items: start;
+  padding: 14px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.pre-fixed-assist-choice-card input {
+  margin-top: 3px;
+}
+
+.pre-fixed-assist-choice-card.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.pre-fixed-assist-choice-card.is-fixed {
+  cursor: default;
+}
+
+.pre-fixed-assist-choice-card__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pre-fixed-assist-choice-card__title {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.pre-fixed-assist-choice-card__desc {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: #475569;
+  white-space: pre-line;
+}
+
+.pre-fixed-assist-choice-card__amount {
+  font-size: 0.92rem;
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.pre-fixed-assist-fee-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.pre-fixed-assist-fee-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pre-fixed-assist-fee-summary dt {
+  color: #64748b;
+}
+
+.pre-fixed-assist-fee-summary dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+/* ===== Pre-fixed meter dashboard (mockup; scoped to .pre-fixed-meter only) ===== */
+.pre-fixed-meter .r9-left-panel,
+.pre-fixed-meter .r9-center-panel,
+.pre-fixed-meter .r9-right-panel,
+.pre-fixed-meter .pre-fixed-reservation-bar,
+html.route-meter.pre-fixed-meter .r9-left-panel,
+html.route-meter.pre-fixed-meter .r9-center-panel,
+html.route-meter.pre-fixed-meter .r9-right-panel,
+html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar,
+html.route-meter.pre-fixed-meter .pre-fixed-reservation-bar.reservation-detail-section {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.pre-fixed-meter .r9-meter-console,
+html.route-meter.pre-fixed-meter .r9-meter-console {
+  display: flex !important;
+  flex-direction: column;
+  grid-template-columns: none !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0 !important;
+}
+
+.pre-fixed-meter-dashboard {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: 0;
+}
+
+.pre-fixed-meter-dashboard__main {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(148px, 20%);
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 6px 8px 4px;
+  box-sizing: border-box;
+}
+
+.pre-fixed-meter-total {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.pre-fixed-meter-total__header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 4px 10px;
+  background: #2563eb;
+  color: #fff;
+  text-align: center;
+}
+
+.pre-fixed-meter-total__header h1 {
+  margin: 0;
+  font-size: clamp(0.95rem, 2.4vh, 1.25rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.pre-fixed-meter-total__body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-height: 0;
+  padding: 4px 10px 8px;
+  box-sizing: border-box;
+}
+
+.pre-fixed-meter-total__label {
+  margin: 0;
+  justify-self: start;
+  font-size: clamp(1rem, 2.8vh, 1.35rem);
+  font-weight: 800;
+  color: #334155;
+}
+
+.pre-fixed-meter-total__amount {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 0.9;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.pre-fixed-meter-total__amount strong {
+  font-size: clamp(4.2rem, 28vmin, 8.5rem);
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+}
+
+.pre-fixed-meter-total__amount span {
+  font-size: clamp(1.6rem, 6vmin, 2.6rem);
+  font-weight: 800;
+  color: #334155;
+  padding-bottom: 0.12em;
+}
+
+.pre-fixed-meter-total__divider {
+  margin: 2px 0 6px;
+  border: 0;
+  border-top: 1px solid #cbd5e1;
+}
+
+.pre-fixed-meter-timer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.pre-fixed-meter-timer__btn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "icon title"
+    "icon sub"
+    "icon clock";
+  column-gap: 8px;
+  row-gap: 1px;
+  align-items: center;
+  min-height: clamp(72px, 18vh, 110px);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pre-fixed-meter-timer__btn--wait {
+  border-color: #15803d;
+  background: #f0fdf4;
+  color: #14532d;
+}
+
+.pre-fixed-meter-timer__btn--escort {
+  border-color: #7e22ce;
+  background: #faf5ff;
+  color: #581c87;
+}
+
+.pre-fixed-meter-timer__btn.is-active {
+  filter: brightness(0.97);
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.pre-fixed-meter-timer__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-meter-timer__icon {
+  grid-area: icon;
+  font-size: clamp(1.4rem, 4vh, 1.8rem);
+  line-height: 1;
+}
+
+.pre-fixed-meter-timer__btn strong {
+  grid-area: title;
+  font-size: clamp(1.25rem, 3.8vh, 1.75rem);
+  font-weight: 800;
+}
+
+.pre-fixed-meter-timer__sub {
+  grid-area: sub;
+  font-size: clamp(0.9rem, 2.4vh, 1.1rem);
+  opacity: 0.85;
+}
+
+.pre-fixed-meter-timer__clock {
+  grid-area: clock;
+  font-size: clamp(1.35rem, 4.2vh, 1.85rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.pre-fixed-meter-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.pre-fixed-meter-actions__btn {
+  flex: 1 1 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.pre-fixed-meter-actions__btn strong {
+  font-size: clamp(1.15rem, 3.4vh, 1.55rem);
+  line-height: 1.15;
+}
+
+.pre-fixed-meter-actions__icon,
+.pre-fixed-meter-actions__chevron {
+  font-size: clamp(1.15rem, 3vh, 1.4rem);
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.pre-fixed-meter-actions__btn--primary {
+  background: #2563eb;
+}
+
+.pre-fixed-meter-actions__btn--primary.is-pay {
+  background: #0f766e;
+}
+
+.pre-fixed-meter-actions__btn--nav {
+  background: #16a34a;
+}
+
+.pre-fixed-meter-actions__btn--assist {
+  background: #ea580c;
+}
+
+.pre-fixed-meter-actions__btn--fare {
+  background: #7c3aed;
+}
+
+.pre-fixed-meter-actions__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-meter-dashboard__action-notice {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  border-top: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: clamp(0.85rem, 2.4vh, 1.05rem);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.pre-fixed-meter-dashboard__attendance-link {
+  margin-left: 0.35rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.pre-fixed-meter-dashboard__notice {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid #fecaca;
+  border-radius: 0;
+  background: #fff1f2;
+  color: #dc2626;
+  font-size: clamp(0.95rem, 2.8vh, 1.2rem);
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.pre-fixed-meter-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(15 23 42 / 45%);
+  box-sizing: border-box;
+}
+
+.pre-fixed-meter-modal__card {
+  width: min(420px, 92vw);
+  max-height: min(80vh, 520px);
+  overflow: auto;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 28%);
+}
+
+.pre-fixed-meter-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pre-fixed-meter-modal__header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.pre-fixed-meter-modal__header button {
+  border: 0;
+  background: transparent;
+  color: #334155;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pre-fixed-meter-modal__body {
+  padding: 12px 14px 16px;
+}
+
+.pre-fixed-meter-modal__choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pre-fixed-meter-modal__choice {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pre-fixed-meter-modal__choice strong {
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.pre-fixed-meter-modal__choice span {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.pre-fixed-meter-modal__choice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-meter-modal__menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pre-fixed-meter-modal__menu-grid button {
+  min-height: 64px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.pre-fixed-meter-modal__menu-grid button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pre-fixed-meter-fare-list {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.pre-fixed-meter-fare-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.95rem;
+}
+
+.pre-fixed-meter-fare-list dt {
+  color: #475569;
+}
+
+.pre-fixed-meter-fare-list dd {
+  margin: 0;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.pre-fixed-meter-fare-list__total {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #94a3b8;
+  font-size: 1.05rem !important;
+}
+
+.pre-fixed-meter-modal__empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.pre-fixed-assist-edit-dialog__note,
+.pre-fixed-extra-fee-editor__note {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.pre-fixed-assist-edit-dialog__footer,
+.pre-fixed-extra-fee-editor__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.pre-fixed-assist-edit-dialog__footer > div,
+.pre-fixed-extra-fee-editor__footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.pre-fixed-extra-fee-editor__list {
+  display: grid;
+  gap: 8px;
+}
+
+.pre-fixed-extra-fee-editor__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pre-fixed-extra-fee-editor__item.is-selected {
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+
+/* 運行メーター編集モーダル専用（作成ウィザードの共通カードは触らない） */
+.pre-fixed-meter-assist-editor,
+.pre-fixed-meter-extra-editor {
+  width: min(980px, 98vw) !important;
+  max-width: 98vw !important;
+  max-height: min(94vh, 940px);
+}
+
+.pre-fixed-meter-assist-editor .settings-header h2,
+.pre-fixed-meter-extra-editor .settings-header h2 {
+  font-size: clamp(1.35rem, 3.2vh, 1.75rem);
+}
+
+.pre-fixed-meter-assist-editor .settings-header button,
+.pre-fixed-meter-extra-editor .settings-header button,
+.pre-fixed-meter-assist-editor .secondary-action,
+.pre-fixed-meter-extra-editor .secondary-action,
+.pre-fixed-meter-assist-editor .r9-flow-primary,
+.pre-fixed-meter-extra-editor .r9-flow-primary {
+  font-size: 1.1rem;
+  min-height: 52px;
+  padding: 12px 18px;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-edit-dialog__note,
+.pre-fixed-meter-extra-editor .pre-fixed-extra-fee-editor__note {
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-flow--meter-editor {
+  gap: 16px;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-step__title {
+  font-size: clamp(1.3rem, 3vh, 1.6rem);
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-step__note {
+  font-size: 1.05rem;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-choice-list,
+.pre-fixed-meter-extra-editor .pre-fixed-extra-fee-editor__list {
+  gap: 12px;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-meter-option-card,
+.pre-fixed-meter-extra-editor .pre-fixed-meter-option-card {
+  min-height: 84px;
+  padding: 18px 16px;
+  border-width: 3px;
+  border-radius: 14px;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-choice-card__title,
+.pre-fixed-meter-extra-editor .pre-fixed-extra-fee-editor__label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(1.2rem, 2.8vh, 1.45rem);
+  font-weight: 800;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-choice-card__desc {
+  font-size: clamp(1rem, 2.4vh, 1.15rem);
+  line-height: 1.5;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-choice-card__amount,
+.pre-fixed-meter-extra-editor .pre-fixed-meter-option-card strong {
+  font-size: clamp(1.2rem, 2.8vh, 1.45rem);
+  font-weight: 800;
+}
+
+.pre-fixed-meter-option-card__badge {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #166534;
+  color: #fff;
+  font-size: 0.85rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-meter-option-card.is-selected,
+.pre-fixed-meter-extra-editor .pre-fixed-meter-option-card.is-selected {
+  border-color: #15803d;
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 2px #86efac;
+}
+
+.pre-fixed-meter-assist-editor .pre-fixed-assist-edit-dialog__footer strong,
+.pre-fixed-meter-extra-editor .pre-fixed-extra-fee-editor__footer strong {
+  font-size: 1.3rem;
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  .pre-fixed-meter-total__header {
+    padding: 2px 8px;
+  }
+
+  .pre-fixed-meter-total__header h1 {
+    font-size: 0.9rem;
+  }
+
+  .pre-fixed-meter-total__body {
+    padding: 2px 8px 4px;
+  }
+
+  .pre-fixed-meter-total__amount strong {
+    font-size: clamp(3.8rem, 28vmin, 7rem);
+  }
+
+  .pre-fixed-meter-total__amount span {
+    font-size: clamp(1.5rem, 5.5vmin, 2.2rem);
+  }
+
+  .pre-fixed-meter-timer__btn {
+    min-height: 64px;
+    padding: 8px 10px;
+  }
+
+  .pre-fixed-meter-timer__btn strong {
+    font-size: clamp(1.2rem, 4vh, 1.55rem);
+  }
+
+  .pre-fixed-meter-timer__sub {
+    font-size: clamp(0.85rem, 2.6vh, 1.05rem);
+  }
+
+  .pre-fixed-meter-timer__clock {
+    font-size: clamp(1.3rem, 4.2vh, 1.65rem);
+  }
+
+  .pre-fixed-meter-actions__btn strong {
+    font-size: clamp(1.2rem, 4vh, 1.55rem);
+  }
+
+  .pre-fixed-meter-actions__icon,
+  .pre-fixed-meter-actions__chevron {
+    font-size: clamp(1.15rem, 3.4vh, 1.4rem);
+  }
+
+  .pre-fixed-meter-dashboard__notice {
+    padding: 5px 8px;
+    font-size: clamp(0.95rem, 3vh, 1.1rem);
+  }
+}
+

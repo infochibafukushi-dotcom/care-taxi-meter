@@ -13,6 +13,15 @@ import { PassengerChangePostSettlementBanner } from '../components/case/Passenge
 import { PreFixedFareConfirmedRouteDialog } from '../components/case/PreFixedFareConfirmedRouteDialog'
 import { PreFixedFarePassengerChangeDialog } from '../components/case/PreFixedFarePassengerChangeDialog'
 import { PreFixedFareRouteChangeDialog } from '../components/case/PreFixedFareRouteChangeDialog'
+import {
+  PreFixedMeterDashboard,
+} from '../components/preFixed/PreFixedMeterDashboard'
+import {
+  evaluateCanStartFixedTrip,
+} from '../utils/canStartFixedTrip'
+import { PreFixedAssistEditDialog } from '../components/preFixed/PreFixedAssistEditDialog'
+import { PreFixedExtraFeeEditor } from '../components/preFixed/PreFixedExtraFeeEditor'
+import type { AssistItem } from '../services/fare'
 import { WaitingMovementAlert } from '../components/case/WaitingMovementAlert'
 import { SettlementPanel } from '../components/case/SettlementPanel'
 import { TopReturnFab } from '../components/case/TopReturnFab'
@@ -38,9 +47,19 @@ import {
   waitingFareSettings,
 } from '../services/fare'
 import {
+  buildPaymentAmountsMatchingCharge,
+  calculateSettlementSummary,
+  shouldResyncPaymentAmountsToCharge,
+  sumPaymentAmountsYen,
+} from '../services/settlementSummary'
+import {
   shouldExcludeServiceFeeFromMeterReadd,
   STAIR_FLOOR_OPTIONS,
 } from '../services/fareMasterService'
+import {
+  hydrateAssistItemsFromSavedFees,
+  normalizeExtraFeeSelectedIds,
+} from '../services/preFixedAssistSelection'
 import {
   resolveTripFareForMeter,
   applyTripFarePricingToState,
@@ -79,7 +98,11 @@ import {
 } from '../services/preFixedMeterSession'
 import { buildPreFixedFareCaseContext } from '../services/preFixedFareCaseContext'
 import { buildPreFixedMeterDisplayBreakdown } from '../services/preFixedMeterDisplayBreakdown'
-import { clearPreFixedFareLocalSessionState } from '../services/preFixedFareCleanup'
+import {
+  clearPreFixedFareLocalSessionState,
+  clearPreFixedFareStateForNewTrip,
+  resolvePostSettlementNewCaseNavigation,
+} from '../services/preFixedFareCleanup'
 import {
   buildPreFixedFareStartPersistKey,
   shouldPersistPreFixedFareStartAtMeterEntry,
@@ -684,6 +707,14 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       })
     }
 
+    // reservationId 解決に失敗しても、同意済み preFixedSession があれば復元する（旧UIと同じ開始可能状態）
+    if (!reservationTripContext && !reviewDemoMode && preFixedSessionIdFromQuery) {
+      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
+      if (session && session.consent.status === 'agreed') {
+        reservationTripContext = buildTripContextFromPreFixedSession(session)
+      }
+    }
+
     return { restoredTripState, reservationTripContext }
   })
   const restoredTripState = pageBootState.restoredTripState
@@ -765,6 +796,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [isCareModalOpen, setIsCareModalOpen] = useState(false)
   const [isStairAssistModalOpen, setIsStairAssistModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
+  const [isPreFixedAssistEditOpen, setIsPreFixedAssistEditOpen] = useState(false)
+  const [isPreFixedEquipmentEditOpen, setIsPreFixedEquipmentEditOpen] = useState(false)
+  const [isPreFixedExtraFeeOpen, setIsPreFixedExtraFeeOpen] = useState(false)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false)
   const [isGpsPanelOpen, setIsGpsPanelOpen] = useState(false)
   const [isBusinessDistanceVisible, setIsBusinessDistanceVisible] = useState(false)
@@ -856,6 +890,11 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [paymentAmounts, setPaymentAmounts] = useState<Record<PaymentMethod, number>>(
     restoredTripSnapshot?.paymentAmounts ?? createEmptyPaymentAmounts,
   )
+  const previousSettlementChargeYenRef = useRef<number | null>(
+    typeof restoredTripSnapshot?.fareTotalYen === 'number'
+      ? restoredTripSnapshot.fareTotalYen
+      : null,
+  )
   const [receiptName, setReceiptName] = useState('')
   const [caseSaveState, setCaseSaveState] = useState<CaseSaveState>('idle')
   const [caseSaveMessage, setCaseSaveMessage] = useState(
@@ -895,7 +934,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const [meterResetKey, setMeterResetKey] = useState(0)
   const [sessionResetKey, setSessionResetKey] = useState(0)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [selectedVehicleId, setSelectedVehicleId] = useState(restoredTripSnapshot?.selectedVehicleId ?? '')
+  const [selectedVehicleId, setSelectedVehicleId] = useState(
+    () => restoredTripSnapshot?.selectedVehicleId || vehicleIdFromQuery || '',
+  )
   const [settlementFlowStep, setSettlementFlowStep] =
     useState<SettlementFlowStep>('receipt')
   const [postSettlementLock, setPostSettlementLock] = useState(() =>
@@ -1007,8 +1048,16 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   }
   const baseWorkSession = useWorkSession()
   const workSession = reviewDemoMode
-    ? { ...baseWorkSession, currentSession: REVIEW_DEMO_WORK_SESSION }
+    ? {
+        ...baseWorkSession,
+        currentSession: REVIEW_DEMO_WORK_SESSION,
+        sessionPhase: 'active' as const,
+        isSessionLoading: false,
+      }
     : baseWorkSession
+  const workSessionPhase = workSession.sessionPhase
+  const isWorkSessionLoading = workSessionPhase === 'loading'
+  const hasActiveWorkSession = Boolean(workSession.currentSession) && workSessionPhase === 'active'
   const persistActiveTripSnapshot = (snapshot: ActiveTripSnapshot) => {
     if (reviewDemoMode) {
       saveReviewDemoActiveTripSnapshot(snapshot)
@@ -1029,18 +1078,34 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   const preFixedStartPersistKeyRef = useRef('')
 
   useEffect(() => {
-    if (reservationTripContext || !restoredTripSnapshot || reviewDemoMode) {
+    if (reservationTripContext || reviewDemoMode) {
       return
     }
 
-    const hydratedContext = resolveReservationTripContextForCasePage({
-      reservationIdFromQuery,
-      restoredSnapshot: restoredTripSnapshot,
-    })
-    if (hydratedContext) {
-      setReservationTripContext(hydratedContext)
+    if (restoredTripSnapshot) {
+      const hydratedContext = resolveReservationTripContextForCasePage({
+        reservationIdFromQuery,
+        restoredSnapshot: restoredTripSnapshot,
+      })
+      if (hydratedContext) {
+        setReservationTripContext(hydratedContext)
+        return
+      }
     }
-  }, [reservationIdFromQuery, reservationTripContext, restoredTripSnapshot, reviewDemoMode])
+
+    if (preFixedSessionIdFromQuery) {
+      const session = readPreFixedMeterSession(preFixedSessionIdFromQuery)
+      if (session?.consent.status === 'agreed') {
+        setReservationTripContext(buildTripContextFromPreFixedSession(session))
+      }
+    }
+  }, [
+    preFixedSessionIdFromQuery,
+    reservationIdFromQuery,
+    reservationTripContext,
+    restoredTripSnapshot,
+    reviewDemoMode,
+  ])
 
   useEffect(() => {
     if (meterMode !== 'fixed' || reviewDemoMode) {
@@ -1143,7 +1208,9 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     status === '精算前' ||
     status === '精算修正' ||
     (status === '案件終了' && !isPostSettlementAwaitingNewCase)
+  // 事前確定運賃Mでは TOPへ戻る をDOMごと出さない（他メーターは従来どおり）
   const canShowTopFab =
+    meterMode !== 'fixed' &&
     !isActiveTripStatus &&
     (status === '空車' ||
       isTimeMeterInitialWaiting ||
@@ -1225,26 +1292,31 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     workSession.currentSession?.id,
   ])
 
-  const canStartFixedTrip =
-    meterMode === 'fixed' &&
-    Boolean(
-      reservationTripContext ||
-        (restoredTripSnapshot?.meterMode === 'fixed' &&
-          restoredTripSnapshot.reservationId &&
-          resolvePreFixedConfirmedFareYen({ snapshot: restoredTripSnapshot }) > 0),
-    ) &&
-    (!fixedFareRun || status === '空車') &&
-    Boolean(workSession.currentSession) &&
-    Boolean(selectedVehicleId) &&
-    !isFixedTripStarting &&
-    (status === '空車' || status === '待機中' || status === '院内付き添い中')
+  const canStartFixedTripEvaluation = evaluateCanStartFixedTrip({
+    meterMode,
+    reservationTripContext,
+    restoredTripSnapshot,
+    fixedFareRun,
+    status,
+    hasWorkSession: hasActiveWorkSession,
+    isWorkSessionLoading,
+    selectedVehicleId,
+    isFixedTripStarting,
+  })
+  const canStartFixedTrip = canStartFixedTripEvaluation.canStartFixedTrip
   const canStartTrip =
     meterMode === 'fixed'
       ? canStartFixedTrip
       : !isTripStarted &&
-        Boolean(workSession.currentSession) &&
+        hasActiveWorkSession &&
         Boolean(selectedVehicleId) &&
-        (status === '空車' || isTimeMeterInitialWaiting)
+        (status === '空車' || isTimeMeterInitialWaiting) &&
+        !isWorkSessionLoading
+  const needsAttendanceForFixedStart =
+    meterMode === 'fixed' &&
+    !fixedFareRun &&
+    !isWorkSessionLoading &&
+    workSessionPhase === 'inactive'
   const canStartWaiting =
     meterMode === 'fixed'
       ? caseSaveState !== 'saving' &&
@@ -1658,7 +1730,13 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         setSelectedVehicleId((currentVehicleId) => {
           const currentVehicle = loadedVehicles.find((vehicle) => vehicle.id === currentVehicleId)
 
-          return currentVehicle?.id ?? matchedVehicle?.id ?? fallbackVehicle?.id ?? ''
+          // 車両一覧が空／未一致でも、URL・復元済みの vehicleId は消さない（canStartTrip が落ち続けるのを防ぐ）
+          return (
+            currentVehicle?.id ??
+            matchedVehicle?.id ??
+            fallbackVehicle?.id ??
+            currentVehicleId
+          )
         })
       } catch (error) {
         console.error('Failed to load vehicles', error)
@@ -1978,6 +2056,51 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     () => buildConfirmedRouteView(reservationTripContext),
     [reservationTripContext],
   )
+  const preFixedAssistEditInitialItems = useMemo((): AssistItem[] => {
+    // serviceFees（0円含む）＋運行中に追加した介助／迎車／特殊車両をまとめて復元
+    const fromCharges = [
+      ...selectedCareOptions,
+      ...selectedDispatchCharges,
+      ...selectedSpecialVehicleCharges,
+    ].map((item) => ({
+      masterId: item.masterId,
+      id: item.id,
+      name: item.name,
+      amountYen: item.amountYen,
+    }))
+    return hydrateAssistItemsFromSavedFees(
+      reservationTripContext?.quoteSnapshot?.serviceFees ?? [],
+      fromCharges,
+    )
+  }, [
+    reservationTripContext,
+    selectedCareOptions,
+    selectedDispatchCharges,
+    selectedSpecialVehicleCharges,
+  ])
+  const preFixedExtraSelectedIds = useMemo(() => {
+    const raw: string[] = []
+    for (const fee of reservationTripContext?.quoteSnapshot?.serviceFees ?? []) {
+      if (Number.isFinite(fee.amount) && fee.amount >= 0) {
+        raw.push(fee.key)
+      }
+    }
+    for (const item of selectedDispatchCharges) {
+      raw.push(item.masterId || item.id)
+    }
+    for (const item of selectedSpecialVehicleCharges) {
+      raw.push(item.masterId || item.id)
+    }
+    for (const item of selectedCareOptions) {
+      raw.push(item.masterId || item.id)
+    }
+    return normalizeExtraFeeSelectedIds(raw)
+  }, [
+    reservationTripContext,
+    selectedCareOptions,
+    selectedDispatchCharges,
+    selectedSpecialVehicleCharges,
+  ])
   const preFixedSelectedRouteLabel = useMemo(() => {
     const routeId = reservationTripContext?.quoteSnapshot?.selectedRouteId?.trim().toUpperCase() ?? ''
     if (routeId === 'A' || routeId === 'B' || routeId === 'C' || routeId === 'D') {
@@ -2028,10 +2151,24 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     [currentSegmentStops],
   )
 
-  const paymentTotalYen = paymentMethods.reduce(
-    (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
-    0,
+  const settlementSummary = useMemo(
+    () =>
+      calculateSettlementSummary({
+        grossAmountYen: settlementBreakdown.grossFareYen,
+        discountAmountYen: settlementBreakdown.disabilityDiscountAmount,
+        taxiTicketAmountYen: settlementBreakdown.taxiTicketAmountYen,
+        finalChargeAmountYen: settlementBreakdown.totalFareYen,
+        paymentAmounts,
+      }),
+    [
+      paymentAmounts,
+      settlementBreakdown.disabilityDiscountAmount,
+      settlementBreakdown.grossFareYen,
+      settlementBreakdown.taxiTicketAmountYen,
+      settlementBreakdown.totalFareYen,
+    ],
   )
+  const paymentTotalYen = settlementSummary.paymentTotalYen
   const payments: PaymentAllocation[] = paymentMethods
     .map((method) => ({
       amount: Math.max(Math.round(paymentAmounts[method]) || 0, 0),
@@ -2039,6 +2176,46 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       type: method,
     }))
     .filter((payment) => payment.amount > 0)
+
+  useEffect(() => {
+    const nextChargeYen = settlementSummary.finalChargeAmountYen
+    const previousChargeYen = previousSettlementChargeYenRef.current
+    const isSettlementPhase =
+      status === '精算前' ||
+      status === '精算修正' ||
+      isSettlementFlowOpen
+
+    if (!isSettlementPhase) {
+      previousSettlementChargeYenRef.current = nextChargeYen
+      return
+    }
+
+    if (previousChargeYen === null) {
+      previousSettlementChargeYenRef.current = nextChargeYen
+      return
+    }
+
+    setPaymentAmounts((currentAmounts) => {
+      if (
+        !shouldResyncPaymentAmountsToCharge({
+          previousChargeYen,
+          nextChargeYen,
+          paymentTotalYen: sumPaymentAmountsYen(currentAmounts),
+          paymentAmounts: currentAmounts,
+        })
+      ) {
+        return currentAmounts
+      }
+
+      return buildPaymentAmountsMatchingCharge(paymentMethod, nextChargeYen)
+    })
+    previousSettlementChargeYenRef.current = nextChargeYen
+  }, [
+    isSettlementFlowOpen,
+    paymentMethod,
+    settlementSummary.finalChargeAmountYen,
+    status,
+  ])
 
   const buildFixedActiveTripSnapshotExtras = (): Partial<ActiveTripSnapshot> => {
     if (meterMode !== 'fixed') {
@@ -2493,10 +2670,12 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
   }
 
   const settlePaymentRemainder = () => {
-    setPaymentAmounts({
-      ...createEmptyPaymentAmounts(),
-      [paymentMethod]: settlementBreakdown.totalFareYen,
-    })
+    setPaymentAmounts(
+      buildPaymentAmountsMatchingCharge(
+        paymentMethod,
+        settlementSummary.finalChargeAmountYen,
+      ),
+    )
   }
 
 
@@ -2669,8 +2848,10 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
 
       if (!canStartFixedTrip || !workSession.currentSession || !tripContext) {
         const message =
-          !workSession.currentSession
-            ? '出勤してから運行開始してください。'
+          isWorkSessionLoading
+            ? '勤務状態を確認しています。しばらくお待ちください。'
+            : !workSession.currentSession
+            ? '運行を開始するには出勤処理が必要です。'
             : !selectedVehicleId
               ? '案件車両を選択してください。'
               : !tripContext
@@ -2910,10 +3091,12 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
 
     if (paymentTotalYen === 0) {
-      setPaymentAmounts({
-        ...createEmptyPaymentAmounts(),
-        [paymentMethod]: settlementBreakdown.totalFareYen,
-      })
+      setPaymentAmounts(
+        buildPaymentAmountsMatchingCharge(
+          paymentMethod,
+          settlementSummary.finalChargeAmountYen,
+        ),
+      )
     }
 
     setIsSettlementFlowOpen(true)
@@ -3219,10 +3402,12 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
 
     if (paymentTotalYen === 0) {
-      setPaymentAmounts({
-        ...createEmptyPaymentAmounts(),
-        [paymentMethod]: settlementBreakdown.totalFareYen,
-      })
+      setPaymentAmounts(
+        buildPaymentAmountsMatchingCharge(
+          paymentMethod,
+          settlementSummary.finalChargeAmountYen,
+        ),
+      )
     }
 
     setIsSettlementConfirmOpen(false)
@@ -3642,7 +3827,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       const endedAt = new Date().toISOString()
       operationEndedAtRef.current = endedAt
     }
-    if (paymentTotalYen !== settlementBreakdown.totalFareYen) {
+    if (!settlementSummary.canSave) {
       setCaseSaveState('error')
       setCaseSaveMessage('支払総額と請求額が一致しないため保存できません。')
       return null
@@ -4349,7 +4534,51 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
   }
 
+  const startNewPreFixedCaseAfterSettlement = async (destination: string) => {
+    if (settlementHoldTimerRef.current !== null) {
+      window.clearTimeout(settlementHoldTimerRef.current)
+      settlementHoldTimerRef.current = null
+    }
+    if (resumeHoldTimerRef.current !== null) {
+      window.clearTimeout(resumeHoldTimerRef.current)
+      resumeHoldTimerRef.current = null
+    }
+
+    const session = workSession.currentSession
+    if (session && selectedVehicleId) {
+      try {
+        await claimVehicleForCaseStart({
+          vehicleId: selectedVehicleId,
+          staffId: session.staffId,
+          staffName: session.staffName,
+          workSessionId: session.id,
+        })
+      } catch (error) {
+        setCaseSaveMessage(
+          error instanceof Error ? error.message : VEHICLE_IN_USE_MESSAGE,
+        )
+        navigate('/case/start')
+        return
+      }
+    }
+
+    clearPreFixedFareStateForNewTrip()
+    setPostSettlementLock(null)
+    navigate(destination, { replace: true })
+  }
+
   const handleStartNewCase = () => {
+    const navigation = resolvePostSettlementNewCaseNavigation({
+      meterMode,
+      vehicleId: selectedVehicleId,
+      reviewDemoMode,
+    })
+
+    if (navigation.kind === 'navigate') {
+      void startNewPreFixedCaseAfterSettlement(navigation.to)
+      return
+    }
+
     void resetMeterSession()
   }
 
@@ -4525,9 +4754,152 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         : '空車'
       : '院内付き添い中'
 
+  const handlePreFixedAssistApply = ({
+    items,
+    serviceFees,
+  }: {
+    selection: unknown
+    items: AssistItem[]
+    serviceFees: Array<{ key: string; label: string; amount: number }>
+    assistFeesYen: number
+  }) => {
+    const extraKeys = new Set([
+      'reservedPickup',
+      'oneBoxLift',
+      'waitingPlanned',
+      'escortPlanned',
+      'waiting',
+      'hospital-escort',
+    ])
+    const preservedFees = (reservationTripContext?.quoteSnapshot?.serviceFees ?? []).filter(
+      (fee) =>
+        extraKeys.has(fee.key) ||
+        dispatchMenuMaster.some((item) => item.id === fee.key) ||
+        specialVehicleMenuMaster.some((item) => item.id === fee.key),
+    )
+    const assistFees = serviceFees.filter((fee) => !extraKeys.has(fee.key))
+    // 0円選択（無料車いす等）も serviceFees に残し、次回編集の初期選択を復元する
+    const nextServiceFees = [...assistFees, ...preservedFees]
+
+    const nextCareOptions = items
+      .filter((item) => item.enabled && !extraKeys.has(item.id))
+      .filter((item) => item.amount > 0)
+      .map((item) => ({
+        amountYen: Math.round(item.amount),
+        id: createId(item.id),
+        masterId: item.id,
+        name: item.name,
+      }))
+
+    // 既存の追加料金（迎車等）は介助編集では維持
+    const preservedCareExtras = selectedCareOptions.filter((option) => {
+      const key = option.masterId || option.id
+      return extraKeys.has(key)
+    })
+
+    setSelectedCareOptions([...nextCareOptions, ...preservedCareExtras])
+    setReservationTripContext((current) => {
+      if (!current) {
+        return current
+      }
+      return {
+        ...current,
+        quoteSnapshot: {
+          ...current.quoteSnapshot,
+          serviceFees: nextServiceFees,
+        },
+      }
+    })
+    setIsPreFixedAssistEditOpen(false)
+  }
+
+  const handlePreFixedExtraFeeApply = (
+    selected: Array<{ id: string; label: string; amountYen: number; group: string }>,
+  ) => {
+    const nextDispatch = selected
+      .filter((item) => item.group === 'dispatch')
+      .map((item) => ({
+        amountYen: item.amountYen,
+        id: createId(item.id),
+        masterId: item.id,
+        name: item.label,
+      }))
+    const nextSpecial = selected
+      .filter((item) => item.group === 'special')
+      .map((item) => ({
+        amountYen: item.amountYen,
+        id: createId(item.id),
+        masterId: item.id,
+        name: item.label,
+      }))
+    const nextExtras = selected
+      .filter((item) => item.group === 'extra' || item.group === 'planned')
+      .map((item) => ({
+        amountYen: item.amountYen,
+        id: createId(item.id),
+        masterId: item.id,
+        name: item.label,
+      }))
+
+    setSelectedDispatchCharges(nextDispatch)
+    setSelectedSpecialVehicleCharges(nextSpecial)
+
+    const assistOnlyCare = selectedCareOptions.filter((option) => {
+      const key = option.masterId || option.id
+      return !(
+        key === 'reservedPickup' ||
+        key === 'oneBoxLift' ||
+        key === 'waitingPlanned' ||
+        key === 'escortPlanned' ||
+        key === 'waiting' ||
+        key === 'hospital-escort' ||
+        dispatchMenuMaster.some((item) => item.id === key) ||
+        specialVehicleMenuMaster.some((item) => item.id === key)
+      )
+    })
+    // 事前確定Mでは迎車・特殊車両は確定運賃加算に使わないため、表示・内訳用に serviceFees へ載せ、
+    // 合計反映が必要な予約迎車等は careOptions 側へ載せる（既存 buildFixedFareBreakdown 仕様）。
+    setSelectedCareOptions([...assistOnlyCare, ...nextExtras])
+
+    setReservationTripContext((current) => {
+      if (!current) {
+        return current
+      }
+      const keepAssistFees = (current.quoteSnapshot.serviceFees ?? []).filter((fee) => {
+        const key = fee.key
+        return !(
+          key === 'reservedPickup' ||
+          key === 'oneBoxLift' ||
+          key === 'waitingPlanned' ||
+          key === 'escortPlanned' ||
+          key === 'waiting' ||
+          key === 'hospital-escort' ||
+          dispatchMenuMaster.some((item) => item.id === key) ||
+          specialVehicleMenuMaster.some((item) => item.id === key)
+        )
+      })
+      const nextFees = [
+        ...keepAssistFees,
+        ...selected.map((item) => ({
+          key: item.id,
+          label: item.label,
+          amount: item.amountYen,
+        })),
+      ]
+      return {
+        ...current,
+        quoteSnapshot: {
+          ...current.quoteSnapshot,
+          serviceFees: nextFees,
+        },
+      }
+    })
+    setIsPreFixedExtraFeeOpen(false)
+  }
+
   return (
     <main
-      className={`r9-meter-page r9-meter-page--${statusToneMap[status]}${meterMode === 'fixed' ? ' pre-fixed-meter' : ''}`}
+      className={`r9-meter-page r9-meter-page--${statusToneMap[status]}${meterMode === 'fixed' ? ' pre-fixed-meter' : ''}${isFixedPassengerChangePreSettlement ? ' pre-fixed-meter--passenger-change' : ''}`}
       aria-label="業務用メーター"
     >
       <div className="landscape-notice" role="status">
@@ -4553,6 +4925,125 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         <span className="meter-screw meter-screw--bottom-right" />
 
         <div className="r9-meter-console">
+          {meterMode === 'fixed' ? (
+            isFixedPassengerChangePreSettlement ? (
+              <div className="pre-fixed-meter-dashboard" aria-label="旅客都合途中終了">
+                <div className="pre-fixed-terminated-panel" aria-label="旅客都合変更による途中終了">
+                  <p className="pre-fixed-terminated-panel__message">
+                    旅客都合変更により事前確定運賃を途中終了しました。
+                  </p>
+                  <dl className="pre-fixed-terminated-panel__summary">
+                    <div>
+                      <dt>元の事前確定運賃</dt>
+                      <dd>{formatFareYen(resolvedConfirmedFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>追加区間運賃</dt>
+                      <dd>{formatFareYen(additionalRouteFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>追加介助料</dt>
+                      <dd>{formatFareYen(settlementBreakdown.additionalCareFareYen ?? 0)}円</dd>
+                    </div>
+                    <div>
+                      <dt>待機/付き添い料金</dt>
+                      <dd>
+                        {formatFareYen(
+                          settlementBreakdown.waitingFareYen + settlementBreakdown.escortFareYen,
+                        )}円
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>実費</dt>
+                      <dd>{formatFareYen(settlementBreakdown.expenseFareYen)}円</dd>
+                    </div>
+                    <div className="pre-fixed-terminated-panel__total">
+                      <dt>合計請求額</dt>
+                      <dd>{formatFareYen(settlementBreakdown.totalFareYen)}円</dd>
+                    </div>
+                  </dl>
+                  <div className="pre-fixed-terminated-panel__actions">
+                    {canAddExpenseCharge ? (
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => setIsExpenseModalOpen(true)}
+                      >
+                        実費追加
+                      </button>
+                    ) : null}
+                    <button
+                      className="r9-flow-primary pre-fixed-terminated-panel__settle"
+                      type="button"
+                      onClick={() => openFixedSettlementFlow({ force: true })}
+                    >
+                      精算へ進む
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <PreFixedMeterDashboard
+                totalFareYen={settlementBreakdown.totalFareYen}
+                breakdownLines={preFixedDisplayBreakdown.lineItems}
+                waitingActive={status === '待機中'}
+                escortActive={status === '院内付き添い中'}
+                waitingClockLabel={waitingClockLabel}
+                escortClockLabel={accompanyingClockLabel}
+                canToggleWaiting={status === '待機中' ? canEndWaiting : canStartWaiting}
+                canToggleEscort={status === '院内付き添い中' ? canEndAccompanying : canStartAccompanying}
+                canStartTrip={canStartTrip}
+                isTripStarting={isFixedTripStarting}
+                isWorkSessionLoading={isWorkSessionLoading}
+                // 運行開始成功（fixedFareRun）後のみ「清算」。待機・付き添いだけでは切替えない。
+                tripStarted={Boolean(fixedFareRun)}
+                canSettle={
+                  canOpenFixedSettlement ||
+                  isFixedPassengerChangePreSettlement ||
+                  (Boolean(fixedFareRun) && canEndFixedTrip)
+                }
+                settleSkipsConfirm={
+                  canOpenFixedSettlement || isFixedPassengerChangePreSettlement
+                }
+                canNavigate={!reviewDemoMode && preFixedOverallStops.length >= 2}
+                canAddAssist={canAddAssistCharge}
+                canAddExpense={canAddExpenseCharge}
+                canChangeRoute={!isFixedRouteChangeBlocked}
+                caseSaving={caseSaveState === 'saving'}
+                isClosed={isFixedClosed}
+                actionNotice={
+                  needsAttendanceForFixedStart
+                    ? '運行を開始するには出勤処理が必要です。'
+                    : tripStartNotice ||
+                      (caseSaveState === 'error' && caseSaveMessage ? caseSaveMessage : '')
+                }
+                showAttendanceReturnLink={needsAttendanceForFixedStart && !reviewDemoMode}
+                onAttendanceReturn={() => {
+                  navigate('/')
+                }}
+                onToggleWaiting={() => handleStatusChange(resolveFixedWaitingToggleStatus())}
+                onToggleEscort={() => handleStatusChange(resolveFixedEscortToggleStatus())}
+                onStartTrip={() => {
+                  void handleDrivingStart()
+                }}
+                onSettle={() => {
+                  if (canOpenFixedSettlement || isFixedPassengerChangePreSettlement) {
+                    openFixedSettlementFlow({ force: true })
+                    return
+                  }
+                  handleFixedTripEnd()
+                }}
+                onViewRoute={() => setIsConfirmedRouteDialogOpen(true)}
+                onNavigate={handleOpenFixedNavigation}
+                onAssistEdit={() => setIsPreFixedAssistEditOpen(true)}
+                onEquipmentEdit={() => setIsPreFixedEquipmentEditOpen(true)}
+                onBasicFeeEdit={() => setIsPreFixedExtraFeeOpen(true)}
+                onExpenseEdit={() => setIsExpenseModalOpen(true)}
+                onChangeRoute={handleFixedRouteChangeClick}
+              />
+            )
+          ) : null}
+
           <section className="r9-left-panel" aria-label="料金メーター">
             <section
               aria-label="現在料金"
@@ -4675,22 +5166,18 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 <div className="pre-fixed-time-fare-rates" aria-label="待機料・付き添い料">
                   <div>
                     <strong>待機料</strong>
-                    {isPreFixedRoundTrip ? (
-                      <p>往復：最初の30分は無料</p>
-                    ) : (
-                      <p>初期30分 一律 {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
-                    )}
-                    <p>30分1秒以降 30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円</p>
+                    <p>30分未満無料</p>
+                    <p>
+                      30分到達以降 30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円
+                    </p>
                     <small>計測中 {waitingClockLabel}</small>
                   </div>
                   <div>
                     <strong>付き添い料</strong>
-                    {isPreFixedRoundTrip ? (
-                      <p>往復：最初の30分は無料</p>
-                    ) : (
-                      <p>初期30分 一律 {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
-                    )}
-                    <p>30分1秒以降 30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円</p>
+                    <p>30分未満無料</p>
+                    <p>
+                      30分到達以降 30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円
+                    </p>
                     <small>計測中 {accompanyingClockLabel}</small>
                   </div>
                 </div>
@@ -5496,6 +5983,50 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         </div>
       ) : null}
 
+      {isPreFixedAssistEditOpen ? (
+        <PreFixedAssistEditDialog
+          key={`assist-edit:${preFixedAssistEditInitialItems
+            .filter((item) => item.enabled)
+            .map((item) => `${item.id}:${item.amount}`)
+            .sort()
+            .join('|')}`}
+          initialItems={preFixedAssistEditInitialItems}
+          isRoundTrip={isPreFixedRoundTrip}
+          mode="assist"
+          onClose={() => setIsPreFixedAssistEditOpen(false)}
+          onApply={handlePreFixedAssistApply}
+        />
+      ) : null}
+
+      {isPreFixedEquipmentEditOpen ? (
+        <PreFixedAssistEditDialog
+          key={`equipment-edit:${preFixedAssistEditInitialItems
+            .filter((item) => item.enabled)
+            .map((item) => `${item.id}:${item.amount}`)
+            .sort()
+            .join('|')}`}
+          initialItems={preFixedAssistEditInitialItems}
+          isRoundTrip={isPreFixedRoundTrip}
+          mode="equipment"
+          onClose={() => setIsPreFixedEquipmentEditOpen(false)}
+          onApply={(payload) => {
+            handlePreFixedAssistApply(payload)
+            setIsPreFixedEquipmentEditOpen(false)
+          }}
+        />
+      ) : null}
+
+      {isPreFixedExtraFeeOpen ? (
+        <PreFixedExtraFeeEditor
+          key={`extra-edit:${Array.from(preFixedExtraSelectedIds).sort().join('|')}`}
+          dispatchMenuItems={currentDispatchMenuItems}
+          specialVehicleMenuItems={currentSpecialVehicleMenuItems}
+          selectedIds={preFixedExtraSelectedIds}
+          onClose={() => setIsPreFixedExtraFeeOpen(false)}
+          onApply={handlePreFixedExtraFeeApply}
+        />
+      ) : null}
+
       {isCareModalOpen ? (
         <div className="settings-backdrop" role="presentation">
           <section
@@ -5928,7 +6459,7 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                   </p>
                 </div>
                 <SettlementPanel
-                  breakdown={settlementBreakdown}
+                  breakdown={meterMode === 'fixed' ? preFixedDisplayBreakdown : settlementBreakdown}
                   businessDistanceKm={gps.businessDistanceKm}
                   chargeableDistanceKm={gps.chargeableDistanceKm}
                   hideDistanceBreakdown={meterMode === 'fixed'}

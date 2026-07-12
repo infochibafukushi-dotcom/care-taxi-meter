@@ -14,15 +14,11 @@ if (!existsSync(viteBin)) {
   process.exit(1)
 }
 
-const outDir = process.env.CARE_TAXI_METER_OUT_DIR?.trim() || join(cwd, 'dist')
 const result = spawnSync(process.execPath, [viteBin, 'build'], {
   cwd,
   stdio: 'inherit',
   env: process.env,
 })
 
-if (existsSync(join(outDir, 'index.html'))) {
-  process.exit(0)
-}
-
+// Vite / PWA プラグインの失敗を、途中成果物の有無で覆い隠さない
 process.exit(result.status ?? 1)

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,6 +24,16 @@ const run = (command, args, options = {}) => {
   return result.status ?? 1
 }
 
+const cleanLocalDist = () => {
+  const distDir = join(projectRoot, 'dist')
+  if (existsSync(distDir)) {
+    rmSync(distDir, { recursive: true, force: true })
+    console.info('[viteBuild] removed stale dist/')
+  }
+}
+
+cleanLocalDist()
+
 const shouldUseWindowsCmdBuild =
   process.env.VITE_FORCE_LOCAL_BUILD === '1'
     ? false
@@ -36,9 +46,7 @@ if (shouldUseWindowsCmdBuild) {
   console.info(`[viteBuild] projectRoot: ${projectRoot}`)
 
   const exitCode = run('cmd.exe', ['/d', '/s', '/c', windowsBuildScript])
-  if (existsSync(join(projectRoot, 'dist', 'index.html'))) {
-    process.exit(0)
-  }
+  // PWA / Vite 失敗を dist 残存で成功扱いしない
   process.exit(exitCode)
 }
 
@@ -49,9 +57,5 @@ const exitCode = run(process.execPath, [viteRunner, projectRoot], {
     CARE_TAXI_METER_OUT_DIR: join(projectRoot, 'dist'),
   },
 })
-
-if (existsSync(join(projectRoot, 'dist', 'index.html'))) {
-  process.exit(0)
-}
 
 process.exit(exitCode)

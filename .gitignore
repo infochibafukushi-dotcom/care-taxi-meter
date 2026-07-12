@@ -35,5 +35,8 @@ functions/node_modules
 # Local reference samples (not for commit)
 tmp-reservation-samples/
 
+# Local probe / build / test dump files (never commit)
+tmp-*
+
 # Generated visual verification artifacts (binary files are not accepted in PRs)
 docs/screenshots/

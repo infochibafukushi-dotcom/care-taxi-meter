@@ -106,6 +106,7 @@ export default defineConfig(({ mode }) => {
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
+        // メインバンドルが既定 2MiB をわずかに超過するため、オフライン precache 用に 3MiB まで許可
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,ico,webmanifest}'],
         globIgnores: ['**/tesseract/**'],

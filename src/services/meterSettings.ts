@@ -353,16 +353,25 @@ function sanitizeAssistItems(value: unknown): CareOptionMasterItem[] {
     })
     .filter((item): item is CareOptionMasterItem => Boolean(item))
 
-  if (sanitizedItems.length === 0) {
+  const sanitizedIds = new Set<string>()
+  const dedupedSanitized: CareOptionMasterItem[] = []
+  for (const item of sanitizedItems) {
+    if (sanitizedIds.has(item.id)) {
+      continue
+    }
+    sanitizedIds.add(item.id)
+    dedupedSanitized.push(item)
+  }
+
+  if (dedupedSanitized.length === 0) {
     return defaultMeterSettings.assistItems
   }
 
-  const sanitizedIds = new Set(sanitizedItems.map((item) => item.id))
   const missingDefaults = defaultMeterSettings.assistItems.filter(
     (defaultItem) => !sanitizedIds.has(defaultItem.id),
   )
 
-  return [...sanitizedItems, ...missingDefaults]
+  return [...dedupedSanitized, ...missingDefaults]
     .filter((item) => item.id !== 'otherAssist')
     .sort(
     (firstItem, secondItem) => firstItem.sortOrder - secondItem.sortOrder,

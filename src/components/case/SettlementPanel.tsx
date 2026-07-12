@@ -1,5 +1,9 @@
 import type { DiscountSettings, FareBreakdown } from '../../services/fare'
 import { formatFareYen } from '../../services/fare'
+import {
+  calculateSettlementSummary,
+  SETTLEMENT_PAYMENT_METHODS,
+} from '../../services/settlementSummary'
 import type { PaymentMethod, TaxiTicket } from '../../types/case'
 
 type SettlementPanelProps = {
@@ -25,8 +29,6 @@ type SettlementPanelProps = {
   onSettlePaymentRemainder: () => void
 }
 
-const paymentMethods: PaymentMethod[] = ['現金', 'クレジット', 'QR決済', '請求書', 'その他']
-
 export function SettlementPanel({
   breakdown,
   businessDistanceKm,
@@ -49,11 +51,13 @@ export function SettlementPanel({
   onRemoveTaxiTicket,
   onSettlePaymentRemainder,
 }: SettlementPanelProps) {
-  const paymentTotalYen = paymentMethods.reduce(
-    (total, method) => total + Math.max(Math.round(paymentAmounts[method]) || 0, 0),
-    0,
-  )
-  const paymentDifferenceYen = breakdown.totalFareYen - paymentTotalYen
+  const settlementSummary = calculateSettlementSummary({
+    grossAmountYen: breakdown.grossFareYen,
+    discountAmountYen: breakdown.disabilityDiscountAmount,
+    taxiTicketAmountYen: breakdown.taxiTicketAmountYen,
+    finalChargeAmountYen: breakdown.totalFareYen,
+    paymentAmounts,
+  })
 
   const showTimeDiscount =
     breakdown.meterMode === 'time' &&
@@ -64,7 +68,12 @@ export function SettlementPanel({
       return false
     }
 
-    return true
+    // 割引行は上部サマリーで表示するため、内訳の重複を避ける
+    if (item.amountYen < 0 && item.label === breakdown.discountName) {
+      return false
+    }
+
+    return item.amountYen !== 0
   })
 
   return (
@@ -72,7 +81,30 @@ export function SettlementPanel({
       <h2 id="settlement-title">精算画面</h2>
       <div className="settlement-total">
         <span>請求額</span>
-        <strong>{formatFareYen(breakdown.totalFareYen)}円</strong>
+        <strong>{formatFareYen(settlementSummary.finalChargeAmountYen)}円</strong>
+      </div>
+      <div className="settlement-lines" aria-label="請求額サマリー">
+        <div>
+          <span>割引前総額</span>
+          <strong>{formatFareYen(settlementSummary.grossAmountYen)}円</strong>
+        </div>
+        {settlementSummary.discountAmountYen > 0 ? (
+          <div>
+            <span>
+              {breakdown.discountName}
+              （
+              {breakdown.discountMethod === 'percentage'
+                ? `${breakdown.discountValue}％`
+                : `${formatFareYen(breakdown.discountValue)}円`}
+              ）
+            </span>
+            <strong>▲{formatFareYen(settlementSummary.discountAmountYen)}円</strong>
+          </div>
+        ) : null}
+        <div>
+          <span>最終請求額</span>
+          <strong>{formatFareYen(settlementSummary.finalChargeAmountYen)}円</strong>
+        </div>
       </div>
       {hideDistanceBreakdown ? null : (
         <div className="settlement-lines" aria-label="距離内訳">
@@ -149,7 +181,9 @@ export function SettlementPanel({
             {settlementDiscount.method === 'percentage' ? '％' : '円'}
           </label>
           <p className="empty-note">
-            {breakdown.discountName}（{breakdown.discountMethod === 'percentage' ? `${breakdown.discountValue}％` : `${formatFareYen(breakdown.discountValue)}円`}） ▲{formatFareYen(breakdown.disabilityDiscountAmount)}円
+            割引対象額：{formatFareYen(breakdown.discountableFareYen)}円 /
+            {breakdown.discountName}（{breakdown.discountMethod === 'percentage' ? `${breakdown.discountValue}％` : `${formatFareYen(breakdown.discountValue)}円`}）
+            ▲{formatFareYen(breakdown.disabilityDiscountAmount)}円
           </p>
         </fieldset>
       ) : null}
@@ -180,7 +214,7 @@ export function SettlementPanel({
       />
       <fieldset className="payment-methods">
         <legend>代表支払方法</legend>
-        {paymentMethods.map((method) => (
+        {SETTLEMENT_PAYMENT_METHODS.map((method) => (
           <label key={method}>
             <input
               checked={paymentMethod === method}
@@ -195,7 +229,7 @@ export function SettlementPanel({
       </fieldset>
       <fieldset className="payment-methods">
         <legend>支払内訳</legend>
-        {paymentMethods.map((method) => (
+        {SETTLEMENT_PAYMENT_METHODS.map((method) => (
           <label key={method}>
             {method}
             <input
@@ -212,7 +246,10 @@ export function SettlementPanel({
           支払総額を請求額に合わせる
         </button>
         <p>
-          支払総額：{formatFareYen(paymentTotalYen)}円 / 差額：{formatFareYen(paymentDifferenceYen)}円
+          支払総額：{formatFareYen(settlementSummary.paymentTotalYen)}円 / 差額：
+          {settlementSummary.differenceYen === 0
+            ? '0円'
+            : `${settlementSummary.differenceYen > 0 ? '+' : '▲'}${formatFareYen(Math.abs(settlementSummary.differenceYen))}円`}
         </p>
       </fieldset>
       <p className={`save-note save-note--${saveState}`}>{saveMessage}</p>
