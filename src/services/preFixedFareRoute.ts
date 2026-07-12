@@ -7,6 +7,13 @@ import type {
   PreFixedFareRouteStop,
 } from '../types/preFixedFareRouteChange'
 import { ensureGoogleMapsApiLoaded } from '../utils/googleMapsLoader'
+import { buildCombinedEncodedPolyline, concatLegPaths, encodePolyline } from '../utils/polylinePath'
+import { decodePolyline } from '../utils/decodePolyline'
+import type {
+  RouteDisplayStrategy,
+  StrategyRouteCandidate,
+  StrategyRouteLeg,
+} from './preFixedRouteStrategySelection'
 
 const createStopId = (prefix: string) =>
   `${prefix}-${Math.random().toString(36).slice(2, 10)}`
@@ -316,15 +323,139 @@ const resolveWaypointQuery = (point: RouteWaypointInput) => {
   return point.address.trim()
 }
 
+type GoogleDirectionsStep = {
+  polyline?: string | { points?: string }
+  distance?: { value: number }
+  duration?: { value: number }
+}
+
+type GoogleDirectionsLeg = {
+  distance?: { value: number }
+  duration?: { value: number }
+  steps?: GoogleDirectionsStep[]
+}
+
 type GoogleDirectionsResult = {
   routes: Array<{
-    legs: Array<{
-      distance?: { value: number }
-      duration?: { value: number }
-    }>
-    overview_polyline?: { points?: string }
+    legs: GoogleDirectionsLeg[]
+    /** 現行 API は string、旧形式は { points: string } */
+    overview_polyline?: string | { points?: string }
     summary?: string
+    warnings?: string[]
+    fare?: unknown
   }>
+}
+
+/** Directions の overview_polyline を encoded polyline 文字列へ正規化する */
+export const extractEncodedPolyline = (
+  overviewPolyline: unknown,
+): string | undefined => {
+  if (typeof overviewPolyline === 'string') {
+    const value = overviewPolyline.trim()
+    return value || undefined
+  }
+
+  if (
+    overviewPolyline &&
+    typeof overviewPolyline === 'object' &&
+    'points' in overviewPolyline
+  ) {
+    const points = (overviewPolyline as { points?: unknown }).points
+    if (typeof points === 'string') {
+      const value = points.trim()
+      return value || undefined
+    }
+  }
+
+  return undefined
+}
+
+const buildLegEncodedPolyline = (leg: GoogleDirectionsLeg): string | undefined => {
+  const steps = Array.isArray(leg.steps) ? leg.steps : []
+  const stepPaths = steps
+    .map((step) => {
+      const encoded = extractEncodedPolyline(step.polyline)
+      return encoded ? decodePolyline(encoded) : []
+    })
+    .filter((path) => path.length >= 2)
+
+  if (stepPaths.length === 0) {
+    return undefined
+  }
+
+  const combined = concatLegPaths(stepPaths)
+  if (combined.length < 2) {
+    return undefined
+  }
+
+  return encodePolyline(combined)
+}
+
+export type NormalizedDirectionsRoute = {
+  distanceMeters: number
+  durationSeconds: number
+  encodedPolyline: string
+  routeLegs: StrategyRouteLeg[]
+  routeSummary: string
+  combinedPointCount: number
+}
+
+/** Directions route を全leg保持で正規化する（overview だけで前legを捨てない）。 */
+export const normalizeDirectionsRoute = (
+  route: GoogleDirectionsResult['routes'][number],
+): NormalizedDirectionsRoute | null => {
+  const legs = Array.isArray(route.legs) ? route.legs : []
+  if (legs.length === 0) {
+    return null
+  }
+
+  const routeLegs: StrategyRouteLeg[] = legs.map((leg, index) => {
+    const distanceMeters = Number(leg.distance?.value) || 0
+    const durationSeconds = Number(leg.duration?.value) || 0
+    const fromSteps = buildLegEncodedPolyline(leg)
+    return {
+      legIndex: index,
+      distanceMeters,
+      durationSeconds,
+      encodedPolyline: fromSteps || '',
+    }
+  })
+
+  const overview = extractEncodedPolyline(route.overview_polyline)
+  // overview しか無い leg は overview を分割できないため、単legなら overview を付与
+  if (routeLegs.length === 1 && !routeLegs[0].encodedPolyline && overview) {
+    routeLegs[0].encodedPolyline = overview
+  }
+
+  // 一部 leg だけ steps が欠ける場合、overview を最終フォールバックに使う
+  const legPolylinesPresent = routeLegs.every((leg) => Boolean(leg.encodedPolyline.trim()))
+  const combinedEncoded =
+    buildCombinedEncodedPolyline(
+      legPolylinesPresent ? routeLegs : undefined,
+      overview,
+    ) || overview
+
+  if (!combinedEncoded?.trim()) {
+    return null
+  }
+
+  if (!legPolylinesPresent && overview && routeLegs.length >= 2) {
+    // steps 欠落時でも合計は legs 集計を使う。polyline は overview を全体として保持。
+    // 個別 leg polyline が空のままだと地図で片側欠落するため、overview を最終legへ退避しない。
+  }
+
+  const distanceMeters = routeLegs.reduce((sum, leg) => sum + leg.distanceMeters, 0)
+  const durationSeconds = routeLegs.reduce((sum, leg) => sum + leg.durationSeconds, 0)
+  const combinedPath = decodePolyline(combinedEncoded)
+
+  return {
+    distanceMeters,
+    durationSeconds,
+    encodedPolyline: combinedEncoded,
+    routeLegs,
+    routeSummary: String(route.summary || '').trim(),
+    combinedPointCount: combinedPath.length,
+  }
 }
 
 type GoogleDirectionsService = {
@@ -368,6 +499,151 @@ const getDirectionsService = async (): Promise<GoogleDirectionsService | null> =
   }
 
   return null
+}
+
+const requestDirections = (
+  directionsService: GoogleDirectionsService,
+  request: Record<string, unknown>,
+) =>
+  new Promise<{
+    response: GoogleDirectionsResult | null
+    status: string
+  }>((resolve) => {
+    directionsService.route(request, (response, status) => {
+      if (status === 'OK' && response) {
+        resolve({ response, status })
+        return
+      }
+      resolve({ response: null, status: String(status || 'UNKNOWN') })
+    })
+  })
+
+export type DirectionsFetchOptions = {
+  origin: RouteWaypointInput
+  waypoints: RouteWaypointInput[]
+  destination: RouteWaypointInput
+  avoidTolls?: boolean
+  avoidHighways?: boolean
+  provideRouteAlternatives?: boolean
+}
+
+const buildDirectionsRequest = ({
+  origin,
+  waypoints,
+  destination,
+  avoidTolls = false,
+  avoidHighways = false,
+  provideRouteAlternatives = false,
+}: DirectionsFetchOptions): Record<string, unknown> | null => {
+  const originQuery = resolveWaypointQuery(origin)
+  const destinationQuery = resolveWaypointQuery(destination)
+  if (!originQuery || !destinationQuery) {
+    return null
+  }
+
+  const request: Record<string, unknown> = {
+    origin: originQuery,
+    destination: destinationQuery,
+    travelMode: 'DRIVING',
+    provideRouteAlternatives,
+    region: 'JP',
+    language: 'ja',
+    avoidTolls,
+    avoidHighways,
+  }
+
+  if (waypoints.length > 0) {
+    request.waypoints = waypoints
+      .map((point) => resolveWaypointQuery(point))
+      .filter(Boolean)
+      .map((location) => ({ location, stopover: true }))
+  }
+
+  return request
+}
+
+const toStrategyCandidate = (
+  normalized: NormalizedDirectionsRoute,
+  strategy: RouteDisplayStrategy,
+  meta: {
+    avoidTolls: boolean
+    avoidHighways: boolean
+    routingPreference?: string
+    generationReason?: string
+  },
+): StrategyRouteCandidate => ({
+  routeStrategy: strategy,
+  distanceMeters: normalized.distanceMeters,
+  durationSeconds: normalized.durationSeconds,
+  encodedPolyline: normalized.encodedPolyline,
+  routeLegs: normalized.routeLegs,
+  routeSummary: normalized.routeSummary,
+  avoidTolls: meta.avoidTolls,
+  avoidHighways: meta.avoidHighways,
+  routingPreference: meta.routingPreference || 'TRAFFIC_AWARE',
+  generationReason: meta.generationReason,
+})
+
+/**
+ * かんたん見積の strategy 別 fetch に相当する Directions 取得。
+ * Routes API の avoidTolls/avoidHighways を DirectionsRequest に写す。
+ */
+export async function fetchStrategyDirectionsCandidates({
+  origin,
+  waypoints,
+  destination,
+  strategy,
+  avoidTolls,
+  avoidHighways,
+  provideRouteAlternatives = false,
+  routingPreference = 'TRAFFIC_AWARE',
+  generationReason,
+}: DirectionsFetchOptions & {
+  strategy: RouteDisplayStrategy
+  routingPreference?: string
+  generationReason?: string
+}): Promise<StrategyRouteCandidate[]> {
+  const directionsService = await getDirectionsService()
+  if (!directionsService) {
+    return []
+  }
+
+  const request = buildDirectionsRequest({
+    origin,
+    waypoints,
+    destination,
+    avoidTolls,
+    avoidHighways,
+    provideRouteAlternatives,
+  })
+  if (!request) {
+    return []
+  }
+
+  const result = await requestDirections(directionsService, request)
+  if (!result.response?.routes?.length) {
+    return []
+  }
+
+  const limit = provideRouteAlternatives ? 4 : 1
+  const candidates: StrategyRouteCandidate[] = []
+
+  for (const route of result.response.routes.slice(0, limit)) {
+    const normalized = normalizeDirectionsRoute(route)
+    if (!normalized) {
+      continue
+    }
+    candidates.push(
+      toStrategyCandidate(normalized, strategy, {
+        avoidTolls: Boolean(avoidTolls),
+        avoidHighways: Boolean(avoidHighways),
+        routingPreference,
+        generationReason,
+      }),
+    )
+  }
+
+  return candidates
 }
 
 const buildFallbackCandidates = (
@@ -449,7 +725,7 @@ const toRouteSource = (route: GoogleDirectionsRoute): PreFixedDirectionsRouteSou
   return {
     distanceKm: Number(distanceKm.toFixed(1)),
     durationSeconds: Math.max(durationSeconds, 60),
-    encodedPolyline: route.overview_polyline?.points,
+    encodedPolyline: extractEncodedPolyline(route.overview_polyline),
     useToll: false,
     summary: route.summary,
   }
@@ -694,85 +970,92 @@ export async function calculateAdditionalRouteCandidates({
   waypoints,
   destination,
   fareSettings,
+  allowFallback = true,
+  requirePolyline = false,
 }: {
   origin: RouteWaypointInput
   waypoints: RouteWaypointInput[]
   destination: RouteWaypointInput
   fareSettings: BasicFareSettings
+  /** false のとき距離推定フォールバックを使わず失敗を返す（事前確定の新規作成向け） */
+  allowFallback?: boolean
+  /** true のとき overview_polyline が無い候補を除外する */
+  requirePolyline?: boolean
 }): Promise<PreFixedFareRouteCandidate[]> {
+  const fallbackOrEmpty = () =>
+    allowFallback ? buildFallbackCandidates(origin, waypoints, destination, fareSettings) : []
+
   const directionsService = await getDirectionsService()
   if (!directionsService) {
-    return buildFallbackCandidates(origin, waypoints, destination, fareSettings)
+    return fallbackOrEmpty()
   }
 
   const originQuery = resolveWaypointQuery(origin)
   const destinationQuery = resolveWaypointQuery(destination)
   if (!originQuery || !destinationQuery) {
-    return buildFallbackCandidates(origin, waypoints, destination, fareSettings)
+    return fallbackOrEmpty()
   }
 
-  const request: Record<string, unknown> = {
-    origin: originQuery,
-    destination: destinationQuery,
-    travelMode: 'DRIVING',
+  const request = buildDirectionsRequest({
+    origin,
+    waypoints,
+    destination,
     provideRouteAlternatives: true,
-    region: 'JP',
-    language: 'ja',
-  }
-
-  if (waypoints.length > 0) {
-    request.waypoints = waypoints
-      .map((point) => resolveWaypointQuery(point))
-      .filter(Boolean)
-      .map((location) => ({ location, stopover: true }))
-  }
-
-  const result = await new Promise<GoogleDirectionsResult | null>((resolve) => {
-    directionsService.route(request, (response, status) => {
-      if (status === 'OK' && response) {
-        resolve(response)
-        return
-      }
-
-      resolve(null)
-    })
   })
-
-  if (!result?.routes?.length) {
-    return buildFallbackCandidates(origin, waypoints, destination, fareSettings)
+  if (!request) {
+    return fallbackOrEmpty()
   }
 
-  const candidates = result.routes.slice(0, 4).map((route, index) => {
-    const distanceMeters = route.legs.reduce(
-      (total, leg) => total + (leg.distance?.value ?? 0),
-      0,
-    )
-    const durationSeconds = route.legs.reduce(
-      (total, leg) => total + (leg.duration?.value ?? 0),
-      0,
-    )
-    const distanceKm = Math.max(distanceMeters / 1000, 0.1)
+  const result = await requestDirections(directionsService, request)
+
+  if (!result.response?.routes?.length) {
+    return fallbackOrEmpty()
+  }
+
+  const candidates = result.response.routes.slice(0, 4).flatMap((route, index) => {
+    const normalized = normalizeDirectionsRoute(route)
+    if (!normalized) {
+      return []
+    }
+    const distanceKm = Math.max(normalized.distanceMeters / 1000, 0.1)
     const labels = ['ルートA', 'ルートB', 'ルートC', 'ルートD']
     const pathPoints = [origin, ...waypoints, destination]
       .map((point) => point.address.trim() || '地点')
       .join(' → ')
 
-    return {
-      id: `route-${index + 1}`,
-      label: labels[index] ?? `ルート${index + 1}`,
-      distanceKm: Number(distanceKm.toFixed(1)),
-      durationSeconds,
-      additionalFareYen: calculateBasicFareYen(distanceKm, fareSettings),
-      summary: route.summary ? `${pathPoints}（${route.summary}）` : pathPoints,
-      useToll: false,
-      encodedPolyline: route.overview_polyline?.points,
-    } satisfies PreFixedFareRouteCandidate
+    return [
+      {
+        id: `route-${index + 1}`,
+        label: labels[index] ?? `ルート${index + 1}`,
+        distanceKm: Number(distanceKm.toFixed(1)),
+        durationSeconds: normalized.durationSeconds,
+        additionalFareYen: calculateBasicFareYen(distanceKm, fareSettings),
+        summary: normalized.routeSummary
+          ? `${pathPoints}（${normalized.routeSummary}）`
+          : pathPoints,
+        useToll: false,
+        encodedPolyline: normalized.encodedPolyline,
+      } satisfies PreFixedFareRouteCandidate,
+    ]
   })
 
-  while (candidates.length < 2 && candidates[0]) {
-    const baseIndex = candidates.length
-    const base = candidates[0]
-    candidates.push({
+  const filtered = requirePolyline
+    ? candidates.filter(
+        (candidate) =>
+          Boolean(candidate.encodedPolyline?.trim()) &&
+          candidate.distanceKm > 0 &&
+          candidate.durationSeconds > 0,
+      )
+    : candidates
+
+  if (filtered.length === 0) {
+    return fallbackOrEmpty()
+  }
+
+  while (!requirePolyline && filtered.length < 2 && filtered[0]) {
+    const baseIndex = filtered.length
+    const base = filtered[0]
+    filtered.push({
       ...base,
       id: `route-${baseIndex + 1}`,
       label: ['ルートA', 'ルートB', 'ルートC', 'ルートD'][baseIndex] ?? `ルート${baseIndex + 1}`,
@@ -782,7 +1065,7 @@ export async function calculateAdditionalRouteCandidates({
     })
   }
 
-  return candidates
+  return filtered
 }
 
 export const formatDurationMinutes = (durationSeconds: number) =>

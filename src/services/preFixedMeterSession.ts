@@ -21,9 +21,12 @@ const createSessionId = () =>
 export const createRoutePoint = (
   partial: Partial<RoutePoint> & Pick<RoutePoint, 'address' | 'source'>,
 ): RoutePoint => ({
-  label: partial.label?.trim() || partial.address.trim() || partial.facilityName?.trim() || '未設定',
+  // 下書き地点では label に「未設定」を入れない（入力欄へ漏れない）。表示は routePointDisplay 側。
+  label: partial.label?.trim() || partial.address.trim() || partial.facilityName?.trim() || '',
   address: partial.address.trim(),
   facilityName: partial.facilityName?.trim() || undefined,
+  formattedAddress: partial.formattedAddress?.trim() || undefined,
+  placeId: partial.placeId?.trim() || undefined,
   lat: partial.lat,
   lng: partial.lng,
   source: partial.source,

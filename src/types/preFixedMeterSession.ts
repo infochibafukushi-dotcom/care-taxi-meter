@@ -28,12 +28,22 @@ export type RoutePoint = {
   label: string
   address: string
   facilityName?: string
+  /** Google Places / Geocoding で確定した正式住所 */
+  formattedAddress?: string
+  placeId?: string
   lat?: number
   lng?: number
   source: RoutePointSource
 }
 
 export type PreFixedRouteCandidateId = 'A' | 'B' | 'C' | 'D'
+
+export type PreFixedRouteLeg = {
+  legIndex: number
+  distanceMeters: number
+  durationSeconds: number
+  encodedPolyline: string
+}
 
 export type PreFixedRouteSegment = {
   fromLabel: string
@@ -51,6 +61,14 @@ export type PreFixedRouteCandidate = {
   serviceFeesYen: number
   totalYen: number
   polyline?: string
+  /** Directions の各 leg（往路・復路を書き分けて保持） */
+  routeLegs?: PreFixedRouteLeg[]
+  /** かんたん見積 DISPLAY_STRATEGY_ORDER 準拠 */
+  routeStrategy?:
+    | 'time_priority'
+    | 'general_road_priority'
+    | 'shorter_distance'
+    | 'toll_allowed'
   tollIncluded?: boolean
   segments?: PreFixedRouteSegment[]
   stopOrderLabels?: string[]
