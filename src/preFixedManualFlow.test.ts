@@ -180,10 +180,13 @@ describe('manual flow UI wiring', () => {
 
   it('uses shared route selection step and polyline decode like かんたん見積もり', () => {
     expect(flowSource).toContain('PreFixedRouteSelectionStep')
-    expect(createPageSource).toContain('PreFixedRouteSelectionStep')
+    // E再開: CreatePage は LocationInput ベース。ManualCreateFlow は SelectionStep を維持。
+    expect(createPageSource).toContain('PreFixedLocationInput')
     expect(flowSource).toContain('buildRouteMapMarkers')
-    expect(mapSource).toContain('loadGoogleMapsPolylineDecoder')
-    expect(mapSource).toContain('decodePolylinePath')
+    expect(mapSource).toContain('pathFromRouteLegs')
+    expect(mapSource).toContain('buildRouteMapMarkers')
+    expect(mapSource).toContain("label: '発'")
+    expect(mapSource).toContain("label: '着'")
   })
 
   it('shows route kind heading and options without TRIP TYPE eyebrow', () => {

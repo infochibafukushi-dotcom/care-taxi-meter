@@ -97,7 +97,6 @@ const GOOGLE_MAPS_CALLBACK_NAME = '__careTaxiGoogleMapsReady'
 const GOOGLE_GEOCODING_REQUEST_INTERVAL_MS = 100
 const GOOGLE_MAPS_SCRIPT_LOAD_TIMEOUT_MS = 15000
 const GOOGLE_GEOCODING_RESPONSE_TIMEOUT_MS = 15000
-const GOOGLE_GEOCODING_CALLBACK_FALLBACK_DELAY_MS = 3000
 const DIAGNOSTIC_LOG_PREFIX = '[住所取得診断]'
 const JAPAN_COUNTRY_CODE = 'JP'
 const JAPANESE_LANGUAGE_CODE = 'ja'
@@ -185,11 +184,6 @@ const toErrorMessage = (error: unknown) =>
 
 const isGoogleGeocodingTimeoutError = (error: unknown) =>
   /Google Geocoding .* timed out/i.test(toErrorMessage(error))
-
-const isPromiseLike = <T>(value: unknown): value is PromiseLike<T> =>
-  value !== null &&
-  (typeof value === 'object' || typeof value === 'function') &&
-  typeof (value as { then?: unknown }).then === 'function'
 
 const toDiagnosticJson = (value: unknown) => {
   try {
@@ -454,50 +448,39 @@ function runGoogleGeocodeWithTimeout(
   geocoder: GoogleMapsGeocoder,
   request: GoogleMapsGeocoderRequest,
 ) {
-  logReverseGeocodeInfo('Google Geocoding promise request started.', request)
   updateReverseGeocodeDiagnostic({
     geocodeCallbackState: '開始',
     geocodingExecutionState: '実行中',
   })
 
   return new Promise<GoogleGeocodeResponse>((resolve, reject) => {
-    let callbackFallbackTimeoutId: number | null = null
-    let isCallbackFallbackStarted = false
     let isSettled = false
-    const clearCallbackFallbackTimeout = () => {
-      if (callbackFallbackTimeoutId !== null) {
-        window.clearTimeout(callbackFallbackTimeoutId)
-        callbackFallbackTimeoutId = null
-      }
-    }
+
     const timeoutId = window.setTimeout(() => {
       if (isSettled) {
         return
       }
 
       isSettled = true
-      clearCallbackFallbackTimeout()
       const error = new Error(
         `Google Geocoding response timed out after ${GOOGLE_GEOCODING_RESPONSE_TIMEOUT_MS}ms.`,
       )
 
       updateReverseGeocodeDiagnostic({
-        emptyAddressReason: 'geocoder.geocode(): Promise/callbackが15秒以内に完了せずタイムアウト',
+        emptyAddressReason: 'geocoder.geocode(): callbackが15秒以内に完了せずタイムアウト',
         errorMessage: error.message,
         geocodeCallbackState: 'タイムアウト',
         geocodingExecutionState: 'タイムアウト',
       })
       logReverseGeocodeError('Google Geocoding response timed out.', {
         message: error.message,
-        request,
       })
       reject(error)
     }, GOOGLE_GEOCODING_RESPONSE_TIMEOUT_MS)
 
     const settleWithResponse = (
       response: GoogleGeocodeResponse,
-      source: 'promise' | 'callback',
-      status?: GoogleMapsGeocoderStatus,
+      status: GoogleMapsGeocoderStatus,
     ) => {
       if (isSettled) {
         return
@@ -505,21 +488,14 @@ function runGoogleGeocodeWithTimeout(
 
       isSettled = true
       window.clearTimeout(timeoutId)
-      clearCallbackFallbackTimeout()
       const normalizedResults = toGeocodeResults(response.results)
-
-      logReverseGeocodeInfo('Google Geocoding response completed.', {
-        resultCount: normalizedResults.length,
-        source,
-        status,
-      })
 
       updateReverseGeocodeDiagnostic({
         geocodeCallbackState: '完了',
         googleResponseJson: toDiagnosticJson({
           ...response,
           results: normalizedResults,
-          source,
+          source: 'callback',
           status,
         }),
         responseCount: normalizedResults.length,
@@ -527,14 +503,13 @@ function runGoogleGeocodeWithTimeout(
       resolve({ ...response, results: normalizedResults })
     }
 
-    const settleWithError = (error: unknown, source: 'promise' | 'callback' | 'call') => {
+    const settleWithError = (error: unknown) => {
       if (isSettled) {
         return
       }
 
       isSettled = true
       window.clearTimeout(timeoutId)
-      clearCallbackFallbackTimeout()
       updateReverseGeocodeDiagnostic({
         errorMessage: toErrorMessage(error),
         geocodeCallbackState: '失敗',
@@ -542,92 +517,34 @@ function runGoogleGeocodeWithTimeout(
       })
       logReverseGeocodeError('Google Geocoding request failed.', {
         message: toErrorMessage(error),
-        rawError: error,
-        source,
       })
       reject(error)
     }
 
-    const runCallbackGeocode = () => {
-      if (isSettled || isCallbackFallbackStarted) {
+    const callback: GoogleMapsGeocoderCallback = (results, status) => {
+      if (isSettled) {
         return
       }
 
-      isCallbackFallbackStarted = true
-      clearCallbackFallbackTimeout()
-      logReverseGeocodeInfo('Google Geocoding callback fallback started.', request)
+      const normalizedResults = toGeocodeResults(results)
 
-      const callback: GoogleMapsGeocoderCallback = (results, status) => {
-        console.log(`${DIAGNOSTIC_LOG_PREFIX} Google Geocoding callback invoked.`, {
-          isSettled,
-          resultCount: toGeocodeResults(results).length,
-          status,
+      if (status !== 'OK' && status !== 'ZERO_RESULTS') {
+        updateReverseGeocodeDiagnostic({
+          googleResponseJson: toDiagnosticJson({ results: normalizedResults, status }),
+          responseCount: normalizedResults.length,
         })
-
-        if (isSettled) {
-          return
-        }
-
-        const normalizedResults = toGeocodeResults(results)
-
-        if (status !== 'OK' && status !== 'ZERO_RESULTS') {
-          updateReverseGeocodeDiagnostic({
-            googleResponseJson: toDiagnosticJson({ results: normalizedResults, status }),
-            responseCount: normalizedResults.length,
-          })
-          settleWithError(
-            new Error(`Google Geocoding callback failed with status: ${status}`),
-            'callback',
-          )
-          return
-        }
-
-        settleWithResponse({ results: normalizedResults }, 'callback', status)
+        settleWithError(new Error(`Google Geocoding callback failed with status: ${status}`))
+        return
       }
 
-      try {
-        geocoder.geocode(request, callback)
-      } catch (error) {
-        settleWithError(error, 'callback')
-      }
+      settleWithResponse({ results: normalizedResults }, status)
     }
 
     try {
-      const geocodePromise = geocoder.geocode(request)
-
-      if (isPromiseLike<GoogleGeocodeResponse>(geocodePromise)) {
-        callbackFallbackTimeoutId = window.setTimeout(() => {
-          logReverseGeocodeWarning('Google Geocoding promise is slow; starting callback fallback.', {
-            fallbackDelayMs: GOOGLE_GEOCODING_CALLBACK_FALLBACK_DELAY_MS,
-            request,
-          })
-          runCallbackGeocode()
-        }, GOOGLE_GEOCODING_CALLBACK_FALLBACK_DELAY_MS)
-
-        void geocodePromise.then(
-          (response) => {
-            settleWithResponse(response, 'promise')
-          },
-          (error: unknown) => {
-            if (isCallbackFallbackStarted && !isSettled) {
-              logReverseGeocodeWarning(
-                'Google Geocoding promise failed after callback fallback started; waiting for callback.',
-                {
-                  message: toErrorMessage(error),
-                },
-              )
-              return
-            }
-
-            settleWithError(error, 'promise')
-          },
-        )
-        return
-      }
-
-      runCallbackGeocode()
+      // 1住所取得につき geocode は callback 方式で1回のみ
+      geocoder.geocode(request, callback)
     } catch (error) {
-      settleWithError(error, 'call')
+      settleWithError(error)
     }
   })
 }

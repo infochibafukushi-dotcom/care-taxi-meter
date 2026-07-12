@@ -67,10 +67,9 @@ describe('PreFixedRouteMapPanel route path handling', () => {
     'utf8',
   )
 
-  it('loads google polyline decoder and rejects empty selected paths', () => {
-    expect(mapSource).toContain('loadGoogleMapsPolylineDecoder')
-    expect(mapSource).toContain('decodePolylinePath')
-    expect(mapSource).toContain('MAP_ROUTE_LINE_ERROR_MESSAGE')
+  it('loads route legs / polyline path helpers and keeps S-G style markers', () => {
+    expect(mapSource).toContain('pathFromRouteLegs')
+    expect(mapSource).toContain('buildRouteMapMarkers')
     expect(mapSource).toContain("label: '発'")
     expect(mapSource).toContain("label: '着'")
   })
