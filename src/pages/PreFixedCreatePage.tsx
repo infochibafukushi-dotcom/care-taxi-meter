@@ -86,8 +86,8 @@ type CreateStep = PreFixedManualCreateStep
 type TripTypeChoice = 'one_way' | 'round_or_via'
 
 const tripTypeChoiceLabels: Record<TripTypeChoice, string> = {
-  one_way: '片道',
-  round_or_via: '往復・経由地あり（複数経由）',
+  one_way: '直行（経由なし）',
+  round_or_via: '経由あり・複数区間',
 }
 
 const createEmptyStop = (): RoutePoint =>
@@ -372,6 +372,12 @@ export function PreFixedCreatePage() {
       }
       if (typeof draft.destinationLinkedToPickup === 'boolean') {
         setDestinationLinkedToPickup(draft.destinationLinkedToPickup)
+      }
+      // 経由あり選択だけでは G=S にしない。下書きのリンク状態のみ尊重する。
+      if (draft.tripTypeChoice === 'round_or_via') {
+        if (!Array.isArray(draft.viaStops) || draft.viaStops.length === 0) {
+          setViaStops([createEmptyStop()])
+        }
       }
       if (isPreFixedManualCreateStep(draft.step)) {
         setStep(draft.step)
@@ -838,6 +844,12 @@ export function PreFixedCreatePage() {
         errors[`via-${index}`] = PLACE_SELECTION_REQUIRED_MESSAGE
       }
     })
+    if (tripTypeChoice === 'round_or_via') {
+      const hasResolvedVia = viaStops.some((stop) => isRoutePointResolved(stop))
+      if (!hasResolvedVia) {
+        errors['via-0'] = '経由ありでは経由地を1つ以上入力してください。'
+      }
+    }
     setDestinationFieldErrors(errors)
     setStepError('')
     return Object.keys(errors).length === 0
@@ -860,7 +872,10 @@ export function PreFixedCreatePage() {
     setStepError('')
 
     try {
-      const activeViaStops = viaStops.filter((stop) => isRoutePointResolved(stop))
+      const activeViaStops =
+        tripTypeChoice === 'one_way'
+          ? []
+          : viaStops.filter((stop) => isRoutePointResolved(stop))
       const effectiveDestination = destinationLinkedToPickup
         ? cloneRoutePoint(pickup)
         : finalDestination
@@ -911,7 +926,7 @@ export function PreFixedCreatePage() {
       const resolvedVias = rest.slice(0, -1)
 
       setPickup(resolvedPickup)
-      setViaStops(resolvedVias)
+      setViaStops(tripTypeChoice === 'one_way' ? [] : resolvedVias)
       if (destinationLinkedToPickup) {
         setFinalDestination(cloneRoutePoint(resolvedPickup))
       } else {
@@ -920,7 +935,7 @@ export function PreFixedCreatePage() {
 
       const segments = buildRouteSegmentsFromPoints({
         pickup: resolvedPickup,
-        viaStops: resolvedVias,
+        viaStops: tripTypeChoice === 'one_way' ? [] : resolvedVias,
         finalDestination: destinationLinkedToPickup
           ? cloneRoutePoint(resolvedPickup)
           : resolvedDestination,
@@ -1036,8 +1051,10 @@ export function PreFixedCreatePage() {
     try {
       const segments = buildRouteSegmentsFromPoints({
         pickup,
-        viaStops,
-        finalDestination,
+        viaStops: tripTypeChoice === 'one_way' ? [] : viaStops,
+        finalDestination: destinationLinkedToPickup
+          ? cloneRoutePoint(pickup)
+          : finalDestination,
       })
       if (!segments) {
         setConsentError('訪問先を確認してください。')
@@ -1115,10 +1132,22 @@ export function PreFixedCreatePage() {
     }
   }
 
+  const isMultiStopChoice = tripTypeChoice === 'round_or_via'
+  const returnsToOrigin = destinationLinkedToPickup
+
+  const ensureMultiStopViaSlot = useCallback(() => {
+    setViaStops((current) => (current.length === 0 ? [createEmptyStop()] : current))
+  }, [])
+
   const handleTripTypeNext = () => {
     if (isFromReservation && !pickup.address.trim()) {
       setStepError('予約のお迎え地が取得できません。予約内容を確認してください。')
       return
+    }
+    if (tripTypeChoice === 'round_or_via') {
+      ensureMultiStopViaSlot()
+    } else {
+      setViaStops([])
     }
     setStepError('')
     setStep(getPreFixedCreateStepAfterTripType(isFromReservation))
@@ -1173,7 +1202,11 @@ export function PreFixedCreatePage() {
             type="button"
             onClick={() => {
               setTripTypeChoice(choice)
-              if (choice === 'one_way') {
+              if (choice === 'round_or_via') {
+                ensureMultiStopViaSlot()
+              } else {
+                setViaStops([])
+                // 直行へ切り替えたときは帰着リンクも外す
                 setDestinationLinkedToPickup(false)
               }
             }}
@@ -1217,7 +1250,7 @@ export function PreFixedCreatePage() {
       <PreFixedAssistStepFlow
         value={assistSelection}
         onChange={applyAssistSelection}
-        isRoundTrip={tripTypeChoice === 'round_or_via' || destinationLinkedToPickup}
+        isRoundTrip={isMultiStopChoice || returnsToOrigin}
         error={assistStepError}
       />
       <div className="pre-fixed-flow-actions">
@@ -1385,32 +1418,36 @@ export function PreFixedCreatePage() {
             <span>{formatRoutePointOverviewLines(pickup).join(' / ')}</span>
           </p>
         </div>
-        {viaStops.map((visit, index) => (
-          <div key={`visit-preview-${index}`} className="pre-fixed-route-visual__row">
-            <span className="pre-fixed-route-badge pre-fixed-route-badge--via" aria-hidden>
-              {index + 1}
-            </span>
-            <p>
-              <strong>経由地{index + 1}</strong>
-              <span>
-                {formatRoutePointOverviewLines(visit).map((line, lineIndex) => (
-                  <span key={`${index}-${lineIndex}`}>
-                    {lineIndex > 0 ? <br /> : null}
-                    {line}
+        {isMultiStopChoice ? (
+          <>
+            {viaStops.map((visit, index) => (
+              <div key={`visit-preview-${index}`} className="pre-fixed-route-visual__row">
+                <span className="pre-fixed-route-badge pre-fixed-route-badge--via" aria-hidden>
+                  {index + 1}
+                </span>
+                <p>
+                  <strong>経由地{index + 1}</strong>
+                  <span>
+                    {formatRoutePointOverviewLines(visit).map((line, lineIndex) => (
+                      <span key={`${index}-${lineIndex}`}>
+                        {lineIndex > 0 ? <br /> : null}
+                        {line}
+                      </span>
+                    ))}
                   </span>
-                ))}
-              </span>
-            </p>
-          </div>
-        ))}
+                </p>
+              </div>
+            ))}
+          </>
+        ) : null}
         <div className="pre-fixed-route-visual__row">
           <span className="pre-fixed-route-badge pre-fixed-route-badge--g" aria-hidden>
             G
           </span>
           <p>
-            <strong>最終目的地</strong>
+            <strong>{returnsToOrigin ? '帰着地' : '最終目的地'}</strong>
             <span>
-              {destinationLinkedToPickup
+              {returnsToOrigin
                 ? `${formatRoutePointOverviewLines(pickup).join(' / ')}（出発地と同じ）`
                 : formatRoutePointOverviewLines(finalDestination).map((line, lineIndex) => (
                     <span key={`final-${lineIndex}`}>
@@ -1439,71 +1476,78 @@ export function PreFixedCreatePage() {
           </fieldset>
         </li>
 
-        {viaStops.map((visit, index) => (
-          <li key={`via-${index}`} className="pre-fixed-route-timeline__item">
-            <span className="pre-fixed-route-badge pre-fixed-route-badge--via" aria-hidden>
-              {index + 1}
-            </span>
-            <fieldset className="pre-fixed-destination-fieldset">
-              <legend>経由地 {index + 1}</legend>
-              <PreFixedLocationInput
-                point={visit}
-                error={destinationFieldErrors[`via-${index}`]}
-                isLocating={isLocating && locatingTarget === 'via' && locatingViaIndex === index}
-                showDelete
-                onChangePoint={(point) => {
-                  clearRouteResults()
-                  setViaStops((current) =>
-                    current.map((item, itemIndex) => (itemIndex === index ? point : item)),
-                  )
-                  setDestinationFieldErrors((current) => {
-                    const next = { ...current }
-                    delete next[`via-${index}`]
-                    return next
-                  })
-                }}
-                onCurrentLocation={() => {
-                  void captureCurrentLocation('via', index)
-                }}
-                onDelete={() => {
-                  clearRouteResults()
-                  setViaStops((current) => current.filter((_, itemIndex) => itemIndex !== index))
-                  setDestinationFieldErrors((current) => {
-                    const next = { ...current }
-                    delete next[`via-${index}`]
-                    return next
-                  })
-                }}
-              />
-            </fieldset>
-          </li>
-        ))}
+        {isMultiStopChoice
+          ? viaStops.map((visit, index) => (
+              <li key={`via-${index}`} className="pre-fixed-route-timeline__item">
+                <span className="pre-fixed-route-badge pre-fixed-route-badge--via" aria-hidden>
+                  {index + 1}
+                </span>
+                <fieldset className="pre-fixed-destination-fieldset">
+                  <legend>経由地 {index + 1}</legend>
+                  <PreFixedLocationInput
+                    point={visit}
+                    error={destinationFieldErrors[`via-${index}`]}
+                    placeholder="例: 千葉メディカルセンター"
+                    isLocating={isLocating && locatingTarget === 'via' && locatingViaIndex === index}
+                    showDelete
+                    onChangePoint={(point) => {
+                      clearRouteResults()
+                      setViaStops((current) =>
+                        current.map((item, itemIndex) => (itemIndex === index ? point : item)),
+                      )
+                      setDestinationFieldErrors((current) => {
+                        const next = { ...current }
+                        delete next[`via-${index}`]
+                        return next
+                      })
+                    }}
+                    onCurrentLocation={() => {
+                      void captureCurrentLocation('via', index)
+                    }}
+                    onDelete={() => {
+                      clearRouteResults()
+                      setViaStops((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                      setDestinationFieldErrors((current) => {
+                        const next = { ...current }
+                        delete next[`via-${index}`]
+                        return next
+                      })
+                    }}
+                  />
+                </fieldset>
+              </li>
+            ))
+          : null}
 
-        <li className="pre-fixed-route-timeline__add">
-          <button
-            className="secondary-action"
-            type="button"
-            onClick={() => {
-              clearRouteResults()
-              setViaStops((current) => [...current, createEmptyStop()])
-            }}
-          >
-            ＋ 経由地を追加
-          </button>
-        </li>
+        {isMultiStopChoice ? (
+          <li className="pre-fixed-route-timeline__add">
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={() => {
+                clearRouteResults()
+                setViaStops((current) => [...current, createEmptyStop()])
+              }}
+            >
+              ＋ 経由地を追加
+            </button>
+          </li>
+        ) : null}
 
         <li className="pre-fixed-route-timeline__item">
           <span className="pre-fixed-route-badge pre-fixed-route-badge--g" aria-hidden>
             G
           </span>
           <fieldset className="pre-fixed-destination-fieldset">
-            <legend>G 最終目的地</legend>
+            <legend>
+              {returnsToOrigin ? 'G 帰着地（出発地と同じ）' : 'G 最終目的地'}
+            </legend>
             <PreFixedLocationInput
-              point={finalDestination}
+              point={returnsToOrigin ? pickup : finalDestination}
               error={destinationFieldErrors.final}
               placeholder="例: 千葉メディカルセンター"
               isLocating={isLocating && locatingTarget === 'final'}
-              linkedToOrigin={destinationLinkedToPickup}
+              linkedToOrigin={returnsToOrigin}
               showSameAsOrigin
               onChangePoint={(point) => {
                 clearRouteResults()
@@ -1580,7 +1624,11 @@ export function PreFixedCreatePage() {
       <p className="eyebrow">Routes</p>
       <h1>ルート候補</h1>
       <p className="save-note">
-        介助・サービス料金（{formatFareYen(assistFeesYen)}円）を各ルート運賃に加算した総額で比較できます。
+        {returnsToOrigin
+          ? '帰着までの全区間の距離・時間・ルート運賃に、介助・サービス料金を加算した総額で比較できます。'
+          : isMultiStopChoice
+            ? '複数区間の合計距離・時間・ルート運賃に、介助・サービス料金を加算した総額で比較できます。'
+            : `介助・サービス料金（${formatFareYen(assistFeesYen)}円）を各ルート運賃に加算した総額で比較できます。`}
       </p>
 
       <PreFixedRouteMapPanel
@@ -1638,13 +1686,14 @@ export function PreFixedCreatePage() {
                     </span>
                   </div>
                   <p>
+                    {returnsToOrigin ? '全区間合計 ' : isMultiStopChoice ? '複数区間合計 ' : ''}
                     {formatRouteDurationLabel(route.durationSeconds)}
                     {' / '}
                     {formatRouteDistanceLabel(route.distanceMeters)}
                   </p>
                   <dl className="pre-fixed-route-card__breakdown">
                     <div>
-                      <dt>運賃</dt>
+                      <dt>ルート運賃</dt>
                       <dd>{formatFareYen(breakdown.routeFareYen)}円</dd>
                     </div>
                     <div>
@@ -1711,6 +1760,10 @@ export function PreFixedCreatePage() {
 
       <dl className="pre-fixed-consent-summary">
         <div>
+          <dt>送迎タイプ</dt>
+          <dd>{tripTypeChoiceLabels[tripTypeChoice]}</dd>
+        </div>
+        <div>
           <dt>S 出発地</dt>
           <dd>{formatRoutePointDisplayLines(pickup).join(' / ')}</dd>
         </div>
@@ -1723,9 +1776,11 @@ export function PreFixedCreatePage() {
             </div>
           ))}
         <div>
-          <dt>G 最終目的地</dt>
+          <dt>
+            {returnsToOrigin ? 'G 帰着地（出発地と同じ）' : 'G 最終目的地'}
+          </dt>
           <dd>
-            {destinationLinkedToPickup
+            {returnsToOrigin
               ? `${formatRoutePointDisplayLines(pickup).join(' / ')}（出発地と同じ）`
               : formatRoutePointDisplayLines(finalDestination).join(' / ')}
           </dd>
@@ -1734,7 +1789,7 @@ export function PreFixedCreatePage() {
           <dt>選択ルート</dt>
           <dd>
             {selectedRoute
-              ? `${selectedRoute.id} ${selectedRoute.label} / ${formatRouteDistanceLabel(selectedRoute.distanceMeters)} / ${formatRouteDurationLabel(selectedRoute.durationSeconds)}`
+              ? `${returnsToOrigin ? '帰着まで合計 ' : isMultiStopChoice ? '複数区間合計 ' : ''}${selectedRoute.id} ${selectedRoute.label} / ${formatRouteDistanceLabel(selectedRoute.distanceMeters)} / ${formatRouteDurationLabel(selectedRoute.durationSeconds)}`
               : '—'}
           </dd>
         </div>

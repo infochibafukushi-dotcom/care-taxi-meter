@@ -1029,14 +1029,27 @@ export function CaseDetailPage() {
                 <strong>{formatFareYen(caseRecord.meterTimeFareYen)}円</strong>
               </div>
               <div>
-                <span>待機/付き添い料金</span>
-                <strong>{formatFareYen(caseRecord.waitingFareYen + caseRecord.escortFareYen)}円</strong>
+                <span>待機料金</span>
+                <strong>{formatFareYen(caseRecord.waitingFareYen)}円</strong>
+              </div>
+              <div>
+                <span>付き添い料金</span>
+                <strong>{formatFareYen(caseRecord.escortFareYen)}円</strong>
               </div>
               <div className="case-detail-assist-charges">
                 <span>介助料金</span>
                 {assistCharges.length > 0 ? (
                   <div>
-                    {assistCharges.map((assistCharge) => (
+                    {assistCharges
+                      .filter((assistCharge) => {
+                        const name = assistCharge.name.trim()
+                        return !(
+                          name.startsWith('待機') ||
+                          name.startsWith('付き添い') ||
+                          name.startsWith('院内付き添い')
+                        )
+                      })
+                      .map((assistCharge) => (
                       <p key={`${assistCharge.id}-${assistCharge.name}`}>
                         <span>{assistCharge.name}</span>
                         <strong>{formatFareYen(assistCharge.amount)}円</strong>

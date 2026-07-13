@@ -60,10 +60,19 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
             value: `${formatFareYen(settlementCareFareYen)}円`,
           },
         ]
-      : caseRecord.assistCharges.map((assistCharge) => ({
-          label: `追加介助：${assistCharge.name}`,
-          value: `${formatFareYen(assistCharge.amount)}円`,
-        }))
+      : caseRecord.assistCharges
+          .filter((assistCharge) => {
+            const name = assistCharge.name.trim()
+            return !(
+              name.startsWith('待機') ||
+              name.startsWith('付き添い') ||
+              name.startsWith('院内付き添い')
+            )
+          })
+          .map((assistCharge) => ({
+            label: assistCharge.name,
+            value: `${formatFareYen(assistCharge.amount)}円`,
+          }))
     : caseRecord.assistCharges.length > 0
       ? [
           ...caseRecord.assistCharges.map((assistCharge) => ({
@@ -119,10 +128,22 @@ function createReceiptLines(caseRecord: StoredCaseRecord): ReceiptLine[] {
       { label: '利用日時', value: formatCaseDateTime(serviceDateIso) },
       { label: '距離', value: `${caseRecord.distanceKm.toFixed(3)} km` },
       ...createPrimaryFareReceiptLines(caseRecord),
-      {
-        label: '待機/付き添い料金',
-        value: `${formatFareYen(caseRecord.waitingFareYen + caseRecord.escortFareYen)}円`,
-      },
+      ...(caseRecord.waitingFareYen > 0
+        ? [
+            {
+              label: '待機料金',
+              value: `${formatFareYen(caseRecord.waitingFareYen)}円`,
+            },
+          ]
+        : []),
+      ...(caseRecord.escortFareYen > 0
+        ? [
+            {
+              label: '付き添い料金',
+              value: `${formatFareYen(caseRecord.escortFareYen)}円`,
+            },
+          ]
+        : []),
       ...careOptionLines,
       ...expenseLines,
       ...discountLines,

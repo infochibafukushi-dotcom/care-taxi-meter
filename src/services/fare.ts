@@ -207,54 +207,162 @@ export function calculateTimeFareYen(
 
 /**
  * 事前確定Mの待機・付き添い料金。
- * 画面注意文どおり unitSeconds（既定30分）未満は無料。
- * 到達後は unitSeconds ごとに切り捨て加算（例: 30分=1単位、60分=2単位）。
+ * 0秒のみ0円。1秒から unitSeconds ごとに切り上げ加算
+ * （例: 1〜1800秒=1単位、1801〜3600秒=2単位）。
  *
- * 通常メーターの calculateTimeFareYen（開始直後に切り上げ1単位）とは意図的に別仕様。
- * isRoundTrip は互換のため残すが、片道・往復とも同じ無料閾値を適用する。
+ * isRoundTrip は互換のため残すが、片道・往復とも同じ計算。
  */
-export const PRE_FIXED_WAITING_ESCORT_FREE_SECONDS = 30 * 60
+export const PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS = 30 * 60
 
-/** @deprecated PRE_FIXED_WAITING_ESCORT_FREE_SECONDS と同一。往復専用無料の意味では使わない */
-export const PRE_FIXED_ROUND_TRIP_FREE_SECONDS = PRE_FIXED_WAITING_ESCORT_FREE_SECONDS
+/** @deprecated 旧「30分未満無料」定数名。単位秒として PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS を使う */
+export const PRE_FIXED_WAITING_ESCORT_FREE_SECONDS = PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS
 
-export function calculatePreFixedWaitingEscortFareYen(
+/** @deprecated PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS と同一 */
+export const PRE_FIXED_ROUND_TRIP_FREE_SECONDS = PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS
+
+export function calculateTimedFeeYen(
   elapsedSeconds: number,
-  settings: TimeFareSettings,
-  _isRoundTrip = false,
+  unitSeconds: number,
+  unitFareYen: number,
 ) {
   const safeElapsedSeconds = Math.max(0, Math.floor(elapsedSeconds))
   if (safeElapsedSeconds <= 0) {
     return 0
   }
 
-  const unitSeconds = Math.max(1, Math.floor(settings.unitSeconds) || PRE_FIXED_WAITING_ESCORT_FREE_SECONDS)
+  const safeUnitSeconds = Math.max(1, Math.floor(unitSeconds) || PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS)
+  const safeUnitFareYen = Math.max(0, Math.round(unitFareYen) || 0)
+  return Math.ceil(safeElapsedSeconds / safeUnitSeconds) * safeUnitFareYen
+}
+
+export function calculatePreFixedWaitingEscortFareYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+  _isRoundTrip = false,
+) {
+  const unitSeconds = Math.max(1, Math.floor(settings.unitSeconds) || PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS)
   const unitFareYen = Math.max(0, Math.round(settings.unitFareYen) || 0)
-
-  // unitSeconds 未満（例: 0〜1799秒）は無料。ちょうど unitSeconds で初回1単位。
-  if (safeElapsedSeconds < unitSeconds) {
-    return 0
-  }
-
-  return Math.floor(safeElapsedSeconds / unitSeconds) * unitFareYen
+  return calculateTimedFeeYen(elapsedSeconds, unitSeconds, unitFareYen)
 }
 
 /**
- * 予約なし事前確定M: 見積時に最初の30分を含めている場合の追加分のみ計算する。
- * 0分01秒〜30分00秒は追加分0円、30分01秒から次の30分単位を加算。
+ * 見積で先に含めた待機／付き添い単位と実時間単位の大きい方だけを計上し、
+ * 明細へ既に載せた予定分は差し引いて追加分のみ返す。
+ *
+ * finalBlocks = max(prepaidUnits, actualBlocks)
+ * billableYen = max(0, finalBlocks - prepaidUnits) * unitFare
  */
 export function calculatePrepaidWaitingEscortBillableYen(
   elapsedSeconds: number,
   settings: TimeFareSettings,
   prepaidUnits: number,
 ) {
-  if (elapsedSeconds <= 0) {
-    return 0;
-  }
+  const unitSeconds = Math.max(1, Math.floor(settings.unitSeconds) || PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS)
+  const unitFareYen = Math.max(0, Math.round(settings.unitFareYen) || 0)
+  const safePrepaidUnits = Math.max(0, Math.floor(prepaidUnits))
+  const actualBlocks =
+    elapsedSeconds <= 0 ? 0 : Math.ceil(Math.max(0, Math.floor(elapsedSeconds)) / unitSeconds)
+  const finalBlocks = Math.max(safePrepaidUnits, actualBlocks)
+  return Math.max(finalBlocks - safePrepaidUnits, 0) * unitFareYen
+}
 
-  const totalYen = calculateTimeFareYen(elapsedSeconds, settings);
-  const prepaidYen = Math.max(prepaidUnits, 0) * settings.unitFareYen;
-  return Math.max(totalYen - prepaidYen, 0);
+/** 事前選択分を含む待機／付き添いの最終合計金額 */
+export function calculateFinalWaitingEscortFareYen(
+  elapsedSeconds: number,
+  settings: TimeFareSettings,
+  prepaidUnits: number,
+) {
+  const unitSeconds = Math.max(1, Math.floor(settings.unitSeconds) || PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS)
+  const unitFareYen = Math.max(0, Math.round(settings.unitFareYen) || 0)
+  const safePrepaidUnits = Math.max(0, Math.floor(prepaidUnits))
+  const actualBlocks =
+    elapsedSeconds <= 0 ? 0 : Math.ceil(Math.max(0, Math.floor(elapsedSeconds)) / unitSeconds)
+  const finalBlocks = Math.max(safePrepaidUnits, actualBlocks)
+  return finalBlocks * unitFareYen
+}
+
+export function formatTimedFeeDurationLabelJa(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  if (hours > 0 && minutes > 0) {
+    return `${hours}時間${minutes}分`
+  }
+  if (hours > 0) {
+    return `${hours}時間`
+  }
+  if (minutes > 0) {
+    return `${minutes}分`
+  }
+  if (safeSeconds > 0) {
+    return `${safeSeconds}秒`
+  }
+  return '0分'
+}
+
+export function buildWaitingEscortFareDisplayLabel({
+  kind,
+  elapsedSeconds,
+  prepaidUnits,
+  unitSeconds = PRE_FIXED_WAITING_ESCORT_UNIT_SECONDS,
+}: {
+  kind: 'waiting' | 'escort'
+  elapsedSeconds: number
+  prepaidUnits: number
+  unitSeconds?: number
+}): string {
+  const base = kind === 'waiting' ? '待機料金' : '付き添い料金'
+  const safeElapsed = Math.max(0, Math.floor(elapsedSeconds))
+  const safePrepaid = Math.max(0, Math.floor(prepaidUnits))
+  if (safeElapsed > 0) {
+    return `${base}（${formatTimedFeeDurationLabelJa(safeElapsed)}）`
+  }
+  if (safePrepaid > 0) {
+    const plannedMinutes = Math.max(
+      1,
+      Math.round((safePrepaid * Math.max(1, unitSeconds)) / 60),
+    )
+    return `${base}（予定${plannedMinutes}分）`
+  }
+  return base
+}
+
+export function isWaitingServiceFeeKey(key: string): boolean {
+  return (
+    key === 'waiting' ||
+    key === 'waitingFee' ||
+    key === 'waiting30min' ||
+    key === 'waitingPlanned'
+  )
+}
+
+export function isEscortServiceFeeKey(key: string): boolean {
+  return (
+    key === 'hospital-escort' ||
+    key === 'escortFee' ||
+    key === 'escort30min' ||
+    key === 'escortPlanned'
+  )
+}
+
+/** 見積サービス料金から待機／付き添いの予定単位数を取り出す */
+export function resolveWaitingEscortPrepaidUnitsFromServiceFees(
+  serviceFees: Array<{ key: string; amount: number }> | undefined,
+): { waitingPrepaidUnits: number; escortPrepaidUnits: number } {
+  let waitingPrepaidUnits = 0
+  let escortPrepaidUnits = 0
+  for (const fee of serviceFees ?? []) {
+    if (!Number.isFinite(fee.amount) || fee.amount <= 0) {
+      continue
+    }
+    if (isWaitingServiceFeeKey(fee.key)) {
+      waitingPrepaidUnits += 1
+    }
+    if (isEscortServiceFeeKey(fee.key)) {
+      escortPrepaidUnits += 1
+    }
+  }
+  return { waitingPrepaidUnits, escortPrepaidUnits }
 }
 
 export function calculateMeterTimeFareYen(
@@ -463,7 +571,8 @@ export function calculateFareBreakdown({
         ...(customFeeFareYen > 0
           ? [{ label: 'その他', amountYen: customFeeFareYen }]
           : []),
-        { label: '待機/付き添い料金', amountYen: waitingFareYen + escortFareYen },
+        { label: '待機料金', amountYen: waitingFareYen },
+        { label: '付き添い料金', amountYen: escortFareYen },
         { label: '予約・迎車料金', amountYen: dispatchFareYen },
         { label: '特殊車両料金', amountYen: specialVehicleFareYen },
         { label: '実費', amountYen: expenseFareYen },
@@ -564,7 +673,8 @@ export function calculateFareBreakdown({
       ...(customFeeFareYen > 0
         ? [{ label: "その他", amountYen: customFeeFareYen }]
         : []),
-      { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
+      { label: "待機料金", amountYen: waitingFareYen },
+      { label: "付き添い料金", amountYen: escortFareYen },
       { label: "実費", amountYen: expenseFareYen },
     ],
     meterMode,
@@ -581,7 +691,7 @@ export function buildFixedFareBreakdown({
   expenses,
   waitingSeconds = 0,
   escortSeconds = 0,
-  isRoundTrip = true,
+  isRoundTrip: _isRoundTrip = true,
   waitingPrepaidUnits = 0,
   escortPrepaidUnits = 0,
   isDisabilityDiscount = false,
@@ -600,11 +710,11 @@ export function buildFixedFareBreakdown({
   expenses: Array<{ amountYen: number }>;
   waitingSeconds?: number;
   escortSeconds?: number;
-  /** 事前確定Mの待機・付き添いは unitSeconds 未満無料（片道・往復共通）。互換のため残置 */
+  /** 互換のため残置（片道・往復とも同じ課金式） */
   isRoundTrip?: boolean;
-  /** 予約なし手動フロー: 見積に含めた待機の30分単位数 */
+  /** 見積に含めた待機の30分単位数（二重加算防止） */
   waitingPrepaidUnits?: number;
-  /** 予約なし手動フロー: 見積に含めた付添の30分単位数 */
+  /** 見積に含めた付添の30分単位数（二重加算防止） */
   escortPrepaidUnits?: number;
   isDisabilityDiscount?: boolean;
   taxiTickets?: Array<{ amount: number }>;
@@ -617,31 +727,17 @@ export function buildFixedFareBreakdown({
   const originalConfirmedFareYen = Math.max(Math.round(confirmedFareYen), 0);
   const routeFareYen = Math.max(Math.round(additionalRouteFareYen), 0);
   const manualAdditionalCareFareYen = Math.max(Math.round(additionalCareFareYen), 0);
-  const waitingFareYen =
-    waitingPrepaidUnits > 0
-      ? calculatePrepaidWaitingEscortBillableYen(
-          waitingSeconds,
-          settings.waitingFare ?? waitingFareSettings,
-          waitingPrepaidUnits,
-        )
-      : calculatePreFixedWaitingEscortFareYen(
-          waitingSeconds,
-          settings.waitingFare ?? waitingFareSettings,
-          isRoundTrip,
-        );
-  const escortFareYen =
-    escortPrepaidUnits > 0
-      ? calculatePrepaidWaitingEscortBillableYen(
-          escortSeconds,
-          settings.escortFare ?? escortFareSettings,
-          escortPrepaidUnits,
-        )
-      : calculatePreFixedWaitingEscortFareYen(
-          escortSeconds,
-          settings.escortFare ?? escortFareSettings,
-          isRoundTrip,
-        );
-  // 追加介助料は元の事前確定運賃に含まれる介助とは別明細。選択介助・その他・ルート変更分を合算する。
+  const waitingFareYen = calculateFinalWaitingEscortFareYen(
+    waitingSeconds,
+    settings.waitingFare ?? waitingFareSettings,
+    waitingPrepaidUnits,
+  )
+  const escortFareYen = calculateFinalWaitingEscortFareYen(
+    escortSeconds,
+    settings.escortFare ?? escortFareSettings,
+    escortPrepaidUnits,
+  )
+  // 介助・サービスは careOptions（待機／付き添い予定分は含めない。waitingFareYen / escortFareYen へ統合）
   const customFeeFareYen = calculateCustomFeeTotalYen(customFees);
   const careOptionFareYen =
     calculateCareOptionTotalYen(careOptions) +
@@ -709,8 +805,25 @@ export function buildFixedFareBreakdown({
         amountYen: originalConfirmedFareYen,
       },
       { label: "追加区間運賃", amountYen: routeFareYen },
-      { label: "追加介助料", amountYen: careOptionFareYen },
-      { label: "待機/付き添い料金", amountYen: waitingFareYen + escortFareYen },
+      { label: "介助・サービス料金小計", amountYen: careOptionFareYen },
+      {
+        label: buildWaitingEscortFareDisplayLabel({
+          kind: 'waiting',
+          elapsedSeconds: waitingSeconds,
+          prepaidUnits: waitingPrepaidUnits,
+          unitSeconds: (settings.waitingFare ?? waitingFareSettings).unitSeconds,
+        }),
+        amountYen: waitingFareYen,
+      },
+      {
+        label: buildWaitingEscortFareDisplayLabel({
+          kind: 'escort',
+          elapsedSeconds: escortSeconds,
+          prepaidUnits: escortPrepaidUnits,
+          unitSeconds: (settings.escortFare ?? escortFareSettings).unitSeconds,
+        }),
+        amountYen: escortFareYen,
+      },
       { label: "実費", amountYen: expenseFareYen },
       { label: discountName, amountYen: -disabilityDiscountAmount },
       { label: "タクシー券", amountYen: -taxiTicketAmountYen },

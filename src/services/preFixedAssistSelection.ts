@@ -558,7 +558,13 @@ export const buildAssistFeeLineItems = (
   }
   const addon = findCatalogItem(ROUND_TRIP_ADDON_CATALOG, state.roundTripAddonId)
   if (addon) {
-    lines.push({ label: addon.label, amount: addon.amount })
+    if (addon.id === 'waiting') {
+      lines.push({ label: '待機料金（予定30分）', amount: addon.amount })
+    } else if (addon.id === 'hospital-escort') {
+      lines.push({ label: '付き添い料金（予定30分）', amount: addon.amount })
+    } else {
+      lines.push({ label: addon.label, amount: addon.amount })
+    }
   }
   return lines
 }
