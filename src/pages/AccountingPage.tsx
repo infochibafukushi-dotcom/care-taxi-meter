@@ -1342,6 +1342,11 @@ export function AccountingPage() {
 
       const receiptId = expenseForm.receiptId ?? ''
       const linkedReceipt = allReceipts.find((row) => row.id === receiptId)
+      const isPreparedOcrImage =
+        isAccountingReceiptPdfMime(expenseForm.receiptFileMimeType) ||
+        isAccountingReceiptPdfMime(linkedReceipt?.originalMimeType) ||
+        isAccountingReceiptPdfMime(linkedReceipt?.mimeType) ||
+        linkedReceipt?.documentType === 'pdf'
       const result = await runAccountingReceiptOcr({
         ocrImageDownloadUrl:
           expenseForm.receiptPreviewImageUrl ||
@@ -1357,6 +1362,7 @@ export function AccountingPage() {
         mimeType: expenseForm.receiptFileMimeType || linkedReceipt?.mimeType,
         receiptId,
         imageBlob: receiptId ? recentReceiptBlobs[receiptId] : undefined,
+        isPreparedOcrImage,
         onProgress: (progress) => {
           setOcrProgressMessage(progress.message)
           setStatusMessage(progress.message)
@@ -1551,6 +1557,10 @@ export function AccountingPage() {
         return
       }
 
+      const isPreparedOcrImage =
+        receipt.documentType === 'pdf' ||
+        isAccountingReceiptPdfMime(receipt.originalMimeType) ||
+        isAccountingReceiptPdfMime(receipt.mimeType)
       const result = await runAccountingReceiptOcr({
         ocrImageDownloadUrl: receipt.ocrImageDownloadUrl || downloadUrl || previewUrl,
         ocrImageStoragePath: receipt.ocrImageStoragePath,
@@ -1560,6 +1570,7 @@ export function AccountingPage() {
         fileName: receipt.fileName,
         mimeType: receipt.mimeType,
         imageBlob: recentReceiptBlobs[receipt.id],
+        isPreparedOcrImage,
         onProgress: (progress) => {
           setOcrStatusByReceiptId((current) => ({
             ...current,
