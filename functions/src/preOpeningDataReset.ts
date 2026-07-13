@@ -3,6 +3,14 @@ import { FieldPath, getFirestore } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { defineSecret, defineString } from 'firebase-functions/params'
 import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https'
+import {
+  PRE_OPENING_RESET_FIRESTORE_TARGET_KEYS,
+  PRE_OPENING_RESET_PRESERVED_CATEGORIES,
+  PRE_OPENING_RESET_SCOPED_COLLECTIONS,
+  buildAllowlistedStoragePrefixes,
+  isAllowlistedScopedCollection,
+  isProtectedStoragePath,
+} from './preOpeningResetAllowlist'
 
 const PRE_OPENING_RESET_CONFIRM_TEXT = 'RESET'
 const DELETE_BATCH_SIZE = 450
@@ -11,24 +19,6 @@ type PreOpeningResetScope = 'full' | 'reservations'
 
 const reservationV4AdminToken = defineSecret('RESERVATION_V4_ADMIN_TOKEN')
 const reservationV4Origin = defineString('RESERVATION_V4_ORIGIN')
-
-const SCOPED_TENANT_COLLECTIONS = [
-  'caseRecords',
-  'workSessions',
-  'auditLogs',
-  'accountingReceipts',
-  'accountingExpenses',
-  'accountingAdjustments',
-  'accountingFixedCosts',
-  'accountingSales',
-  'accountingExports',
-  'maintenanceLogs',
-  'adminActionLogs',
-  'operationLogs',
-  'debugLogs',
-  'errorLogs',
-  'resetLogs',
-] as const
 
 type StaffRole = 'driver' | 'manager' | 'owner' | 'hq_admin'
 
@@ -63,19 +53,20 @@ type ReservationDashboardCounts = {
   confirmedReservations: number
 }
 
-const emptyFirestoreTargets = (): FirestoreTargetCounts => {
-  const counts = SCOPED_TENANT_COLLECTIONS.reduce<FirestoreTargetCounts>(
-    (accumulator, collectionName) => {
-      accumulator[collectionName] = 0
+const emptyFirestoreTargets = (): FirestoreTargetCounts =>
+  PRE_OPENING_RESET_FIRESTORE_TARGET_KEYS.reduce<FirestoreTargetCounts>(
+    (accumulator, key) => {
+      accumulator[key] = 0
       return accumulator
     },
     { storageFiles: 0 },
   )
-  counts.caseCounters = 0
-  counts.staffAttendance = 0
-  counts.loginAttempts = 0
-  return counts
-}
+
+const buildPreservedPayload = () => ({
+  categories: [...PRE_OPENING_RESET_PRESERVED_CATEGORIES],
+  accountingProtected: true as const,
+  note: '経理データおよび経理証憑（Firestore / Storage）は削除対象外です',
+})
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
@@ -423,22 +414,24 @@ async function countLoginAttemptsByScope(franchiseeId: string, storeId: string) 
 
 async function countStorageFilesByScope(franchiseeId: string, storeId: string) {
   const bucket = getStorage().bucket()
-  const prefixes = [
-    `accounting/${franchiseeId}/${storeId}/`,
-    `operations/${franchiseeId}/${storeId}/`,
-    `receipts/${franchiseeId}/${storeId}/`,
-  ]
+  const prefixes = buildAllowlistedStoragePrefixes(franchiseeId, storeId).filter(
+    (prefix) => !isProtectedStoragePath(prefix),
+  )
   const uniquePaths = new Set<string>()
   for (const prefix of prefixes) {
     const [files] = await bucket.getFiles({ prefix })
-    files.forEach((file) => uniquePaths.add(file.name))
+    files.forEach((file) => {
+      if (!isProtectedStoragePath(file.name)) {
+        uniquePaths.add(file.name)
+      }
+    })
   }
   return uniquePaths.size
 }
 
 async function countFirestoreTargets(franchiseeId: string, storeId: string) {
   const counts = emptyFirestoreTargets()
-  for (const collectionName of SCOPED_TENANT_COLLECTIONS) {
+  for (const collectionName of PRE_OPENING_RESET_SCOPED_COLLECTIONS) {
     counts[collectionName] = await countCollectionByScope(collectionName, franchiseeId, storeId)
   }
   counts.caseCounters = await countCaseCountersByStore(storeId)
@@ -469,6 +462,13 @@ async function deleteCollectionByScope(
   franchiseeId: string,
   storeId: string,
 ) {
+  if (!isAllowlistedScopedCollection(collectionName)) {
+    throw new HttpsError(
+      'failed-precondition',
+      `許可リスト外のコレクションは削除できません: ${collectionName}`,
+    )
+  }
+
   const db = getFirestore()
   let deletedCount = 0
 
@@ -584,15 +584,16 @@ async function deleteLoginAttemptsByScope(franchiseeId: string, storeId: string)
 
 async function deleteStorageFilesByScope(franchiseeId: string, storeId: string) {
   const bucket = getStorage().bucket()
-  const prefixes = [
-    `accounting/${franchiseeId}/${storeId}/`,
-    `operations/${franchiseeId}/${storeId}/`,
-    `receipts/${franchiseeId}/${storeId}/`,
-  ]
+  const prefixes = buildAllowlistedStoragePrefixes(franchiseeId, storeId).filter(
+    (prefix) => !isProtectedStoragePath(prefix),
+  )
   const uniqueFiles = new Map<string, ReturnType<typeof bucket.file>>()
   for (const prefix of prefixes) {
     const [files] = await bucket.getFiles({ prefix })
     files.forEach((file) => {
+      if (isProtectedStoragePath(file.name)) {
+        return
+      }
       uniqueFiles.set(file.name, file)
     })
   }
@@ -602,7 +603,7 @@ async function deleteStorageFilesByScope(franchiseeId: string, storeId: string) 
 
 async function deleteFirestoreScopedData(franchiseeId: string, storeId: string) {
   const deleted = emptyFirestoreTargets()
-  for (const collectionName of SCOPED_TENANT_COLLECTIONS) {
+  for (const collectionName of PRE_OPENING_RESET_SCOPED_COLLECTIONS) {
     deleted[collectionName] = await deleteCollectionByScope(collectionName, franchiseeId, storeId)
   }
   deleted.caseCounters = await deleteCaseCountersByStore(storeId)
@@ -712,6 +713,7 @@ export const getPreOpeningResetCapability = onCall(
         firestore: firestoreTargets,
         reservation: reservationCapability.reservationTargets,
       },
+      preserved: buildPreservedPayload(),
       dashboard: reservationCapability.dashboard,
     }
   },
@@ -798,6 +800,7 @@ export const executePreOpeningDataReset = onCall(
         firestore: buildFailedFirestoreCounts(firestoreTargets, deletedFirestore),
         reservation: reservationReset.failedReservation,
       },
+      preserved: buildPreservedPayload(),
       dashboard: reservationReset.dashboard,
       reservationLogId: reservationReset.reservationResult.logId ?? null,
       reservationSupported: reservationReset.capability.supported,

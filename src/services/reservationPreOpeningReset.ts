@@ -18,11 +18,18 @@ export type PreOpeningReservationDashboardCounts = {
   confirmedReservations: number
 }
 
+export type PreOpeningResetPreservedPayload = {
+  categories: string[]
+  accountingProtected: boolean
+  note: string
+}
+
 export type PreOpeningResetCapabilityResult = {
   supported: boolean
   franchiseeId: string
   storeId: string
   targets: PreOpeningResetTargetCounts
+  preserved: PreOpeningResetPreservedPayload
   dashboard: PreOpeningReservationDashboardCounts
 }
 
@@ -43,6 +50,7 @@ export type PreOpeningResetExecuteResult = {
   targets: PreOpeningResetTargetCounts
   deleted: PreOpeningResetTargetCounts
   failed: PreOpeningResetTargetCounts
+  preserved: PreOpeningResetPreservedPayload
   dashboard: PreOpeningReservationDashboardCounts
   reservationLogId: number | null
   reservationSupported: boolean
@@ -74,16 +82,11 @@ const DEFAULT_RESERVATION_KEYS = [
   'pre_opening_reset_logs',
 ] as const
 
-const DEFAULT_FIRESTORE_KEYS = [
+/** Must match functions/src/preOpeningResetAllowlist.ts firestore target keys. */
+export const DEFAULT_FIRESTORE_KEYS = [
   'caseRecords',
   'workSessions',
   'auditLogs',
-  'accountingReceipts',
-  'accountingExpenses',
-  'accountingAdjustments',
-  'accountingFixedCosts',
-  'accountingSales',
-  'accountingExports',
   'maintenanceLogs',
   'adminActionLogs',
   'operationLogs',
@@ -96,11 +99,38 @@ const DEFAULT_FIRESTORE_KEYS = [
   'storageFiles',
 ] as const
 
+export const DEFAULT_PRESERVED_CATEGORIES = [
+  'franchisees',
+  'stores',
+  'employees',
+  'vehicles',
+  'fareSettings',
+  'meterSettings',
+  'companySettings',
+  'firebaseAuth',
+  'accounting',
+  'accountingReceipts',
+  'accountingExpenses',
+  'accountingAdjustments',
+  'accountingFixedCosts',
+  'accountingSales',
+  'accountingExports',
+  'accountingFixedAssets',
+  'accountingSettlementAuxiliary',
+  'accountingStorage',
+] as const
+
 const emptyCountMap = (keys: readonly string[]) =>
   keys.reduce<Record<string, number>>((accumulator, key) => {
     accumulator[key] = 0
     return accumulator
   }, {})
+
+const emptyPreserved = (): PreOpeningResetPreservedPayload => ({
+  categories: [...DEFAULT_PRESERVED_CATEGORIES],
+  accountingProtected: true,
+  note: '経理データおよび経理証憑（Firestore / Storage）は削除対象外です',
+})
 
 const emptyTargets = (): PreOpeningResetTargetCounts => ({
   firestore: emptyCountMap(DEFAULT_FIRESTORE_KEYS),
@@ -163,6 +193,21 @@ const normalizeDashboardCounts = (value: unknown): PreOpeningReservationDashboar
   }
 }
 
+const normalizePreserved = (value: unknown): PreOpeningResetPreservedPayload => {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const categories = Array.isArray(source.categories)
+    ? source.categories.map((entry) => String(entry))
+    : [...DEFAULT_PRESERVED_CATEGORIES]
+  return {
+    categories,
+    accountingProtected: source.accountingProtected !== false,
+    note:
+      typeof source.note === 'string' && source.note.trim()
+        ? source.note
+        : emptyPreserved().note,
+  }
+}
+
 const parseCapabilityResult = (data: unknown): PreOpeningResetCapabilityResult => {
   const payload = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
   const targets = normalizeTargetCounts(payload.targets)
@@ -171,6 +216,7 @@ const parseCapabilityResult = (data: unknown): PreOpeningResetCapabilityResult =
     franchiseeId: String(payload.franchiseeId ?? ''),
     storeId: String(payload.storeId ?? ''),
     targets,
+    preserved: normalizePreserved(payload.preserved),
     dashboard: normalizeDashboardCounts(
       payload.dashboard ?? {
         totalReservations: targets.reservation.reservations,
@@ -213,6 +259,7 @@ const parseExecuteResult = (data: unknown): PreOpeningResetExecuteResult => {
     targets,
     deleted: normalizeTargetCounts(payload.deleted),
     failed: normalizeTargetCounts(payload.failed),
+    preserved: normalizePreserved(payload.preserved),
     dashboard: normalizeDashboardCounts(
       payload.dashboard ?? {
         totalReservations: 0,
@@ -343,3 +390,4 @@ export async function executePreOpeningReservationReset({
 export const preOpeningResetEmptyTargets = emptyTargets
 export const preOpeningReservationResetEmptyTargets = emptyReservationOnlyTargets
 export const preOpeningReservationDashboardEmptyCounts = emptyDashboard
+export const preOpeningResetEmptyPreserved = emptyPreserved
