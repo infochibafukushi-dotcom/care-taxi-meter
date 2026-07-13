@@ -20,6 +20,13 @@ const extractStringArray = (source: string, constName: string): string[] => {
   return [...match![1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
 }
 
+const extractCallableBlock = (source: string, exportName: string) => {
+  const start = source.indexOf(`export const ${exportName}`)
+  expect(start).toBeGreaterThan(-1)
+  const nextExport = source.indexOf('\nexport const ', start + 1)
+  return nextExport === -1 ? source.slice(start) : source.slice(start, nextExport)
+}
+
 describe('reservationPreOpeningReset frontend service', () => {
   it('does not call reservation-v4 admin APIs directly from the browser', () => {
     const source = readSource('src/services/reservationPreOpeningReset.ts')
@@ -33,15 +40,37 @@ describe('reservationPreOpeningReset frontend service', () => {
     expect(source).toContain('executePreOpeningReservationReset')
   })
 
-  it('omits accounting collections from frontend firestore target keys', () => {
+  it('4. meter reset target type has no reservation fields', () => {
+    const source = readSource('src/services/reservationPreOpeningReset.ts')
+    expect(source).toMatch(
+      /export type PreOpeningResetTargetCounts = \{\s*firestore: Record<string, number>\s*\}/,
+    )
+    expect(source).toContain('reservationDataUntouched: boolean')
+    const meterCapabilityType = source.slice(
+      source.indexOf('export type PreOpeningResetCapabilityResult'),
+      source.indexOf('export type PreOpeningReservationResetCapabilityResult'),
+    )
+    expect(meterCapabilityType).not.toContain('dashboard')
+    expect(meterCapabilityType).not.toContain('reservation:')
+    const meterExecuteType = source.slice(
+      source.indexOf('export type PreOpeningResetExecuteResult'),
+      source.indexOf('export type PreOpeningReservationResetExecuteResult'),
+    )
+    expect(meterExecuteType).not.toContain('dashboard')
+    expect(meterExecuteType).not.toContain('reservationLogId')
+    expect(meterExecuteType).not.toContain('reservationSupported')
+    expect(meterExecuteType).not.toContain('reservation:')
+  })
+
+  it('omits accounting and attendance collections from frontend firestore target keys', () => {
     for (const key of DEFAULT_FIRESTORE_KEYS) {
       expect(key.startsWith('accounting')).toBe(false)
     }
-    expect(DEFAULT_FIRESTORE_KEYS).toContain('caseRecords')
-    expect(DEFAULT_FIRESTORE_KEYS).toContain('workSessions')
+    expect(DEFAULT_FIRESTORE_KEYS).toEqual(['caseRecords', 'caseCounters', 'storageFiles'])
     expect(DEFAULT_PRESERVED_CATEGORIES).toContain('accounting')
-    expect(DEFAULT_PRESERVED_CATEGORIES).toContain('accountingReceipts')
-    expect(DEFAULT_PRESERVED_CATEGORIES).toContain('accountingFixedAssets')
+    expect(DEFAULT_PRESERVED_CATEGORIES).toContain('reservations')
+    expect(DEFAULT_PRESERVED_CATEGORIES).toContain('workSessions')
+    expect(DEFAULT_PRESERVED_CATEGORIES).toContain('auditLogs')
   })
 })
 
@@ -51,6 +80,7 @@ describe('preOpeningResetAllowlist', () => {
     allowlistSource,
     'PRE_OPENING_RESET_SCOPED_COLLECTIONS',
   )
+  const extraTargets = extractStringArray(allowlistSource, 'PRE_OPENING_RESET_EXTRA_TARGETS')
   const protectedCollections = extractStringArray(
     allowlistSource,
     'PRE_OPENING_RESET_PROTECTED_FIRESTORE_COLLECTIONS',
@@ -59,142 +89,118 @@ describe('preOpeningResetAllowlist', () => {
     allowlistSource,
     'PRE_OPENING_RESET_STORAGE_PREFIX_TEMPLATES',
   )
-  const preservedCategories = extractStringArray(
-    allowlistSource,
-    'PRE_OPENING_RESET_PRESERVED_CATEGORIES',
-  )
 
-  it('1. allowlist excludes accounting and master data', () => {
-    for (const collectionName of scopedCollections) {
-      expect(collectionName.startsWith('accounting')).toBe(false)
-      expect(protectedCollections).not.toContain(collectionName)
-    }
-    expect(scopedCollections).not.toContain('companies')
-    expect(scopedCollections).not.toContain('staffMembers')
-    expect(scopedCollections).not.toContain('vehicles')
-    expect(scopedCollections).not.toContain('meterSettings')
-    expect(scopedCollections).toContain('caseRecords')
-    expect(scopedCollections).toContain('workSessions')
-    expect(scopedCollections).toContain('auditLogs')
+  it('5. caseRecords is deletable', () => {
+    expect(scopedCollections).toEqual(['caseRecords'])
+    expect(extraTargets).toEqual(['caseCounters'])
   })
 
-  it('2. protected list covers franchise/store/staff/vehicle/fare/accounting', () => {
-    for (const required of [
-      'companies',
-      'stores',
-      'staffMembers',
-      'vehicles',
-      'meterSettings',
-      'accountingExpenses',
+  it('6. accounting collections are not deletable', () => {
+    for (const collectionName of [
       'accountingReceipts',
+      'accountingExpenses',
       'accountingFixedAssets',
       'accountingSales',
       'accountingExports',
-      'accountingSettlementAuxiliary',
-      'accountingAdjustments',
-      'accountingFixedCosts',
     ]) {
-      expect(protectedCollections).toContain(required)
+      expect(scopedCollections).not.toContain(collectionName)
+      expect(protectedCollections).toContain(collectionName)
     }
-    expect(preservedCategories).toContain('accounting')
-    expect(preservedCategories).toContain('accountingStorage')
-    expect(preservedCategories).toContain('firebaseAuth')
   })
 
-  it('3. delete targets include operational sales/trip/settlement sources', () => {
-    expect(scopedCollections).toContain('caseRecords')
-    expect(scopedCollections).toContain('workSessions')
-    expect(allowlistSource).toContain("'caseCounters'")
-    expect(allowlistSource).toContain('PRE_OPENING_RESET_EXTRA_TARGETS')
-  })
-
-  it('5. storage allowlist never includes accounting paths', () => {
-    for (const template of storageTemplates) {
-      expect(template.startsWith('accounting/')).toBe(false)
-      expect(template.includes('/accounting/')).toBe(false)
+  it('7-11. audit/admin/reset/attendance/login are not deletable', () => {
+    for (const collectionName of [
+      'auditLogs',
+      'adminActionLogs',
+      'resetLogs',
+      'staffAttendance',
+      'loginAttempts',
+      'workSessions',
+      'maintenanceLogs',
+      'operationLogs',
+      'debugLogs',
+      'errorLogs',
+    ]) {
+      expect(scopedCollections).not.toContain(collectionName)
+      expect(extraTargets).not.toContain(collectionName)
+      expect(protectedCollections).toContain(collectionName)
     }
-    expect(allowlistSource).toContain("PRE_OPENING_RESET_PROTECTED_STORAGE_ROOT = 'accounting/'")
-    expect(allowlistSource).toContain('isProtectedStoragePath')
   })
 
-  it('6. unknown collections are not on the allowlist', () => {
+  it('12. unknown collections are not on the allowlist', () => {
     expect(scopedCollections).not.toContain('brandNewUnknownCollection')
     expect(scopedCollections).not.toContain('futureFeatureData')
-    expect(isAllowlistedViaSource('brandNewUnknownCollection')).toBe(false)
   })
 
-  function isAllowlistedViaSource(collectionName: string) {
-    return scopedCollections.includes(collectionName)
-  }
+  it('13-14. storage allowlist is operations/receipts only and excludes accounting', () => {
+    expect(storageTemplates).toEqual([
+      'operations/{franchiseeId}/{storeId}/',
+      'receipts/{franchiseeId}/{storeId}/',
+    ])
+    for (const template of storageTemplates) {
+      expect(template.startsWith('accounting/')).toBe(false)
+    }
+    expect(allowlistSource).toContain("PRE_OPENING_RESET_PROTECTED_STORAGE_ROOT = 'accounting/'")
+  })
 })
 
 describe('preOpeningDataReset cloud function', () => {
   const source = readSource('functions/src/preOpeningDataReset.ts')
+  const meterCapability = extractCallableBlock(source, 'getPreOpeningResetCapability')
+  const meterExecute = extractCallableBlock(source, 'executePreOpeningDataReset')
+  const reservationCapability = extractCallableBlock(
+    source,
+    'getPreOpeningReservationResetCapability',
+  )
+  const reservationExecute = extractCallableBlock(source, 'executePreOpeningReservationReset')
 
-  it('uses server-side admin bearer token for reservation-v4', () => {
-    expect(source).toContain('RESERVATION_V4_ADMIN_TOKEN')
-    expect(source).toContain('RESERVATION_V4_ORIGIN')
-    expect(source).toContain('Authorization: `Bearer ${token}`')
+  it('1. executePreOpeningDataReset does not call reservation-v4', () => {
+    expect(meterExecute).not.toContain('executeReservationReset')
+    expect(meterExecute).not.toContain('fetchReservationResetCapability')
+    expect(meterExecute).not.toContain('callReservationV4AdminApi')
+    expect(meterExecute).not.toContain('reservationV4AdminToken')
+    expect(meterExecute).not.toContain('secrets:')
+    expect(meterExecute).not.toContain('reservation:')
+    expect(meterExecute).not.toContain('dashboard')
+    expect(meterExecute).not.toContain('reservationLogId')
+    expect(meterExecute).toContain('deleteFirestoreScopedData')
+    expect(meterExecute).toContain('preserved: buildPreservedPayload()')
+    expect(source).toContain('reservationDataUntouched: true as const')
+  })
+
+  it('2. getPreOpeningResetCapability does not call reservation-v4', () => {
+    expect(meterCapability).not.toContain('fetchReservationResetCapability')
+    expect(meterCapability).not.toContain('callReservationV4AdminApi')
+    expect(meterCapability).not.toContain('secrets:')
+    expect(meterCapability).not.toContain('reservation:')
+    expect(meterCapability).not.toContain('dashboard')
+    expect(meterCapability).toContain('countFirestoreTargets')
+    expect(meterCapability).toContain('supported: true')
+  })
+
+  it('3. reservation-only callables still call reservation-v4', () => {
+    expect(reservationCapability).toContain('secrets: [reservationV4AdminToken]')
+    expect(reservationCapability).toContain('fetchReservationResetCapability')
+    expect(reservationCapability).toContain("'reservations'")
+    expect(reservationExecute).toContain('secrets: [reservationV4AdminToken]')
+    expect(reservationExecute).toContain('executeReservationReset')
+    expect(reservationExecute).toContain("resetScope: 'reservations'")
     expect(source).toContain('/api/admin/reservations/pre-opening-reset/capability')
     expect(source).toContain('/api/admin/reservations/pre-opening-reset')
-    expect(source).toContain('scope=${resetScope}')
-    expect(source).toContain('scope: resetScope')
-    expect(source).not.toMatch(/localStorage|sessionStorage/)
   })
 
-  it('deletes reservation data before firestore in full reset', () => {
-    const executeIndex = source.indexOf('export const executePreOpeningDataReset')
-    const executeBody = source.slice(executeIndex)
-    const reservationIndex = executeBody.indexOf('executeReservationReset')
-    const firestoreIndex = executeBody.indexOf('deleteFirestoreScopedData')
-    expect(reservationIndex).toBeGreaterThan(-1)
-    expect(firestoreIndex).toBeGreaterThan(-1)
-    expect(reservationIndex).toBeLessThan(firestoreIndex)
-  })
-
-  it('exposes reservation-only reset callables', () => {
-    expect(source).toContain('getPreOpeningReservationResetCapability')
-    expect(source).toContain('executePreOpeningReservationReset')
-    expect(source).toContain("resetScope: 'reservations'")
-  })
-
-  it('deletes scoped operational log collections only via allowlist', () => {
-    const allowlistSource = readSource('functions/src/preOpeningResetAllowlist.ts')
-    expect(source).toContain('PRE_OPENING_RESET_SCOPED_COLLECTIONS')
-    expect(source).toContain('isAllowlistedScopedCollection')
-    expect(allowlistSource).toContain("'auditLogs'")
-    expect(allowlistSource).toContain("'maintenanceLogs'")
-    expect(allowlistSource).toContain("'adminActionLogs'")
-    expect(allowlistSource).toContain("'loginAttempts'")
-    expect(allowlistSource).toContain("'operationLogs'")
-    expect(allowlistSource).toContain("'debugLogs'")
-    expect(allowlistSource).toContain("'errorLogs'")
-    expect(allowlistSource).toContain("'resetLogs'")
-    expect(source).not.toContain('deleteUser')
-    expect(source).not.toContain("deleteCollectionByScope('staffMembers'")
-    expect(source).not.toContain("deleteCollectionByScope('accounting")
-    expect(source).not.toMatch(/`accounting\/\$\{franchiseeId\}\/\$\{storeId\}\/`/)
-  })
-
-  it('7. restricts callable access to owner and hq_admin', () => {
+  it('restricts callable access to owner and hq_admin', () => {
     expect(source).toContain("role !== 'owner' && role !== 'hq_admin'")
     expect(source).toContain('confirmText !== PRE_OPENING_RESET_CONFIRM_TEXT')
   })
 
-  it('returns preserved payload with accountingProtected', () => {
-    expect(source).toContain('buildPreservedPayload')
-    expect(source).toContain('preserved: buildPreservedPayload()')
-    expect(source).toContain('accountingProtected: true as const')
-  })
-
-  it('4. keeps franchiseeId and storeId scope for deletions', () => {
+  it('keeps franchiseeId and storeId scope for deletions', () => {
     expect(source).toContain(".where('franchiseeId', '==', franchiseeId)")
     expect(source).toContain(".where('storeId', '==', storeId)")
     expect(source).toContain('assertScopeAuthorized')
-    expect(source).toContain('他加盟店のデータは初期化できません')
   })
 
-  it('8. re-run safely completes with zero remaining deletes', () => {
+  it('17. re-run safely completes with zero remaining deletes', () => {
     expect(source).toContain('if (snapshot.empty)')
     expect(source).toContain('return deletedCount')
     expect(source).toContain('while (true)')
@@ -203,30 +209,31 @@ describe('preOpeningDataReset cloud function', () => {
   it('filters protected storage paths before delete', () => {
     expect(source).toContain('buildAllowlistedStoragePrefixes')
     expect(source).toContain('isProtectedStoragePath')
-    expect(source).toContain('if (isProtectedStoragePath(file.name))')
+    expect(source).not.toMatch(/`accounting\/\$\{franchiseeId\}\/\$\{storeId\}\/`/)
   })
 })
 
 describe('PreOpeningDataResetPanel', () => {
   const source = readSource('src/components/admin/PreOpeningDataResetPanel.tsx')
 
-  it('shows delete/preserve lists and accounting warning', () => {
+  it('15. shows reservation untouched warning and narrowed lists', () => {
     expect(source).toContain('削除されるデータ')
     expect(source).toContain('削除されないデータ')
     expect(source).toContain('経理データおよび経理証憑は削除されません')
-    expect(source).toContain('経理データ')
-    expect(source).toContain('未整理領収書')
-    expect(source).toContain('固定資産')
-    expect(source).toContain('Firebase Authentication')
+    expect(source).toContain('予約データは削除されません。予約削除は管理LPから実行してください')
+    expect(source).toContain('この操作では予約データは削除されません。予約削除は管理LPから実行してください。')
+    expect(source).toContain('予約情報')
+    expect(source).toContain('従業員勤怠')
+    expect(source).toContain('監査ログ')
     expect(source).toContain("confirmText !== 'RESET'")
     expect(source).toContain('window.confirm')
-    expect(source).not.toContain('経理レシート')
-    expect(source).not.toContain('経理経費')
+    expect(source).not.toContain('reservation-v4 対応')
+    expect(source).not.toContain('予約管理DLの現在件数')
   })
 })
 
 describe('PreOpeningReservationResetPanel', () => {
-  it('requires RESET confirmation and shows reservation-only targets', () => {
+  it('16. reservation-only reset UI remains unchanged in behavior', () => {
     const source = readSource('src/components/admin/PreOpeningReservationResetPanel.tsx')
     expect(source).toContain('開業前予約データ初期化')
     expect(source).toContain("confirmText !== 'RESET'")

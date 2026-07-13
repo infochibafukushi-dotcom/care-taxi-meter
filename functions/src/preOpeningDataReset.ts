@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { FieldPath, getFirestore } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { defineSecret, defineString } from 'firebase-functions/params'
@@ -15,7 +14,7 @@ import {
 const PRE_OPENING_RESET_CONFIRM_TEXT = 'RESET'
 const DELETE_BATCH_SIZE = 450
 
-type PreOpeningResetScope = 'full' | 'reservations'
+type PreOpeningResetScope = 'reservations'
 
 const reservationV4AdminToken = defineSecret('RESERVATION_V4_ADMIN_TOKEN')
 const reservationV4Origin = defineString('RESERVATION_V4_ORIGIN')
@@ -65,7 +64,8 @@ const emptyFirestoreTargets = (): FirestoreTargetCounts =>
 const buildPreservedPayload = () => ({
   categories: [...PRE_OPENING_RESET_PRESERVED_CATEGORIES],
   accountingProtected: true as const,
-  note: '経理データおよび経理証憑（Firestore / Storage）は削除対象外です',
+  reservationDataUntouched: true as const,
+  note: '経理データおよび経理証憑は削除されません。予約データは削除されません。',
 })
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
@@ -75,23 +75,6 @@ const toRole = (value: unknown): StaffRole => {
   if (value === 'owner' || value === 'manager' || value === 'driver') return value
   return 'driver'
 }
-
-const normalizeLoginIdentifier = (value: string) => value.trim().replace(/[\s\u3000]+/g, '')
-
-const buildLoginAttemptId = (companyId: string, userId: string) =>
-  createHash('sha256')
-    .update(`${companyId.trim()}\0${normalizeLoginIdentifier(userId)}`)
-    .digest('hex')
-
-const buildStaffAttendanceId = ({
-  companyId,
-  staffId,
-  storeId,
-}: {
-  companyId: string
-  staffId: string
-  storeId: string
-}) => [companyId, storeId, staffId].map((value) => value.replaceAll('/', '_')).join('_')
 
 type ReservationCapabilityResponse = {
   supported?: boolean
@@ -172,13 +155,10 @@ const normalizeReservationDashboard = (
 const sumReservationTargetCounts = (targets: ReservationTargetCounts) =>
   Object.values(targets).reduce((total, count) => total + Number(count || 0), 0)
 
-const assertReservationResetSupported = (
-  capability: {
-    supported: boolean
-    reservationTargets: ReservationTargetCounts
-  },
-  resetScope: PreOpeningResetScope,
-) => {
+const assertReservationResetSupported = (capability: {
+  supported: boolean
+  reservationTargets: ReservationTargetCounts
+}) => {
   if (capability.supported) {
     return
   }
@@ -186,26 +166,18 @@ const assertReservationResetSupported = (
   if (sumReservationTargetCounts(capability.reservationTargets) > 0) {
     throw new HttpsError(
       'failed-precondition',
-      resetScope === 'reservations'
-        ? 'reservation-v4 側の開業前予約初期化 API が未対応のため、予約データを削除できません。'
-        : 'reservation-v4 側の開業前初期化 API が未対応のため、予約データを削除できません。Firestore のみ削除しないでください。',
+      'reservation-v4 側の開業前予約初期化 API が未対応のため、予約データを削除できません。',
     )
   }
 }
 
-const assertReservationResetSucceeded = (
-  reservationResult: ReservationResetResponse,
-  resetScope: PreOpeningResetScope,
-) => {
+const assertReservationResetSucceeded = (reservationResult: ReservationResetResponse) => {
   if (reservationResult.success === true) {
     return
   }
 
   const message =
-    toStringValue(reservationResult.message) ||
-    (resetScope === 'reservations'
-      ? '開業前予約データの初期化に失敗しました。'
-      : '開業前テストデータ初期化の予約削除に失敗しました。')
+    toStringValue(reservationResult.message) || '開業前予約データの初期化に失敗しました。'
   throw new HttpsError('internal', message)
 }
 
@@ -342,76 +314,6 @@ async function countCaseCountersByStore(storeId: string) {
   return Number(snapshot.data().count || 0)
 }
 
-async function loadStaffDocsForScope(franchiseeId: string, storeId: string) {
-  const db = getFirestore()
-  const primarySnapshot = await db
-    .collection('staffMembers')
-    .where('franchiseeId', '==', franchiseeId)
-    .where('storeId', '==', storeId)
-    .get()
-  if (!primarySnapshot.empty) {
-    return primarySnapshot.docs
-  }
-  const legacySnapshot = await db
-    .collection('staffMembers')
-    .where('companyId', '==', franchiseeId)
-    .where('storeId', '==', storeId)
-    .get()
-  return legacySnapshot.docs
-}
-
-async function countStaffAttendanceByScope(franchiseeId: string, storeId: string) {
-  const staffDocs = await loadStaffDocsForScope(franchiseeId, storeId)
-  if (staffDocs.length === 0) {
-    return 0
-  }
-
-  const db = getFirestore()
-  let count = 0
-  for (const staffDoc of staffDocs) {
-    const staffData = staffDoc.data()
-    const companyId =
-      toStringValue(staffData.franchiseeId) || toStringValue(staffData.companyId) || franchiseeId
-    const staffId = toStringValue(staffData.id) || staffDoc.id
-    const attendanceId = buildStaffAttendanceId({ companyId, staffId, storeId })
-    const attendanceSnapshot = await db.collection('staffAttendance').doc(attendanceId).get()
-    if (attendanceSnapshot.exists) {
-      count += 1
-    }
-  }
-  return count
-}
-
-async function countLoginAttemptsByScope(franchiseeId: string, storeId: string) {
-  const staffDocs = await loadStaffDocsForScope(franchiseeId, storeId)
-  if (staffDocs.length === 0) {
-    return 0
-  }
-
-  const db = getFirestore()
-  let count = 0
-  for (const staffDoc of staffDocs) {
-    const staffData = staffDoc.data()
-    const companyId =
-      toStringValue(staffData.franchiseeId) || toStringValue(staffData.companyId) || franchiseeId
-    const identifiers = [
-      toStringValue(staffData.userId),
-      toStringValue(staffData.loginId),
-      toStringValue(staffData.name),
-      staffDoc.id,
-    ].filter(Boolean)
-    const uniqueIds = [...new Set(identifiers)]
-    for (const identifier of uniqueIds) {
-      const attemptId = buildLoginAttemptId(companyId, identifier)
-      const attemptSnapshot = await db.collection('loginAttempts').doc(attemptId).get()
-      if (attemptSnapshot.exists) {
-        count += 1
-      }
-    }
-  }
-  return count
-}
-
 async function countStorageFilesByScope(franchiseeId: string, storeId: string) {
   const bucket = getStorage().bucket()
   const prefixes = buildAllowlistedStoragePrefixes(franchiseeId, storeId).filter(
@@ -435,8 +337,6 @@ async function countFirestoreTargets(franchiseeId: string, storeId: string) {
     counts[collectionName] = await countCollectionByScope(collectionName, franchiseeId, storeId)
   }
   counts.caseCounters = await countCaseCountersByStore(storeId)
-  counts.staffAttendance = await countStaffAttendanceByScope(franchiseeId, storeId)
-  counts.loginAttempts = await countLoginAttemptsByScope(franchiseeId, storeId)
   try {
     counts.storageFiles = await countStorageFilesByScope(franchiseeId, storeId)
   } catch {
@@ -532,56 +432,6 @@ async function deleteCaseCountersByStore(storeId: string) {
   }
 }
 
-async function deleteStaffAttendanceByScope(franchiseeId: string, storeId: string) {
-  const db = getFirestore()
-  const staffDocs = await loadStaffDocsForScope(franchiseeId, storeId)
-
-  let deletedCount = 0
-  for (const staffDoc of staffDocs) {
-    const staffData = staffDoc.data()
-    const companyId =
-      toStringValue(staffData.franchiseeId) || toStringValue(staffData.companyId) || franchiseeId
-    const staffId = toStringValue(staffData.id) || staffDoc.id
-    const attendanceId = buildStaffAttendanceId({ companyId, staffId, storeId })
-    const attendanceRef = db.collection('staffAttendance').doc(attendanceId)
-    const attendanceSnapshot = await attendanceRef.get()
-    if (attendanceSnapshot.exists) {
-      await attendanceRef.delete()
-      deletedCount += 1
-    }
-  }
-  return deletedCount
-}
-
-async function deleteLoginAttemptsByScope(franchiseeId: string, storeId: string) {
-  const db = getFirestore()
-  const staffDocs = await loadStaffDocsForScope(franchiseeId, storeId)
-
-  let deletedCount = 0
-  for (const staffDoc of staffDocs) {
-    const staffData = staffDoc.data()
-    const companyId =
-      toStringValue(staffData.franchiseeId) || toStringValue(staffData.companyId) || franchiseeId
-    const identifiers = [
-      toStringValue(staffData.userId),
-      toStringValue(staffData.loginId),
-      toStringValue(staffData.name),
-      staffDoc.id,
-    ].filter(Boolean)
-    const uniqueIds = [...new Set(identifiers)]
-    for (const identifier of uniqueIds) {
-      const attemptId = buildLoginAttemptId(companyId, identifier)
-      const attemptRef = db.collection('loginAttempts').doc(attemptId)
-      const attemptSnapshot = await attemptRef.get()
-      if (attemptSnapshot.exists) {
-        await attemptRef.delete()
-        deletedCount += 1
-      }
-    }
-  }
-  return deletedCount
-}
-
 async function deleteStorageFilesByScope(franchiseeId: string, storeId: string) {
   const bucket = getStorage().bucket()
   const prefixes = buildAllowlistedStoragePrefixes(franchiseeId, storeId).filter(
@@ -607,8 +457,6 @@ async function deleteFirestoreScopedData(franchiseeId: string, storeId: string) 
     deleted[collectionName] = await deleteCollectionByScope(collectionName, franchiseeId, storeId)
   }
   deleted.caseCounters = await deleteCaseCountersByStore(storeId)
-  deleted.staffAttendance = await deleteStaffAttendanceByScope(franchiseeId, storeId)
-  deleted.loginAttempts = await deleteLoginAttemptsByScope(franchiseeId, storeId)
   try {
     deleted.storageFiles = await deleteStorageFilesByScope(franchiseeId, storeId)
   } catch {
@@ -657,7 +505,7 @@ async function executeReservationReset({
   resetScope: PreOpeningResetScope
 }) {
   const capability = await fetchReservationResetCapability(franchiseeId, storeId, resetScope)
-  assertReservationResetSupported(capability, resetScope)
+  assertReservationResetSupported(capability)
 
   const reservationResult = await callReservationV4AdminApi<ReservationResetResponse>(
     '/api/admin/reservations/pre-opening-reset',
@@ -673,11 +521,13 @@ async function executeReservationReset({
     },
   )
 
-  assertReservationResetSucceeded(reservationResult, resetScope)
+  assertReservationResetSucceeded(reservationResult)
 
   const deletedReservation = normalizeReservationTargets(reservationResult.deleted)
   const failedReservation = normalizeReservationTargets(reservationResult.failed)
-  const targets = normalizeReservationTargets(reservationResult.targets ?? capability.reservationTargets)
+  const targets = normalizeReservationTargets(
+    reservationResult.targets ?? capability.reservationTargets,
+  )
   const dashboard = normalizeReservationDashboard(targets, reservationResult.dashboard)
 
   return {
@@ -690,31 +540,26 @@ async function executeReservationReset({
   }
 }
 
+/** Meter-side capability: Firestore/Storage counts only. Does not call reservation-v4. */
 export const getPreOpeningResetCapability = onCall(
   {
     region: 'asia-northeast1',
-    secrets: [reservationV4AdminToken],
   },
   async (request) => {
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
 
-    const [firestoreTargets, reservationCapability] = await Promise.all([
-      countFirestoreTargets(scope.franchiseeId, scope.storeId),
-      fetchReservationResetCapability(scope.franchiseeId, scope.storeId, 'full'),
-    ])
+    const firestoreTargets = await countFirestoreTargets(scope.franchiseeId, scope.storeId)
 
     return {
-      supported: reservationCapability.supported,
+      supported: true,
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       targets: {
         firestore: firestoreTargets,
-        reservation: reservationCapability.reservationTargets,
       },
       preserved: buildPreservedPayload(),
-      dashboard: reservationCapability.dashboard,
     }
   },
 )
@@ -747,10 +592,10 @@ export const getPreOpeningReservationResetCapability = onCall(
   },
 )
 
+/** Meter-side reset: sales/operations only. Does not call reservation-v4. */
 export const executePreOpeningDataReset = onCall(
   {
     region: 'asia-northeast1',
-    secrets: [reservationV4AdminToken],
   },
   async (request) => {
     const auth = assertCallableAuth(request)
@@ -766,44 +611,25 @@ export const executePreOpeningDataReset = onCall(
     }
 
     const executedBy = toStringValue(request.data?.executedBy) || auth.uid
-
     const firestoreTargets = await countFirestoreTargets(scope.franchiseeId, scope.storeId)
-
-    const reservationReset = await executeReservationReset({
-      franchiseeId: scope.franchiseeId,
-      storeId: scope.storeId,
-      executedBy,
-      resetScope: 'full',
-    })
-
-    const deletedFirestore = await deleteFirestoreScopedData(
-      scope.franchiseeId,
-      scope.storeId,
-    )
+    const deletedFirestore = await deleteFirestoreScopedData(scope.franchiseeId, scope.storeId)
 
     return {
       success: true,
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       executedBy,
-      executedAt:
-        reservationReset.reservationResult.executedAt ?? new Date().toISOString(),
+      executedAt: new Date().toISOString(),
       targets: {
         firestore: firestoreTargets,
-        reservation: reservationReset.targets,
       },
       deleted: {
         firestore: deletedFirestore,
-        reservation: reservationReset.deletedReservation,
       },
       failed: {
         firestore: buildFailedFirestoreCounts(firestoreTargets, deletedFirestore),
-        reservation: reservationReset.failedReservation,
       },
       preserved: buildPreservedPayload(),
-      dashboard: reservationReset.dashboard,
-      reservationLogId: reservationReset.reservationResult.logId ?? null,
-      reservationSupported: reservationReset.capability.supported,
     }
   },
 )
