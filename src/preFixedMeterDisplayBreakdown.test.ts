@@ -80,21 +80,21 @@ describe('buildPreFixedReservationLineItems', () => {
     ])
   })
 
-  it('omits zero-amount service fees', () => {
+  it('omits waiting and escort fees from reservation rows', () => {
     const context: ReservationTripContext = {
       ...reservationContext,
       quoteSnapshot: {
         ...reservationContext.quoteSnapshot,
         serviceFees: [
-          { key: 'assistFee', label: '介助料金', amount: 0 },
-          { key: 'waitingFee', label: '待機料金', amount: 300 },
+          { key: 'assistFee', label: '乗降介助', amount: 1100 },
+          { key: 'waitingPlanned', label: '待機（30分）', amount: 800 },
         ],
       },
     }
 
     expect(buildPreFixedReservationLineItems(context)).toEqual([
       { label: '事前確定運賃', amountYen: 3740 },
-      { label: '待機料金', amountYen: 300 },
+      { label: '乗降介助', amountYen: 1100 },
     ])
   })
 })
@@ -106,19 +106,86 @@ describe('buildPreFixedMeterDisplayBreakdown', () => {
       waitingFareYen: 200,
       escortFareYen: 300,
       expenseFareYen: 100,
+      additionalCareFareYen: 1600,
       totalFareYen: 5440,
     }
 
-    const display = buildPreFixedMeterDisplayBreakdown(reservationContext, operational)
+    const display = buildPreFixedMeterDisplayBreakdown(reservationContext, operational, {
+      waitingSeconds: 60,
+      escortSeconds: 120,
+    })
 
     expect(display.totalFareYen).toBe(5440)
     expect(display.lineItems).toEqual([
       { label: '事前確定運賃', amountYen: 3740 },
       { label: '介助料金', amountYen: 1100 },
       { label: '特殊車両使用料', amountYen: 500 },
-      { label: '待機料金', amountYen: 200 },
-      { label: '付き添い料金', amountYen: 300 },
       { label: '実費', amountYen: 100 },
+      { label: '待機料金（1分）', amountYen: 200 },
+      { label: '付き添い料金（2分）', amountYen: 300 },
+    ])
+  })
+
+  it('shows prepaid waiting as one planned line without extras', () => {
+    const context: ReservationTripContext = {
+      ...reservationContext,
+      confirmedFareYen: 3320,
+      quoteSnapshot: {
+        ...reservationContext.quoteSnapshot,
+        serviceFees: [
+          { key: 'boarding-assist', label: '乗降介助', amount: 1100 },
+          { key: 'reservedPickup', label: '予約迎車', amount: 800 },
+          { key: 'oneBoxLift', label: '1BOXリフト車両', amount: 1000 },
+          { key: 'waitingPlanned', label: '待機（30分）', amount: 800 },
+        ],
+      },
+    }
+    const display = buildPreFixedMeterDisplayBreakdown(
+      context,
+      {
+        ...baseOperationalBreakdown(),
+        waitingFareYen: 800,
+        careOptionFareYen: 2900,
+        additionalCareFareYen: 2900,
+        totalFareYen: 6920,
+      },
+      { waitingSeconds: 4, waitingPrepaidUnits: 1 },
+    )
+
+    expect(display.lineItems.filter((item) => item.label.includes('待機'))).toEqual([
+      { label: '待機料金（4秒）', amountYen: 800 },
+    ])
+    expect(display.lineItems.some((item) => item.label.includes('追加待機'))).toBe(false)
+    expect(display.lineItems.some((item) => item.label === '待機（30分）')).toBe(false)
+  })
+
+  it('merges prepaid and actual waiting into one 1h28m line', () => {
+    const context: ReservationTripContext = {
+      ...reservationContext,
+      confirmedFareYen: 3320,
+      quoteSnapshot: {
+        ...reservationContext.quoteSnapshot,
+        serviceFees: [
+          { key: 'boarding-assist', label: '乗降介助', amount: 1100 },
+          { key: 'waitingPlanned', label: '待機（30分）', amount: 800 },
+        ],
+      },
+    }
+    const waitingSeconds = 1 * 3600 + 28 * 60
+    const display = buildPreFixedMeterDisplayBreakdown(
+      context,
+      {
+        ...baseOperationalBreakdown(),
+        waitingFareYen: 2400,
+        disabilityDiscountAmount: 330,
+        isDisabilityDiscount: true,
+        totalFareYen: 8290,
+      },
+      { waitingSeconds, waitingPrepaidUnits: 1 },
+    )
+
+    expect(display.lineItems.filter((item) => item.label.includes('待機'))).toEqual([
+      { label: '待機料金（1時間28分）', amountYen: 2400 },
     ])
   })
 })

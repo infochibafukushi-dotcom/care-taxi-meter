@@ -38,8 +38,11 @@ export function buildReviewDemoFixedFareBreakdown(
   if (extraCare > 0) {
     lineItems.push({ label: '追加介助料', amountYen: extraCare })
   }
-  if (extraWaiting > 0) {
-    lineItems.push({ label: '待機/付き添い料金', amountYen: extraWaiting })
+  if (baseBreakdown.waitingFareYen > 0) {
+    lineItems.push({ label: '待機料金', amountYen: baseBreakdown.waitingFareYen })
+  }
+  if (baseBreakdown.escortFareYen > 0) {
+    lineItems.push({ label: '付き添い料金', amountYen: baseBreakdown.escortFareYen })
   }
   if (extraExpense > 0) {
     lineItems.push({ label: '実費', amountYen: extraExpense })

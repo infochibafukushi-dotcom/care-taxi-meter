@@ -43,6 +43,9 @@ import {
   dispatchMenuMaster,
   escortFareSettings,
   formatFareYen,
+  isEscortServiceFeeKey,
+  isWaitingServiceFeeKey,
+  resolveWaitingEscortPrepaidUnitsFromServiceFees,
   specialVehicleMenuMaster,
   waitingFareSettings,
 } from '../services/fare'
@@ -1866,8 +1869,6 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     }
 
     const nextCareOptions: SelectedCareOption[] = []
-    const nextDispatchCharges: SelectedCareOption[] = []
-    const nextSpecialVehicleCharges: SelectedCareOption[] = []
 
     for (const fee of serviceFees) {
       if (!Number.isFinite(fee.amount) || fee.amount <= 0) {
@@ -1878,30 +1879,23 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         continue
       }
 
-      const entry: SelectedCareOption = {
+      // 待機／付き添いは prepaidUnits + waitingFareYen/escortFareYen で最終合計表示する
+      if (isWaitingServiceFeeKey(fee.key) || isEscortServiceFeeKey(fee.key)) {
+        continue
+      }
+
+      // 予約迎車・1BOX等も含め careOptions へ載せ、確定運賃＋介助として合計へ加算する。
+      // （旧: dispatch/special へ振り分け → buildFixedFareBreakdown で0円化され消失）
+      nextCareOptions.push({
         amountYen: Math.round(fee.amount),
         id: createId(fee.key),
         masterId: fee.key,
         name: fee.label || fee.key,
-      }
-
-      if (dispatchMenuMaster.some((item) => item.id === fee.key)) {
-        nextDispatchCharges.push(entry)
-      } else if (specialVehicleMenuMaster.some((item) => item.id === fee.key)) {
-        nextSpecialVehicleCharges.push(entry)
-      } else {
-        nextCareOptions.push(entry)
-      }
+      })
     }
 
     if (nextCareOptions.length > 0) {
       setSelectedCareOptions(nextCareOptions)
-    }
-    if (nextDispatchCharges.length > 0) {
-      setSelectedDispatchCharges(nextDispatchCharges)
-    }
-    if (nextSpecialVehicleCharges.length > 0) {
-      setSelectedSpecialVehicleCharges(nextSpecialVehicleCharges)
     }
   }, [reservationTripContext, restoredTripSnapshot])
 
@@ -1987,6 +1981,38 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     [reservationTripContext],
   )
 
+  const createFlowWaitingEscortPrepaid = useMemo(
+    () => {
+      const fromQuote = resolveWaitingEscortPrepaidUnitsFromServiceFees(
+        reservationTripContext?.quoteSnapshot?.serviceFees,
+      )
+      const fromCare = resolveWaitingEscortPrepaidUnitsFromServiceFees(
+        selectedCareOptions.map((option) => ({
+          key: option.masterId,
+          amount: option.amountYen,
+        })),
+      )
+      return {
+        waitingPrepaidUnits: Math.max(
+          fromQuote.waitingPrepaidUnits,
+          fromCare.waitingPrepaidUnits,
+        ),
+        escortPrepaidUnits: Math.max(
+          fromQuote.escortPrepaidUnits,
+          fromCare.escortPrepaidUnits,
+        ),
+      }
+    },
+    [reservationTripContext, selectedCareOptions],
+  )
+
+  const waitingPrepaidUnitsForMeter = isManualPreFixedV2
+    ? manualWaitingEscort.waitingPrepaidUnits
+    : createFlowWaitingEscortPrepaid.waitingPrepaidUnits
+  const escortPrepaidUnitsForMeter = isManualPreFixedV2
+    ? manualWaitingEscort.escortPrepaidUnits
+    : createFlowWaitingEscortPrepaid.escortPrepaidUnits
+
   const settlementBreakdown = useMemo(() => {
     // 事前確定Mでは距離加算の通常内訳を使わず、予約確定運賃ベースの内訳のみ表示する。
     if (meterMode === 'fixed') {
@@ -2002,8 +2028,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
         waitingSeconds: waitingFareSeconds,
         escortSeconds: escortFareSeconds,
         isRoundTrip: isManualPreFixedV2 ? false : isPreFixedRoundTrip,
-        waitingPrepaidUnits: isManualPreFixedV2 ? manualWaitingEscort.waitingPrepaidUnits : 0,
-        escortPrepaidUnits: isManualPreFixedV2 ? manualWaitingEscort.escortPrepaidUnits : 0,
+        waitingPrepaidUnits: waitingPrepaidUnitsForMeter,
+        escortPrepaidUnits: escortPrepaidUnitsForMeter,
         isDisabilityDiscount,
         taxiTickets,
         settings: {
@@ -2031,8 +2057,8 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
     isDisabilityDiscount,
     isPreFixedRoundTrip,
     isManualPreFixedV2,
-    manualWaitingEscort.escortPrepaidUnits,
-    manualWaitingEscort.waitingPrepaidUnits,
+    escortPrepaidUnitsForMeter,
+    waitingPrepaidUnitsForMeter,
     meterMode,
     resolvedConfirmedFareYen,
     reviewDemoMode,
@@ -2049,8 +2075,21 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
       return settlementBreakdown
     }
 
-    return buildPreFixedMeterDisplayBreakdown(reservationTripContext, settlementBreakdown)
-  }, [meterMode, reservationTripContext, settlementBreakdown])
+    return buildPreFixedMeterDisplayBreakdown(reservationTripContext, settlementBreakdown, {
+      waitingSeconds: waitingFareSeconds,
+      escortSeconds: escortFareSeconds,
+      waitingPrepaidUnits: waitingPrepaidUnitsForMeter,
+      escortPrepaidUnits: escortPrepaidUnitsForMeter,
+    })
+  }, [
+    escortFareSeconds,
+    escortPrepaidUnitsForMeter,
+    meterMode,
+    reservationTripContext,
+    settlementBreakdown,
+    waitingFareSeconds,
+    waitingPrepaidUnitsForMeter,
+  ])
 
   const confirmedRouteView = useMemo(
     () => buildConfirmedRouteView(reservationTripContext),
@@ -4942,16 +4981,16 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       <dd>{formatFareYen(additionalRouteFareYen)}円</dd>
                     </div>
                     <div>
-                      <dt>追加介助料</dt>
+                      <dt>介助・サービス料金小計</dt>
                       <dd>{formatFareYen(settlementBreakdown.additionalCareFareYen ?? 0)}円</dd>
                     </div>
                     <div>
-                      <dt>待機/付き添い料金</dt>
-                      <dd>
-                        {formatFareYen(
-                          settlementBreakdown.waitingFareYen + settlementBreakdown.escortFareYen,
-                        )}円
-                      </dd>
+                      <dt>待機料金</dt>
+                      <dd>{formatFareYen(settlementBreakdown.waitingFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>付き添い料金</dt>
+                      <dd>{formatFareYen(settlementBreakdown.escortFareYen)}円</dd>
                     </div>
                     <div>
                       <dt>実費</dt>
@@ -5166,17 +5205,15 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                 <div className="pre-fixed-time-fare-rates" aria-label="待機料・付き添い料">
                   <div>
                     <strong>待機料</strong>
-                    <p>30分未満無料</p>
                     <p>
-                      30分到達以降 30分ごと {formatFareYen(currentWaitingFareSettings.unitFareYen)}円
+                      {formatFareYen(currentWaitingFareSettings.unitFareYen)}円／30分ごとに加算
                     </p>
                     <small>計測中 {waitingClockLabel}</small>
                   </div>
                   <div>
                     <strong>付き添い料</strong>
-                    <p>30分未満無料</p>
                     <p>
-                      30分到達以降 30分ごと {formatFareYen(currentEscortFareSettings.unitFareYen)}円
+                      {formatFareYen(currentEscortFareSettings.unitFareYen)}円／30分ごとに加算
                     </p>
                     <small>計測中 {accompanyingClockLabel}</small>
                   </div>
@@ -5277,16 +5314,16 @@ export function CasePage({ reviewDemoMode = false }: { reviewDemoMode?: boolean 
                       <dd>{formatFareYen(additionalRouteFareYen)}円</dd>
                     </div>
                     <div>
-                      <dt>追加介助料</dt>
+                      <dt>介助・サービス料金小計</dt>
                       <dd>{formatFareYen(settlementBreakdown.additionalCareFareYen ?? 0)}円</dd>
                     </div>
                     <div>
-                      <dt>待機/付き添い料金</dt>
-                      <dd>
-                        {formatFareYen(
-                          settlementBreakdown.waitingFareYen + settlementBreakdown.escortFareYen,
-                        )}円
-                      </dd>
+                      <dt>待機料金</dt>
+                      <dd>{formatFareYen(settlementBreakdown.waitingFareYen)}円</dd>
+                    </div>
+                    <div>
+                      <dt>付き添い料金</dt>
+                      <dd>{formatFareYen(settlementBreakdown.escortFareYen)}円</dd>
                     </div>
                     <div>
                       <dt>実費</dt>

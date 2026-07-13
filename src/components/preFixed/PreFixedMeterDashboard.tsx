@@ -144,9 +144,6 @@ export const ensureOperationalZeroLines = (
 ): FareLineItem[] =>
   filterPositiveFareLines([
     ...breakdown.lineItems,
-    { label: '待機料', amountYen: breakdown.waitingFareYen },
-    { label: '付き添い料', amountYen: breakdown.escortFareYen },
-    { label: '実費', amountYen: breakdown.expenseFareYen },
   ])
 
 function DashboardModal({
@@ -383,7 +380,7 @@ export function PreFixedMeterDashboard({
       ) : null}
 
       <p className="pre-fixed-meter-dashboard__notice" role="note">
-        待機・付き添いは30分未満無料です。
+        待機800円・付き添い1,600円／30分ごとに加算
       </p>
 
       {modal === 'nav' ? (

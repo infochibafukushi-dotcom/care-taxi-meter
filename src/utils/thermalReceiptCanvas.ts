@@ -338,13 +338,42 @@ function createThermalReceiptRows(
   ]
 
   if (isFixedMeter) {
-    rows.push({
-      label: '待機/付き添い料金',
-      amount: formatThermalYen(caseRecord.waitingFareYen + caseRecord.escortFareYen),
-      yenAmount: caseRecord.waitingFareYen + caseRecord.escortFareYen,
-    })
+    if (caseRecord.waitingFareYen > 0) {
+      rows.push({
+        label: '待機料金',
+        amount: formatThermalYen(caseRecord.waitingFareYen),
+        yenAmount: caseRecord.waitingFareYen,
+      })
+    }
+    if (caseRecord.escortFareYen > 0) {
+      rows.push({
+        label: '付き添い料金',
+        amount: formatThermalYen(caseRecord.escortFareYen),
+        yenAmount: caseRecord.escortFareYen,
+      })
+    }
 
-    caseRecord.assistCharges.forEach((assistCharge) => {
+    caseRecord.assistCharges
+      .filter((assistCharge) => {
+        const key = (assistCharge as { masterId?: string; id?: string }).masterId
+          || (assistCharge as { id?: string }).id
+          || ''
+        // 待機／付き添いは上で統合表示済み
+        return !(
+          key === 'waiting' ||
+          key === 'waitingPlanned' ||
+          key === 'waitingFee' ||
+          key === 'waiting30min' ||
+          key === 'hospital-escort' ||
+          key === 'escortPlanned' ||
+          key === 'escortFee' ||
+          key === 'escort30min' ||
+          assistCharge.name.startsWith('待機') ||
+          assistCharge.name.startsWith('付き添い') ||
+          assistCharge.name.startsWith('院内付き添い')
+        )
+      })
+      .forEach((assistCharge) => {
       rows.push({
         indent: true,
         label: assistCharge.name,
