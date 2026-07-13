@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { PDF_LOAD_ERROR_MESSAGE } from './accountingReceiptPdf'
+import {
+  calculateAccountingPdfRenderScale,
+  PDF_LOAD_ERROR_MESSAGE,
+  PDF_OCR_MAX_SCALE,
+  PDF_OCR_TARGET_LONG_EDGE,
+} from './accountingReceiptPdf'
 
 const getPage = vi.fn()
 const destroy = vi.fn()
@@ -13,6 +18,33 @@ vi.mock('pdfjs-dist', () => ({
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({
   default: '/mock-pdf.worker.min.mjs',
 }))
+
+describe('calculateAccountingPdfRenderScale', () => {
+  it('scales A4-sized pages so the long edge is about 3000px', () => {
+    const scale = calculateAccountingPdfRenderScale(595, 842)
+    expect(scale).toBeGreaterThan(1)
+    expect(scale).toBeLessThanOrEqual(PDF_OCR_MAX_SCALE)
+    expect(Math.round(842 * scale)).toBe(PDF_OCR_TARGET_LONG_EDGE)
+  })
+
+  it('caps scale so it never exceeds the max for tiny pages', () => {
+    const scale = calculateAccountingPdfRenderScale(100, 120)
+    expect(scale).toBe(PDF_OCR_MAX_SCALE)
+    expect(scale).toBeLessThanOrEqual(PDF_OCR_MAX_SCALE)
+  })
+
+  it('does not downscale already-large pages below 1', () => {
+    const scale = calculateAccountingPdfRenderScale(4000, 6000)
+    expect(scale).toBe(1)
+    expect(scale).toBeLessThanOrEqual(PDF_OCR_MAX_SCALE)
+  })
+
+  it('returns a safe scale for zero-sized pages', () => {
+    const scale = calculateAccountingPdfRenderScale(0, 0)
+    expect(scale).toBe(PDF_OCR_MAX_SCALE)
+    expect(Number.isFinite(scale)).toBe(true)
+  })
+})
 
 describe('createAccountingPdfPreview', () => {
   beforeEach(() => {
@@ -28,6 +60,8 @@ describe('createAccountingPdfPreview', () => {
         getContext() {
           return {
             drawImage: vi.fn(),
+            fillRect: vi.fn(),
+            fillStyle: '',
           }
         }
         toBlob(callback: (blob: Blob | null) => void) {
@@ -36,7 +70,6 @@ describe('createAccountingPdfPreview', () => {
       },
     )
 
-    // jsdom-less environments: ensure document.createElement('canvas') works via stub
     if (typeof document === 'undefined') {
       vi.stubGlobal('document', {
         createElement: (tag: string) => {
@@ -61,8 +94,8 @@ describe('createAccountingPdfPreview', () => {
     const render = vi.fn(() => ({ promise: Promise.resolve() }))
     getPage.mockResolvedValue({
       getViewport: ({ scale }: { scale: number }) => ({
-        width: 800 * scale,
-        height: 600 * scale,
+        width: 595 * scale,
+        height: 842 * scale,
       }),
       render,
     })
@@ -85,6 +118,9 @@ describe('createAccountingPdfPreview', () => {
     expect(result.previewFile.name).toBe('amazon_invoice-ocr-page-1.jpg')
     expect(getPage).toHaveBeenCalledWith(1)
     expect(render).toHaveBeenCalled()
+
+    const renderScale = calculateAccountingPdfRenderScale(595, 842)
+    expect(render.mock.calls[0]?.[0]?.viewport?.width).toBeCloseTo(595 * renderScale, 0)
   })
 
   it('throws a clear error for broken PDFs', async () => {

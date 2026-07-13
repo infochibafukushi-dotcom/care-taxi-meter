@@ -55,6 +55,8 @@ type RunAccountingReceiptOcrInput = {
   fileName?: string
   mimeType?: string
   imageBlob?: Blob | File | null
+  /** PDFから生成済みのOCR用高解像度画像か（再縮小・再圧縮しない） */
+  isPreparedOcrImage?: boolean
   onProgress?: (progress: AccountingReceiptOcrProgress) => void
 }
 
@@ -208,14 +210,30 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   })
   logOcrStep('blob-load-done', { size: imageBlob.size, type: imageBlob.type })
 
-  reportProgress(input.onProgress, 'normalizing-image')
-  logOcrStep('normalize-start', { size: imageBlob.size, type: imageBlob.type })
-  const ocrImage = await normalizeAccountingReceiptImage(imageBlob)
-  logOcrStep('normalize-done', {
-    size: ocrImage.size,
-    type: ocrImage.type,
-    sizeKb: Math.round(ocrImage.size / 1024),
+  console.info('[Accounting OCR] prepared-image', {
+    isPreparedOcrImage: Boolean(input.isPreparedOcrImage),
+    size: imageBlob.size,
+    type: imageBlob.type,
   })
+
+  let ocrImage: Blob | File
+  if (input.isPreparedOcrImage) {
+    logOcrStep('normalize-skip', {
+      reason: 'prepared-ocr-image',
+      size: imageBlob.size,
+      type: imageBlob.type,
+    })
+    ocrImage = imageBlob
+  } else {
+    reportProgress(input.onProgress, 'normalizing-image')
+    logOcrStep('normalize-start', { size: imageBlob.size, type: imageBlob.type })
+    ocrImage = await normalizeAccountingReceiptImage(imageBlob)
+    logOcrStep('normalize-done', {
+      size: ocrImage.size,
+      type: ocrImage.type,
+      sizeKb: Math.round(ocrImage.size / 1024),
+    })
+  }
 
   logOcrStep('worker-get-start')
   const worker = await getOcrWorker(input.onProgress)
