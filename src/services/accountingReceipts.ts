@@ -531,6 +531,74 @@ export async function uploadAccountingReceiptImage({
   }
 }
 
+/**
+ * 回転後の OCR / プレビュー画像を既存パスへ上書き保存します。
+ * 推奨方式: 回転後画像そのものを保存し、再表示時は通常の0度画像として扱います。
+ */
+export async function replaceAccountingReceiptOcrImage({
+  receiptId,
+  ocrImageFile,
+  ocrImageStoragePath,
+  documentType,
+  originalStoragePath,
+}: {
+  receiptId: string
+  ocrImageFile: File
+  ocrImageStoragePath: string
+  documentType?: AccountingReceiptDocumentType | ''
+  originalStoragePath?: string
+}): Promise<{
+  ocrImageDownloadUrl: string
+  ocrImageStoragePath: string
+  imageHash?: string
+}> {
+  const storagePath = ocrImageStoragePath.trim()
+  if (!receiptId.trim() || !storagePath) {
+    throw new Error('証憑画像の保存先がありません。画像を再度アップロードしてください。')
+  }
+
+  if (isReviewDemoRuntimeEnabled()) {
+    return {
+      ocrImageDownloadUrl: '',
+      ocrImageStoragePath: storagePath,
+    }
+  }
+
+  const ocrImageDownloadUrl = await uploadStorageFile(storagePath, ocrImageFile)
+  const isPdf = documentType === 'pdf'
+  const imageHash = isPdf ? undefined : await computeFileSha256(ocrImageFile)
+  const sharedOriginalPath = !isPdf && (originalStoragePath?.trim() || storagePath)
+
+  await updateUnorganizedAccountingReceipt({
+    receiptId,
+    patch: removeUndefinedFields({
+      ocrImageDownloadUrl,
+      ocrImageStoragePath: storagePath,
+      ocrImageFileName: ocrImageFile.name,
+      ocrImageMimeType: ocrImageFile.type || 'image/jpeg',
+      ocrImageSizeBytes: ocrImageFile.size,
+      imageUrl: ocrImageDownloadUrl,
+      downloadUrl: isPdf ? undefined : ocrImageDownloadUrl,
+      storagePath: sharedOriginalPath || undefined,
+      originalDownloadUrl: isPdf ? undefined : ocrImageDownloadUrl,
+      originalStoragePath: sharedOriginalPath || undefined,
+      originalFileName: isPdf ? undefined : ocrImageFile.name,
+      originalMimeType: isPdf ? undefined : ocrImageFile.type || 'image/jpeg',
+      originalFileSizeBytes: isPdf ? undefined : ocrImageFile.size,
+      mimeType: isPdf ? undefined : ocrImageFile.type || 'image/jpeg',
+      fileName: isPdf ? undefined : ocrImageFile.name,
+      fileSizeBytes: isPdf ? undefined : ocrImageFile.size,
+      imageHash,
+    }) as Partial<AccountingReceiptInput> & Record<string, unknown>,
+  })
+
+  return {
+    ocrImageDownloadUrl,
+    ocrImageStoragePath: storagePath,
+    imageHash,
+  }
+}
+
 export async function updateUnorganizedAccountingReceipt({
   receiptId,
   patch,

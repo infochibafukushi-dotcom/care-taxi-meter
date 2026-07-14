@@ -768,6 +768,24 @@ body.route-accounting,
   overflow: hidden;
 }
 
+.accounting-receipt-rotate-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-bottom: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.accounting-receipt-rotate-button {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  box-sizing: border-box;
+}
+
 .accounting-receipt-preview img {
   display: block;
   width: 100%;
@@ -1725,6 +1743,7 @@ body.route-accounting,
   .accounting-form-actions .secondary-action,
   .accounting-receipt-actions .secondary-action,
   .accounting-receipt-upload-button,
+  .accounting-receipt-rotate-button,
   .accounting-expense-card-actions .secondary-action,
   .accounting-unorganized-actions .secondary-action,
   .accounting-recalc-tax-button {
@@ -1734,6 +1753,7 @@ body.route-accounting,
 
   .accounting-receipt-upload-button,
   .accounting-save-receipt-only-button,
+  .accounting-receipt-rotate-button,
   .accounting-form-actions .primary-action,
   .accounting-form-actions .secondary-action,
   .accounting-receipt-actions .secondary-action,

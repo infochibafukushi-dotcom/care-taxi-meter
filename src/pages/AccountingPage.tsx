@@ -26,10 +26,12 @@ import {
   fetchUnorganizedAccountingReceipts,
   getAccountingReceiptOriginalFileUrl,
   getAccountingReceiptPreviewImageUrl,
+  loadAccountingReceiptOcrImageBlob,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
   rejectAccountingReceiptWorkflow,
   resolveAccountingReceiptDownloadUrl,
   saveConfirmedAccountingReceipt,
+  replaceAccountingReceiptOcrImage,
   saveReceiptOnly,
   uploadAccountingReceiptFile,
   type StoredAccountingReceipt,
@@ -65,6 +67,15 @@ import {
 } from '../utils/accountingReceiptDropZone'
 import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
 import { createAccountingPdfPreview } from '../utils/accountingReceiptPdf'
+import {
+  RECEIPT_ROTATION_ERROR_MESSAGE,
+  RECEIPT_ROTATION_OCR_RERUN_MESSAGE,
+  hasAccountingReceiptOcrResult,
+  resolveNextReceiptRotationDegrees,
+  rotateAccountingReceiptImage,
+  shouldFlagOcrRerunAfterRotation,
+  type ReceiptRotationDegrees,
+} from '../utils/accountingReceiptRotation'
 import { recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
@@ -533,6 +544,12 @@ export function AccountingPage() {
     onContinue: () => void
   } | null>(null)
   const [receiptImageZoom, setReceiptImageZoom] = useState(1)
+  const [receiptRotationDegrees, setReceiptRotationDegrees] = useState<ReceiptRotationDegrees>(0)
+  const [receiptRotationBaseFile, setReceiptRotationBaseFile] = useState<File | null>(null)
+  const [receiptRotationBaseReceiptId, setReceiptRotationBaseReceiptId] = useState('')
+  const [needsOcrRerunAfterRotation, setNeedsOcrRerunAfterRotation] = useState(false)
+  const [isRotatingReceipt, setIsRotatingReceipt] = useState(false)
+  const receiptRotateInFlightRef = useRef(false)
   const [isLookingUpInvoice, setIsLookingUpInvoice] = useState(false)
   const [isAuditMenuOpen, setIsAuditMenuOpen] = useState(false)
   const [invoiceQuoteMessage, setInvoiceQuoteMessage] = useState<{
@@ -615,6 +632,15 @@ export function AccountingPage() {
 
       return ''
     })
+  }
+
+  const clearReceiptRotationState = () => {
+    setReceiptRotationDegrees(0)
+    setReceiptRotationBaseFile(null)
+    setReceiptRotationBaseReceiptId('')
+    setNeedsOcrRerunAfterRotation(false)
+    setIsRotatingReceipt(false)
+    receiptRotateInFlightRef.current = false
   }
 
   const setReceiptPreviewFromFile = (file: File) => {
@@ -980,6 +1006,7 @@ export function AccountingPage() {
     setInvoiceNumberWarning('')
     setInvoiceQuoteMessage(null)
     setReceiptImageZoom(1)
+    clearReceiptRotationState()
     setIsLookingUpInvoice(false)
     setIsAuditMenuOpen(false)
     setOcrProgressMessage('')
@@ -1364,10 +1391,157 @@ export function AccountingPage() {
   }
 
   const openReceiptFilePicker = () => {
-    if (isUploadingReceipt || isRunningOcr || receiptUploadInFlightRef.current) {
+    if (isUploadingReceipt || isRunningOcr || receiptUploadInFlightRef.current || isRotatingReceipt) {
       return
     }
     receiptFileInputRef.current?.click()
+  }
+
+  const handleRotateReceiptImage = async (action: 'left' | 'right' | 'reset') => {
+    if (!expenseForm || !hasAccountingFormReceiptImage(expenseForm)) {
+      setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
+      return
+    }
+
+    if (
+      receiptRotateInFlightRef.current ||
+      isRotatingReceipt ||
+      isUploadingReceipt ||
+      isRunningOcr ||
+      receiptUploadInFlightRef.current
+    ) {
+      return
+    }
+
+    const receiptId = expenseForm.receiptId?.trim() ?? ''
+    const previousDegrees = receiptRotationDegrees
+
+    if (action === 'reset' && previousDegrees === 0 && !needsOcrRerunAfterRotation) {
+      return
+    }
+
+    receiptRotateInFlightRef.current = true
+    setIsRotatingReceipt(true)
+    setErrorMessage('')
+
+    try {
+      let baseFile = receiptRotationBaseFile
+      let rebuiltBaseFromRemote = false
+      if (!baseFile || (receiptId && receiptRotationBaseReceiptId && receiptRotationBaseReceiptId !== receiptId)) {
+        rebuiltBaseFromRemote = true
+        const linkedReceipt = allReceipts.find((row) => row.id === receiptId) ?? unorganizedReceipts.find((row) => row.id === receiptId)
+        const loaded = await loadAccountingReceiptOcrImageBlob({
+          imageBlob:
+            receiptId && previousDegrees === 0 ? recentReceiptBlobs[receiptId] : undefined,
+          ocrImageDownloadUrl:
+            expenseForm.receiptPreviewImageUrl ||
+            linkedReceipt?.ocrImageDownloadUrl ||
+            expenseForm.receiptImageUrl,
+          ocrImageStoragePath:
+            expenseForm.receiptPreviewStoragePath ||
+            linkedReceipt?.ocrImageStoragePath ||
+            expenseForm.receiptStoragePath,
+          legacyDownloadUrl: expenseForm.receiptImageUrl || linkedReceipt?.downloadUrl,
+          legacyStoragePath: expenseForm.receiptStoragePath || linkedReceipt?.storagePath,
+          mimeType: expenseForm.receiptFileMimeType || linkedReceipt?.mimeType,
+        })
+        baseFile =
+          loaded instanceof File
+            ? loaded
+            : new File([loaded], expenseForm.receiptFileName || 'receipt.jpg', {
+                type: loaded.type || 'image/jpeg',
+                lastModified: Date.now(),
+              })
+        setReceiptRotationBaseFile(baseFile)
+        setReceiptRotationBaseReceiptId(receiptId)
+        setReceiptRotationDegrees(0)
+      }
+
+      if (!baseFile || baseFile.size <= 0) {
+        throw new Error(RECEIPT_ROTATION_ERROR_MESSAGE)
+      }
+
+      const effectivePreviousDegrees = rebuiltBaseFromRemote ? 0 : previousDegrees
+      const effectiveNextDegrees =
+        action === 'reset'
+          ? 0
+          : resolveNextReceiptRotationDegrees(effectivePreviousDegrees, action)
+
+      const rotatedFile =
+        effectiveNextDegrees === 0
+          ? baseFile
+          : await rotateAccountingReceiptImage(baseFile, effectiveNextDegrees)
+
+      setReceiptPreviewFromFile(rotatedFile)
+      setReceiptRotationDegrees(effectiveNextDegrees)
+
+      if (receiptId) {
+        setRecentReceiptBlobs((current) => ({
+          ...current,
+          [receiptId]: rotatedFile,
+        }))
+
+        const storagePath =
+          expenseForm.receiptPreviewStoragePath ||
+          expenseForm.receiptStoragePath ||
+          linkedReceiptForForm?.ocrImageStoragePath ||
+          linkedReceiptForForm?.storagePath ||
+          ''
+
+        if (storagePath) {
+          const replaced = await replaceAccountingReceiptOcrImage({
+            receiptId,
+            ocrImageFile: rotatedFile,
+            ocrImageStoragePath: storagePath,
+            documentType: expenseReceiptIsPdf ? 'pdf' : 'image',
+            originalStoragePath: expenseForm.receiptFileStoragePath || linkedReceiptForForm?.originalStoragePath,
+          })
+
+          setExpenseForm((current) =>
+            current
+              ? {
+                  ...current,
+                  receiptPreviewImageUrl: replaced.ocrImageDownloadUrl || current.receiptPreviewImageUrl,
+                  receiptImageUrl: replaced.ocrImageDownloadUrl || current.receiptImageUrl,
+                  receiptPreviewStoragePath: replaced.ocrImageStoragePath,
+                  receiptStoragePath: replaced.ocrImageStoragePath,
+                  imageHash: replaced.imageHash ?? current.imageHash,
+                  ...(expenseReceiptIsPdf
+                    ? {}
+                    : {
+                        receiptFileUrl: replaced.ocrImageDownloadUrl || current.receiptFileUrl,
+                        receiptFileStoragePath: replaced.ocrImageStoragePath,
+                      }),
+                }
+              : current,
+          )
+        }
+      }
+
+      const hasOcr = hasAccountingReceiptOcrResult(expenseForm)
+      const needsRerun = shouldFlagOcrRerunAfterRotation({
+        hasOcrResult: hasOcr,
+        previousDegrees: effectivePreviousDegrees,
+        nextDegrees: effectiveNextDegrees,
+      })
+      setNeedsOcrRerunAfterRotation(needsRerun)
+      setStatusMessage(
+        needsRerun
+          ? RECEIPT_ROTATION_OCR_RERUN_MESSAGE
+          : effectiveNextDegrees === 0
+            ? '画像の向きを元に戻しました。'
+            : `画像を${effectiveNextDegrees}度回転しました。`,
+      )
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : RECEIPT_ROTATION_ERROR_MESSAGE,
+      )
+    } finally {
+      setIsRotatingReceipt(false)
+      receiptRotateInFlightRef.current = false
+    }
   }
 
   const handleReceiptUpload = async (file: File | null, input?: HTMLInputElement | null) => {
@@ -1455,6 +1629,10 @@ export function AccountingPage() {
           : current,
       )
       setReceiptLocalSelectionActive(true)
+      setReceiptRotationBaseFile(ocrImageFile)
+      setReceiptRotationBaseReceiptId(uploaded.receiptId)
+      setReceiptRotationDegrees(0)
+      setNeedsOcrRerunAfterRotation(false)
       setRecentReceiptBlobs((current) => ({
         ...current,
         [uploaded.receiptId]: ocrImageFile,
@@ -1468,6 +1646,7 @@ export function AccountingPage() {
     } catch (error) {
       // 既存証憑（フォーム上の URL / Storage 参照）は消さない。ローカルプレビューのみ破棄し再表示に任せる。
       clearReceiptPreviewObjectUrl()
+      clearReceiptRotationState()
       setReceiptSelectionError(true)
       const failureMessage =
         error instanceof Error ? error.message : '証憑ファイルのアップロードに失敗しました。'
@@ -1623,6 +1802,7 @@ export function AccountingPage() {
       const receiptId = expenseForm.receiptId ?? ''
       const linkedReceipt = allReceipts.find((row) => row.id === receiptId)
       const isPreparedOcrImage =
+        receiptRotationDegrees !== 0 ||
         isAccountingReceiptPdfMime(expenseForm.receiptFileMimeType) ||
         isAccountingReceiptPdfMime(linkedReceipt?.originalMimeType) ||
         isAccountingReceiptPdfMime(linkedReceipt?.mimeType) ||
@@ -1667,6 +1847,7 @@ export function AccountingPage() {
         await reloadUnorganizedReceipts()
       }
 
+      setNeedsOcrRerunAfterRotation(false)
       const resultMessage = resolveOcrResultMessage(result)
       setOcrProgressMessage(resultMessage)
       setStatusMessage(resultMessage)
@@ -1725,6 +1906,7 @@ export function AccountingPage() {
         : '未整理領収書から経費入力フォームへ引き継ぎました。税区分・インボイス・経費科目を確認してから保存してください。',
     )
     clearReceiptPreviewObjectUrl()
+    clearReceiptRotationState()
     setReceiptLocalSelectionActive(false)
     setReceiptSelectionError(false)
     setReceiptSelectedFileMeta(
@@ -2221,6 +2403,7 @@ export function AccountingPage() {
         : null,
     )
     clearReceiptPreviewObjectUrl()
+    clearReceiptRotationState()
     setActiveTab('expenses')
     setStatusMessage('経費を編集モードで読み込みました。')
     setErrorMessage('')
@@ -3070,7 +3253,7 @@ export function AccountingPage() {
                     accept="image/*"
                     capture="environment"
                     className="accounting-hidden-input"
-                    disabled={isUploadingReceipt || isRunningOcr}
+                    disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
                     type="file"
                     onChange={(event) =>
                       void handleSelectedReceiptFiles(event.target.files, event.currentTarget)
@@ -3083,7 +3266,7 @@ export function AccountingPage() {
                     ref={receiptFileInputRef}
                     accept={ACCOUNTING_RECEIPT_FILE_ACCEPT}
                     className="accounting-hidden-input"
-                    disabled={isUploadingReceipt || isRunningOcr}
+                    disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
                     type="file"
                     onChange={(event) =>
                       void handleSelectedReceiptFiles(event.target.files, event.currentTarget)
@@ -3092,15 +3275,25 @@ export function AccountingPage() {
                 </label>
                 <button
                   className="secondary-action"
-                  disabled={!hasFormReceiptImage || isUploadingReceipt || isRunningOcr}
+                  disabled={!hasFormReceiptImage || isUploadingReceipt || isRunningOcr || isRotatingReceipt}
                   type="button"
                   onClick={() => void handleRunReceiptOcr()}
                 >
-                  {isRunningOcr ? 'OCR読取中…' : 'OCR読取（候補を反映）'}
+                  {isRunningOcr
+                    ? 'OCR読取中…'
+                    : needsOcrRerunAfterRotation
+                      ? 'OCR再実行'
+                      : 'OCR読取（候補を反映）'}
                 </button>
                 <button
                   className="primary-action accounting-save-receipt-only-button"
-                  disabled={!hasFormReceiptImage || isUploadingReceipt || isRunningOcr || isSavingReceiptOnly}
+                  disabled={
+                    !hasFormReceiptImage ||
+                    isUploadingReceipt ||
+                    isRunningOcr ||
+                    isSavingReceiptOnly ||
+                    isRotatingReceipt
+                  }
                   type="button"
                   onClick={() => void handleSaveReceiptOnly()}
                 >
@@ -3131,6 +3324,73 @@ export function AccountingPage() {
               ) : null}
               {expenseReceiptPreviewUrl ? (
                 <div className="accounting-receipt-preview accounting-receipt-preview--flow">
+                  <div className="accounting-receipt-rotate-toolbar" data-receipt-drop-ignore="true">
+                    <button
+                      className="secondary-action accounting-receipt-rotate-button"
+                      type="button"
+                      aria-label="左へ90度回転"
+                      title="左へ90度回転"
+                      disabled={
+                        !hasFormReceiptImage ||
+                        isUploadingReceipt ||
+                        isRunningOcr ||
+                        isRotatingReceipt
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleRotateReceiptImage('left')
+                      }}
+                    >
+                      ↶ 左へ回転
+                    </button>
+                    <button
+                      className="secondary-action accounting-receipt-rotate-button"
+                      type="button"
+                      aria-label="右へ90度回転"
+                      title="右へ90度回転"
+                      disabled={
+                        !hasFormReceiptImage ||
+                        isUploadingReceipt ||
+                        isRunningOcr ||
+                        isRotatingReceipt
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleRotateReceiptImage('right')
+                      }}
+                    >
+                      ↷ 右へ回転
+                    </button>
+                    <button
+                      className="secondary-action accounting-receipt-rotate-button"
+                      type="button"
+                      aria-label="元の向きに戻す"
+                      title="元の向きに戻す"
+                      disabled={
+                        !hasFormReceiptImage ||
+                        isUploadingReceipt ||
+                        isRunningOcr ||
+                        isRotatingReceipt ||
+                        (receiptRotationDegrees === 0 && !needsOcrRerunAfterRotation)
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleRotateReceiptImage('reset')
+                      }}
+                    >
+                      元に戻す
+                    </button>
+                  </div>
+                  {isRotatingReceipt ? (
+                    <p className="accounting-note" role="status">
+                      画像を回転中…
+                    </p>
+                  ) : null}
+                  {needsOcrRerunAfterRotation ? (
+                    <p className="accounting-warning" role="status">
+                      {RECEIPT_ROTATION_OCR_RERUN_MESSAGE}
+                    </p>
+                  ) : null}
                   <img alt="証憑プレビュー" src={expenseReceiptPreviewUrl} />
                   {expenseReceiptIsPdf ? (
                     <div className="accounting-receipt-pdf-meta">
@@ -3203,6 +3463,41 @@ export function AccountingPage() {
                         ズーム解除
                       </button>
                       <button
+                        className="secondary-action accounting-receipt-rotate-button"
+                        type="button"
+                        aria-label="左へ90度回転"
+                        title="左へ90度回転"
+                        disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
+                        onClick={() => void handleRotateReceiptImage('left')}
+                      >
+                        ↶ 左へ回転
+                      </button>
+                      <button
+                        className="secondary-action accounting-receipt-rotate-button"
+                        type="button"
+                        aria-label="右へ90度回転"
+                        title="右へ90度回転"
+                        disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
+                        onClick={() => void handleRotateReceiptImage('right')}
+                      >
+                        ↷ 右へ回転
+                      </button>
+                      <button
+                        className="secondary-action accounting-receipt-rotate-button"
+                        type="button"
+                        aria-label="元の向きに戻す"
+                        title="元の向きに戻す"
+                        disabled={
+                          isUploadingReceipt ||
+                          isRunningOcr ||
+                          isRotatingReceipt ||
+                          (receiptRotationDegrees === 0 && !needsOcrRerunAfterRotation)
+                        }
+                        onClick={() => void handleRotateReceiptImage('reset')}
+                      >
+                        元に戻す
+                      </button>
+                      <button
                         className="secondary-action"
                         type="button"
                         onClick={() => void resetExpenseFormToNew()}
@@ -3210,6 +3505,16 @@ export function AccountingPage() {
                         入力リセット
                       </button>
                     </div>
+                    {needsOcrRerunAfterRotation ? (
+                      <p className="accounting-warning" role="status">
+                        {RECEIPT_ROTATION_OCR_RERUN_MESSAGE}
+                      </p>
+                    ) : null}
+                    {isRotatingReceipt ? (
+                      <p className="accounting-note" role="status">
+                        画像を回転中…
+                      </p>
+                    ) : null}
                     {expenseReceiptIsPdf ? (
                       <div className="accounting-receipt-pdf-meta accounting-receipt-pdf-meta--editor">
                         <p className="accounting-receipt-pdf-title">PDF証憑</p>
