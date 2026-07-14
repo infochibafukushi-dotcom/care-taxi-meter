@@ -110,6 +110,8 @@ export type ExpenseAssetRegistrationDraft = {
   notes: string
   normalExpenseOverrideReason: string
   normalExpenseOverrideConfirmed: boolean
+  /** 確認時点の資産判定結果キー（永続化しない） */
+  normalExpenseOverrideJudgmentKey: string
 }
 
 export const buildEmptyExpenseAssetDraft = (): ExpenseAssetRegistrationDraft => ({
@@ -131,4 +133,5 @@ export const buildEmptyExpenseAssetDraft = (): ExpenseAssetRegistrationDraft => 
   notes: '',
   normalExpenseOverrideReason: '',
   normalExpenseOverrideConfirmed: false,
+  normalExpenseOverrideJudgmentKey: '',
 })

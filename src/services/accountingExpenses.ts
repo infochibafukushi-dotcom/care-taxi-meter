@@ -156,6 +156,14 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
         : undefined,
     ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
     suggestedExpenseCategory: normalizeExpenseCategory(data.suggestedExpenseCategory),
+    normalExpenseOverrideReason:
+      typeof data.normalExpenseOverrideReason === 'string'
+        ? data.normalExpenseOverrideReason
+        : undefined,
+    normalExpenseOverrideConfirmed:
+      typeof data.normalExpenseOverrideConfirmed === 'boolean'
+        ? data.normalExpenseOverrideConfirmed
+        : undefined,
     createdBy: String(data.createdBy ?? ''),
     createdByName: String(data.createdByName ?? ''),
     updatedBy: String(data.updatedBy ?? ''),

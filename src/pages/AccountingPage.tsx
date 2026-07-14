@@ -114,7 +114,18 @@ import {
   downloadCsvFile,
   formatPlAmount,
 } from '../utils/accountingCsv'
-import { detectFixedAssetRegistrationWarning } from '../utils/accountingAssetDetection'
+import {
+  ACCOUNTING_EXPENSE_LIST_SECTION_ID,
+  buildAssetDraftForExpenseEdit,
+  buildExpenseEditSummary,
+  buildNormalExpenseOverridePersistFields,
+  detectNormalExpenseOverrideJudgment,
+  focusNormalExpenseOverrideField,
+  hasUnsavedExpenseEditChanges,
+  shouldClearNormalExpenseOverrideConfirmation,
+  validateNormalExpenseOverrideForSave,
+  type ExpenseEditSummary,
+} from '../utils/accountingNormalExpenseOverride'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
   aggregateExpensesByInvoiceStatus,
@@ -446,6 +457,12 @@ export function AccountingPage() {
   const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
   const [settlementAuxiliary, setSettlementAuxiliary] = useState<StoredAccountingSettlementAuxiliary | null>(null)
   const [assetDraft, setAssetDraft] = useState<ExpenseAssetRegistrationDraft>(buildEmptyExpenseAssetDraft)
+  const [editingExpenseBaseline, setEditingExpenseBaseline] = useState<{
+    form: AccountingExpenseInput
+    draft: ExpenseAssetRegistrationDraft
+  } | null>(null)
+  const [editingExpenseSummary, setEditingExpenseSummary] = useState<ExpenseEditSummary | null>(null)
+  const [expenseFormActionError, setExpenseFormActionError] = useState('')
   const [sessionDiagnostics, setSessionDiagnostics] = useState<AccountingSessionDiagnostics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -494,6 +511,60 @@ export function AccountingPage() {
       }
     }
   }, [receiptPreviewObjectUrl])
+
+  useEffect(() => {
+    if (assetDraft.registrationType !== 'normal') {
+      return
+    }
+
+    if (!assetDraft.normalExpenseOverrideConfirmed) {
+      return
+    }
+
+    const currentJudgment = detectNormalExpenseOverrideJudgment({
+      amountYen: assetDraft.acquisitionCost || expenseForm?.taxIncludedAmount || 0,
+      description: expenseForm?.description ?? '',
+      vendorName: expenseForm?.vendorName ?? '',
+      suggestedCategory: expenseForm?.suggestedExpenseCategory ?? '',
+    })
+
+    if (
+      !shouldClearNormalExpenseOverrideConfirmation({
+        confirmed: assetDraft.normalExpenseOverrideConfirmed,
+        confirmedJudgmentKey: assetDraft.normalExpenseOverrideJudgmentKey,
+        currentJudgment,
+      })
+    ) {
+      return
+    }
+
+    setAssetDraft((current) => {
+      if (
+        !shouldClearNormalExpenseOverrideConfirmation({
+          confirmed: current.normalExpenseOverrideConfirmed,
+          confirmedJudgmentKey: current.normalExpenseOverrideJudgmentKey,
+          currentJudgment,
+        })
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        normalExpenseOverrideConfirmed: false,
+        normalExpenseOverrideJudgmentKey: '',
+      }
+    })
+  }, [
+    assetDraft.acquisitionCost,
+    assetDraft.normalExpenseOverrideConfirmed,
+    assetDraft.normalExpenseOverrideJudgmentKey,
+    assetDraft.registrationType,
+    expenseForm?.description,
+    expenseForm?.suggestedExpenseCategory,
+    expenseForm?.taxIncludedAmount,
+    expenseForm?.vendorName,
+  ])
 
   const clearReceiptPreviewObjectUrl = () => {
     setReceiptPreviewObjectUrl((current) => {
@@ -791,6 +862,9 @@ export function AccountingPage() {
   const resetExpenseFormToNew = () => {
     const clearingReceiptId = expenseForm?.receiptId
     setEditingExpenseId('')
+    setEditingExpenseBaseline(null)
+    setEditingExpenseSummary(null)
+    setExpenseFormActionError('')
     setIsConsumptionTaxManual(false)
     setOcrCandidateNotice('')
     setInvoiceNumberWarning('')
@@ -1677,25 +1751,29 @@ export function AccountingPage() {
 
   const validateAssetDraftBeforeSave = () => {
     if (assetDraft.registrationType === 'normal') {
-      const registrationWarning = detectFixedAssetRegistrationWarning({
+      const judgment = detectNormalExpenseOverrideJudgment({
         amountYen: assetDraft.acquisitionCost || expenseForm?.taxIncludedAmount || 0,
         description: expenseForm?.description ?? '',
         vendorName: expenseForm?.vendorName ?? '',
         suggestedCategory: expenseForm?.suggestedExpenseCategory ?? '',
       })
 
-      if (registrationWarning.shouldWarn) {
-        if (!assetDraft.normalExpenseOverrideConfirmed) {
-          setErrorMessage(
-            '取得価額10万円以上または固定資産候補のため、通常経費のまま登録する場合は確認と理由入力が必要です。',
-          )
-          return false
-        }
+      const overrideValidation = validateNormalExpenseOverrideForSave({
+        registrationType: assetDraft.registrationType,
+        confirmed: assetDraft.normalExpenseOverrideConfirmed,
+        reason: assetDraft.normalExpenseOverrideReason,
+        confirmedJudgmentKey: assetDraft.normalExpenseOverrideJudgmentKey,
+        judgment,
+        isEditing: Boolean(editingExpenseId),
+      })
 
-        if (!assetDraft.normalExpenseOverrideReason.trim()) {
-          setErrorMessage('通常経費で登録する理由を入力してください。')
-          return false
-        }
+      if (!overrideValidation.ok) {
+        setErrorMessage(overrideValidation.message)
+        setExpenseFormActionError(overrideValidation.message)
+        window.setTimeout(() => {
+          focusNormalExpenseOverrideField(overrideValidation.focusTarget)
+        }, 0)
+        return false
       }
 
       return true
@@ -1703,16 +1781,19 @@ export function AccountingPage() {
 
     if (!assetDraft.purchaseDate) {
       setErrorMessage('購入日を入力してください。')
+      setExpenseFormActionError('購入日を入力してください。')
       return false
     }
 
     if (!assetDraft.useStartDate) {
       setErrorMessage('使用開始日を入力してください。')
+      setExpenseFormActionError('使用開始日を入力してください。')
       return false
     }
 
     if ((assetDraft.acquisitionCost || expenseForm?.taxIncludedAmount || 0) <= 0) {
       setErrorMessage('取得価額を入力してください。')
+      setExpenseFormActionError('取得価額を入力してください。')
       return false
     }
 
@@ -1722,6 +1803,7 @@ export function AccountingPage() {
       !assetDraft.usefulLifeChangeReason.trim()
     ) {
       setErrorMessage('耐用年数を変更した場合は変更理由を入力してください。')
+      setExpenseFormActionError('耐用年数を変更した場合は変更理由を入力してください。')
       return false
     }
 
@@ -1732,6 +1814,7 @@ export function AccountingPage() {
       !assetDraft.firstRegistrationYearMonth
     ) {
       setErrorMessage('中古車の初度登録年月を入力してください。')
+      setExpenseFormActionError('中古車の初度登録年月を入力してください。')
       return false
     }
 
@@ -1744,7 +1827,9 @@ export function AccountingPage() {
     }
 
     if (expenseForm.confirmationStatus === '確認済み' && !expenseForm.expenseCategory) {
-      setErrorMessage('経費科目を選択しないと確認済みにできません。')
+      const message = '経費科目を選択しないと確認済みにできません。'
+      setErrorMessage(message)
+      setExpenseFormActionError(message)
       return
     }
 
@@ -1755,19 +1840,30 @@ export function AccountingPage() {
     const persistExpense = async () => {
       setIsSavingExpense(true)
       setErrorMessage('')
+      setExpenseFormActionError('')
       setStatusMessage('')
 
       try {
+        const judgment = detectNormalExpenseOverrideJudgment({
+          amountYen: assetDraft.acquisitionCost || expenseForm.taxIncludedAmount || 0,
+          description: expenseForm.description,
+          vendorName: expenseForm.vendorName,
+          suggestedCategory: expenseForm.suggestedExpenseCategory,
+        })
+        const overridePersistFields = buildNormalExpenseOverridePersistFields({
+          registrationType: assetDraft.registrationType,
+          confirmed: assetDraft.normalExpenseOverrideConfirmed,
+          reason: assetDraft.normalExpenseOverrideReason,
+          judgment,
+        })
+
         const expensePayload: AccountingExpenseInput = {
           ...expenseForm,
           plTreatment:
             assetDraft.registrationType === 'fixed'
               ? 'excluded'
               : normalizePlTreatment(expenseForm.plTreatment),
-          normalExpenseOverrideReason:
-            assetDraft.registrationType === 'normal' && assetDraft.normalExpenseOverrideConfirmed
-              ? assetDraft.normalExpenseOverrideReason.trim()
-              : undefined,
+          ...overridePersistFields,
         }
 
         const acquisitionCost = assetDraft.acquisitionCost || expenseForm.taxIncludedAmount
@@ -1820,13 +1916,17 @@ export function AccountingPage() {
                 : '経費を登録しました。'
 
         setEditingExpenseId('')
+        setEditingExpenseBaseline(null)
+        setEditingExpenseSummary(null)
         setAssetDraft(buildEmptyExpenseAssetDraft())
         resetExpenseFormToNew()
         setStatusMessage(successMessage)
         await reloadExpensesAdjustmentsAndReceipts()
         await reloadFixedAssets()
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : '経費の保存に失敗しました。')
+        const message = error instanceof Error ? error.message : '経費の保存に失敗しました。'
+        setErrorMessage(message)
+        setExpenseFormActionError(message)
       } finally {
         setIsSavingExpense(false)
       }
@@ -1849,7 +1949,34 @@ export function AccountingPage() {
       return
     }
 
+    const nextForm: AccountingExpenseInput = {
+      ...expense,
+      receiptDate: getExpenseReceiptDate(expense),
+      postingDate: getExpensePostingDate(expense),
+      plTreatment: normalizePlTreatment(expense.plTreatment),
+    }
+    const nextDraft = buildAssetDraftForExpenseEdit({
+      expense,
+      amountYen: expense.taxIncludedAmount,
+      description: expense.description,
+      vendorName: expense.vendorName,
+      suggestedCategory: expense.suggestedExpenseCategory,
+    })
+
     setEditingExpenseId(expenseId)
+    setEditingExpenseBaseline({
+      form: nextForm,
+      draft: nextDraft,
+    })
+    setEditingExpenseSummary(
+      buildExpenseEditSummary({
+        vendorName: expense.vendorName,
+        description: expense.description,
+        taxIncludedAmount: expense.taxIncludedAmount,
+        receiptDate: getExpenseReceiptDate(expense),
+      }),
+    )
+    setExpenseFormActionError('')
     setIsConsumptionTaxManual(
       expense.taxCalculationMode === 'manual' ||
         expense.taxCalculationMode === 'ocr' ||
@@ -1860,14 +1987,38 @@ export function AccountingPage() {
     setInvoiceNumberWarning(
       expense.invoiceNumber ? validateInvoiceNumberCandidate(expense.invoiceNumber).warning : '',
     )
-    setExpenseForm({
-      ...expense,
-      receiptDate: getExpenseReceiptDate(expense),
-      postingDate: getExpensePostingDate(expense),
-      plTreatment: normalizePlTreatment(expense.plTreatment),
-    })
+    setExpenseForm(nextForm)
+    setAssetDraft(nextDraft)
     setActiveTab('expenses')
     setStatusMessage('経費を編集モードで読み込みました。')
+    setErrorMessage('')
+  }
+
+  const handleReturnToExpenseList = () => {
+    if (
+      editingExpenseBaseline &&
+      expenseForm &&
+      hasUnsavedExpenseEditChanges({
+        originalForm: editingExpenseBaseline.form as unknown as Record<string, unknown>,
+        currentForm: expenseForm as unknown as Record<string, unknown>,
+        originalDraft: editingExpenseBaseline.draft,
+        currentDraft: assetDraft,
+      })
+    ) {
+      const confirmed = window.confirm('変更内容は保存されません。戻りますか？')
+      if (!confirmed) {
+        return
+      }
+    }
+
+    resetExpenseFormToNew()
+    setStatusMessage('経費一覧へ戻りました。')
+    window.setTimeout(() => {
+      document.getElementById(ACCOUNTING_EXPENSE_LIST_SECTION_ID)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 0)
   }
 
   const handleInvalidateExpense = async (expenseId: string) => {
@@ -2578,6 +2729,29 @@ export function AccountingPage() {
         {activeTab === 'expenses' && expenseForm ? (
           <section className="accounting-panel accounting-expense-panel" aria-label="経費入力">
             <h2>{editingExpenseId ? '経費編集' : '経費入力'}</h2>
+            {editingExpenseId && editingExpenseSummary ? (
+              <div className="accounting-expense-editing-summary" role="status">
+                <p className="accounting-expense-editing-summary-title">編集中：</p>
+                <dl className="accounting-expense-editing-summary-grid">
+                  <div>
+                    <dt>仕入先名</dt>
+                    <dd>{editingExpenseSummary.vendorName}</dd>
+                  </div>
+                  <div>
+                    <dt>内容</dt>
+                    <dd>{editingExpenseSummary.description}</dd>
+                  </div>
+                  <div>
+                    <dt>税込金額</dt>
+                    <dd>{formatFareYen(editingExpenseSummary.taxIncludedAmount)}</dd>
+                  </div>
+                  <div>
+                    <dt>証憑日</dt>
+                    <dd>{editingExpenseSummary.receiptDate}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
             <p className="accounting-note">
               OCR/AIの科目提案は参考値です。最終的な経費科目は必ず人が選択して確定してください。
               <br />
@@ -3181,6 +3355,20 @@ export function AccountingPage() {
                         新規入力に切替
                       </button>
                     ) : null}
+                    {editingExpenseId ? (
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={handleReturnToExpenseList}
+                      >
+                        経費一覧へ戻る
+                      </button>
+                    ) : null}
+                    {expenseFormActionError ? (
+                      <p className="case-error accounting-form-action-error" role="alert">
+                        {expenseFormActionError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <details
@@ -3354,7 +3542,11 @@ export function AccountingPage() {
               </div>
             </section>
 
-            <div className="accounting-expense-cards" aria-label="当月経費一覧（カード）">
+            <div
+              className="accounting-expense-cards"
+              id={ACCOUNTING_EXPENSE_LIST_SECTION_ID}
+              aria-label="当月経費一覧（カード）"
+            >
               {monthExpenses.length > 0 ? (
                 monthExpenses.map((expense) => (
                   <article key={expense.id} className="accounting-expense-card">

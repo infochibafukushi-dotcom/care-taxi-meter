@@ -13,6 +13,12 @@ import {
   FIXED_ASSET_OVERRIDE_WARNING,
 } from '../../utils/accountingAssetDetection'
 import {
+  buildNormalExpenseOverrideJudgmentKey,
+  NORMAL_EXPENSE_OVERRIDE_CONFIRM_CHECKBOX_ID,
+  NORMAL_EXPENSE_OVERRIDE_REASON_FIELD_ID,
+  NORMAL_EXPENSE_OVERRIDE_SECTION_ID,
+} from '../../utils/accountingNormalExpenseOverride'
+import {
   ASSET_CONDITIONS,
   EXPENSE_REGISTRATION_TYPES,
   EXPENSE_REGISTRATION_TYPE_LABELS,
@@ -108,6 +114,7 @@ export function ExpenseAssetBranchPanel({
         assetName: '',
         normalExpenseOverrideReason: '',
         normalExpenseOverrideConfirmed: false,
+        normalExpenseOverrideJudgmentKey: '',
       })
       setShowFixedDetails(false)
       return
@@ -163,7 +170,11 @@ export function ExpenseAssetBranchPanel({
       </fieldset>
 
       {draft.registrationType === 'normal' && registrationWarning.shouldWarn ? (
-        <div className="accounting-asset-warning" role="alert">
+        <div
+          className="accounting-asset-warning"
+          id={NORMAL_EXPENSE_OVERRIDE_SECTION_ID}
+          role="alert"
+        >
           <p className="accounting-note accounting-asset-warning-message">{FIXED_ASSET_OVERRIDE_WARNING}</p>
           {registrationWarning.amountMatch ? (
             <p className="accounting-note">取得価額が10万円以上です。</p>
@@ -173,12 +184,18 @@ export function ExpenseAssetBranchPanel({
           ) : null}
           <label className="accounting-checkbox-label">
             <input
+              id={NORMAL_EXPENSE_OVERRIDE_CONFIRM_CHECKBOX_ID}
               type="checkbox"
               checked={draft.normalExpenseOverrideConfirmed}
               onChange={(event) =>
                 updateDraft({
                   normalExpenseOverrideConfirmed: event.target.checked,
-                  normalExpenseOverrideReason: event.target.checked ? draft.normalExpenseOverrideReason : '',
+                  normalExpenseOverrideReason: event.target.checked
+                    ? draft.normalExpenseOverrideReason
+                    : '',
+                  normalExpenseOverrideJudgmentKey: event.target.checked
+                    ? buildNormalExpenseOverrideJudgmentKey(registrationWarning)
+                    : '',
                 })
               }
             />
@@ -188,6 +205,7 @@ export function ExpenseAssetBranchPanel({
             <label>
               通常経費で登録する理由（必須）
               <textarea
+                id={NORMAL_EXPENSE_OVERRIDE_REASON_FIELD_ID}
                 rows={2}
                 value={draft.normalExpenseOverrideReason}
                 onChange={(event) => updateDraft({ normalExpenseOverrideReason: event.target.value })}

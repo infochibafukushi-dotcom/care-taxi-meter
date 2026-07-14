@@ -252,6 +252,8 @@ export type AccountingExpenseInput = AccountingTenantFields &
     deleteReason?: string
     /** 10万円以上等で通常経費登録を選択した理由 */
     normalExpenseOverrideReason?: string
+    /** 固定資産候補を通常経費のまま登録する確認済みフラグ */
+    normalExpenseOverrideConfirmed?: boolean
   }
 
 export type StoredAccountingExpense = AccountingExpenseInput & {

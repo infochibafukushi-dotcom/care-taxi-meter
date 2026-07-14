@@ -157,6 +157,46 @@ body.route-accounting,
   background: #fff8e6;
 }
 
+.accounting-expense-editing-summary {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c5d0db;
+  border-radius: 0.5rem;
+  background: #f5f8fb;
+}
+
+.accounting-expense-editing-summary-title {
+  margin: 0 0 0.5rem;
+  font-weight: 700;
+}
+
+.accounting-expense-editing-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0;
+}
+
+.accounting-expense-editing-summary-grid div {
+  margin: 0;
+}
+
+.accounting-expense-editing-summary-grid dt {
+  margin: 0;
+  color: #5b6472;
+  font-size: 0.85rem;
+}
+
+.accounting-expense-editing-summary-grid dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+}
+
+.accounting-form-action-error {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+}
+
 .accounting-asset-warning-message {
   color: #7a4f01;
   font-weight: 600;
