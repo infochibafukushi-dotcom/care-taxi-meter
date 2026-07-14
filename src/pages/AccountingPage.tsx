@@ -128,9 +128,11 @@ import {
 } from '../utils/accountingNormalExpenseOverride'
 import {
   EXPENSE_LIST_CONFIRMATION_STATUS_HEADER,
+  EXPENSE_LIST_RECEIPT_PENDING_LABEL,
   formatExpenseListConfirmationStatus,
   formatExpenseListInvoiceNumber,
   formatExpenseListInvoiceStatus,
+  getExpenseListActionStatusLabel,
 } from '../utils/accountingExpenseListDisplay'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
@@ -3608,6 +3610,23 @@ export function AccountingPage() {
                       </div>
                     </dl>
                     <div className="accounting-expense-card-actions">
+                      {(() => {
+                        const actionStatus = getExpenseListActionStatusLabel(expense)
+                        if (!actionStatus) {
+                          return null
+                        }
+                        return (
+                          <span
+                            className={
+                              actionStatus === EXPENSE_LIST_RECEIPT_PENDING_LABEL
+                                ? 'accounting-expense-action-badge accounting-expense-action-badge--receipt-pending'
+                                : 'accounting-expense-action-badge accounting-expense-action-badge--confirm-pending'
+                            }
+                          >
+                            {actionStatus}
+                          </span>
+                        )
+                      })()}
                       <button
                         className="secondary-action"
                         type="button"
@@ -3673,29 +3692,48 @@ export function AccountingPage() {
                         <td>{formatFareYen(expense.taxIncludedAmount)}</td>
                         <td>{formatExpenseListConfirmationStatus(expense.confirmationStatus)}</td>
                         <td>
-                          <button
-                            className="secondary-action"
-                            type="button"
-                            onClick={() => handleEditExpense(expense.id)}
-                          >
-                            編集
-                          </button>
-                          {expense.confirmationStatus !== '無効' ? (
+                          <div className="accounting-expense-row-actions">
+                            {(() => {
+                              const actionStatus = getExpenseListActionStatusLabel(expense)
+                              if (!actionStatus) {
+                                return null
+                              }
+                              return (
+                                <span
+                                  className={
+                                    actionStatus === EXPENSE_LIST_RECEIPT_PENDING_LABEL
+                                      ? 'accounting-expense-action-badge accounting-expense-action-badge--receipt-pending'
+                                      : 'accounting-expense-action-badge accounting-expense-action-badge--confirm-pending'
+                                  }
+                                >
+                                  {actionStatus}
+                                </span>
+                              )
+                            })()}
                             <button
                               className="secondary-action"
                               type="button"
-                              onClick={() => void handleInvalidateExpense(expense.id)}
+                              onClick={() => handleEditExpense(expense.id)}
                             >
-                              無効化
+                              編集
                             </button>
-                          ) : null}
-                          <button
-                            className="secondary-action"
-                            type="button"
-                            onClick={() => void handleDeleteExpense(expense.id)}
-                          >
-                            削除
-                          </button>
+                            {expense.confirmationStatus !== '無効' ? (
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => void handleInvalidateExpense(expense.id)}
+                              >
+                                無効化
+                              </button>
+                            ) : null}
+                            <button
+                              className="secondary-action"
+                              type="button"
+                              onClick={() => void handleDeleteExpense(expense.id)}
+                            >
+                              削除
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))

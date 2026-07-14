@@ -859,6 +859,38 @@ body.route-accounting,
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
+}
+
+.accounting-expense-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.accounting-expense-action-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.accounting-expense-action-badge--receipt-pending {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.accounting-expense-action-badge--confirm-pending {
+  color: #9a3412;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
 }
 
 .accounting-fixed-cost-header {

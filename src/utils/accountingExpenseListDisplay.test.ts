@@ -4,10 +4,14 @@ import { INVOICE_STATUS_LABELS, INVOICE_STATUSES } from '../types/accounting'
 import { aggregateExpensesByInvoiceStatus } from './accountingPl'
 import {
   EXPENSE_INVOICE_NUMBER_PLACEHOLDER_EXAMPLE,
+  EXPENSE_LIST_CONFIRMATION_PENDING_LABEL,
   EXPENSE_LIST_CONFIRMATION_STATUS_HEADER,
+  EXPENSE_LIST_RECEIPT_PENDING_LABEL,
   formatExpenseListConfirmationStatus,
   formatExpenseListInvoiceNumber,
   formatExpenseListInvoiceStatus,
+  getExpenseListActionStatusLabel,
+  hasExpenseReceiptAttachment,
 } from './accountingExpenseListDisplay'
 
 const expense = (overrides: Partial<StoredAccountingExpense>): StoredAccountingExpense => ({
@@ -173,5 +177,78 @@ describe('経費一覧の操作ボタン前提', () => {
     expect(row.id).toBe('expense-ops-1')
     expect(row.confirmationStatus).not.toBe('無効')
     expect(formatExpenseListConfirmationStatus(row.confirmationStatus)).toBe('確認済み')
+  })
+})
+
+describe('経費一覧の証憑／確認待ちバッジ', () => {
+  it('証憑未添付なら「証憑待ち」が表示される', () => {
+    expect(hasExpenseReceiptAttachment(expense({}))).toBe(false)
+    expect(getExpenseListActionStatusLabel(expense({ confirmationStatus: '未確認' }))).toBe(
+      EXPENSE_LIST_RECEIPT_PENDING_LABEL,
+    )
+    expect(getExpenseListActionStatusLabel(expense({ confirmationStatus: '確認済み' }))).toBe(
+      EXPENSE_LIST_RECEIPT_PENDING_LABEL,
+    )
+  })
+
+  it('ファイル名だけでは証憑ありと扱わず「証憑待ち」になる', () => {
+    const row = expense({
+      confirmationStatus: '未確認',
+      receiptFileName: 'LANinvoice.pdf',
+      receiptFileStoragePath: 'accounting/f1/s1/receipts/x/original/LANinvoice.pdf',
+      receiptFileUrl: '',
+      receiptImageUrl: undefined,
+      receiptPreviewImageUrl: '   ',
+    })
+    expect(hasExpenseReceiptAttachment(row)).toBe(false)
+    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_RECEIPT_PENDING_LABEL)
+  })
+
+  it('PDF添付済みなら「証憑待ち」が消える', () => {
+    const row = expense({
+      confirmationStatus: '確認済み',
+      receiptFileUrl: 'https://example.com/receipt.pdf',
+      receiptFileName: 'receipt.pdf',
+    })
+    expect(hasExpenseReceiptAttachment(row)).toBe(true)
+    expect(getExpenseListActionStatusLabel(row)).toBeNull()
+  })
+
+  it('画像添付済みでも「証憑待ち」が消える', () => {
+    const byPreview = expense({
+      confirmationStatus: '確認済み',
+      receiptPreviewImageUrl: 'https://example.com/preview.jpg',
+    })
+    const byLegacyImage = expense({
+      confirmationStatus: '確認済み',
+      receiptImageUrl: 'https://example.com/image.jpg',
+    })
+    expect(hasExpenseReceiptAttachment(byPreview)).toBe(true)
+    expect(hasExpenseReceiptAttachment(byLegacyImage)).toBe(true)
+    expect(getExpenseListActionStatusLabel(byPreview)).toBeNull()
+    expect(getExpenseListActionStatusLabel(byLegacyImage)).toBeNull()
+  })
+
+  it('添付済みかつ未確認なら「確認待ち」が表示される', () => {
+    const row = expense({
+      confirmationStatus: '未確認',
+      receiptFileUrl: 'https://example.com/receipt.pdf',
+    })
+    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_CONFIRMATION_PENDING_LABEL)
+  })
+
+  it('添付済みかつ確認済みなら状態表示が消える', () => {
+    const row = expense({
+      confirmationStatus: '確認済み',
+      receiptFileUrl: 'https://example.com/receipt.pdf',
+      receiptPreviewImageUrl: 'https://example.com/preview.jpg',
+    })
+    expect(getExpenseListActionStatusLabel(row)).toBeNull()
+  })
+
+  it('バッジ文言は色判定に依存せず文字として定義される', () => {
+    expect(EXPENSE_LIST_RECEIPT_PENDING_LABEL).toBe('証憑待ち')
+    expect(EXPENSE_LIST_CONFIRMATION_PENDING_LABEL).toBe('確認待ち')
+    expect(EXPENSE_LIST_RECEIPT_PENDING_LABEL).not.toBe('画像待ち')
   })
 })
