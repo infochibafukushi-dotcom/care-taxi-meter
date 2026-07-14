@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACCOUNTING_RECEIPT_FILE_ACCEPT,
   ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE,
+  ACCOUNTING_RECEIPT_SUPPORTED_FORMAT_LABEL,
   ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE,
   buildAccountingReceiptStorageFileName,
   detectAccountingReceiptDocumentType,
+  isAccountingReceiptFileSizeAllowed,
+  MAX_ACCOUNTING_RECEIPT_FILE_BYTES,
   sanitizeAccountingReceiptFileName,
   validateAccountingReceiptUploadFile,
 } from './accountingReceiptFile'
@@ -29,33 +33,49 @@ describe('accountingReceiptFile validation', () => {
     expect(validateAccountingReceiptUploadFile(makeFile('a.pdf', 'application/pdf', 100)).ok).toBe(true)
   })
 
-  it('rejects unsupported types', () => {
+  it('rejects HEIC/HEIF because preview is unreliable across browsers', () => {
+    expect(validateAccountingReceiptUploadFile(makeFile('a.heic', 'image/heic', 100)).ok).toBe(false)
+    expect(validateAccountingReceiptUploadFile(makeFile('a.heif', 'image/heif', 100)).ok).toBe(false)
+    expect(ACCOUNTING_RECEIPT_FILE_ACCEPT).not.toContain('heic')
+    expect(ACCOUNTING_RECEIPT_SUPPORTED_FORMAT_LABEL).not.toContain('HEIC')
+  })
+
+  it('rejects unsupported types with the same supported-format label as the UI', () => {
     const gif = validateAccountingReceiptUploadFile(makeFile('a.gif', 'image/gif', 100))
     expect(gif.ok).toBe(false)
     if (!gif.ok) {
       expect(gif.message).toBe(ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE)
-    }
-
-    const bad = validateAccountingReceiptUploadFile(makeFile('a.txt', 'text/plain', 100))
-    expect(bad.ok).toBe(false)
-    if (!bad.ok) {
-      expect(bad.message).toBe(ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE)
+      expect(gif.message).toContain(ACCOUNTING_RECEIPT_SUPPORTED_FORMAT_LABEL)
     }
   })
 
-  it('rejects files 10MB or larger', () => {
-    const result = validateAccountingReceiptUploadFile(
-      makeFile('big.pdf', 'application/pdf', 10 * 1024 * 1024),
+  it('allows size under 10MB and rejects exactly 10MB or larger', () => {
+    expect(isAccountingReceiptFileSizeAllowed(MAX_ACCOUNTING_RECEIPT_FILE_BYTES - 1)).toBe(true)
+    expect(
+      validateAccountingReceiptUploadFile(
+        makeFile('under.pdf', 'application/pdf', MAX_ACCOUNTING_RECEIPT_FILE_BYTES - 1),
+      ).ok,
+    ).toBe(true)
+
+    const exact = validateAccountingReceiptUploadFile(
+      makeFile('exact.pdf', 'application/pdf', MAX_ACCOUNTING_RECEIPT_FILE_BYTES),
     )
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.message).toBe(ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE)
+    expect(exact.ok).toBe(false)
+    if (!exact.ok) {
+      expect(exact.message).toBe(ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE)
     }
+
+    expect(
+      validateAccountingReceiptUploadFile(
+        makeFile('over.pdf', 'application/pdf', MAX_ACCOUNTING_RECEIPT_FILE_BYTES + 1),
+      ).ok,
+    ).toBe(false)
   })
 
   it('detects document type from mime and extension', () => {
     expect(detectAccountingReceiptDocumentType({ name: 'x.pdf', type: '' })).toBe('pdf')
     expect(detectAccountingReceiptDocumentType({ name: 'x.jpg', type: 'image/jpeg' })).toBe('image')
+    expect(detectAccountingReceiptDocumentType({ name: 'x.heic', type: '' })).toBeNull()
   })
 
   it('sanitizes file names safely', () => {

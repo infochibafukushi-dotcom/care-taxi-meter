@@ -1,24 +1,26 @@
 import type { AccountingReceiptDocumentType } from '../types/accounting'
 
+/** 10 MiB。この値以上は拒否（許可は 10MB 未満） */
 export const MAX_ACCOUNTING_RECEIPT_FILE_BYTES = 10 * 1024 * 1024
 
+/**
+ * 対応形式の案内（プレビュー・OCR・保存・再表示まで保証できるもののみ）。
+ * HEIC/HEIF はブラウザでのデコードが不安定なため除外。
+ */
+export const ACCOUNTING_RECEIPT_SUPPORTED_FORMAT_LABEL = 'PDF、PNG、JPG、JPEG、WebP'
+
 export const ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE =
-  '対応していないファイル形式です。JPEG、PNG、WebP、PDFを選択してください。'
+  `このファイル形式には対応していません。\n${ACCOUNTING_RECEIPT_SUPPORTED_FORMAT_LABEL}を選択してください。`
 
 export const ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE =
   'ファイルサイズが10MB以上です。10MB未満の画像またはPDFを選択してください。'
 
 export const ACCOUNTING_RECEIPT_FILE_ACCEPT =
-  'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf'
+  'image/jpeg,image/png,image/webp,application/pdf'
 
-const IMAGE_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'image/heif',
-])
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+
+const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif'])
 
 export type { AccountingReceiptDocumentType }
 
@@ -34,23 +36,39 @@ export const isAccountingReceiptImageMime = (mimeType?: string) => {
   return IMAGE_MIME_TYPES.has(normalized)
 }
 
+export const isAccountingReceiptHeicLike = (file: Pick<File, 'type' | 'name'>) => {
+  const mime = (file.type || '').trim().toLowerCase()
+  if (HEIC_MIME_TYPES.has(mime)) {
+    return true
+  }
+  return /\.(heic|heif)$/i.test(file.name)
+}
+
 export const detectAccountingReceiptDocumentType = (
   file: Pick<File, 'type' | 'name'>,
 ): AccountingReceiptDocumentType | null => {
+  if (isAccountingReceiptHeicLike(file)) {
+    return null
+  }
+
   const mime = (file.type || '').trim().toLowerCase()
   if (isAccountingReceiptPdfMime(mime) || file.name.toLowerCase().endsWith('.pdf')) {
     return 'pdf'
   }
 
-  if (isAccountingReceiptImageMime(mime) || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
+  if (isAccountingReceiptImageMime(mime) || /\.(jpe?g|png|webp)$/i.test(file.name)) {
     return 'image'
   }
 
   return null
 }
 
+/** true = 許可（厳密に 10MB 未満）。ちょうど 10MB は拒否。 */
+export const isAccountingReceiptFileSizeAllowed = (sizeBytes: number) =>
+  Number.isFinite(sizeBytes) && sizeBytes >= 0 && sizeBytes < MAX_ACCOUNTING_RECEIPT_FILE_BYTES
+
 export const validateAccountingReceiptUploadFile = (file: File) => {
-  if (file.size >= MAX_ACCOUNTING_RECEIPT_FILE_BYTES) {
+  if (!isAccountingReceiptFileSizeAllowed(file.size)) {
     return { ok: false as const, message: ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE }
   }
 

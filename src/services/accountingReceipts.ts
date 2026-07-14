@@ -944,6 +944,50 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
   return { storageImageWasMissing }
 }
 
+/**
+ * 未使用の一時アップロード（未整理のみ）を安全に削除する。
+ * linked / confirmed など非未整理はスキップし、既存証憑を誤削除しない。
+ */
+export async function discardUnorganizedAccountingReceipt(
+  receiptId: string,
+): Promise<'deleted' | 'skipped' | 'missing'> {
+  const id = receiptId.trim()
+  if (!id) {
+    return 'missing'
+  }
+
+  if (isReviewDemoRuntimeEnabled()) {
+    return 'skipped'
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const receiptRef = doc(db, collectionName, id)
+
+  let snapshot
+  try {
+    snapshot = await getDoc(receiptRef)
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      throw new Error('未整理領収書データの読み取り権限がありません。Firestore rules を確認してください。', {
+        cause: error,
+      })
+    }
+    throw error
+  }
+
+  if (!snapshot.exists()) {
+    return 'missing'
+  }
+
+  const receipt = toStoredReceipt(snapshot)
+  if (receipt.status !== 'unorganized') {
+    return 'skipped'
+  }
+
+  await deleteAccountingReceipt(id)
+  return 'deleted'
+}
+
 export async function resolveAccountingReceiptDownloadUrl({
   downloadUrl,
   storagePath,

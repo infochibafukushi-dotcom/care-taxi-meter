@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import './AccountingPage.css'
 import { fetchCaseRecords } from '../services/caseRecords'
@@ -21,6 +21,7 @@ import { fetchAccountingSettlementAuxiliary } from '../services/accountingSettle
 import {
   applyOcrCandidatesToAccountingReceipt,
   deleteAccountingReceipt,
+  discardUnorganizedAccountingReceipt,
   fetchAccountingReceipts,
   fetchUnorganizedAccountingReceipts,
   getAccountingReceiptOriginalFileUrl,
@@ -40,6 +41,28 @@ import {
   isAccountingReceiptPdfMime,
   validateAccountingReceiptUploadFile,
 } from '../utils/accountingReceiptFile'
+import {
+  ACCOUNTING_RECEIPT_ATTACHMENT_STATUS_LABEL,
+  ACCOUNTING_RECEIPT_DROP_ZONE_ACTIVE_LABEL,
+  ACCOUNTING_RECEIPT_DROP_ZONE_ARIA_LABEL,
+  ACCOUNTING_RECEIPT_DROP_ZONE_HINT,
+  ACCOUNTING_RECEIPT_DROP_ZONE_TITLE,
+  ACCOUNTING_RECEIPT_READ_FAILED_MESSAGE,
+  ACCOUNTING_RECEIPT_REPLACE_CONFIRM_MESSAGE,
+  advanceDropZoneDragDepth,
+  formatAccountingReceiptFileTypeLabel,
+  formatAccountingReceiptSelectionSummary,
+  hasExistingAccountingReceiptAttachment,
+  isDropZoneDragActive,
+  preventBrowserFileNavigation,
+  resolveAccountingReceiptAttachmentStatus,
+  resolvePendingUnorganizedReceiptIdsToDiscard,
+  resolveReplacedUnorganizedReceiptIdToDiscard,
+  resolveSelectedAccountingReceiptFiles,
+  shouldOpenFilePickerFromDropZoneTarget,
+  shouldOpenFilePickerFromKeyboard,
+  shouldPromptReceiptReplacement,
+} from '../utils/accountingReceiptDropZone'
 import { normalizeAccountingReceiptImage } from '../utils/accountingReceiptImage'
 import { createAccountingPdfPreview } from '../utils/accountingReceiptPdf'
 import { recordAccountingExport } from '../services/accountingExports'
@@ -491,6 +514,16 @@ export function AccountingPage() {
   const [ocrStatusByReceiptId, setOcrStatusByReceiptId] = useState<Record<string, string>>({})
   const [ocrProgressMessage, setOcrProgressMessage] = useState('')
   const [receiptPreviewObjectUrl, setReceiptPreviewObjectUrl] = useState('')
+  const [receiptDropDepth, setReceiptDropDepth] = useState(0)
+  const [receiptLocalSelectionActive, setReceiptLocalSelectionActive] = useState(false)
+  const [receiptSelectionError, setReceiptSelectionError] = useState(false)
+  const [receiptSelectedFileMeta, setReceiptSelectedFileMeta] = useState<{
+    name: string
+    summary: string
+  } | null>(null)
+  const receiptFileInputRef = useRef<HTMLInputElement | null>(null)
+  const receiptUploadInFlightRef = useRef(false)
+  const pendingUnorganizedReceiptIdsRef = useRef<string[]>([])
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
   const [isExpenseCategoryHelpOpen, setIsExpenseCategoryHelpOpen] = useState(false)
@@ -858,6 +891,28 @@ export function AccountingPage() {
     linkedReceiptForForm?.fileName ||
     ''
   const expenseReceiptPageCount = linkedReceiptForForm?.pdfPageCount
+  const isReceiptDropActive = isDropZoneDragActive(receiptDropDepth)
+  const expenseHasPersistedReceipt =
+    Boolean(editingExpenseId) &&
+    hasExistingAccountingReceiptAttachment(expenseForm) &&
+    !receiptLocalSelectionActive
+  const receiptAttachmentStatus = resolveAccountingReceiptAttachmentStatus({
+    isProcessing: isUploadingReceipt,
+    hasError: receiptSelectionError,
+    hasLocalSelection: receiptLocalSelectionActive,
+    hasPersistedOnExpense: expenseHasPersistedReceipt,
+  })
+  const receiptAttachmentStatusLabel =
+    ACCOUNTING_RECEIPT_ATTACHMENT_STATUS_LABEL[receiptAttachmentStatus]
+  const receiptMetaName = receiptSelectedFileMeta?.name || expenseReceiptFileName
+  const receiptMetaSummary =
+    receiptSelectedFileMeta?.summary ||
+    (expenseReceiptFileName
+      ? formatAccountingReceiptFileTypeLabel({
+          name: expenseReceiptFileName,
+          type: expenseForm?.receiptFileMimeType || '',
+        })
+      : '')
 
   const buildFreshExpenseForm = () =>
     buildEmptyExpenseInput({
@@ -867,7 +922,54 @@ export function AccountingPage() {
       staffName,
     })
 
-  const resetExpenseFormToNew = () => {
+  const rememberPendingUnorganizedReceipt = (receiptId: string) => {
+    const id = receiptId.trim()
+    if (!id) {
+      return
+    }
+    if (!pendingUnorganizedReceiptIdsRef.current.includes(id)) {
+      pendingUnorganizedReceiptIdsRef.current = [...pendingUnorganizedReceiptIdsRef.current, id]
+    }
+  }
+
+  const retainPendingUnorganizedUploads = () => {
+    pendingUnorganizedReceiptIdsRef.current = []
+  }
+
+  const discardPendingUnorganizedReceipts = async () => {
+    const toDiscard = resolvePendingUnorganizedReceiptIdsToDiscard({
+      pendingReceiptIds: pendingUnorganizedReceiptIdsRef.current,
+      protectedReceiptIds: [editingExpenseBaseline?.form.receiptId],
+    })
+    pendingUnorganizedReceiptIdsRef.current = []
+    if (toDiscard.length === 0) {
+      return
+    }
+
+    await Promise.all(
+      toDiscard.map(async (receiptId) => {
+        try {
+          await discardUnorganizedAccountingReceipt(receiptId)
+        } catch {
+          // linked / 権限エラー等は既存証憑を壊さないよう握りつぶす
+        }
+      }),
+    )
+
+    try {
+      await reloadUnorganizedReceipts()
+    } catch {
+      // ignore reload failure after best-effort cleanup
+    }
+  }
+
+  const resetExpenseFormToNew = async (options?: { retainPendingUploads?: boolean }) => {
+    if (options?.retainPendingUploads) {
+      retainPendingUnorganizedUploads()
+    } else {
+      await discardPendingUnorganizedReceipts()
+    }
+
     const clearingReceiptId = expenseForm?.receiptId
     setEditingExpenseId('')
     setEditingExpenseBaseline(null)
@@ -881,6 +983,10 @@ export function AccountingPage() {
     setIsLookingUpInvoice(false)
     setIsAuditMenuOpen(false)
     setOcrProgressMessage('')
+    setReceiptLocalSelectionActive(false)
+    setReceiptSelectionError(false)
+    setReceiptSelectedFileMeta(null)
+    setReceiptDropDepth(0)
     clearReceiptPreviewObjectUrl()
     if (clearingReceiptId) {
       setRecentReceiptBlobs((current) => {
@@ -902,7 +1008,11 @@ export function AccountingPage() {
     }
     setExpenseForm(buildFreshExpenseForm())
     setAssetDraft(buildEmptyExpenseAssetDraft())
-    setStatusMessage('入力フォームとプレビューを初期化しました（保存済み領収書は削除していません）。')
+    setStatusMessage(
+      options?.retainPendingUploads
+        ? '入力フォームとプレビューを初期化しました（保存済み領収書は削除していません）。'
+        : '入力フォームとプレビューを初期化しました（未確定の一時アップロードは削除しました。経費に保存済みの証憑は残しています）。',
+    )
     setErrorMessage('')
   }
 
@@ -1253,15 +1363,30 @@ export function AccountingPage() {
     setReceiptImageZoom((current) => Math.min(3, Math.max(0.5, Number((current + delta).toFixed(2)))))
   }
 
+  const openReceiptFilePicker = () => {
+    if (isUploadingReceipt || isRunningOcr || receiptUploadInFlightRef.current) {
+      return
+    }
+    receiptFileInputRef.current?.click()
+  }
+
   const handleReceiptUpload = async (file: File | null, input?: HTMLInputElement | null) => {
     if (!file || !expenseForm) {
       return
     }
 
+    const previousReceiptId = expenseForm.receiptId?.trim() ?? ''
+    const protectedReceiptIds = [editingExpenseBaseline?.form.receiptId]
+
     setIsUploadingReceipt(true)
     setStatusMessage('')
     setErrorMessage('')
+    setReceiptSelectionError(false)
     setOcrProgressMessage('')
+    setReceiptSelectedFileMeta({
+      name: file.name,
+      summary: formatAccountingReceiptSelectionSummary(file),
+    })
 
     try {
       const validation = validateAccountingReceiptUploadFile(file)
@@ -1295,6 +1420,23 @@ export function AccountingPage() {
         uploadedByName: staffName,
       })
 
+      const replacedId = resolveReplacedUnorganizedReceiptIdToDiscard({
+        previousReceiptId,
+        nextReceiptId: uploaded.receiptId,
+        protectedReceiptIds,
+      })
+      if (replacedId) {
+        try {
+          await discardUnorganizedAccountingReceipt(replacedId)
+        } catch {
+          // 保護対象・権限エラー時は既存証憑を壊さない
+        }
+        pendingUnorganizedReceiptIdsRef.current = pendingUnorganizedReceiptIdsRef.current.filter(
+          (id) => id !== replacedId,
+        )
+      }
+      rememberPendingUnorganizedReceipt(uploaded.receiptId)
+
       setExpenseForm((current) =>
         current
           ? {
@@ -1312,6 +1454,7 @@ export function AccountingPage() {
             }
           : current,
       )
+      setReceiptLocalSelectionActive(true)
       setRecentReceiptBlobs((current) => ({
         ...current,
         [uploaded.receiptId]: ocrImageFile,
@@ -1323,13 +1466,68 @@ export function AccountingPage() {
           : '証憑画像をアップロードしました。OCR読取で候補を反映できます。',
       )
     } catch (error) {
+      // 既存証憑（フォーム上の URL / Storage 参照）は消さない。ローカルプレビューのみ破棄し再表示に任せる。
       clearReceiptPreviewObjectUrl()
-      setErrorMessage(error instanceof Error ? error.message : '証憑ファイルのアップロードに失敗しました。')
+      setReceiptSelectionError(true)
+      const failureMessage =
+        error instanceof Error ? error.message : '証憑ファイルのアップロードに失敗しました。'
+      setErrorMessage(
+        hasExistingAccountingReceiptAttachment(expenseForm)
+          ? ACCOUNTING_RECEIPT_READ_FAILED_MESSAGE
+          : failureMessage,
+      )
     } finally {
       setIsUploadingReceipt(false)
       if (input) {
         input.value = ''
       }
+    }
+  }
+
+  /**
+   * ファイル選択（input）とドラッグ＆ドロップの共通エントリ。
+   * 保存形式・OCR・Storage アップロードは既存 handleReceiptUpload に委譲する。
+   */
+  const handleSelectedReceiptFiles = async (
+    files: ArrayLike<File> | null | undefined,
+    input?: HTMLInputElement | null,
+  ) => {
+    if (!expenseForm) {
+      return
+    }
+
+    if (receiptUploadInFlightRef.current || isUploadingReceipt || isRunningOcr) {
+      return
+    }
+
+    const selection = resolveSelectedAccountingReceiptFiles(files)
+    if (!selection.ok) {
+      if (selection.message) {
+        setReceiptSelectionError(true)
+        setErrorMessage(selection.message)
+      }
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    if (
+      shouldPromptReceiptReplacement(hasExistingAccountingReceiptAttachment(expenseForm)) &&
+      !window.confirm(ACCOUNTING_RECEIPT_REPLACE_CONFIRM_MESSAGE)
+    ) {
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    receiptUploadInFlightRef.current = true
+    setReceiptSelectionError(false)
+    try {
+      await handleReceiptUpload(selection.file, input)
+    } finally {
+      receiptUploadInFlightRef.current = false
     }
   }
 
@@ -1499,8 +1697,8 @@ export function AccountingPage() {
         updatedBy: staffId,
         updatedByName: staffName,
       })
+      await resetExpenseFormToNew({ retainPendingUploads: true })
       setStatusMessage('領収書を未整理として保存しました。あとで「編集する」から入力フォームへ読み込めます。')
-      resetExpenseFormToNew()
       await reloadUnorganizedReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '領収書の保存に失敗しました。')
@@ -1527,6 +1725,18 @@ export function AccountingPage() {
         : '未整理領収書から経費入力フォームへ引き継ぎました。税区分・インボイス・経費科目を確認してから保存してください。',
     )
     clearReceiptPreviewObjectUrl()
+    setReceiptLocalSelectionActive(false)
+    setReceiptSelectionError(false)
+    setReceiptSelectedFileMeta(
+      form.receiptFileName
+        ? {
+            name: form.receiptFileName,
+            summary: form.receiptFileMimeType
+              ? `${form.receiptFileMimeType.includes('pdf') ? 'PDF' : '画像'}`
+              : '',
+          }
+        : null,
+    )
     setInvoiceNumberWarning(
       form.invoiceNumber ? validateInvoiceNumberCandidate(form.invoiceNumber).warning : '',
     )
@@ -1719,7 +1929,7 @@ export function AccountingPage() {
       const result = await deleteAccountingReceipt(receiptId)
 
       if (expenseForm?.receiptId === receiptId) {
-        resetExpenseFormToNew()
+        await resetExpenseFormToNew({ retainPendingUploads: true })
       }
 
       setStatusMessage(
@@ -1927,7 +2137,7 @@ export function AccountingPage() {
         setEditingExpenseBaseline(null)
         setEditingExpenseSummary(null)
         setAssetDraft(buildEmptyExpenseAssetDraft())
-        resetExpenseFormToNew()
+        await resetExpenseFormToNew({ retainPendingUploads: true })
         setStatusMessage(successMessage)
         await reloadExpensesAdjustmentsAndReceipts()
         await reloadFixedAssets()
@@ -1997,12 +2207,26 @@ export function AccountingPage() {
     )
     setExpenseForm(nextForm)
     setAssetDraft(nextDraft)
+    setReceiptLocalSelectionActive(false)
+    setReceiptSelectionError(false)
+    setReceiptSelectedFileMeta(
+      nextForm.receiptFileName
+        ? {
+            name: nextForm.receiptFileName,
+            summary: formatAccountingReceiptFileTypeLabel({
+              name: nextForm.receiptFileName,
+              type: nextForm.receiptFileMimeType || '',
+            }),
+          }
+        : null,
+    )
+    clearReceiptPreviewObjectUrl()
     setActiveTab('expenses')
     setStatusMessage('経費を編集モードで読み込みました。')
     setErrorMessage('')
   }
 
-  const handleReturnToExpenseList = () => {
+  const handleReturnToExpenseList = async () => {
     if (
       editingExpenseBaseline &&
       expenseForm &&
@@ -2019,7 +2243,7 @@ export function AccountingPage() {
       }
     }
 
-    resetExpenseFormToNew()
+    await resetExpenseFormToNew()
     setStatusMessage('経費一覧へ戻りました。')
     window.setTimeout(() => {
       document.getElementById(ACCOUNTING_EXPENSE_LIST_SECTION_ID)?.scrollIntoView({
@@ -2064,7 +2288,7 @@ export function AccountingPage() {
       })
 
       if (editingExpenseId === expenseId) {
-        resetExpenseFormToNew()
+        await resetExpenseFormToNew()
       }
 
       setStatusMessage('経費を削除しました（集計対象から除外）。')
@@ -2772,8 +2996,61 @@ export function AccountingPage() {
               </p>
             ) : null}
 
-            <section className="accounting-receipt-flow" aria-label="領収書OCR登録">
+            <section
+              className={`accounting-receipt-flow${isReceiptDropActive ? ' accounting-receipt-flow--drag-active' : ''}`}
+              aria-label={ACCOUNTING_RECEIPT_DROP_ZONE_ARIA_LABEL}
+              role="region"
+              tabIndex={0}
+              onClick={(event) => {
+                if (!shouldOpenFilePickerFromDropZoneTarget(event.target, event.currentTarget)) {
+                  return
+                }
+                openReceiptFilePicker()
+              }}
+              onKeyDown={(event) => {
+                if (!shouldOpenFilePickerFromKeyboard(event.key)) {
+                  return
+                }
+                event.preventDefault()
+                openReceiptFilePicker()
+              }}
+              onDragEnter={(event) => {
+                preventBrowserFileNavigation(event)
+                setReceiptDropDepth((current) => advanceDropZoneDragDepth(current, 1))
+              }}
+              onDragLeave={(event) => {
+                preventBrowserFileNavigation(event)
+                setReceiptDropDepth((current) => advanceDropZoneDragDepth(current, -1))
+              }}
+              onDragOver={(event) => {
+                preventBrowserFileNavigation(event)
+              }}
+              onDrop={(event) => {
+                preventBrowserFileNavigation(event)
+                setReceiptDropDepth(0)
+                void handleSelectedReceiptFiles(event.dataTransfer.files)
+              }}
+            >
               <h3>領収書から入力</h3>
+              <div
+                className={`accounting-receipt-drop-hint${isReceiptDropActive ? ' accounting-receipt-drop-hint--active' : ''}`}
+              >
+                {isReceiptDropActive ? (
+                  <p className="accounting-receipt-drop-hint-title">{ACCOUNTING_RECEIPT_DROP_ZONE_ACTIVE_LABEL}</p>
+                ) : (
+                  <>
+                    <p className="accounting-receipt-drop-hint-title">
+                      {ACCOUNTING_RECEIPT_DROP_ZONE_TITLE.split('\n').map((line, index) => (
+                        <span key={line}>
+                          {index > 0 ? <br /> : null}
+                          {line}
+                        </span>
+                      ))}
+                    </p>
+                    <p className="accounting-receipt-drop-hint-formats">{ACCOUNTING_RECEIPT_DROP_ZONE_HINT}</p>
+                  </>
+                )}
+              </div>
               <p className="accounting-note">
                 <strong>スマホ運用：</strong>撮影 → OCR読取 → 「領収書だけ保存」で一時保存（PL未反映）。
                 PCで後から編集・確定してください。
@@ -2781,7 +3058,12 @@ export function AccountingPage() {
                 <strong>PC運用：</strong>未整理領収書 → 編集する → OCR候補を確認・修正 → 確定する。
                 confirmed のみ PL・CSV・集計へ反映されます。
               </p>
-              <div className="accounting-receipt-actions">
+              <div
+                className="accounting-receipt-actions"
+                data-receipt-drop-ignore="true"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
                 <label className="accounting-receipt-upload-button primary-action">
                   カメラで撮影
                   <input
@@ -2791,19 +3073,20 @@ export function AccountingPage() {
                     disabled={isUploadingReceipt || isRunningOcr}
                     type="file"
                     onChange={(event) =>
-                      void handleReceiptUpload(event.target.files?.[0] ?? null, event.currentTarget)
+                      void handleSelectedReceiptFiles(event.target.files, event.currentTarget)
                     }
                   />
                 </label>
                 <label className="accounting-receipt-upload-button secondary-action">
                   画像・PDFを選択
                   <input
+                    ref={receiptFileInputRef}
                     accept={ACCOUNTING_RECEIPT_FILE_ACCEPT}
                     className="accounting-hidden-input"
                     disabled={isUploadingReceipt || isRunningOcr}
                     type="file"
                     onChange={(event) =>
-                      void handleReceiptUpload(event.target.files?.[0] ?? null, event.currentTarget)
+                      void handleSelectedReceiptFiles(event.target.files, event.currentTarget)
                     }
                   />
                 </label>
@@ -2828,6 +3111,17 @@ export function AccountingPage() {
                 <p className="accounting-receipt-error" role="alert">
                   {errorMessage}
                 </p>
+              ) : null}
+              {receiptMetaName ? (
+                <div className="accounting-receipt-file-meta" aria-live="polite">
+                  <p className="accounting-receipt-file-meta-name">{receiptMetaName}</p>
+                  {receiptMetaSummary ? (
+                    <p className="accounting-receipt-file-meta-summary">{receiptMetaSummary}</p>
+                  ) : null}
+                  {receiptAttachmentStatusLabel ? (
+                    <p className="accounting-receipt-file-meta-status">{receiptAttachmentStatusLabel}</p>
+                  ) : null}
+                </div>
               ) : null}
               {isUploadingReceipt ? <p className="accounting-note">証憑ファイルをアップロード中…</p> : null}
               {isRunningOcr && ocrProgressMessage ? (
@@ -2911,7 +3205,7 @@ export function AccountingPage() {
                       <button
                         className="secondary-action"
                         type="button"
-                        onClick={resetExpenseFormToNew}
+                        onClick={() => void resetExpenseFormToNew()}
                       >
                         入力リセット
                       </button>
@@ -3355,11 +3649,19 @@ export function AccountingPage() {
                     >
                       {editingExpenseId ? '経費を更新' : '経費を登録（確定）'}
                     </button>
-                    <button className="secondary-action" type="button" onClick={resetExpenseFormToNew}>
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() => void resetExpenseFormToNew()}
+                    >
                       入力リセット
                     </button>
                     {editingExpenseId ? (
-                      <button className="secondary-action" type="button" onClick={resetExpenseFormToNew}>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => void resetExpenseFormToNew()}
+                      >
                         新規入力に切替
                       </button>
                     ) : null}
@@ -3367,7 +3669,7 @@ export function AccountingPage() {
                       <button
                         className="secondary-action"
                         type="button"
-                        onClick={handleReturnToExpenseList}
+                        onClick={() => void handleReturnToExpenseList()}
                       >
                         経費一覧へ戻る
                       </button>
