@@ -394,12 +394,17 @@ body.route-accounting,
 
 .accounting-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .accounting-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.92rem;
+}
+
+.accounting-expense-list-table {
+  min-width: 1080px;
 }
 
 .accounting-table th,
@@ -412,6 +417,10 @@ body.route-accounting,
 
 .accounting-table th {
   background: #f8fafc;
+}
+
+.accounting-expense-invoice-number {
+  white-space: nowrap;
 }
 
 .accounting-form-grid {
@@ -840,6 +849,10 @@ body.route-accounting,
 
 .accounting-expense-card dd {
   margin: 0;
+}
+
+.accounting-expense-card .accounting-expense-invoice-number {
+  white-space: nowrap;
 }
 
 .accounting-expense-card-actions {

@@ -126,6 +126,12 @@ import {
   validateNormalExpenseOverrideForSave,
   type ExpenseEditSummary,
 } from '../utils/accountingNormalExpenseOverride'
+import {
+  EXPENSE_LIST_CONFIRMATION_STATUS_HEADER,
+  formatExpenseListConfirmationStatus,
+  formatExpenseListInvoiceNumber,
+  formatExpenseListInvoiceStatus,
+} from '../utils/accountingExpenseListDisplay'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
   aggregateExpensesByInvoiceStatus,
@@ -3552,7 +3558,10 @@ export function AccountingPage() {
                   <article key={expense.id} className="accounting-expense-card">
                     <header>
                       <strong>{expense.vendorName || '（仕入先未入力）'}</strong>
-                      <span>{expense.confirmationStatus}</span>
+                      <span>
+                        {EXPENSE_LIST_CONFIRMATION_STATUS_HEADER}{' '}
+                        {formatExpenseListConfirmationStatus(expense.confirmationStatus)}
+                      </span>
                     </header>
                     <dl>
                       <div>
@@ -3562,6 +3571,20 @@ export function AccountingPage() {
                       <div>
                         <dt>{POSTING_DATE_FIELD_LABEL}</dt>
                         <dd>{getExpensePostingDate(expense)}</dd>
+                      </div>
+                      <div>
+                        <dt>仕入先</dt>
+                        <dd>{expense.vendorName || '－'}</dd>
+                      </div>
+                      <div>
+                        <dt>T番号</dt>
+                        <dd className="accounting-expense-invoice-number">
+                          {formatExpenseListInvoiceNumber(expense.invoiceNumber)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>インボイス状態</dt>
+                        <dd>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</dd>
                       </div>
                       <div>
                         <dt>内容</dt>
@@ -3578,6 +3601,10 @@ export function AccountingPage() {
                       <div>
                         <dt>税込</dt>
                         <dd>{formatFareYen(expense.taxIncludedAmount)}</dd>
+                      </div>
+                      <div>
+                        <dt>{EXPENSE_LIST_CONFIRMATION_STATUS_HEADER}</dt>
+                        <dd>{formatExpenseListConfirmationStatus(expense.confirmationStatus)}</dd>
                       </div>
                     </dl>
                     <div className="accounting-expense-card-actions">
@@ -3613,17 +3640,19 @@ export function AccountingPage() {
             </div>
 
             <div className="accounting-table-wrap accounting-table-wrap--desktop">
-              <table className="accounting-table accounting-table--desktop">
+              <table className="accounting-table accounting-table--desktop accounting-expense-list-table">
                 <thead>
                   <tr>
                     <th>証憑日</th>
                     <th>{POSTING_DATE_FIELD_LABEL}</th>
                     <th>仕入先</th>
+                    <th>T番号</th>
+                    <th>インボイス状態</th>
                     <th>内容</th>
                     <th>経費科目</th>
                     <th>PL反映区分</th>
                     <th>税込</th>
-                    <th>状態</th>
+                    <th>{EXPENSE_LIST_CONFIRMATION_STATUS_HEADER}</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -3634,11 +3663,15 @@ export function AccountingPage() {
                         <td>{getExpenseReceiptDate(expense)}</td>
                         <td>{getExpensePostingDate(expense)}</td>
                         <td>{expense.vendorName}</td>
+                        <td className="accounting-expense-invoice-number">
+                          {formatExpenseListInvoiceNumber(expense.invoiceNumber)}
+                        </td>
+                        <td>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</td>
                         <td>{expense.description}</td>
                         <td>{expense.expenseCategory || '未選択'}</td>
                         <td>{getPlTreatmentLabel(expense.plTreatment)}</td>
                         <td>{formatFareYen(expense.taxIncludedAmount)}</td>
-                        <td>{expense.confirmationStatus}</td>
+                        <td>{formatExpenseListConfirmationStatus(expense.confirmationStatus)}</td>
                         <td>
                           <button
                             className="secondary-action"
@@ -3668,7 +3701,7 @@ export function AccountingPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9}>対象月の経費はありません。</td>
+                      <td colSpan={11}>対象月の経費はありません。</td>
                     </tr>
                   )}
                 </tbody>
