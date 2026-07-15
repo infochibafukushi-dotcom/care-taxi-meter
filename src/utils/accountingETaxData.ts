@@ -23,6 +23,8 @@ import {
   calculateCumulativeDepreciationYen,
   calculateRemainingBookValue,
 } from './accountingDepreciation'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod, getFiscalPeriodMonths } from './accountingFiscalPeriod'
 import {
   FIXED_EXPENSE_CATEGORIES,
   getExpensePostingDate,
@@ -123,15 +125,10 @@ const balanceLine = (
   }
 }
 
-export const getFiscalYearMonths = (calendarYear: number) => {
-  const months: string[] = []
-  for (let month = 4; month <= 12; month += 1) {
-    months.push(`${calendarYear}-${String(month).padStart(2, '0')}`)
-  }
-  for (let month = 1; month <= 3; month += 1) {
-    months.push(`${calendarYear + 1}-${String(month).padStart(2, '0')}`)
-  }
-  return months
+/** @deprecated Prefer accountingFiscalPeriod APIs. Kept for callers. */
+export const getFiscalYearMonths = (fiscalYear: number) => {
+  const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, fiscalYear)
+  return period ? getFiscalPeriodMonths(period) : []
 }
 
 const sumProfitLossColumns = (rows: MonthlyProfitLoss[]): MonthlyProfitLoss => {
