@@ -23,10 +23,21 @@ import {
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
-import { buildAccountingFilingChecks } from '../../utils/accountingFilingCheck'
+import { buildAccountingFilingChecks, buildReadinessSnapshot } from '../../utils/accountingFilingCheck'
 import { buildCalendarYearOptions } from '../../utils/accountingPl'
 import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
 import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
+import {
+  ACCOUNTING_EXPORT_SCHEMA_VERSION,
+  type AccountingExportFileManifestItem,
+  type AccountingExportPackageRecordPayload,
+} from '../../types/accountingExportHistory'
+import {
+  buildAccountingExportSourceFingerprint,
+  buildETaxExportFingerprintInput,
+  toFiscalPeriodSnapshot,
+} from '../../utils/accountingExportFingerprint'
+import { mapCaseRecordToSalesBreakdown } from '../../utils/accountingSalesMapping'
 import {
   buildTaxAdvisorPackage,
   formatLedgerAssetStatus,
@@ -51,7 +62,9 @@ type TaxAdvisorPackagePanelProps = {
   allReceipts: StoredAccountingReceipt[]
   unorganizedReceipts: StoredAccountingReceipt[]
   onExportRecorded: (fileName: string) => void
+  onExportPackageRecorded?: (payload: AccountingExportPackageRecordPayload) => Promise<void>
   onError: (message: string) => void
+  onStatus?: (message: string) => void
   onNavigateAccountingTab?: (
     tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor',
   ) => void
@@ -686,7 +699,9 @@ export function TaxAdvisorPackagePanel({
   allReceipts,
   unorganizedReceipts,
   onExportRecorded,
+  onExportPackageRecorded,
   onError,
+  onStatus,
   onNavigateAccountingTab,
 }: TaxAdvisorPackagePanelProps) {
   const [selectedYear, setSelectedYear] = useState(initialTargetYear)
@@ -769,6 +784,7 @@ export function TaxAdvisorPackagePanel({
     ],
   )
 
+  // Same filingSummary drives the UI FilingCheckPanel and buildReadinessSnapshot (history).
   const filingSummary = useMemo(
     () =>
       buildAccountingFilingChecks({
@@ -808,14 +824,100 @@ export function TaxAdvisorPackagePanel({
     setActiveSection('filing-check')
   }
 
+  const buildPackageHistoryPayload = async (
+    exportType: 'tax-advisor-pdf' | 'tax-advisor-csv',
+    fileNames: string[],
+    format: 'pdf' | 'csv',
+  ): Promise<AccountingExportPackageRecordPayload> => {
+    const fiscalPeriod = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, selectedYear)
+    const periodSnapshot = fiscalPeriod ? toFiscalPeriodSnapshot(fiscalPeriod) : undefined
+    const files: AccountingExportFileManifestItem[] = fileNames.map((fileName) => ({
+      fileName,
+      format,
+      documentType: format === 'pdf' ? 'tax-advisor-package' : 'tax-advisor-csv',
+    }))
+    let sourceFingerprint: string | undefined
+    try {
+      sourceFingerprint = await buildAccountingExportSourceFingerprint(
+        buildETaxExportFingerprintInput({
+          fiscalPeriod: periodSnapshot,
+          exportType,
+          exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
+          expenses,
+          receipts: allReceipts,
+          fixedAssets,
+          adjustments,
+          fixedCosts,
+          settlementAuxiliary: auxiliary,
+          caseRecords: caseRecords.map((record) => ({
+            id: record.id,
+            updatedAt: record.createdAt,
+            closedAt: record.closedAt,
+            totalFareYen:
+              typeof record.actualFareYen === 'number' && Number.isFinite(record.actualFareYen)
+                ? record.actualFareYen
+                : record.totalFareYen,
+            actualFareYen: record.actualFareYen,
+            salesCategoryAmounts: mapCaseRecordToSalesBreakdown(record),
+          })),
+          company: company
+            ? {
+                corporateName: company.corporateName,
+                name: company.name,
+                invoiceNumber: company.invoiceNumber,
+                address: company.address,
+                representativeName: company.representativeName,
+              }
+            : null,
+        }),
+      )
+    } catch {
+      sourceFingerprint = undefined
+    }
+
+    return {
+      exportType,
+      files,
+      fiscalPeriod: periodSnapshot,
+      readiness: buildReadinessSnapshot(filingSummary),
+      sourceFingerprint,
+      sourceRecordCounts: {
+        expenses: expenses.length,
+        receipts: allReceipts.length,
+        fixedCosts: fixedCosts.length,
+        fixedAssets: fixedAssets.length,
+        adjustments: adjustments.length,
+        sales: caseRecords.length,
+      },
+      targetYearMonth: fiscalPeriod?.endYearMonth ?? `${selectedYear}-12`,
+    }
+  }
+
   const handleMenuClick = async (sectionId: TaxAdvisorSectionId) => {
     if (sectionId === 'pdf-bulk') {
       setIsExporting(true)
       try {
         const fileName = await exportTaxAdvisorPackagePdf(pkg)
-        onExportRecorded(fileName)
-      } catch (error) {
-        onError(error instanceof Error ? error.message : 'PDF出力に失敗しました。')
+        if (onExportPackageRecorded) {
+          try {
+            await onExportPackageRecorded(
+              await buildPackageHistoryPayload('tax-advisor-pdf', [fileName], 'pdf'),
+            )
+          } catch (error) {
+            onStatus?.(
+              error instanceof Error
+                ? error.message
+                : '資料の出力は完了しましたが、出力操作履歴の保存に失敗しました。',
+            )
+          }
+        } else {
+          onExportRecorded(fileName)
+        }
+      } catch {
+        // Phase 1D: cannot reliably know how many .save() completed after a partial bulk failure.
+        onError(
+          '一部のファイル出力後に処理が失敗した可能性があります。出力済みファイルを確認してから再実行してください。',
+        )
       } finally {
         setIsExporting(false)
       }
@@ -826,9 +928,27 @@ export function TaxAdvisorPackagePanel({
       setIsExporting(true)
       try {
         const files = exportTaxAdvisorBulkCsv(pkg)
-        files.forEach(onExportRecorded)
-      } catch (error) {
-        onError(error instanceof Error ? error.message : 'CSV出力に失敗しました。')
+        // Single status toast for bulk; history is one Firestore write via onExportPackageRecorded.
+        if (onExportPackageRecorded && files.length > 0) {
+          try {
+            await onExportPackageRecorded(
+              await buildPackageHistoryPayload('tax-advisor-csv', files, 'csv'),
+            )
+          } catch (error) {
+            onStatus?.(
+              error instanceof Error
+                ? error.message
+                : '資料の出力は完了しましたが、出力操作履歴の保存に失敗しました。',
+            )
+          }
+        } else if (files.length > 0) {
+          onExportRecorded(`${files.length}件のファイルを出力しました`)
+        }
+      } catch {
+        // Phase 1D: cannot reliably know how many .save() completed after a partial bulk failure.
+        onError(
+          '一部のファイル出力後に処理が失敗した可能性があります。出力済みファイルを確認してから再実行してください。',
+        )
       } finally {
         setIsExporting(false)
       }

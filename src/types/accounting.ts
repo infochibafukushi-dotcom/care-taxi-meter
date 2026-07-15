@@ -344,19 +344,21 @@ export type StoredAccountingReceipt = AccountingReceiptInput & {
   invalidatedAt?: string
 }
 
-export type AccountingExportInput = AccountingTenantFields & {
-  exportType: 'monthly-pl' | 'expenses' | 'sales'
-  targetYearMonth: string
-  fileName: string
-  rowCount: number
-  createdBy: string
-  createdByName: string
-}
+export type {
+  AccountingExportType,
+  AccountingExportFileManifestItem,
+  AccountingExportReadinessSnapshot,
+  AccountingExportFiscalPeriodSnapshot,
+  AccountingExportSourceRecordCounts,
+  AccountingExportInput,
+  StoredAccountingExport,
+  AccountingExportPackageRecordPayload,
+} from './accountingExportHistory'
 
-export type StoredAccountingExport = AccountingExportInput & {
-  id: string
-  createdAt?: string
-}
+export {
+  ACCOUNTING_EXPORT_SCHEMA_VERSION,
+  formatAccountingExportTypeLabel,
+} from './accountingExportHistory'
 
 export type AccountingFixedCostInput = AccountingTenantFields & {
   name: string

@@ -8,6 +8,7 @@ import {
 import { isExpenseCategorySelected } from '../types/accountingCategoryMaster'
 import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
 import type { FiscalPeriod } from '../types/accountingFiscalPeriod'
+import type { AccountingExportReadinessSnapshot } from '../types/accountingExportHistory'
 import type {
   FilingCheckActionTarget,
   FilingCheckFilter,
@@ -97,6 +98,17 @@ export const summarizeFilingChecks = (items: FilingCheckItem[]): FilingCheckSumm
     isFilingReady: blockingCount === 0,
   }
 }
+
+export const buildReadinessSnapshot = (
+  summary: FilingCheckSummary,
+): AccountingExportReadinessSnapshot => ({
+  blockingCount: summary.blockingCount,
+  warningCount: summary.warningCount,
+  plannedCount: summary.plannedCount,
+  completeCount: summary.completeCount,
+  notApplicableCount: summary.notApplicableCount,
+  isFilingReady: summary.isFilingReady,
+})
 
 /**
  * 決算残高と内訳合計の突合。円単位の整数比較。

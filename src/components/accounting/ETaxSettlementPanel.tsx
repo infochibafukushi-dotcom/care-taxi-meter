@@ -22,10 +22,21 @@ import {
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { buildETaxPackage, formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
-import { buildAccountingFilingChecks } from '../../utils/accountingFilingCheck'
+import { buildAccountingFilingChecks, buildReadinessSnapshot } from '../../utils/accountingFilingCheck'
 import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
 import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
 import { FILING_EXPORT_CAUTION } from '../../types/accountingFilingCheck'
+import {
+  ACCOUNTING_EXPORT_SCHEMA_VERSION,
+  type AccountingExportFileManifestItem,
+  type AccountingExportPackageRecordPayload,
+} from '../../types/accountingExportHistory'
+import {
+  buildAccountingExportSourceFingerprint,
+  buildETaxExportFingerprintInput,
+  toFiscalPeriodSnapshot,
+} from '../../utils/accountingExportFingerprint'
+import { mapCaseRecordToSalesBreakdown } from '../../utils/accountingSalesMapping'
 import {
   exportETaxBulkCsv,
   exportETaxBulkPdf,
@@ -53,6 +64,7 @@ type ETaxSettlementPanelProps = {
   unorganizedReceipts?: StoredAccountingReceipt[]
   onReloadAuxiliary: () => Promise<void>
   onExportRecorded: (fileName: string) => void
+  onExportPackageRecorded?: (payload: AccountingExportPackageRecordPayload) => Promise<void>
   onStatus: (message: string) => void
   onError: (message: string) => void
   onNavigateAccountingTab?: (
@@ -218,6 +230,7 @@ export function ETaxSettlementPanel({
   unorganizedReceipts = [],
   onReloadAuxiliary,
   onExportRecorded,
+  onExportPackageRecorded,
   onStatus,
   onError,
   onNavigateAccountingTab,
@@ -299,6 +312,7 @@ export function ETaxSettlementPanel({
     [targetYear],
   )
 
+  // Same filingSummary drives the UI FilingCheckPanel and buildReadinessSnapshot (history).
   const filingSummary = useMemo(
     () =>
       buildAccountingFilingChecks({
@@ -373,23 +387,112 @@ export function ETaxSettlementPanel({
     }
   }
 
+  const buildPackageHistoryPayload = async (
+    exportType: 'etax-pdf' | 'etax-csv',
+    fileNames: string[],
+    format: 'pdf' | 'csv',
+  ): Promise<AccountingExportPackageRecordPayload> => {
+    const files: AccountingExportFileManifestItem[] = fileNames.map((fileName, index) => ({
+      fileName,
+      format,
+      documentType:
+        format === 'pdf' && index === 0 && fileName.includes('index')
+          ? 'etax-cover'
+          : `etax-${format}-bulk`,
+    }))
+    const periodSnapshot = fiscalPeriod ? toFiscalPeriodSnapshot(fiscalPeriod) : undefined
+    let sourceFingerprint: string | undefined
+    try {
+      sourceFingerprint = await buildAccountingExportSourceFingerprint(
+        buildETaxExportFingerprintInput({
+          fiscalPeriod: periodSnapshot,
+          exportType,
+          exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
+          expenses,
+          receipts: allReceipts,
+          fixedAssets,
+          adjustments,
+          fixedCosts,
+          settlementAuxiliary: auxiliary,
+          caseRecords: caseRecords.map((record) => ({
+            id: record.id,
+            updatedAt: record.createdAt,
+            closedAt: record.closedAt,
+            totalFareYen:
+              typeof record.actualFareYen === 'number' && Number.isFinite(record.actualFareYen)
+                ? record.actualFareYen
+                : record.totalFareYen,
+            actualFareYen: record.actualFareYen,
+            salesCategoryAmounts: mapCaseRecordToSalesBreakdown(record),
+          })),
+          company: company
+            ? {
+                corporateName: company.corporateName,
+                name: company.name,
+                invoiceNumber: company.invoiceNumber,
+                address: company.address,
+                representativeName: company.representativeName,
+              }
+            : null,
+        }),
+      )
+    } catch {
+      sourceFingerprint = undefined
+    }
+
+    return {
+      exportType,
+      files,
+      fiscalPeriod: periodSnapshot,
+      readiness: buildReadinessSnapshot(filingSummary),
+      sourceFingerprint,
+      sourceRecordCounts: {
+        expenses: expenses.length,
+        receipts: allReceipts.length,
+        fixedCosts: fixedCosts.length,
+        fixedAssets: fixedAssets.length,
+        adjustments: adjustments.length,
+        sales: caseRecords.length,
+      },
+      targetYearMonth: fiscalPeriod?.endYearMonth ?? targetYearMonth,
+    }
+  }
+
   const handleBulkExport = async (kind: 'pdf' | 'csv') => {
     setIsExporting(true)
     try {
       if (filingSummary.blockingCount > 0) {
         onStatus(FILING_EXPORT_CAUTION)
       }
+      const exportType = kind === 'pdf' ? 'etax-pdf' : 'etax-csv'
+      let fileNames: string[] = []
       if (kind === 'pdf') {
         const cover = await exportETaxCoverPdf(pkg)
-        onExportRecorded(cover)
         const files = await exportETaxBulkPdf(pkg)
-        files.forEach(onExportRecorded)
+        fileNames = [cover, ...files]
       } else {
-        const files = exportETaxBulkCsv(pkg)
-        files.forEach(onExportRecorded)
+        fileNames = exportETaxBulkCsv(pkg)
       }
-    } catch (error) {
-      onError(error instanceof Error ? error.message : '一括出力に失敗しました。')
+
+      // Single status toast for bulk; history is one Firestore write via onExportPackageRecorded.
+      if (onExportPackageRecorded && fileNames.length > 0) {
+        try {
+          await onExportPackageRecorded(await buildPackageHistoryPayload(exportType, fileNames, kind))
+        } catch (error) {
+          onStatus(
+            error instanceof Error
+              ? error.message
+              : '資料の出力は完了しましたが、出力操作履歴の保存に失敗しました。',
+          )
+        }
+      } else if (fileNames.length > 0) {
+        onExportRecorded(`${fileNames.length}件のファイルを出力しました`)
+      }
+    } catch {
+      // Phase 1D: cannot reliably know how many .save() completed after a partial bulk failure.
+      onError(
+        '一部のファイル出力後に処理が失敗した可能性があります。出力済みファイルを確認してから再実行してください。',
+      )
     } finally {
       setIsExporting(false)
     }

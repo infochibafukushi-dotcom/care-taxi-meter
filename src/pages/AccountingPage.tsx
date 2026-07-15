@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import './AccountingPage.css'
 import { fetchCaseRecords } from '../services/caseRecords'
@@ -76,7 +76,7 @@ import {
   shouldFlagOcrRerunAfterRotation,
   type ReceiptRotationDegrees,
 } from '../utils/accountingReceiptRotation'
-import { recordAccountingExport } from '../services/accountingExports'
+import { fetchAccountingExports, recordAccountingExport } from '../services/accountingExports'
 import { loadAuthStaffSession } from '../services/authSession'
 import { formatFareYen } from '../services/fare'
 import {
@@ -118,6 +118,10 @@ import {
   type PlTreatment,
   type SalesCategory,
   type TaxCategory,
+  ACCOUNTING_EXPORT_SCHEMA_VERSION,
+  formatAccountingExportTypeLabel,
+  type AccountingExportPackageRecordPayload,
+  type StoredAccountingExport,
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
 import { ExpenseCategoryHelpDialog } from '../components/accounting/ExpenseCategoryHelpDialog'
@@ -148,6 +152,11 @@ import {
   downloadCsvFile,
   formatPlAmount,
 } from '../utils/accountingCsv'
+import { computeFileSha256 } from '../utils/imageHash'
+import {
+  recordAccountingExportOperation,
+  shortFingerprint,
+} from '../utils/accountingExportHistory'
 import {
   ACCOUNTING_EXPENSE_LIST_SECTION_ID,
   buildAssetDraftForExpenseEdit,
@@ -510,6 +519,10 @@ export function AccountingPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
+  const [exportHistory, setExportHistory] = useState<StoredAccountingExport[]>([])
+  const [exportHistoryLoading, setExportHistoryLoading] = useState(false)
+  const [exportHistoryError, setExportHistoryError] = useState('')
+  const [expandedExportHistoryId, setExpandedExportHistoryId] = useState('')
   const [expenseForm, setExpenseForm] = useState<AccountingExpenseInput | null>(null)
   const [editingExpenseId, setEditingExpenseId] = useState('')
   const [isSavingExpense, setIsSavingExpense] = useState(false)
@@ -562,6 +575,29 @@ export function AccountingPage() {
   const calendarYearOptions = useMemo(() => buildCalendarYearOptions(5), [])
 
   const canAccess = canAccessAccounting(role)
+
+  const reloadExportHistory = async () => {
+    setExportHistoryLoading(true)
+    setExportHistoryError('')
+    try {
+      const rows = await fetchAccountingExports(accessScope)
+      setExportHistory(rows)
+    } catch (error) {
+      setExportHistoryError(
+        error instanceof Error ? error.message : '出力操作履歴の取得に失敗しました。',
+      )
+    } finally {
+      setExportHistoryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'export' || !canAccess) {
+      return
+    }
+    void reloadExportHistory()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when tab becomes export
+  }, [activeTab, canAccess, accessScopeKey])
 
   useEffect(() => {
     return () => {
@@ -2570,24 +2606,80 @@ export function AccountingPage() {
     }
   }
 
+  const handleExportPackageRecorded = async (payload: AccountingExportPackageRecordPayload) => {
+    // Package history: single Firestore write via recordAccountingExportOperation.
+    // onExportRecorded only toasts and must not write history.
+    const result = await recordAccountingExportOperation({
+      franchiseeId: tenantScope.franchiseeId,
+      companyId: tenantScope.franchiseeId,
+      storeId: tenantScope.storeId,
+      createdBy: staffId,
+      createdByName: staffName,
+      exportType: payload.exportType,
+      fiscalPeriod: payload.fiscalPeriod ?? null,
+      targetYearMonth: payload.targetYearMonth,
+      files: payload.files,
+      readiness: payload.readiness,
+      sourceFingerprint: payload.sourceFingerprint,
+      sourceRecordCounts: payload.sourceRecordCounts,
+      exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
+    })
+    if ('error' in result) {
+      throw new Error(
+        '資料の出力は完了しましたが、出力操作履歴の保存に失敗しました。',
+      )
+    }
+    setStatusMessage(
+      `資料の出力操作を記録しました。（${payload.files.length}ファイル）`,
+    )
+    if (activeTab === 'export') {
+      void reloadExportHistory()
+    }
+  }
+
   const handleExport = async (exportType: 'monthly-pl' | 'yearly-pl' | 'expenses' | 'sales') => {
     const { csv, fileName, rowCount, targetYearMonth: exportYearMonth } = buildExportPayload(exportType)
 
     downloadCsvFile(fileName, csv)
+
+    const recordedExportType =
+      exportType === 'yearly-pl' ? 'yearly-management-pl-csv' : exportType
+
+    let contentHash: string | undefined
+    try {
+      contentHash = await computeFileSha256(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    } catch {
+      contentHash = undefined
+    }
 
     try {
       await recordAccountingExport({
         franchiseeId: tenantScope.franchiseeId,
         companyId: tenantScope.franchiseeId,
         storeId: tenantScope.storeId,
-        exportType: exportType === 'yearly-pl' ? 'monthly-pl' : exportType,
+        exportType: recordedExportType,
         targetYearMonth: exportYearMonth,
         fileName,
         rowCount,
         createdBy: staffId,
         createdByName: staffName,
+        fileCount: 1,
+        files: [
+          {
+            fileName,
+            format: 'csv',
+            documentType: recordedExportType,
+            rowCount,
+            byteSize: new TextEncoder().encode(csv).length,
+            ...(contentHash ? { contentHash } : {}),
+          },
+        ],
+        exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
       })
       setStatusMessage(`${fileName} を出力しました。`)
+      if (activeTab === 'export') {
+        void reloadExportHistory()
+      }
     } catch (error) {
       setStatusMessage(`${fileName} を出力しました（履歴保存は失敗）。`)
       console.error(error)
@@ -4421,6 +4513,7 @@ export function AccountingPage() {
             unorganizedReceipts={unorganizedReceipts}
             onReloadAuxiliary={reloadSettlementAuxiliary}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+            onExportPackageRecorded={handleExportPackageRecorded}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
             onNavigateAccountingTab={setActiveTab}
@@ -4444,6 +4537,8 @@ export function AccountingPage() {
             allReceipts={allReceipts}
             unorganizedReceipts={unorganizedReceipts}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+            onExportPackageRecorded={handleExportPackageRecorded}
+            onStatus={setStatusMessage}
             onError={setErrorMessage}
             onNavigateAccountingTab={setActiveTab}
           />
@@ -4469,6 +4564,111 @@ export function AccountingPage() {
                 経費 CSV
               </button>
             </div>
+
+            <section className="accounting-export-history" aria-label="出力操作履歴">
+              <h3>出力操作履歴</h3>
+              <p className="accounting-warning accounting-warning--info">
+                この履歴はアプリ内での出力操作の記録です。端末への保存完了や税務署・税理士への提出済みを保証するものではありません。
+              </p>
+              {exportHistoryLoading ? <p className="save-note">履歴を読み込み中…</p> : null}
+              {exportHistoryError ? (
+                <p className="case-error" role="alert">
+                  {exportHistoryError}
+                </p>
+              ) : null}
+              {!exportHistoryLoading && !exportHistoryError && exportHistory.length === 0 ? (
+                <p className="save-note">出力操作履歴はまだありません。</p>
+              ) : null}
+              {exportHistory.length > 0 ? (
+                <div className="accounting-table-wrap">
+                  <table className="accounting-table accounting-export-history-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">日時</th>
+                        <th scope="col">操作者</th>
+                        <th scope="col">種別</th>
+                        <th scope="col">期間</th>
+                        <th scope="col">ファイル数</th>
+                        <th scope="col">申告前チェック</th>
+                        <th scope="col">指紋</th>
+                        <th scope="col">schema</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exportHistory.map((entry) => {
+                        const isExpanded = expandedExportHistoryId === entry.id
+                        const periodLabel =
+                          entry.fiscalPeriod?.label ||
+                          (entry.targetYearMonth
+                            ? `対象年月: ${entry.targetYearMonth}`
+                            : '記録なし')
+                        const fileCount =
+                          entry.fileCount ?? entry.files?.length ?? (entry.fileName ? 1 : 0)
+                        return (
+                          <Fragment key={entry.id}>
+                            <tr>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="text-link accounting-export-history-expand"
+                                  onClick={() =>
+                                    setExpandedExportHistoryId(isExpanded ? '' : entry.id)
+                                  }
+                                >
+                                  {entry.createdAt
+                                    ? formatCaseDateTime(entry.createdAt)
+                                    : '記録なし'}
+                                </button>
+                              </td>
+                              <td>{entry.createdByName || '記録なし'}</td>
+                              <td>{formatAccountingExportTypeLabel(entry.exportType)}</td>
+                              <td>{periodLabel}</td>
+                              <td>{fileCount || '記録なし'}</td>
+                              <td>
+                                {entry.readiness ? (
+                                  <span className="accounting-export-readiness-badges">
+                                    <span className="is-blocking">要修正 {entry.readiness.blockingCount}</span>
+                                    <span className="is-warning">要確認 {entry.readiness.warningCount}</span>
+                                    <span className={entry.readiness.isFilingReady ? 'is-ready' : 'is-not-ready'}>
+                                      {entry.readiness.isFilingReady ? '申告可' : '準備未完'}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  '記録なし'
+                                )}
+                              </td>
+                              <td>
+                                <code>{shortFingerprint(entry.sourceFingerprint, 10)}</code>
+                              </td>
+                              <td>{entry.exportSchemaVersion || '記録なし'}</td>
+                            </tr>
+                            {isExpanded ? (
+                              <tr className="accounting-export-history-detail">
+                                <td colSpan={8}>
+                                  <ul className="accounting-export-file-list">
+                                    {(entry.files && entry.files.length > 0
+                                      ? entry.files.map((file) => file.fileName)
+                                      : entry.fileName
+                                        ? [entry.fileName]
+                                        : []
+                                    ).map((name) => (
+                                      <li key={name}>{name}</li>
+                                    ))}
+                                    {!entry.files?.length && !entry.fileName ? (
+                                      <li>ファイル名の記録なし</li>
+                                    ) : null}
+                                  </ul>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </section>
           </section>
         ) : null}
       </section>
