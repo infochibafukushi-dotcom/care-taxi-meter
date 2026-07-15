@@ -24,6 +24,7 @@ import type { StoredAccountingReceipt } from '../services/accountingReceipts'
 import { detectFixedAssetRegistrationWarning } from './accountingAssetDetection'
 import { calculateRemainingBookValue } from './accountingDepreciation'
 import { getFiscalPeriodMonths } from './accountingFiscalPeriod'
+import { resolveStoredNormalExpenseOverride } from './accountingNormalExpenseOverride'
 import {
   hasPositiveSettlementAmount,
   isSettlementAmountEntered,
@@ -791,7 +792,8 @@ export const buildAccountingFilingChecks = (
     if (normalizePlTreatment(expense.plTreatment) !== 'expense') {
       return false
     }
-    if (expense.normalExpenseOverrideConfirmed) {
+    const override = resolveStoredNormalExpenseOverride(expense)
+    if (override.confirmed) {
       return false
     }
     return detectFixedAssetRegistrationWarning({
@@ -804,7 +806,8 @@ export const buildAccountingFilingChecks = (
     if (normalizePlTreatment(expense.plTreatment) !== 'expense') {
       return false
     }
-    if (!expense.normalExpenseOverrideConfirmed) {
+    const override = resolveStoredNormalExpenseOverride(expense)
+    if (!override.confirmed) {
       return false
     }
     return detectFixedAssetRegistrationWarning({

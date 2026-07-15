@@ -458,6 +458,160 @@ describe('buildAccountingFilingChecks', () => {
     )
   })
 
+  it('treats legacy override (reason only) as confirmed warning for fixed asset candidates', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'tablet-legacy',
+          taxIncludedAmount: 20919,
+          description: 'タブレット購入',
+          // 旧データ: 理由のみ保存、confirmed 未保存
+          normalExpenseOverrideConfirmed: undefined,
+          normalExpenseOverrideReason: '短期使用のため通常経費',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    const item = summary.items.find((row) => row.id === 'expenses.fixedAssetCandidate')
+    expect(item?.status).toBe('warning')
+    expect(item?.summary).toContain('通常経費上書き確認済み')
+    expect(item?.sourceIds).toEqual(['tablet-legacy'])
+  })
+
+  it('blocks when override confirmed is explicit false even with reason', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'tablet-false',
+          taxIncludedAmount: 20919,
+          description: 'タブレット購入',
+          normalExpenseOverrideConfirmed: false,
+          normalExpenseOverrideReason: '理由はあるが未確認',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    expect(summary.items.find((item) => item.id === 'expenses.fixedAssetCandidate')?.status).toBe(
+      'blocking',
+    )
+  })
+
+  it('warns when override confirmed true with reason', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'tablet-ok',
+          taxIncludedAmount: 20919,
+          description: 'タブレット購入',
+          normalExpenseOverrideConfirmed: true,
+          normalExpenseOverrideReason: '短期使用のため通常経費',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    expect(summary.items.find((item) => item.id === 'expenses.fixedAssetCandidate')?.status).toBe(
+      'warning',
+    )
+  })
+
+  it('blocks when override confirmed true but reason is empty', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'tablet-noreason',
+          taxIncludedAmount: 20919,
+          description: 'タブレット購入',
+          normalExpenseOverrideConfirmed: true,
+          normalExpenseOverrideReason: '   ',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    expect(summary.items.find((item) => item.id === 'expenses.fixedAssetCandidate')?.status).toBe(
+      'blocking',
+    )
+  })
+
+  it('blocks normal fixed asset candidate with neither confirm nor reason', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'tablet-plain',
+          taxIncludedAmount: 20919,
+          description: 'タブレット購入',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    expect(summary.items.find((item) => item.id === 'expenses.fixedAssetCandidate')?.status).toBe(
+      'blocking',
+    )
+  })
+
+  it('does not flag non-candidate expenses for fixed asset override checks', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [
+        makeExpense({
+          id: 'supplies',
+          taxIncludedAmount: 1500,
+          description: '事務消耗品',
+        }),
+      ],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+
+    expect(summary.items.find((item) => item.id === 'expenses.fixedAssetCandidate')?.status).toBe(
+      'complete',
+    )
+  })
+
   it('does not count planned in blockingCount and allows filing ready when only planned/warnings', () => {
     const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
     const summary = buildAccountingFilingChecks({
