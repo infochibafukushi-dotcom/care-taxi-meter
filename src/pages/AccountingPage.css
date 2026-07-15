@@ -2216,6 +2216,101 @@ body.route-accounting,
   color: #5b6472;
 }
 
+.accounting-filing-check-counts {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.accounting-etax-status-counts .is-blocking dd,
+.accounting-filing-check-counts .is-blocking dd {
+  color: #b42318;
+}
+
+.accounting-etax-status-counts .is-warning dd,
+.accounting-filing-check-counts .is-warning dd {
+  color: #b54708;
+}
+
+.accounting-etax-status-counts .is-complete dd,
+.accounting-filing-check-counts .is-complete dd {
+  color: #027a48;
+}
+
+.accounting-etax-missing-list li.is-blocking {
+  border-color: #fecdca;
+  background: #fffafa;
+}
+
+.accounting-etax-missing-list li.is-warning {
+  border-color: #fedf89;
+  background: #fffaeb;
+}
+
+.accounting-etax-missing-list li.is-complete {
+  border-color: #abefc6;
+  background: #f6fef9;
+}
+
+.accounting-filing-check-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.accounting-filing-check-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.accounting-filing-ready-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.35rem;
+  background: #ecfdf3;
+  color: #027a48;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.accounting-filing-check-toolbar {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.accounting-filing-check-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.accounting-filing-check-filters .secondary-action.is-active {
+  border-color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.accounting-filing-check-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.88rem;
+}
+
+.accounting-filing-check-action {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.accounting-filing-export-caution {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.accounting-filing-check-panel.is-compact .accounting-filing-check-list li {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .accounting-etax-missing-preview,
 .accounting-etax-missing-list {
   margin: 0.5rem 0 0;
@@ -2328,7 +2423,8 @@ body.route-accounting,
 @media (max-width: 480px) {
   .accounting-form-grid,
   .accounting-etax-missing-list li,
-  .accounting-etax-status-counts {
+  .accounting-etax-status-counts,
+  .accounting-filing-check-counts {
     grid-template-columns: 1fr;
   }
 

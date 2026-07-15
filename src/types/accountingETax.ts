@@ -25,6 +25,7 @@ export type ETaxSectionId =
   | 'auxiliary-input'
   | 'input-status'
   | 'missing-items'
+  | 'filing-check'
   | 'auxiliary-data'
   | 'pdf-bulk'
   | 'csv-bulk'

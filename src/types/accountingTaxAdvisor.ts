@@ -22,6 +22,7 @@ export type TaxAdvisorSectionId =
   | 'consumption-tax'
   | 'input-status'
   | 'review-list'
+  | 'filing-check'
 
 export type TaxAdvisorHeader = {
   targetYear: number

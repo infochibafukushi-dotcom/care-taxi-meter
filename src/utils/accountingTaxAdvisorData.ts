@@ -253,6 +253,13 @@ const DATA_SOURCE_MAP: Record<TaxAdvisorSectionId, string[]> = {
   'consumption-tax': ['accountingExpenses', 'accountingTax'],
   'input-status': ['accountingSettlementAuxiliary'],
   'review-list': ['accountingExpenses', 'accountingReceipts', 'accountingFixedAssets', 'accountingSettlementAuxiliary', 'accountingETaxData'],
+  'filing-check': [
+    'accountingExpenses',
+    'accountingReceipts',
+    'accountingFixedAssets',
+    'accountingSettlementAuxiliary',
+    'FiscalPeriod',
+  ],
 }
 
 export const getTaxAdvisorDataSources = (sectionId: TaxAdvisorSectionId): string[] =>

@@ -11,6 +11,7 @@ import type {
 import type { StoredAccountingFixedAsset } from '../../types/accountingFixedAssets'
 import type { ETaxCheckItem, ETaxExportableSectionId, ETaxSectionId } from '../../types/accountingETax'
 import type { StoredAccountingSettlementAuxiliary } from '../../types/accountingSettlementAuxiliary'
+import type { StoredAccountingReceipt } from '../../services/accountingReceipts'
 import type { Company } from '../../types/work'
 import { formatPlAmount } from '../../utils/accountingCsv'
 import {
@@ -21,8 +22,10 @@ import {
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { buildETaxPackage, formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
+import { buildAccountingFilingChecks } from '../../utils/accountingFilingCheck'
 import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
 import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
+import { FILING_EXPORT_CAUTION } from '../../types/accountingFilingCheck'
 import {
   exportETaxBulkCsv,
   exportETaxBulkPdf,
@@ -30,6 +33,7 @@ import {
   exportETaxSectionCsv,
   exportETaxSectionPdf,
 } from '../../utils/accountingETaxExport'
+import { FilingCheckPanel, FilingExportCautionBanner } from './FilingCheckPanel'
 import { SettlementAuxiliaryDataPanel } from './SettlementAuxiliaryDataPanel'
 
 type ETaxSettlementPanelProps = {
@@ -45,14 +49,20 @@ type ETaxSettlementPanelProps = {
   fixedCosts: StoredAccountingFixedCost[]
   fixedAssets: StoredAccountingFixedAsset[]
   settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
+  allReceipts?: StoredAccountingReceipt[]
+  unorganizedReceipts?: StoredAccountingReceipt[]
   onReloadAuxiliary: () => Promise<void>
   onExportRecorded: (fileName: string) => void
   onStatus: (message: string) => void
   onError: (message: string) => void
+  onNavigateAccountingTab?: (
+    tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor',
+  ) => void
 }
 
 const MENU_ITEMS: Array<{ id: ETaxSectionId; label: string; description: string }> = [
   { id: 'auxiliary-input', label: '決算補助データ入力', description: '手入力が必要な最小項目を登録' },
+  { id: 'filing-check', label: '申告前チェック', description: '決算残高・内訳整合と入力漏れの確認' },
   { id: 'input-status', label: '入力状況チェック', description: '入力済み/未入力の確認' },
   { id: 'missing-items', label: '不足項目一覧', description: '転記前の確認リスト' },
   { id: 'auxiliary-data', label: '決算補助データ', description: '保存済み補助データの確認・出力' },
@@ -74,6 +84,7 @@ const NON_EXPORT_SECTIONS = new Set<ETaxSectionId>([
   'auxiliary-input',
   'input-status',
   'missing-items',
+  'filing-check',
   'pdf-bulk',
   'csv-bulk',
 ])
@@ -203,10 +214,13 @@ export function ETaxSettlementPanel({
   fixedCosts,
   fixedAssets,
   settlementAuxiliary,
+  allReceipts = [],
+  unorganizedReceipts = [],
   onReloadAuxiliary,
   onExportRecorded,
   onStatus,
   onError,
+  onNavigateAccountingTab,
 }: ETaxSettlementPanelProps) {
   const [activeSection, setActiveSection] = useState<ETaxSectionId | null>(null)
   const [company, setCompany] = useState<Company | null>(null)
@@ -280,6 +294,64 @@ export function ETaxSettlementPanel({
     ],
   )
 
+  const fiscalPeriod = useMemo(
+    () => getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear),
+    [targetYear],
+  )
+
+  const filingSummary = useMemo(
+    () =>
+      buildAccountingFilingChecks({
+        targetYear,
+        fiscalPeriod,
+        expenses,
+        receipts: allReceipts,
+        unorganizedReceipts,
+        fixedAssets,
+        settlementAuxiliary: auxiliary,
+        company,
+      }),
+    [
+      allReceipts,
+      auxiliary,
+      company,
+      expenses,
+      fiscalPeriod,
+      fixedAssets,
+      targetYear,
+      unorganizedReceipts,
+    ],
+  )
+
+  const handleFilingAction = (actionTarget: string) => {
+    if (actionTarget === 'settlement-auxiliary') {
+      setActiveSection('auxiliary-input')
+      return
+    }
+    if (actionTarget === 'fixed-assets') {
+      onNavigateAccountingTab?.('fixed-assets')
+      return
+    }
+    if (actionTarget === 'expenses') {
+      onNavigateAccountingTab?.('expenses')
+      return
+    }
+    if (actionTarget === 'unorganized-receipts') {
+      onNavigateAccountingTab?.('unorganized-receipts')
+      return
+    }
+    if (actionTarget === 'etax') {
+      setActiveSection(null)
+      onNavigateAccountingTab?.('etax')
+      return
+    }
+    if (actionTarget === 'tax-advisor') {
+      onNavigateAccountingTab?.('tax-advisor')
+      return
+    }
+    onStatus('該当画面を確認してください。')
+  }
+
   const handleSectionExport = async (kind: 'pdf' | 'csv') => {
     if (!activeSection || NON_EXPORT_SECTIONS.has(activeSection)) {
       return
@@ -304,6 +376,9 @@ export function ETaxSettlementPanel({
   const handleBulkExport = async (kind: 'pdf' | 'csv') => {
     setIsExporting(true)
     try {
+      if (filingSummary.blockingCount > 0) {
+        onStatus(FILING_EXPORT_CAUTION)
+      }
       if (kind === 'pdf') {
         const cover = await exportETaxCoverPdf(pkg)
         onExportRecorded(cover)
@@ -547,6 +622,20 @@ export function ETaxSettlementPanel({
     )
   }
 
+  if (activeSection === 'filing-check') {
+    return (
+      <section className="accounting-panel accounting-etax-panel" aria-label="申告前チェック">
+        <div className="accounting-etax-section-header">
+          <button className="secondary-action" type="button" onClick={() => setActiveSection(null)}>
+            ← メニューに戻る
+          </button>
+        </div>
+        <h2>申告前チェック</h2>
+        <FilingCheckPanel summary={filingSummary} onAction={handleFilingAction} />
+      </section>
+    )
+  }
+
   return (
     <section className="accounting-panel accounting-etax-panel" aria-label="e-Tax入力用決算資料">
       <h2>e-Tax入力用決算資料</h2>
@@ -574,12 +663,19 @@ export function ETaxSettlementPanel({
             <dd>{pkg.company.corporateNumber}</dd>
           </div>
         </dl>
-        {!getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear) ? (
+        {!fiscalPeriod ? (
           <p className="accounting-note" role="status">
             会社設立前の年度です。会計年度の月が空のため、集計結果は空になります。
           </p>
         ) : null}
       </section>
+
+      <FilingCheckPanel
+        summary={filingSummary}
+        compact
+        onAction={handleFilingAction}
+        showExportCaution={filingSummary.blockingCount > 0}
+      />
 
       <section className="accounting-etax-status-card" aria-label="入力状況サマリー">
         <InputStatusSummary inputStatus={pkg.inputStatus} />
@@ -597,6 +693,8 @@ export function ETaxSettlementPanel({
         )}
       </section>
 
+      <FilingExportCautionBanner visible={filingSummary.blockingCount > 0} />
+
       <p className="accounting-etax-role-note">
         監査資料は税理士・監査向け、e-Tax入力用決算資料はご自身の申告転記向けです。
       </p>
@@ -606,7 +704,7 @@ export function ETaxSettlementPanel({
           <button
             key={item.id}
             className={`accounting-etax-menu-card${
-              item.id === 'auxiliary-input' ? ' is-featured' : ''
+              item.id === 'auxiliary-input' || item.id === 'filing-check' ? ' is-featured' : ''
             }${item.id === 'pdf-bulk' || item.id === 'csv-bulk' ? ' is-bulk' : ''}`}
             type="button"
             disabled={isExporting}

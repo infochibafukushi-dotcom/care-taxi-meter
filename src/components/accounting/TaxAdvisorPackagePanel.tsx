@@ -23,13 +23,17 @@ import {
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
+import { buildAccountingFilingChecks } from '../../utils/accountingFilingCheck'
 import { buildCalendarYearOptions } from '../../utils/accountingPl'
+import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
 import {
   buildTaxAdvisorPackage,
   formatLedgerAssetStatus,
   getTaxAdvisorDataSources,
 } from '../../utils/accountingTaxAdvisorData'
 import { exportTaxAdvisorBulkCsv, exportTaxAdvisorPackagePdf } from '../../utils/accountingTaxAdvisorExport'
+import { FilingCheckPanel, FilingExportCautionBanner } from './FilingCheckPanel'
 
 type TaxAdvisorPackagePanelProps = {
   franchiseeId: string
@@ -48,12 +52,16 @@ type TaxAdvisorPackagePanelProps = {
   unorganizedReceipts: StoredAccountingReceipt[]
   onExportRecorded: (fileName: string) => void
   onError: (message: string) => void
+  onNavigateAccountingTab?: (
+    tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor',
+  ) => void
 }
 
 const MENU_ITEMS: Array<{ id: TaxAdvisorSectionId; label: string; description: string }> = [
   { id: 'pdf-bulk', label: '一式PDF出力', description: '表紙・目次付きの一式PDF' },
   { id: 'csv-bulk', label: '一式CSV出力', description: '資料ごとのCSVを連続ダウンロード' },
   { id: 'print-preview', label: '印刷用プレビュー', description: 'PDF出力前の画面上確認' },
+  { id: 'filing-check', label: '申告前チェック', description: '決算残高・内訳整合と入力漏れの確認' },
   { id: 'summary', label: '決算サマリー', description: '会計年度の概要' },
   { id: 'pl', label: 'PL', description: '損益計算書（会計年度）' },
   { id: 'bs', label: 'BS', description: '貸借対照表' },
@@ -360,11 +368,15 @@ function PrintPreviewContent({ pkg }: { pkg: ReturnType<typeof buildTaxAdvisorPa
 function SectionDetail({
   sectionId,
   pkg,
+  filingSummary,
   onBack,
+  onFilingAction,
 }: {
   sectionId: TaxAdvisorSectionId
   pkg: ReturnType<typeof buildTaxAdvisorPackage>
+  filingSummary: ReturnType<typeof buildAccountingFilingChecks>
   onBack: () => void
+  onFilingAction: (actionTarget: string) => void
 }) {
   const menu = MENU_ITEMS.find((item) => item.id === sectionId)
 
@@ -378,6 +390,10 @@ function SectionDetail({
       <h2>{menu?.label ?? '税理士相談用 一式資料'}</h2>
       <p className="accounting-note">{menu?.description}</p>
       <DataSourceNote sectionId={sectionId} />
+
+      {sectionId === 'filing-check' ? (
+        <FilingCheckPanel summary={filingSummary} onAction={onFilingAction} />
+      ) : null}
 
       {sectionId === 'print-preview' ? <PrintPreviewContent pkg={pkg} /> : null}
       {sectionId === 'summary' ? <ReportLineList lines={pkg.etax.summary} /> : null}
@@ -633,19 +649,22 @@ function SectionDetail({
       ) : null}
 
       {sectionId === 'review-list' ? (
-        pkg.reviewItems.length > 0 ? (
-          <ul className="accounting-etax-missing-list">
-            {pkg.reviewItems.map((item) => (
-              <li key={item.id} className="is-review">
-                <span className="accounting-etax-missing-category">{item.category}</span>
-                <strong>{item.label}</strong>
-                {item.detail ? <span className="accounting-etax-check-detail">{item.detail}</span> : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="save-note">確認事項はありません。</p>
-        )
+        <>
+          <FilingCheckPanel summary={filingSummary} onAction={onFilingAction} compact />
+          {pkg.reviewItems.length > 0 ? (
+            <ul className="accounting-etax-missing-list">
+              {pkg.reviewItems.map((item) => (
+                <li key={item.id} className="is-review">
+                  <span className="accounting-etax-missing-category">{item.category}</span>
+                  <strong>{item.label}</strong>
+                  {item.detail ? <span className="accounting-etax-check-detail">{item.detail}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="save-note">確認事項はありません。</p>
+          )}
+        </>
       ) : null}
     </section>
   )
@@ -668,6 +687,7 @@ export function TaxAdvisorPackagePanel({
   unorganizedReceipts,
   onExportRecorded,
   onError,
+  onNavigateAccountingTab,
 }: TaxAdvisorPackagePanelProps) {
   const [selectedYear, setSelectedYear] = useState(initialTargetYear)
   const [activeSection, setActiveSection] = useState<TaxAdvisorSectionId | null>(null)
@@ -749,6 +769,45 @@ export function TaxAdvisorPackagePanel({
     ],
   )
 
+  const filingSummary = useMemo(
+    () =>
+      buildAccountingFilingChecks({
+        targetYear: selectedYear,
+        fiscalPeriod: getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, selectedYear),
+        expenses,
+        receipts: allReceipts,
+        unorganizedReceipts,
+        fixedAssets,
+        settlementAuxiliary: auxiliary,
+        company,
+      }),
+    [allReceipts, auxiliary, company, expenses, fixedAssets, selectedYear, unorganizedReceipts],
+  )
+
+  const handleFilingAction = (actionTarget: string) => {
+    if (actionTarget === 'settlement-auxiliary' || actionTarget === 'etax') {
+      onNavigateAccountingTab?.('etax')
+      return
+    }
+    if (actionTarget === 'fixed-assets') {
+      onNavigateAccountingTab?.('fixed-assets')
+      return
+    }
+    if (actionTarget === 'expenses') {
+      onNavigateAccountingTab?.('expenses')
+      return
+    }
+    if (actionTarget === 'unorganized-receipts') {
+      onNavigateAccountingTab?.('unorganized-receipts')
+      return
+    }
+    if (actionTarget === 'tax-advisor') {
+      onNavigateAccountingTab?.('tax-advisor')
+      return
+    }
+    setActiveSection('filing-check')
+  }
+
   const handleMenuClick = async (sectionId: TaxAdvisorSectionId) => {
     if (sectionId === 'pdf-bulk') {
       setIsExporting(true)
@@ -784,7 +843,9 @@ export function TaxAdvisorPackagePanel({
       <SectionDetail
         sectionId={activeSection}
         pkg={pkg}
+        filingSummary={filingSummary}
         onBack={() => setActiveSection(null)}
+        onFilingAction={handleFilingAction}
       />
     )
   }
@@ -841,6 +902,15 @@ export function TaxAdvisorPackagePanel({
         </dl>
       </section>
 
+      <FilingCheckPanel
+        summary={filingSummary}
+        compact
+        onAction={handleFilingAction}
+        showExportCaution={filingSummary.blockingCount > 0}
+      />
+
+      <FilingExportCautionBanner visible={filingSummary.blockingCount > 0} />
+
       {pkg.reviewItems.length > 0 ? (
         <section className="accounting-etax-status-card" aria-label="要確認サマリー">
           <p className="accounting-note">確認事項 {pkg.reviewItems.length} 件（エラーではなく確認事項として表示）</p>
@@ -867,7 +937,7 @@ export function TaxAdvisorPackagePanel({
             key={item.id}
             className={`accounting-etax-menu-card${
               item.id === 'pdf-bulk' || item.id === 'csv-bulk' ? ' is-bulk' : ''
-            }${item.id === 'print-preview' ? ' is-featured' : ''}`}
+            }${item.id === 'print-preview' || item.id === 'filing-check' ? ' is-featured' : ''}`}
             type="button"
             disabled={isExporting}
             onClick={() => void handleMenuClick(item.id)}

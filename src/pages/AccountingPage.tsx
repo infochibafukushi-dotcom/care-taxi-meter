@@ -4417,10 +4417,13 @@ export function AccountingPage() {
             fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
             settlementAuxiliary={settlementAuxiliary}
+            allReceipts={allReceipts}
+            unorganizedReceipts={unorganizedReceipts}
             onReloadAuxiliary={reloadSettlementAuxiliary}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
+            onNavigateAccountingTab={setActiveTab}
           />
         ) : null}
 
@@ -4442,6 +4445,7 @@ export function AccountingPage() {
             unorganizedReceipts={unorganizedReceipts}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onError={setErrorMessage}
+            onNavigateAccountingTab={setActiveTab}
           />
         ) : null}
 
