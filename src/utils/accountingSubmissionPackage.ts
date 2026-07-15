@@ -99,7 +99,7 @@ const PLANNED_REPORTS: PlannedReportDef[] = [
     label: '決算サマリー',
     format: 'pdf',
     availability: 'voucherPendingPhase2B',
-    note: 'tax-advisor/etax summary → Phase 2B で同梱',
+    note: 'tax-advisor/etax summary → ZIP生成時に同梱',
   },
   {
     id: 'report.pl',
@@ -174,7 +174,7 @@ const PLANNED_REPORTS: PlannedReportDef[] = [
     label: '申告前チェック',
     format: 'pdf',
     availability: 'voucherPendingPhase2B',
-    note: '画面確認は既存。PDF同梱は Phase 2B',
+    note: '画面確認は既存。PDFはZIP生成時に同梱',
   },
 ]
 
@@ -620,7 +620,7 @@ export const buildAccountingSubmissionPackage = (
         sourceReceiptId: receipt.id,
         sourceStoragePath: resolveReceiptStoragePath(receipt),
         sourceMimeType: resolveReceiptMime(receipt),
-        note: shared ? '共有証憑（複数経費参照）・ZIP同梱は Phase 2B' : '原本ZIP同梱は Phase 2B',
+        note: shared ? '共有証憑（複数経費参照）・ZIP生成時に同梱' : '原本はZIP生成時に同梱',
       }),
     )
     return { relativePath, availableOriginal: true }
@@ -875,7 +875,7 @@ export const buildAccountingSubmissionPackage = (
         sourceReceiptId: receipt.id,
         sourceStoragePath: resolveReceiptStoragePath(receipt),
         sourceMimeType: resolveReceiptMime(receipt),
-        note: '原本ZIP同梱は Phase 2B',
+        note: '原本はZIP生成時に同梱',
       }),
     )
   }

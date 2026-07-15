@@ -389,10 +389,17 @@ service cloud.firestore {
         || (isStoreManager() && sameStore(data))
       );
     }
+    // docId = `{franchiseeId|companyId}_{storeId}_{targetYear}`。token の両キーを許容
     function canReadSettlementAuxiliaryDoc(docId) {
       return isHqAdmin()
-        || (isFranchiseeOwner() && docId.matches('^' + franchiseeId() + '_.*'))
-        || (isStoreManager() && docId.matches('^' + franchiseeId() + '_' + storeId() + '_.*'));
+        || (isFranchiseeOwner() && (
+          (franchiseeId() != null && docId.matches('^' + franchiseeId() + '_.*'))
+          || (companyId() != null && docId.matches('^' + companyId() + '_.*'))
+        ))
+        || (isStoreManager() && storeId() != null && (
+          (franchiseeId() != null && docId.matches('^' + franchiseeId() + '_' + storeId() + '_.*'))
+          || (companyId() != null && docId.matches('^' + companyId() + '_' + storeId() + '_.*'))
+        ));
     }
     function validConfirmedExpenseCategory() {
       return request.resource.data.confirmationStatus != '確認済み'

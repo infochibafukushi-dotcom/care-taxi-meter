@@ -370,6 +370,11 @@ export type BuildAccountingFilingChecksInput = {
   fixedAssets: StoredAccountingFixedAsset[]
   settlementAuxiliary: AccountingSettlementAuxiliaryInput | null
   company: Company | null
+  /**
+   * When set, treat settlement-auxiliary fetch failure as blocking.
+   * Do not treat permission-denied / load errors as “empty defaults”.
+   */
+  settlementAuxiliaryLoadError?: string | null
 }
 
 export const buildAccountingFilingChecks = (
@@ -383,9 +388,22 @@ export const buildAccountingFilingChecks = (
     unorganizedReceipts,
     fixedAssets,
     settlementAuxiliary,
+    settlementAuxiliaryLoadError,
   } = input
   void input.company
   void input.targetYear
+
+  if (settlementAuxiliaryLoadError) {
+    items.push({
+      id: 'system.settlementAuxiliaryLoad',
+      category: 'system',
+      label: '決算補助データの取得',
+      status: 'blocking',
+      summary: '決算補助データの取得に失敗したため、提出準備を完了扱いにできません',
+      detail: settlementAuxiliaryLoadError,
+      actionTarget: 'settlement-auxiliary',
+    })
+  }
 
   // --- period ---
   if (!fiscalPeriod) {
@@ -967,6 +985,12 @@ export const buildAccountingFilingChecks = (
   }
 
   // --- settlement balance / breakdown ---
+  // Fetch failure must not look like “empty auxiliary defaults”.
+  if (settlementAuxiliaryLoadError) {
+    pushPlannedItems(items)
+    return summarizeFilingChecks(items)
+  }
+
   const balance = settlementAuxiliary?.yearEndBalance
   const auxiliary = settlementAuxiliary
 

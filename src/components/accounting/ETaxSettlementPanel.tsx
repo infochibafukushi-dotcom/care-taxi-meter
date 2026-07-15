@@ -60,6 +60,7 @@ type ETaxSettlementPanelProps = {
   fixedCosts: StoredAccountingFixedCost[]
   fixedAssets: StoredAccountingFixedAsset[]
   settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
+  settlementAuxiliaryLoadError?: string
   allReceipts?: StoredAccountingReceipt[]
   unorganizedReceipts?: StoredAccountingReceipt[]
   onReloadAuxiliary: () => Promise<void>
@@ -226,6 +227,7 @@ export function ETaxSettlementPanel({
   fixedCosts,
   fixedAssets,
   settlementAuxiliary,
+  settlementAuxiliaryLoadError = '',
   allReceipts = [],
   unorganizedReceipts = [],
   onReloadAuxiliary,
@@ -322,11 +324,13 @@ export function ETaxSettlementPanel({
         receipts: allReceipts,
         unorganizedReceipts,
         fixedAssets,
-        settlementAuxiliary: auxiliary,
+        settlementAuxiliary: settlementAuxiliaryLoadError ? null : auxiliary,
         company,
+        settlementAuxiliaryLoadError: settlementAuxiliaryLoadError || null,
       }),
     [
       allReceipts,
+      settlementAuxiliaryLoadError,
       auxiliary,
       company,
       expenses,

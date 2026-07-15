@@ -74,6 +74,7 @@ type SubmissionPackagePanelProps = {
   fixedAssets: StoredAccountingFixedAsset[]
   caseRecords: StoredCaseRecord[]
   settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
+  settlementAuxiliaryLoadError?: string
   companyName?: string
   onExportPackageRecorded?: (payload: AccountingExportPackageRecordPayload) => Promise<void>
   onStatus?: (message: string) => void
@@ -110,6 +111,7 @@ export function SubmissionPackagePanel({
   fixedAssets,
   caseRecords,
   settlementAuxiliary,
+  settlementAuxiliaryLoadError = '',
   companyName,
   onExportPackageRecorded,
   onStatus,
@@ -187,8 +189,9 @@ export function SubmissionPackagePanel({
         receipts,
         unorganizedReceipts,
         fixedAssets,
-        settlementAuxiliary: auxiliary,
+        settlementAuxiliary: settlementAuxiliaryLoadError ? null : auxiliary,
         company,
+        settlementAuxiliaryLoadError: settlementAuxiliaryLoadError || null,
       }),
     [
       selectedYear,
@@ -199,6 +202,7 @@ export function SubmissionPackagePanel({
       fixedAssets,
       auxiliary,
       company,
+      settlementAuxiliaryLoadError,
     ],
   )
 
@@ -540,8 +544,8 @@ export function SubmissionPackagePanel({
       <header className="accounting-etax-header-card">
         <h2>税務確認提出パッケージ</h2>
         <p className="accounting-note">
-          Phase 2B：確認用ZIPをブラウザで生成できます。大容量は Phase 2C
-          対応予定です。端末への保存完了は保証しません。
+          確認用ZIPをブラウザで生成できます。証憑原本やPDFはZIP生成時に同梱します。大容量は
+          Phase 2C 対応予定です。端末への保存完了は保証しません。
         </p>
         <p className="accounting-note">
           経費と領収書の対応は現状 1:1 です。パッケージ型は将来の複数証憑に備え receiptRefs
@@ -592,6 +596,13 @@ export function SubmissionPackagePanel({
             <dd>{zipPurposeLabel}</dd>
           </div>
         </dl>
+        {settlementAuxiliaryLoadError ? (
+          <p className="accounting-error" role="alert">
+            決算補助データの取得に失敗したため、提出準備を完了扱いできません。ZIPは確認用ZIPとして作成されます。
+            <br />
+            {settlementAuxiliaryLoadError}
+          </p>
+        ) : null}
       </header>
 
       <FilingExportCautionBanner visible={filingSummary.blockingCount > 0} />

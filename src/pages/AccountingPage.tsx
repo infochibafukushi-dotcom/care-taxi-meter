@@ -511,6 +511,7 @@ export function AccountingPage() {
   const [fixedCosts, setFixedCosts] = useState<Awaited<ReturnType<typeof fetchAccountingFixedCosts>>>([])
   const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
   const [settlementAuxiliary, setSettlementAuxiliary] = useState<StoredAccountingSettlementAuxiliary | null>(null)
+  const [settlementAuxiliaryLoadError, setSettlementAuxiliaryLoadError] = useState('')
   const [assetDraft, setAssetDraft] = useState<ExpenseAssetRegistrationDraft>(buildEmptyExpenseAssetDraft)
   const [editingExpenseBaseline, setEditingExpenseBaseline] = useState<{
     form: AccountingExpenseInput
@@ -800,6 +801,7 @@ export function AccountingPage() {
   useEffect(() => {
     if (!canAccess) {
       setSettlementAuxiliary(null)
+      setSettlementAuxiliaryLoadError('')
       return
     }
 
@@ -808,11 +810,15 @@ export function AccountingPage() {
       .then((row) => {
         if (!cancelled) {
           setSettlementAuxiliary(row)
+          setSettlementAuxiliaryLoadError('')
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          setErrorMessage(formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error))
+          setSettlementAuxiliary(null)
+          const message = formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error)
+          setSettlementAuxiliaryLoadError(message)
+          setErrorMessage(message)
         }
       })
 
@@ -2185,8 +2191,16 @@ export function AccountingPage() {
   }
 
   const reloadSettlementAuxiliary = async () => {
-    const row = await fetchAccountingSettlementAuxiliary(accessScope, targetYear)
-    setSettlementAuxiliary(row)
+    try {
+      const row = await fetchAccountingSettlementAuxiliary(accessScope, targetYear)
+      setSettlementAuxiliary(row)
+      setSettlementAuxiliaryLoadError('')
+    } catch (error) {
+      setSettlementAuxiliary(null)
+      const message = formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error)
+      setSettlementAuxiliaryLoadError(message)
+      setErrorMessage(message)
+    }
   }
 
   const validateAssetDraftBeforeSave = () => {
@@ -2837,6 +2851,18 @@ export function AccountingPage() {
                   franchiseeId={sessionDiagnostics.tenant.franchiseeId}, storeId=
                   {sessionDiagnostics.tenant.storeId}
                 </dd>
+              </div>
+              <div>
+                <dt>accountingSettlementAuxiliary.docId</dt>
+                <dd>
+                  {sessionDiagnostics.accessScope.franchiseeId && sessionDiagnostics.accessScope.storeId
+                    ? `${sessionDiagnostics.accessScope.franchiseeId}_${sessionDiagnostics.accessScope.storeId}_${targetYear}`
+                    : '（scope不足）'}
+                </dd>
+              </div>
+              <div>
+                <dt>settlementAuxiliaryLoadError</dt>
+                <dd>{settlementAuxiliaryLoadError || '（なし）'}</dd>
               </div>
             </dl>
           </section>
@@ -4514,6 +4540,7 @@ export function AccountingPage() {
             fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
             settlementAuxiliary={settlementAuxiliary}
+            settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             allReceipts={allReceipts}
             unorganizedReceipts={unorganizedReceipts}
             onReloadAuxiliary={reloadSettlementAuxiliary}
@@ -4539,6 +4566,7 @@ export function AccountingPage() {
             fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
             settlementAuxiliary={settlementAuxiliary}
+            settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             allReceipts={allReceipts}
             unorganizedReceipts={unorganizedReceipts}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
@@ -4563,6 +4591,7 @@ export function AccountingPage() {
             fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
             settlementAuxiliary={settlementAuxiliary}
+            settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             receipts={allReceipts}
             unorganizedReceipts={unorganizedReceipts}
             companyName={storeName}

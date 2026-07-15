@@ -35,7 +35,7 @@ export type SubmissionItemAvailability =
 
 export const SUBMISSION_ITEM_AVAILABILITY_LABELS: Record<SubmissionItemAvailability, string> = {
   available: '出力可能',
-  voucherPendingPhase2B: 'Phase 2Bで原本取得後に出力可能',
+  voucherPendingPhase2B: 'ZIP生成時に出力',
   notImplemented: '現在未対応',
   dataMissing: 'データ不足',
 }

@@ -14,7 +14,7 @@ import type {
 } from '../types/accountingSettlementAuxiliary'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
-import { resolveAccountingTenantFields } from './accountingTenant'
+import { logAccountingQueryFailure, resolveAccountingTenantFields } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
 
@@ -190,13 +190,27 @@ export async function fetchAccountingSettlementAuxiliary(
     storeId: scope.storeId,
     targetYear,
   })
-  const snapshot = await getDoc(doc(db, collectionName, docId))
-  if (!snapshot.exists()) {
-    return null
-  }
+  try {
+    const snapshot = await getDoc(doc(db, collectionName, docId))
+    if (!snapshot.exists()) {
+      return null
+    }
 
-  const stored = normalizeStoredSettlementAuxiliary(snapshot.id, snapshot.data() as Record<string, unknown>)
-  return matchesTenantScope(stored, scope) ? stored : null
+    const stored = normalizeStoredSettlementAuxiliary(
+      snapshot.id,
+      snapshot.data() as Record<string, unknown>,
+    )
+    return matchesTenantScope(stored, scope) ? stored : null
+  } catch (error) {
+    logAccountingQueryFailure(collectionName, scope, error, {
+      docId,
+      targetYear,
+      scopeFranchiseeId: scope.franchiseeId,
+      scopeStoreId: scope.storeId,
+      scopeRole: scope.role ?? '',
+    })
+    throw error
+  }
 }
 
 export async function saveAccountingSettlementAuxiliary(

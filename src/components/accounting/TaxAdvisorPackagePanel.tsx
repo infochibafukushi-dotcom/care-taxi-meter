@@ -59,6 +59,7 @@ type TaxAdvisorPackagePanelProps = {
   fixedCosts: StoredAccountingFixedCost[]
   fixedAssets: StoredAccountingFixedAsset[]
   settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
+  settlementAuxiliaryLoadError?: string
   allReceipts: StoredAccountingReceipt[]
   unorganizedReceipts: StoredAccountingReceipt[]
   onExportRecorded: (fileName: string) => void
@@ -696,6 +697,7 @@ export function TaxAdvisorPackagePanel({
   fixedCosts,
   fixedAssets,
   settlementAuxiliary,
+  settlementAuxiliaryLoadError = '',
   allReceipts,
   unorganizedReceipts,
   onExportRecorded,
@@ -794,10 +796,20 @@ export function TaxAdvisorPackagePanel({
         receipts: allReceipts,
         unorganizedReceipts,
         fixedAssets,
-        settlementAuxiliary: auxiliary,
+        settlementAuxiliary: settlementAuxiliaryLoadError ? null : auxiliary,
         company,
+        settlementAuxiliaryLoadError: settlementAuxiliaryLoadError || null,
       }),
-    [allReceipts, auxiliary, company, expenses, fixedAssets, selectedYear, unorganizedReceipts],
+    [
+      allReceipts,
+      auxiliary,
+      company,
+      expenses,
+      fixedAssets,
+      selectedYear,
+      settlementAuxiliaryLoadError,
+      unorganizedReceipts,
+    ],
   )
 
   const handleFilingAction = (actionTarget: string) => {

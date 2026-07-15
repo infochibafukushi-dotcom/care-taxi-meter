@@ -194,6 +194,31 @@ describe('buildAccountingSubmissionPackage', () => {
     expect(pkg.issues.some((issue) => issue.code === 'period.unavailable')).toBe(true)
   })
 
+  it('marks submission not ready when filing has auxiliary load blocking', () => {
+    const blockedFiling = summarizeFilingChecks([
+      {
+        id: 'system.settlementAuxiliaryLoad',
+        category: 'system',
+        label: '決算補助データの取得',
+        status: 'blocking',
+        summary: '決算補助データの取得に失敗したため、提出準備を完了扱いにできません',
+        detail: 'accountingSettlementAuxiliary: Missing or insufficient permissions.',
+      },
+    ])
+    const pkg = buildAccountingSubmissionPackage({
+      fiscalPeriod,
+      expenses: [],
+      receipts: [],
+      fixedAssets: [],
+      filingSummary: blockedFiling,
+      targetYear: 2026,
+      createdAt: '2026-07-15T00:00:00.000Z',
+    })
+    expect(pkg.summary.isSubmissionReady).toBe(false)
+    expect(pkg.summary.filingBlockingCount).toBe(1)
+    expect(pkg.summary.canGenerateZip).toBe(true)
+  })
+
   it('builds planned report tree and available catalog CSVs', () => {
     const pkg = buildAccountingSubmissionPackage({
       fiscalPeriod,

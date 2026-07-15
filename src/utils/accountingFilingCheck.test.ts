@@ -484,6 +484,29 @@ describe('buildAccountingFilingChecks', () => {
     expect(summary.plannedCount).not.toBe(summary.blockingCount)
   })
 
+  it('blocks when settlement auxiliary fetch fails and does not treat it as empty defaults', () => {
+    const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
+    const loadError = 'accountingSettlementAuxiliary: Missing or insufficient permissions.'
+    const summary = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [],
+      receipts: [],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: null,
+      company: null,
+      settlementAuxiliaryLoadError: loadError,
+    })
+
+    const loadItem = summary.items.find((item) => item.id === 'system.settlementAuxiliaryLoad')
+    expect(loadItem?.status).toBe('blocking')
+    expect(loadItem?.detail).toBe(loadError)
+    expect(summary.items.some((item) => item.id === 'settlement.depositsMatch')).toBe(false)
+    expect(summary.blockingCount).toBeGreaterThan(0)
+    expect(summary.isFilingReady).toBe(false)
+  })
+
   it('excludes deleted expenses from unconfirmed counts', () => {
     const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, 2026)
     const summary = buildAccountingFilingChecks({
