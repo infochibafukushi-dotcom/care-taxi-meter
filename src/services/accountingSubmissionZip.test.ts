@@ -18,6 +18,8 @@ import {
   loadSubmissionVoucherBlobWithPolicy,
   publicVoucherFileName,
   raceVoucherFetchBlob,
+  reconcileSubmissionZipDownloadFileName,
+  resolveSubmissionZipDeliveryNaming,
   SubmissionVoucherTimeoutError,
 } from './accountingSubmissionZip'
 import { SubmissionZipCancelledError, SubmissionZipFatalError } from '../types/accountingSubmissionZip'
@@ -226,6 +228,48 @@ describe('buildSubmissionZipFileName', () => {
   })
 })
 
+describe('resolveSubmissionZipDeliveryNaming', () => {
+  it('A: all-success submission keeps fileName / purpose / isConfirmationZip aligned', () => {
+    const naming = resolveSubmissionZipDeliveryNaming({
+      targetYear: 2026,
+      packageSubmissionReady: true,
+      fetchFailureCount: 0,
+    })
+    expect(naming.isConfirmationZip).toBe(false)
+    expect(naming.purpose).toBe('submission')
+    expect(naming.fileName).toBe('税務確認資料_2026年度.zip')
+    expect(naming.fileName).not.toContain('確認用')
+  })
+
+  it('B: one fetch failure forces confirmation naming', () => {
+    const naming = resolveSubmissionZipDeliveryNaming({
+      targetYear: 2026,
+      packageSubmissionReady: true,
+      fetchFailureCount: 1,
+    })
+    expect(naming.isConfirmationZip).toBe(true)
+    expect(naming.purpose).toBe('confirmation')
+    expect(naming.fileName).toBe('税務確認資料_2026年度_確認用.zip')
+  })
+
+  it('C: reconcileDownloadFileName prefers isConfirmationZip when names diverge', () => {
+    expect(
+      reconcileSubmissionZipDownloadFileName({
+        targetYear: 2026,
+        fileName: '税務確認資料_2026年度_確認用.zip',
+        isConfirmationZip: false,
+      }),
+    ).toBe('税務確認資料_2026年度.zip')
+    expect(
+      reconcileSubmissionZipDownloadFileName({
+        targetYear: 2026,
+        fileName: '税務確認資料_2026年度.zip',
+        isConfirmationZip: true,
+      }),
+    ).toBe('税務確認資料_2026年度_確認用.zip')
+  })
+})
+
 describe('publicVoucherFileName', () => {
   it('returns basename only', () => {
     expect(publicVoucherFileName('証憑/EXP-000001_RCP-000001_店.jpg')).toBe(
@@ -395,6 +439,8 @@ describe('generateAccountingSubmissionZip', () => {
     expect(loader).toHaveBeenCalledTimes(1)
     expect(result.fileCount).toBe(1)
     expect(result.isSubmissionReady).toBe(true)
+    expect(result.isConfirmationZip).toBe(false)
+    expect(result.fileName).toBe('税務確認資料_2026年度.zip')
     expect(result.fileName).not.toContain('確認用')
 
     const zip = await assertZipPublicSafe(result.blob)
@@ -403,6 +449,14 @@ describe('generateAccountingSubmissionZip', () => {
     expect(names).toContain('12_不足証憑一覧.csv')
     expect(names).toContain('公開manifest.json')
     expect(names).toContain(voucherPath!)
+    const manifest = JSON.parse(await zip.file('公開manifest.json')!.async('string')) as {
+      isConfirmationZip: boolean
+      purpose: string
+    }
+    expect(manifest.isConfirmationZip).toBe(false)
+    expect(manifest.purpose).toBe('submission')
+    expect(result.isConfirmationZip).toBe(manifest.isConfirmationZip)
+    expect(result.fileName.includes('確認用')).toBe(manifest.isConfirmationZip)
   })
 
   it('accepts real pdf bytes and rejects disguise', async () => {

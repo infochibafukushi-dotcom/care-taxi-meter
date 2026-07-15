@@ -9,6 +9,7 @@ import {
   estimateSubmissionZipVoucherCount,
   generateAccountingSubmissionZip,
   loadSubmissionReceiptBlob,
+  reconcileSubmissionZipDownloadFileName,
 } from '../../services/accountingSubmissionZip'
 import type {
   StoredAccountingAdjustment,
@@ -406,7 +407,19 @@ export function SubmissionPackagePanel({
         },
       })
 
-      downloadBlobFile(result.fileName, result.blob)
+      const downloadFileName = reconcileSubmissionZipDownloadFileName({
+        targetYear: selectedYear,
+        fileName: result.fileName,
+        isConfirmationZip: result.isConfirmationZip,
+      })
+      if (downloadFileName !== result.fileName) {
+        console.warn('[submission-zip] reconciled download fileName with isConfirmationZip', {
+          from: result.fileName,
+          to: downloadFileName,
+          isConfirmationZip: result.isConfirmationZip,
+        })
+      }
+      downloadBlobFile(downloadFileName, result.blob)
       setZipWarnings(result.warnings)
       setProgress({
         stage: 'completed',
@@ -420,7 +433,7 @@ export function SubmissionPackagePanel({
       })
 
       onStatus?.(
-        `${result.fileName} を出力しました（ZIP内 ${result.archiveEntryCount} エントリ` +
+        `${downloadFileName} を出力しました（ZIP内 ${result.archiveEntryCount} エントリ` +
           (result.warnings.length > 0 ? ` / 警告 ${result.warnings.length}件` : '') +
           '）。端末保存の完了は保証されません。',
       )
@@ -472,7 +485,7 @@ export function SubmissionPackagePanel({
             exportType: 'submission-zip',
             files: [
               {
-                fileName: result.fileName,
+                fileName: downloadFileName,
                 format: 'zip',
                 documentType: 'submission-package',
                 byteSize: result.byteSize,
@@ -501,7 +514,7 @@ export function SubmissionPackagePanel({
         } catch {
           // History failure must not fail ZIP success
           onStatus?.(
-            `${result.fileName} の出力は完了しましたが、出力操作履歴の保存に失敗しました。`,
+            `${downloadFileName} の出力は完了しましたが、出力操作履歴の保存に失敗しました。`,
           )
         }
       }

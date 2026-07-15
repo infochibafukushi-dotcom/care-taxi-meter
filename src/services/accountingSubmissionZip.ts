@@ -290,6 +290,53 @@ export const buildSubmissionZipFileName = (input: {
   return `税務確認資料_${yearLabel}_確認用.zip`
 }
 
+/**
+ * Single source of truth for ZIP delivery naming + public purpose flags.
+ * fileName / isConfirmationZip / purpose must never diverge.
+ */
+export const resolveSubmissionZipDeliveryNaming = (input: {
+  targetYear: number
+  packageSubmissionReady: boolean
+  fetchFailureCount: number
+}): {
+  isSubmissionReady: boolean
+  isConfirmationZip: boolean
+  purpose: 'confirmation' | 'submission'
+  fileName: string
+} => {
+  const isSubmissionReady = input.packageSubmissionReady && input.fetchFailureCount === 0
+  const isConfirmationZip = !isSubmissionReady
+  const purpose = isConfirmationZip ? 'confirmation' : 'submission'
+  const fileName = buildSubmissionZipFileName({
+    targetYear: input.targetYear,
+    isSubmissionReady,
+  })
+  const fileNameLooksConfirmation = fileName.includes('確認用')
+  if (fileNameLooksConfirmation !== isConfirmationZip || (purpose === 'confirmation') !== isConfirmationZip) {
+    throw new SubmissionZipFatalError(
+      'naming.mismatch',
+      'ZIPファイル名と確認用フラグの整合性が取れていません',
+    )
+  }
+  return { isSubmissionReady, isConfirmationZip, purpose, fileName }
+}
+
+/** Prefer result.isConfirmationZip when reconciling a suspicious fileName. */
+export const reconcileSubmissionZipDownloadFileName = (input: {
+  targetYear: number
+  fileName: string
+  isConfirmationZip: boolean
+}): string => {
+  const looksConfirmation = input.fileName.includes('確認用')
+  if (looksConfirmation === input.isConfirmationZip) {
+    return input.fileName
+  }
+  return buildSubmissionZipFileName({
+    targetYear: input.targetYear,
+    isSubmissionReady: !input.isConfirmationZip,
+  })
+}
+
 export const estimateSubmissionZipFileCount = (pkg: AccountingSubmissionPackage): number => {
   const reportLike = pkg.items.filter(
     (item) =>
@@ -642,11 +689,15 @@ export async function generateAccountingSubmissionZip(
   files.set(MISSING_LIST_PATH, new Blob([missingCsv], { type: 'text/csv;charset=utf-8' }))
   occupied.add(MISSING_LIST_PATH)
 
-  const isSubmissionReady = pkg.summary.isSubmissionReady && failedVouchers.length === 0
-  const isConfirmationZip = !isSubmissionReady
-  const fileName = buildSubmissionZipFileName({
-    targetYear: pkg.targetYear,
+  const {
     isSubmissionReady,
+    isConfirmationZip,
+    purpose,
+    fileName,
+  } = resolveSubmissionZipDeliveryNaming({
+    targetYear: pkg.targetYear,
+    packageSubmissionReady: Boolean(pkg.summary.isSubmissionReady),
+    fetchFailureCount: failedVouchers.length,
   })
 
   emit(input.onProgress, {
@@ -726,7 +777,7 @@ export async function generateAccountingSubmissionZip(
     fiscalPeriodLabel: pkg.fiscalPeriodLabel,
     createdAt: new Date().toISOString(),
     isConfirmationZip,
-    purpose: isConfirmationZip ? 'confirmation' : 'submission',
+    purpose,
     items: manifestItems,
   }
 
@@ -793,10 +844,15 @@ export async function generateAccountingSubmissionZip(
 }
 
 export function downloadBlobFile(fileName: string, blob: Blob) {
-  const sourceBlob =
+  const typedBlob =
     blob.type && blob.type !== 'application/octet-stream'
       ? blob
       : new Blob([blob], { type: 'application/zip' })
+  // Prefer File so browsers that honor File.name align with the intended download name.
+  const sourceBlob =
+    typeof File !== 'undefined'
+      ? new File([typedBlob], fileName, { type: typedBlob.type || 'application/zip' })
+      : typedBlob
   const url = URL.createObjectURL(sourceBlob)
   try {
     const anchor = document.createElement('a')
