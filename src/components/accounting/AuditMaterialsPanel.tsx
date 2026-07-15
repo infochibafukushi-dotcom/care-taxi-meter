@@ -29,7 +29,7 @@ import {
   getDepreciationAmountForMonth,
 } from '../../utils/accountingDepreciation'
 import { downloadAuditLinePdf, downloadAuditTablePdf } from '../../utils/accountingAuditPdf'
-import { formatFiscalYearLabelForCalendarYear, formatYearMonthLabel } from '../../utils/accountingPl'
+import { formatYearMonthLabel } from '../../utils/accountingPl'
 import type { AccountingSalesRow } from '../../utils/accountingSalesMapping'
 import { FIXED_ASSET_STATUS_LABELS } from '../../types/accountingFixedAssets'
 
@@ -302,9 +302,8 @@ export function AuditMaterialsPanel({
     }
 
     const fileName = buildYearlyPlCsvFileName(targetYear).replace('.csv', '.pdf')
-    const fiscalLabel = formatFiscalYearLabelForCalendarYear(targetYear)
-    await downloadAuditLinePdf(fileName, `年次PL ${targetYear}年（会計年度: ${fiscalLabel}）`, [
-      `会計年度: ${fiscalLabel}`,
+    await downloadAuditLinePdf(fileName, `年次PL ${targetYear}年（暦年・管理会計）`, [
+      `集計区分: ${targetYear}年（暦年・管理会計・1〜12月）`,
       `年間売上小計: ${yearlyProfitLoss.columns.yearTotal.salesTotalYen}円`,
       `年間売上原価小計: ${yearlyProfitLoss.columns.yearTotal.costOfSalesTotalYen}円`,
       `年間粗利益: ${yearlyProfitLoss.columns.yearTotal.grossProfitYen}円`,

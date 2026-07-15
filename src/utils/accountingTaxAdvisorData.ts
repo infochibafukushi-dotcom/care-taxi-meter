@@ -34,7 +34,8 @@ import {
   calculateRemainingBookValue,
   getDepreciationAmountForMonth,
 } from '../utils/accountingDepreciation'
-import { formatFiscalYearLabelForCalendarYear } from '../utils/accountingPl'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from './accountingFiscalPeriod'
 
 const PURPOSE_TEXT =
   '税理士相談・申告前確認のための経理根拠資料一式（e-Tax転記用資料とは別用途）'
@@ -284,10 +285,11 @@ export const buildTaxAdvisorPackage = ({
   allReceipts: StoredAccountingReceipt[]
   unorganizedReceipts: StoredAccountingReceipt[]
 }): TaxAdvisorPackage => {
-  const fiscalYearEndYearMonth = `${targetYear + 1}-03`
+  const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)
+  const fiscalYearEndYearMonth = period?.endYearMonth ?? ''
   const etax = buildETaxPackage({
     targetYear,
-    targetYearMonth: fiscalYearEndYearMonth,
+    targetYearMonth: fiscalYearEndYearMonth || '',
     company,
     meterSettings,
     caseRecords,
@@ -307,7 +309,9 @@ export const buildTaxAdvisorPackage = ({
     .filter((asset) => asset.assetKind === 'fixed' && !asset.isDeleted)
     .map((asset) => ({
       ...asset,
-      remainingBookValue: calculateRemainingBookValue(asset, fiscalYearEndYearMonth),
+      remainingBookValue: fiscalYearEndYearMonth
+        ? calculateRemainingBookValue(asset, fiscalYearEndYearMonth)
+        : asset.acquisitionCost,
       status: asset.status,
     }))
 
@@ -315,7 +319,7 @@ export const buildTaxAdvisorPackage = ({
 
   const header: TaxAdvisorHeader = {
     targetYear,
-    fiscalYearLabel: formatFiscalYearLabelForCalendarYear(targetYear),
+    fiscalYearLabel: period?.label ?? '会社設立前の年度です',
     companyName: etax.company.companyName,
     storeName: storeName || '未設定',
     createdDate: formatCreatedDateInJapan(),

@@ -10,7 +10,9 @@ import type {
   StoredAccountingSettlementAuxiliary,
 } from '../types/accountingSettlementAuxiliary'
 import { resolveAccountingTenantFields } from '../services/accountingTenant'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
 import { buildETaxCompanyProfile } from './accountingETaxData'
+import { getCompanyFiscalPeriod } from './accountingFiscalPeriod'
 
 const UNSET = '未設定'
 
@@ -89,6 +91,7 @@ export const buildDefaultSettlementAuxiliary = ({
   staffName?: string
 }): AccountingSettlementAuxiliaryInput => {
   const profile = buildETaxCompanyProfile({ targetYear, company, meterSettings })
+  const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)
 
   return {
     ...resolveAccountingTenantFields({ franchiseeId, storeId }),
@@ -101,9 +104,9 @@ export const buildDefaultSettlementAuxiliary = ({
       businessDescription: '',
       officerCount: null,
       employeeCount: null,
-      fiscalMonthEnd: 3,
-      fiscalYearStartDate: `${targetYear}-04-01`,
-      fiscalYearEndDate: `${targetYear + 1}-03-31`,
+      fiscalMonthEnd: COMPANY_FISCAL_POLICY.fiscalYearEndMonth,
+      fiscalYearStartDate: period?.startDate ?? '',
+      fiscalYearEndDate: period?.endDate ?? '',
     },
     yearEndBalance: {
       cash: null,

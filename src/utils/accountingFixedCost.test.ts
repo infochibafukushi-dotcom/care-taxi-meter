@@ -3,6 +3,8 @@ import type { StoredAccountingFixedCost } from '../types/accounting'
 import {
   calculateFixedCostFiscalYearAmount,
   countYearMonthsInclusive,
+  getFiscalYearEndYearMonth,
+  getFiscalYearStartYearMonth,
   isFixedCostActiveForMonth,
   syncFixedCostAmounts,
 } from './accountingFixedCost'
@@ -43,9 +45,41 @@ describe('syncFixedCostAmounts', () => {
 describe('calculateFixedCostFiscalYearAmount', () => {
   const referenceYearMonth = '2027-01'
 
+  it('counts FY2026 months from July start without daily proration (9 months)', () => {
+    const amount = calculateFixedCostFiscalYearAmount(
+      baseCost({ startYearMonth: '2026-07' }),
+      referenceYearMonth,
+    )
+    expect(amount).toBe(90_000)
+  })
+
+  it('clips early April start to incorporation July (still 9 months)', () => {
+    const amount = calculateFixedCostFiscalYearAmount(
+      baseCost({ startYearMonth: '2026-04' }),
+      referenceYearMonth,
+    )
+    expect(amount).toBe(90_000)
+  })
+
   it('counts months from October start without cancellation', () => {
     const amount = calculateFixedCostFiscalYearAmount(baseCost({}), referenceYearMonth)
     expect(amount).toBe(60_000)
+  })
+
+  it('counts Jul–Dec when cancelled in December (6 months, no daily proration)', () => {
+    const amount = calculateFixedCostFiscalYearAmount(
+      baseCost({ startYearMonth: '2026-07', cancelYearMonth: '2026-12' }),
+      referenceYearMonth,
+    )
+    expect(amount).toBe(60_000)
+  })
+
+  it('counts Oct–Dec when cancelled in December (3 months inclusive)', () => {
+    const amount = calculateFixedCostFiscalYearAmount(
+      baseCost({ startYearMonth: '2026-10', cancelYearMonth: '2026-12' }),
+      referenceYearMonth,
+    )
+    expect(amount).toBe(30_000)
   })
 
   it('stops at cancellation month', () => {
@@ -70,6 +104,13 @@ describe('calculateFixedCostFiscalYearAmount', () => {
   })
 })
 
+describe('getFiscalYearStartYearMonth / getFiscalYearEndYearMonth', () => {
+  it('resolves FY2026 bounds from mid-year reference', () => {
+    expect(getFiscalYearStartYearMonth('2027-01')).toBe('2026-07')
+    expect(getFiscalYearEndYearMonth('2026-07')).toBe('2027-03')
+  })
+})
+
 describe('isFixedCostActiveForMonth', () => {
   it('includes cancellation month and excludes the next month', () => {
     const cost = baseCost({ cancelYearMonth: '2027-01' })
@@ -80,7 +121,10 @@ describe('isFixedCostActiveForMonth', () => {
 })
 
 describe('countYearMonthsInclusive', () => {
-  it('counts inclusive months across year boundary', () => {
+  it('counts inclusive months for FY2026 windows', () => {
+    expect(countYearMonthsInclusive('2026-07', '2027-03')).toBe(9)
     expect(countYearMonthsInclusive('2026-10', '2027-03')).toBe(6)
+    expect(countYearMonthsInclusive('2026-07', '2026-12')).toBe(6)
+    expect(countYearMonthsInclusive('2026-10', '2026-12')).toBe(3)
   })
 })

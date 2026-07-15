@@ -11,7 +11,9 @@ import type {
   ExpenseCategory,
 } from '../types/accounting'
 import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
 import { aggregateMonthlyDepreciationYen } from './accountingDepreciation'
+import { getCompanyFiscalPeriod } from './accountingFiscalPeriod'
 import {
   EXPENSE_CATEGORIES,
   getAccountPlCategory,
@@ -602,7 +604,7 @@ export const getCurrentYearMonthInJapan = () => {
 
 export const getCurrentCalendarYearInJapan = () => Number(getCurrentYearMonthInJapan().slice(0, 4))
 
-/** 対象年月が属する会計年度（4月始まり）の表示ラベル */
+/** 対象年月が属する会計年度の表示ラベル（FiscalPeriod） */
 export const formatFiscalYearLabel = (referenceYearMonth: string) => {
   const [yearText, monthText] = referenceYearMonth.split('-')
   const year = Number(yearText)
@@ -611,13 +613,20 @@ export const formatFiscalYearLabel = (referenceYearMonth: string) => {
     return ''
   }
 
-  const fiscalStartYear = month >= 4 ? year : year - 1
-  return `${fiscalStartYear}年4月〜${fiscalStartYear + 1}年3月`
+  const startMonth =
+    COMPANY_FISCAL_POLICY.fiscalYearEndMonth === 12
+      ? 1
+      : COMPANY_FISCAL_POLICY.fiscalYearEndMonth + 1
+  const candidateFiscalYear = month >= startMonth ? year : year - 1
+  return (
+    getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, candidateFiscalYear)?.label ??
+    '会社設立前の年度です'
+  )
 }
 
-/** カレンダー年選択に対する会計年度ラベル（4月〜翌3月） */
+/** 会計年度キー（開始側年）に対する FiscalPeriod ラベル */
 export const formatFiscalYearLabelForCalendarYear = (calendarYear: number) =>
-  `${calendarYear}年4月〜${calendarYear + 1}年3月`
+  getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, calendarYear)?.label ?? '会社設立前の年度です'
 
 export const buildYearMonthOptions = (count = 12) => {
   const options: string[] = []

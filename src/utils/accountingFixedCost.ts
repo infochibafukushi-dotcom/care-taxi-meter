@@ -5,6 +5,9 @@ import type {
   StoredAccountingFixedCost,
 } from '../types/accounting'
 import { isConfirmedForPl } from '../types/accounting'
+import type { CompanyFiscalPolicy } from '../types/accountingFiscalPeriod'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from './accountingFiscalPeriod'
 
 export const getFixedCostCancelYearMonth = (
   cost: Pick<StoredAccountingFixedCost, 'cancelYearMonth' | 'endYearMonth'>,
@@ -62,28 +65,48 @@ export const syncFixedCostAmounts = (
   }
 }
 
-export const getFiscalYearStartYearMonth = (referenceYearMonth: string) => {
+/** 対象年月から候補となる会計年度キー（開始側年）を求める。日割りなし。 */
+export const resolveCandidateFiscalYear = (
+  referenceYearMonth: string,
+  policy: CompanyFiscalPolicy,
+): number | null => {
   const [yearText, monthText] = referenceYearMonth.split('-')
   const year = Number(yearText)
   const month = Number(monthText)
 
-  if (!year || !month) {
+  if (!year || !month || month < 1 || month > 12) {
+    return null
+  }
+
+  const startMonth = policy.fiscalYearEndMonth === 12 ? 1 : policy.fiscalYearEndMonth + 1
+  return month >= startMonth ? year : year - 1
+}
+
+export const getFiscalYearStartYearMonth = (referenceYearMonth: string) => {
+  const candidateFiscalYear = resolveCandidateFiscalYear(referenceYearMonth, COMPANY_FISCAL_POLICY)
+  if (candidateFiscalYear == null) {
     return referenceYearMonth
   }
 
-  const fiscalStartYear = month >= 4 ? year : year - 1
-  return `${fiscalStartYear}-04`
+  return (
+    getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, candidateFiscalYear)?.startYearMonth ??
+    referenceYearMonth
+  )
 }
 
 export const getFiscalYearEndYearMonth = (fiscalYearStartYearMonth: string) => {
-  const [yearText] = fiscalYearStartYearMonth.split('-')
-  const year = Number(yearText)
-
-  if (!year) {
+  const candidateFiscalYear = resolveCandidateFiscalYear(
+    fiscalYearStartYearMonth,
+    COMPANY_FISCAL_POLICY,
+  )
+  if (candidateFiscalYear == null) {
     return fiscalYearStartYearMonth
   }
 
-  return `${year + 1}-03`
+  return (
+    getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, candidateFiscalYear)?.endYearMonth ??
+    fiscalYearStartYearMonth
+  )
 }
 
 export const countYearMonthsInclusive = (startYearMonth: string, endYearMonth: string) => {
@@ -101,8 +124,18 @@ export const calculateFixedCostFiscalYearAmount = (
   cost: Pick<StoredAccountingFixedCost, 'monthlyAmountYen' | 'startYearMonth' | 'cancelYearMonth' | 'endYearMonth'>,
   referenceYearMonth: string,
 ) => {
-  const fiscalStart = getFiscalYearStartYearMonth(referenceYearMonth)
-  const fiscalEnd = getFiscalYearEndYearMonth(fiscalStart)
+  const candidateFiscalYear = resolveCandidateFiscalYear(referenceYearMonth, COMPANY_FISCAL_POLICY)
+  if (candidateFiscalYear == null) {
+    return 0
+  }
+
+  const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, candidateFiscalYear)
+  if (!period) {
+    return 0
+  }
+
+  const fiscalStart = period.startYearMonth
+  const fiscalEnd = period.endYearMonth
   const effectiveStart = cost.startYearMonth > fiscalStart ? cost.startYearMonth : fiscalStart
 
   const cancelYearMonth = getFixedCostCancelYearMonth(cost)

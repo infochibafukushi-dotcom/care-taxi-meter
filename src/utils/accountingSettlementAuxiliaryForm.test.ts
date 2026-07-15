@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildDefaultSettlementAuxiliary,
+  mergeSettlementAuxiliary,
   formatSettlementAmountDisplay,
   getSettlementAmountStatus,
   hasPositiveSettlementAmount,
@@ -44,6 +46,48 @@ describe('settlement amount status', () => {
         'accountsReceivable',
       ),
     ).toBe(100)
+  })
+})
+
+describe('buildDefaultSettlementAuxiliary', () => {
+  it('uses FY2026 short fiscal year dates from company policy', () => {
+    const defaults = buildDefaultSettlementAuxiliary({
+      franchiseeId: 'f1',
+      storeId: 's1',
+      targetYear: 2026,
+      company: null,
+      meterSettings: null,
+      staffId: 'staff-1',
+    })
+
+    expect(defaults.companyBasic.fiscalMonthEnd).toBe(3)
+    expect(defaults.companyBasic.fiscalYearStartDate).toBe('2026-07-07')
+    expect(defaults.companyBasic.fiscalYearEndDate).toBe('2027-03-31')
+  })
+})
+describe('mergeSettlementAuxiliary', () => {
+  it('keeps stored companyBasic.fiscalYearStartDate and does not replace with defaults', () => {
+    const defaults = buildDefaultSettlementAuxiliary({
+      franchiseeId: 'f1',
+      storeId: 's1',
+      targetYear: 2026,
+      company: null,
+      meterSettings: null,
+      staffId: 'staff-1',
+    })
+
+    const stored = {
+      ...defaults,
+      id: 'stored-1',
+      companyBasic: {
+        ...defaults.companyBasic,
+        fiscalYearStartDate: '2026-04-01',
+      },
+    }
+
+    const merged = mergeSettlementAuxiliary(stored, defaults)
+    expect(merged.companyBasic.fiscalYearStartDate).toBe('2026-04-01')
+    expect(defaults.companyBasic.fiscalYearStartDate).not.toBe('2026-04-01')
   })
 })
 

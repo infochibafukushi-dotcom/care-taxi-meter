@@ -11,7 +11,6 @@ import {
 } from '../types/accounting'
 import type { AccountingSalesRow } from './accountingSalesMapping'
 import {
-  formatFiscalYearLabelForCalendarYear,
   formatYearMonthLabel,
   getYearlyProfitLossColumnOrder,
 } from './accountingPl'
@@ -99,9 +98,9 @@ export const buildMonthlyPlCsv = (profitLoss: MonthlyProfitLoss) => {
  */
 export const buildYearlyPlCsv = (yearly: YearlyProfitLoss, targetYear?: number) => {
   const columnOrder = getYearlyProfitLossColumnOrder()
-  const fiscalLabel = targetYear ? formatFiscalYearLabelForCalendarYear(targetYear) : ''
+  const calendarLabel = targetYear ? `${targetYear}年（暦年・管理会計）` : ''
   const lines = [
-    ...(fiscalLabel ? [csvLine(['年次管理会計PL', fiscalLabel])] : []),
+    ...(calendarLabel ? [csvLine(['年次管理会計PL', calendarLabel])] : []),
     csvLine([...YEARLY_CSV_HEADERS]),
   ]
 

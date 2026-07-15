@@ -17,6 +17,8 @@ import {
   createSettlementRowId,
   mergeSettlementAuxiliary,
 } from '../../utils/accountingSettlementAuxiliaryForm'
+import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
 
 type SettlementAuxiliaryDataPanelProps = {
   franchiseeId: string
@@ -252,6 +254,29 @@ export function SettlementAuxiliaryDataPanel({
             <TextField label="会計年度開始日" value={form.companyBasic.fiscalYearStartDate} onChange={(value) => updateCompanyBasic({ fiscalYearStartDate: value })} />
             <TextField label="会計年度終了日" value={form.companyBasic.fiscalYearEndDate} onChange={(value) => updateCompanyBasic({ fiscalYearEndDate: value })} />
           </div>
+          {(() => {
+            const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)
+            if (
+              !period ||
+              (!form.companyBasic.fiscalYearStartDate && !form.companyBasic.fiscalYearEndDate)
+            ) {
+              return null
+            }
+            const startMismatch =
+              form.companyBasic.fiscalYearStartDate &&
+              form.companyBasic.fiscalYearStartDate !== period.startDate
+            const endMismatch =
+              form.companyBasic.fiscalYearEndDate &&
+              form.companyBasic.fiscalYearEndDate !== period.endDate
+            if (!startMismatch && !endMismatch) {
+              return null
+            }
+            return (
+              <p className="accounting-note" role="status">
+                推奨の会計期間（{period.startDate}〜{period.endDate}）と保存値が異なります。必要に応じて修正してください。
+              </p>
+            )
+          })()}
         </section>
       ) : null}
 

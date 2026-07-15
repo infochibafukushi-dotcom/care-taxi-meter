@@ -31,7 +31,7 @@ import {
   isExpenseEligibleForReporting,
   VARIABLE_EXPENSE_CATEGORIES,
 } from '../types/accounting'
-import { calculateMonthlyProfitLoss, formatFiscalYearLabelForCalendarYear } from './accountingPl'
+import { calculateMonthlyProfitLoss } from './accountingPl'
 import { corporateNumberFromInvoiceNumber } from '../services/invoiceRegistrantLookup'
 import type { Company } from '../types/work'
 import type { MeterSettings } from '../services/meterSettings'
@@ -270,7 +270,8 @@ export const buildETaxCompanyProfile = ({
 
   return {
     targetYear,
-    fiscalYearLabel: formatFiscalYearLabelForCalendarYear(targetYear),
+    fiscalYearLabel:
+      getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)?.label ?? '会社設立前の年度です',
     companyName:
       company?.corporateName ||
       company?.name ||
@@ -1164,6 +1165,8 @@ export const buildETaxPackage = ({
   fixedAssets: StoredAccountingFixedAsset[]
   auxiliary: AccountingSettlementAuxiliaryInput | null
 }): ETaxPackage => {
+  const period = getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)
+  const asOfYearMonth = period?.endYearMonth ?? targetYearMonth
   const companyProfile = buildETaxCompanyProfile({ targetYear, company, meterSettings })
   const pl = calculateFiscalYearProfitLoss({
     caseRecords,
@@ -1196,12 +1199,12 @@ export const buildETaxPackage = ({
       auxiliary,
     ),
     pl,
-    balanceSheet: buildETaxBalanceSheet(fixedAssets, targetYearMonth, auxiliary),
-    bsInput: buildETaxBsInput(fixedAssets, targetYearMonth, auxiliary),
-    fixedAssets: buildETaxFixedAssetRows(fixedAssets, targetYearMonth),
+    balanceSheet: buildETaxBalanceSheet(fixedAssets, asOfYearMonth, auxiliary),
+    bsInput: buildETaxBsInput(fixedAssets, asOfYearMonth, auxiliary),
+    fixedAssets: buildETaxFixedAssetRows(fixedAssets, asOfYearMonth),
     smallAssets: buildETaxSmallAssetRows(fixedAssets),
-    accountBreakdown: buildETaxAccountBreakdown(auxiliary, fixedAssets, targetYearMonth),
-    accountBreakdownDetail: buildETaxAccountBreakdownDetail(auxiliary, fixedAssets, targetYearMonth),
+    accountBreakdown: buildETaxAccountBreakdown(auxiliary, fixedAssets, asOfYearMonth),
+    accountBreakdownDetail: buildETaxAccountBreakdownDetail(auxiliary, fixedAssets, asOfYearMonth),
     businessOverview: buildETaxBusinessOverview(companyProfile, pl, expenses, auxiliary, monthlyRows),
     consumptionTax: buildETaxConsumptionTaxSummary(pl, expenses, targetYear),
     auxiliaryDataLines: buildETaxAuxiliaryDataLines(auxiliary),

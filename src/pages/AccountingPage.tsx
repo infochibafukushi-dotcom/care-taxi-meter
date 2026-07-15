@@ -180,12 +180,13 @@ import {
   formatTaxCategoryAggregationLabel,
   formatYearMonthLabel,
   formatFiscalYearLabel,
-  formatFiscalYearLabelForCalendarYear,
   getCurrentCalendarYearInJapan,
   getCurrentYearMonthInJapan,
   getYearlyProfitLossColumnOrder,
   SALES_CATEGORIES as PL_SALES_CATEGORIES,
 } from '../utils/accountingPl'
+import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from '../utils/accountingFiscalPeriod'
 import {
   calculateConsumptionTaxFromIncluded,
   calculateTaxExcludedAmount,
@@ -238,7 +239,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'expenses', label: '経費登録' },
   { tab: 'unorganized-receipts', label: '未整理の領収書' },
   { tab: 'pl-monthly', label: '月次PL' },
-  { tab: 'pl-yearly', label: '年次PL' },
+  { tab: 'pl-yearly', label: '年次PL（暦年・管理会計）' },
   { tab: 'fixed-costs', label: '固定費管理' },
   { tab: 'fixed-assets', label: '固定資産台帳' },
   { tab: 'audit', label: '監査資料' },
@@ -2659,7 +2660,17 @@ export function AccountingPage() {
             </select>
           </label>
           <p className="accounting-fiscal-year-note">
-            対象年：{targetYear}年 / 会計年度：{formatFiscalYearLabelForCalendarYear(targetYear)}
+            {activeTab === 'pl-yearly' ? (
+              <>
+                対象年：{targetYear}年 / 年次PL（暦年・管理会計：1〜12月）
+              </>
+            ) : (
+              <>
+                対象年：{targetYear}年 / 会計年度：
+                {getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear)?.label ??
+                  '会社設立前の年度です'}
+              </>
+            )}
             {activeTab === 'pl-monthly' ? (
               <> / 月次PL対象月：{formatYearMonthLabel(targetYearMonth)}</>
             ) : null}
@@ -2789,9 +2800,9 @@ export function AccountingPage() {
           <section className="accounting-panel" aria-label="年次PL">
               <>
                 <div className="accounting-pl-yearly-header">
-                  <h2>{targetYear}年 管理会計PL（月別・年間合計）</h2>
+                  <h2>{targetYear}年 年次PL（暦年・管理会計）</h2>
                   <p className="accounting-note">
-                    会計年度：{formatFiscalYearLabelForCalendarYear(targetYear)}（4月〜翌3月で集計）
+                    1〜12月の管理会計集計です。申告用は決算・申告 / e-Tax入力用決算資料を使用してください。
                   </p>
                   <button
                     className="primary-action"

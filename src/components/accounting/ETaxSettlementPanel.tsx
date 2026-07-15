@@ -21,6 +21,8 @@ import {
 } from '../../types/accounting'
 import { buildDefaultSettlementAuxiliary, mergeSettlementAuxiliary } from '../../utils/accountingSettlementAuxiliaryForm'
 import { buildETaxPackage, formatETaxCheckItemStatus } from '../../utils/accountingETaxData'
+import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
+import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
 import {
   exportETaxBulkCsv,
   exportETaxBulkPdf,
@@ -572,6 +574,11 @@ export function ETaxSettlementPanel({
             <dd>{pkg.company.corporateNumber}</dd>
           </div>
         </dl>
+        {!getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, targetYear) ? (
+          <p className="accounting-note" role="status">
+            会社設立前の年度です。会計年度の月が空のため、集計結果は空になります。
+          </p>
+        ) : null}
       </section>
 
       <section className="accounting-etax-status-card" aria-label="入力状況サマリー">

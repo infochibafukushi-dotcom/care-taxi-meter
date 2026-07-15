@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildETaxBsInput, buildETaxCheckItems, buildETaxInputStatus } from './accountingETaxData'
+import {
+  buildETaxBsInput,
+  buildETaxCheckItems,
+  buildETaxCompanyProfile,
+  buildETaxInputStatus,
+  buildETaxPackage,
+} from './accountingETaxData'
 import type { AccountingSettlementAuxiliaryInput } from '../types/accountingSettlementAuxiliary'
+import type { StoredAccountingFixedAsset } from '../types/accountingFixedAssets'
 
 const completeAuxiliary = {
   companyBasic: {
@@ -127,5 +134,86 @@ describe('buildETaxBsInput', () => {
     const naLabels = lines.filter((line) => line.status === 'na').map((line) => line.label)
 
     expect(naLabels).toEqual(['売掛金', '未収金', '仮払金', '未払金', '役員借入金'])
+  })
+})
+
+describe('buildETaxCompanyProfile fiscal period label', () => {
+  it('uses FiscalPeriod label for FY2026', () => {
+    const profile = buildETaxCompanyProfile({
+      targetYear: 2026,
+      company: null,
+      meterSettings: null,
+    })
+    expect(profile.fiscalYearLabel).toBe('2026年度（2026/7/7〜2027/3/31）')
+  })
+
+  it('shows 会社設立前の年度です before incorporation', () => {
+    const profile = buildETaxCompanyProfile({
+      targetYear: 2025,
+      company: null,
+      meterSettings: null,
+    })
+    expect(profile.fiscalYearLabel).toBe('会社設立前の年度です')
+  })
+})
+
+describe('buildETaxPackage as-of month', () => {
+  it('uses period endYearMonth for BS/asset as-of even if targetYearMonth differs', () => {
+    const asset = {
+      id: 'asset-1',
+      franchiseeId: 'f1',
+      companyId: 'f1',
+      storeId: 's1',
+      assetKind: 'fixed',
+      assetName: '車両',
+      assetCategory: '車両運搬具',
+      purchaseDate: '2026-07-07',
+      useStartDate: '2026-07-07',
+      condition: '新品',
+      acquisitionCost: 1_200_000,
+      standardUsefulLifeYears: 6,
+      appliedUsefulLifeYears: 6,
+      depreciationStartYearMonth: '2026-07',
+      depreciationEndYearMonth: '2032-06',
+      monthlyDepreciationYen: 16_666,
+      remainingBookValue: 1_200_000,
+      status: 'active',
+      isDeleted: false,
+      notes: '',
+      createdBy: 'staff',
+      updatedBy: 'staff',
+    } as StoredAccountingFixedAsset
+
+    const withPeriodEnd = buildETaxPackage({
+      targetYear: 2026,
+      targetYearMonth: '2027-03',
+      company: null,
+      meterSettings: null,
+      caseRecords: [],
+      expenses: [],
+      adjustments: [],
+      fixedCosts: [],
+      fixedAssets: [asset],
+      auxiliary: null,
+    })
+    const withOtherMonth = buildETaxPackage({
+      targetYear: 2026,
+      targetYearMonth: '2026-09',
+      company: null,
+      meterSettings: null,
+      caseRecords: [],
+      expenses: [],
+      adjustments: [],
+      fixedCosts: [],
+      fixedAssets: [asset],
+      auxiliary: null,
+    })
+
+    expect(withPeriodEnd.fixedAssets[0]?.cumulativeDepreciationYen).toBe(
+      withOtherMonth.fixedAssets[0]?.cumulativeDepreciationYen,
+    )
+    expect(withPeriodEnd.fixedAssets[0]?.remainingBookValue).toBe(
+      withOtherMonth.fixedAssets[0]?.remainingBookValue,
+    )
   })
 })
