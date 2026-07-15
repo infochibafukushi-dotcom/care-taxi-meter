@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StoredAccountingExpense } from '../types/accounting'
 import type { StoredAccountingReceipt } from './accountingReceipts'
 import { COMPANY_FISCAL_POLICY } from '../constants/companyFiscalPolicy'
@@ -13,6 +13,12 @@ import {
   assembleSubmissionZipBlob,
   buildSubmissionZipFileName,
   generateAccountingSubmissionZip,
+  isNonRetryableVoucherFetchError,
+  isRetryableVoucherFetchError,
+  loadSubmissionVoucherBlobWithPolicy,
+  publicVoucherFileName,
+  raceVoucherFetchBlob,
+  SubmissionVoucherTimeoutError,
 } from './accountingSubmissionZip'
 import { SubmissionZipCancelledError, SubmissionZipFatalError } from '../types/accountingSubmissionZip'
 
@@ -101,6 +107,36 @@ const buildLinkedPackage = () => {
   })
 }
 
+const buildTwoVoucherPackage = () => {
+  const receiptA = 'receipt-a'
+  const receiptB = 'receipt-b'
+  return buildAccountingSubmissionPackage({
+    fiscalPeriod,
+    expenses: [
+      makeExpense({ id: 'e1', receiptId: receiptA, postingDate: '2026-08-10' }),
+      makeExpense({ id: 'e2', receiptId: receiptB, postingDate: '2026-08-11' }),
+    ],
+    receipts: [
+      makeReceipt({
+        id: receiptA,
+        linkedExpenseId: 'e1',
+        originalStoragePath: 'receipts/a.jpg',
+        receiptDate: '2026-08-10',
+      }),
+      makeReceipt({
+        id: receiptB,
+        linkedExpenseId: 'e2',
+        originalStoragePath: 'receipts/b.jpg',
+        receiptDate: '2026-08-11',
+      }),
+    ],
+    fixedAssets: [],
+    filingSummary: readyFiling,
+    targetYear: 2026,
+    createdAt: '2026-07-15T00:00:00.000Z',
+  })
+}
+
 const baseReports = (pkg: ReturnType<typeof buildLinkedPackage>) => [
   {
     relativePath: '00_資料一覧.csv',
@@ -170,6 +206,12 @@ const assertZipPublicSafe = async (blob: Blob) => {
   return zip
 }
 
+const storageError = (code: string, message = code) => {
+  const error = new Error(message) as Error & { code: string }
+  error.code = code
+  return error
+}
+
 describe('buildSubmissionZipFileName', () => {
   it('uses 確認用 when not submission ready', () => {
     expect(buildSubmissionZipFileName({ targetYear: 2026, isSubmissionReady: false })).toContain(
@@ -181,6 +223,105 @@ describe('buildSubmissionZipFileName', () => {
     expect(buildSubmissionZipFileName({ targetYear: 2026, isSubmissionReady: true })).toBe(
       '税務確認資料_2026年度.zip',
     )
+  })
+})
+
+describe('publicVoucherFileName', () => {
+  it('returns basename only', () => {
+    expect(publicVoucherFileName('証憑/EXP-000001_RCP-000001_店.jpg')).toBe(
+      'EXP-000001_RCP-000001_店.jpg',
+    )
+  })
+})
+
+describe('voucher fetch retry classification', () => {
+  it('does not retry timeout / object-not-found / unauthorized', () => {
+    expect(isNonRetryableVoucherFetchError(new SubmissionVoucherTimeoutError(60_000))).toBe(true)
+    expect(isRetryableVoucherFetchError(new SubmissionVoucherTimeoutError(60_000))).toBe(false)
+    expect(isNonRetryableVoucherFetchError(storageError('storage/object-not-found'))).toBe(true)
+    expect(isRetryableVoucherFetchError(storageError('storage/object-not-found'))).toBe(false)
+    expect(isNonRetryableVoucherFetchError(storageError('storage/unauthorized'))).toBe(true)
+    expect(isNonRetryableVoucherFetchError(storageError('permission-denied'))).toBe(true)
+  })
+
+  it('retries retry-limit-exceeded and network-style rejects once', () => {
+    expect(isRetryableVoucherFetchError(storageError('storage/retry-limit-exceeded'))).toBe(true)
+    expect(isRetryableVoucherFetchError(new TypeError('Failed to fetch'))).toBe(true)
+  })
+})
+
+describe('raceVoucherFetchBlob / loadSubmissionVoucherBlobWithPolicy', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('times out hung load without consuming late resolve', async () => {
+    vi.useFakeTimers()
+    let resolveLate: ((blob: Blob) => void) | undefined
+    const pending = new Promise<Blob>((resolve) => {
+      resolveLate = resolve
+    })
+    const raced = raceVoucherFetchBlob(() => pending, { timeoutMs: 1_000 })
+    const expectation = expect(raced).rejects.toBeInstanceOf(SubmissionVoucherTimeoutError)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expectation
+    resolveLate?.(tinyJpeg)
+  })
+
+  it('cancels immediately via AbortSignal', async () => {
+    const controller = new AbortController()
+    const raced = raceVoucherFetchBlob(() => new Promise(() => {}), {
+      signal: controller.signal,
+      timeoutMs: 60_000,
+    })
+    controller.abort()
+    await expect(raced).rejects.toBeInstanceOf(SubmissionZipCancelledError)
+  })
+
+  it('retries once on retry-limit-exceeded then succeeds', async () => {
+    let calls = 0
+    const blob = await loadSubmissionVoucherBlobWithPolicy(
+      async () => {
+        calls += 1
+        if (calls === 1) {
+          throw storageError('storage/retry-limit-exceeded')
+        }
+        return tinyJpeg
+      },
+      { timeoutMs: 5_000 },
+    )
+    expect(calls).toBe(2)
+    expect(blob).toBe(tinyJpeg)
+  })
+
+  it('does not retry object-not-found', async () => {
+    let calls = 0
+    await expect(
+      loadSubmissionVoucherBlobWithPolicy(
+        async () => {
+          calls += 1
+          throw storageError('storage/object-not-found')
+        },
+        { timeoutMs: 5_000 },
+      ),
+    ).rejects.toMatchObject({ code: 'storage/object-not-found' })
+    expect(calls).toBe(1)
+  })
+
+  it('does not retry timeout', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    const promise = loadSubmissionVoucherBlobWithPolicy(
+      async () => {
+        calls += 1
+        return new Promise(() => {})
+      },
+      { timeoutMs: 2_000 },
+    )
+    const expectation = expect(promise).rejects.toBeInstanceOf(SubmissionVoucherTimeoutError)
+    await vi.advanceTimersByTimeAsync(2_000)
+    await expectation
+    expect(calls).toBe(1)
   })
 })
 
@@ -200,6 +341,10 @@ describe('assembleSubmissionZipBlob', () => {
 })
 
 describe('generateAccountingSubmissionZip', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('rebuilds missing CSV and forces confirmation after fetch failure with prior missing 0', async () => {
     const pkg = buildLinkedPackage()
     expect(pkg.summary.missingVoucherCount).toBe(0)
@@ -263,7 +408,6 @@ describe('generateAccountingSubmissionZip', () => {
   it('accepts real pdf bytes and rejects disguise', async () => {
     const pkg = buildLinkedPackage()
     const voucher = pkg.items.find((item) => item.type === 'voucher')!
-    // force path to pdf in package items by rebuilding with pdf relative path via loader mismatch
     const reports = baseReports(pkg)
     const pdfPkg = {
       ...pkg,
@@ -347,33 +491,7 @@ describe('generateAccountingSubmissionZip', () => {
   })
 
   it('cancels between vouchers and does not compress', async () => {
-    const receiptA = 'receipt-a'
-    const receiptB = 'receipt-b'
-    const pkg = buildAccountingSubmissionPackage({
-      fiscalPeriod,
-      expenses: [
-        makeExpense({ id: 'e1', receiptId: receiptA, postingDate: '2026-08-10' }),
-        makeExpense({ id: 'e2', receiptId: receiptB, postingDate: '2026-08-11' }),
-      ],
-      receipts: [
-        makeReceipt({
-          id: receiptA,
-          linkedExpenseId: 'e1',
-          originalStoragePath: 'receipts/a.jpg',
-          receiptDate: '2026-08-10',
-        }),
-        makeReceipt({
-          id: receiptB,
-          linkedExpenseId: 'e2',
-          originalStoragePath: 'receipts/b.jpg',
-          receiptDate: '2026-08-11',
-        }),
-      ],
-      fixedAssets: [],
-      filingSummary: readyFiling,
-      targetYear: 2026,
-      createdAt: '2026-07-15T00:00:00.000Z',
-    })
+    const pkg = buildTwoVoucherPackage()
     const controller = new AbortController()
     let calls = 0
     await expect(
@@ -393,6 +511,135 @@ describe('generateAccountingSubmissionZip', () => {
       }),
     ).rejects.toBeInstanceOf(SubmissionZipCancelledError)
     expect(calls).toBe(1)
+  })
+
+  it('cancels hung first voucher without waiting for timeout', async () => {
+    const pkg = buildLinkedPackage()
+    const controller = new AbortController()
+    let fetchStarted: (() => void) | undefined
+    const fetchStartedPromise = new Promise<void>((resolve) => {
+      fetchStarted = resolve
+    })
+    const promise = generateAccountingSubmissionZip({
+      packageData: { ...pkg, summary: { ...pkg.summary, canGenerateZip: true } },
+      reportFiles: baseReports(pkg),
+      receiptLoader: async () => {
+        fetchStarted?.()
+        return new Promise(() => {})
+      },
+      signal: controller.signal,
+      voucherFetchTimeoutMs: 60_000,
+      finalizeMissingVoucherCsv: finalizeMissing(pkg),
+    })
+    await fetchStartedPromise
+    controller.abort()
+    await expect(promise).rejects.toBeInstanceOf(SubmissionZipCancelledError)
+  })
+
+  it('times out hung first voucher then continues to second and builds confirmation zip', async () => {
+    const pkg = buildTwoVoucherPackage()
+    let calls = 0
+    const progressMessages: string[] = []
+    const result = await generateAccountingSubmissionZip({
+      packageData: {
+        ...pkg,
+        summary: { ...pkg.summary, canGenerateZip: true, isSubmissionReady: true },
+      },
+      reportFiles: baseReports(pkg),
+      receiptLoader: async () => {
+        calls += 1
+        if (calls === 1) {
+          return new Promise(() => {})
+        }
+        return tinyJpeg
+      },
+      voucherFetchTimeoutMs: 40,
+      onProgress: (progress) => {
+        progressMessages.push(progress.message)
+        if (progress.currentVoucherFileName) {
+          expect(progress.currentVoucherFileName).not.toMatch(/receipts\/|receipt-|tenants\//)
+        }
+      },
+      finalizeMissingVoucherCsv: finalizeMissing(pkg),
+    })
+
+    expect(calls).toBe(2)
+    expect(result.fetchFailureCount).toBe(1)
+    expect(result.isConfirmationZip).toBe(true)
+    expect(result.fileName).toContain('確認用')
+    expect(progressMessages.some((message) => /証憑 1\/2を取得中/.test(message))).toBe(true)
+    expect(progressMessages.some((message) => /証憑 2\/2を取得中/.test(message))).toBe(true)
+
+    const zip = await assertZipPublicSafe(result.blob)
+    const missing = await zip.file('12_不足証憑一覧.csv')!.async('string')
+    expect(missing).toContain('タイムアウト')
+  }, 10_000)
+
+  it('records object-not-found without retry and continues', async () => {
+    const pkg = buildTwoVoucherPackage()
+    let calls = 0
+    const result = await generateAccountingSubmissionZip({
+      packageData: {
+        ...pkg,
+        summary: { ...pkg.summary, canGenerateZip: true, isSubmissionReady: true },
+      },
+      reportFiles: baseReports(pkg),
+      receiptLoader: async () => {
+        calls += 1
+        if (calls === 1) {
+          throw storageError('storage/object-not-found')
+        }
+        return tinyJpeg
+      },
+      finalizeMissingVoucherCsv: finalizeMissing(pkg),
+    })
+    expect(calls).toBe(2)
+    expect(result.fetchFailureCount).toBe(1)
+    expect(result.isConfirmationZip).toBe(true)
+  })
+
+  it('records unauthorized without retry', async () => {
+    const pkg = buildLinkedPackage()
+    let calls = 0
+    const result = await generateAccountingSubmissionZip({
+      packageData: {
+        ...pkg,
+        summary: { ...pkg.summary, canGenerateZip: true, isSubmissionReady: true },
+      },
+      reportFiles: baseReports(pkg),
+      receiptLoader: async () => {
+        calls += 1
+        throw storageError('storage/unauthorized')
+      },
+      finalizeMissingVoucherCsv: finalizeMissing(pkg),
+    })
+    expect(calls).toBe(1)
+    expect(result.fetchFailureCount).toBe(1)
+    expect(result.isConfirmationZip).toBe(true)
+  })
+
+  it('retries transient network failure once then succeeds as submission-ready', async () => {
+    const pkg = buildLinkedPackage()
+    let calls = 0
+    const result = await generateAccountingSubmissionZip({
+      packageData: {
+        ...pkg,
+        summary: { ...pkg.summary, canGenerateZip: true, isSubmissionReady: true },
+      },
+      reportFiles: baseReports(pkg),
+      receiptLoader: async () => {
+        calls += 1
+        if (calls === 1) {
+          throw new TypeError('Failed to fetch')
+        }
+        return tinyJpeg
+      },
+      finalizeMissingVoucherCsv: finalizeMissing(pkg),
+    })
+    expect(calls).toBe(2)
+    expect(result.fetchFailureCount).toBe(0)
+    expect(result.isSubmissionReady).toBe(true)
+    expect(result.fileName).not.toContain('確認用')
   })
 
   it('fails fatally when fiscal period missing', async () => {

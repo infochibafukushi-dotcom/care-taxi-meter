@@ -18,7 +18,14 @@ export type SubmissionZipProgress = {
   reportsTotal: number
   vouchersDone: number
   vouchersTotal: number
-  /** True while waiting for current Storage getBytes (cooperative cancel) */
+  /** 1-based index of the voucher currently being fetched (while fetchingVouchers) */
+  currentVoucherIndex?: number
+  /**
+   * Public display name only (basename of ZIP relativePath).
+   * Never Storage path / receiptId / Firestore id.
+   */
+  currentVoucherFileName?: string
+  /** True while waiting for current Storage getBytes (cooperative cancel / timeout race) */
   cancelRequested?: boolean
 }
 

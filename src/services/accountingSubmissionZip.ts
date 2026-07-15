@@ -1,5 +1,6 @@
 import {
   SUBMISSION_ZIP_CLIENT_LIMITS,
+  SUBMISSION_VOUCHER_FETCH_TIMEOUT_MS,
   SUBMISSION_ZIP_LIMIT_EXCEEDED_MESSAGE,
   type SubmissionZipClientLimits,
 } from '../constants/accountingSubmissionZipLimits'
@@ -29,6 +30,8 @@ export type GenerateAccountingSubmissionZipInput = {
   reportFiles: SubmissionReportFile[]
   receiptLoader: SubmissionReceiptBlobLoader
   limits?: SubmissionZipClientLimits
+  /** Per-voucher getBytes wait (default 60s). Timeout ends the race only — no auto-retry. */
+  voucherFetchTimeoutMs?: number
   onProgress?: (progress: SubmissionZipProgress) => void
   signal?: AbortSignal
   /**
@@ -43,9 +46,229 @@ export type GenerateAccountingSubmissionZipInput = {
 const MISSING_LIST_PATH = '12_不足証憑一覧.csv'
 const PUBLIC_MANIFEST_PATH = '公開manifest.json'
 
+export class SubmissionVoucherTimeoutError extends Error {
+  readonly code = 'voucher.fetch.timeout'
+
+  constructor(timeoutMs: number) {
+    super(`証憑取得がタイムアウトしました（${Math.round(timeoutMs / 1000)}秒）`)
+    this.name = 'SubmissionVoucherTimeoutError'
+  }
+}
+
 const assertNotAborted = (signal?: AbortSignal, cancelRequested?: boolean) => {
   if (signal?.aborted || cancelRequested) {
     throw new SubmissionZipCancelledError()
+  }
+}
+
+/** Public ZIP entry basename — safe for UI / CSV (not Storage path / receiptId). */
+export const publicVoucherFileName = (relativePath: string): string => {
+  const trimmed = relativePath.trim()
+  if (!trimmed) {
+    return ''
+  }
+  const parts = trimmed.split(/[/\\]/)
+  return parts[parts.length - 1] || trimmed
+}
+
+export const getVoucherFetchErrorCode = (error: unknown): string | undefined => {
+  if (error instanceof SubmissionVoucherTimeoutError) {
+    return error.code
+  }
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String((error as { code: unknown }).code ?? '').trim()
+    return code || undefined
+  }
+  return undefined
+}
+
+/**
+ * Hard failures — do not retry.
+ * Timeout is never retried (getBytes may still be in flight after race ends).
+ */
+export const isNonRetryableVoucherFetchError = (error: unknown): boolean => {
+  if (error instanceof SubmissionVoucherTimeoutError) {
+    return true
+  }
+  if (error instanceof SubmissionZipCancelledError || error instanceof SubmissionZipFatalError) {
+    return true
+  }
+  const code = getVoucherFetchErrorCode(error)
+  if (
+    code === 'storage/object-not-found' ||
+    code === 'storage/unauthorized' ||
+    code === 'permission-denied' ||
+    code === 'storage/unauthenticated' ||
+    code === 'storage/quota-exceeded' ||
+    code === 'storage/invalid-argument' ||
+    code === 'storage/invalid-url' ||
+    code === 'storage/invalid-root-operation'
+  ) {
+    return true
+  }
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (
+    /原本Storageパスがありません|Storageパスがありません|空の証憑|形式|MIME|拡張子|上限/i.test(
+      message,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Transient Storage / network rejects that may succeed on one retry. */
+export const isRetryableVoucherFetchError = (error: unknown): boolean => {
+  if (isNonRetryableVoucherFetchError(error)) {
+    return false
+  }
+  const code = getVoucherFetchErrorCode(error)
+  if (
+    code === 'storage/retry-limit-exceeded' ||
+    code === 'storage/server-file-wrong-size'
+  ) {
+    return true
+  }
+  if (code?.startsWith('storage/')) {
+    // Unknown storage/* — only retry known-transient family above; treat rest as non-retry.
+    return false
+  }
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (
+    /network|Failed to fetch|NetworkError|ERR_NETWORK|ERR_CONNECTION|タイムアウト|timeout|ECONNRESET|ENOTFOUND|fetch failed/i.test(
+      message,
+    )
+  ) {
+    return true
+  }
+  // Explicit reject without Storage hard-code: allow one retry for plain network-ish Errors
+  if (error instanceof TypeError && /fetch|network/i.test(message)) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Race loader against timeout and AbortSignal.
+ * Does not cancel the underlying getBytes transfer; abandons the result when race loses.
+ */
+export function raceVoucherFetchBlob(
+  load: () => Promise<Blob>,
+  options: {
+    signal?: AbortSignal
+    timeoutMs: number
+  },
+): Promise<Blob> {
+  const { signal, timeoutMs } = options
+  if (signal?.aborted) {
+    return Promise.reject(new SubmissionZipCancelledError())
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const cleanup = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      signal?.removeEventListener('abort', onAbort)
+    }
+
+    const settleReject = (error: unknown) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    const settleResolve = (blob: Blob) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      cleanup()
+      resolve(blob)
+    }
+
+    const onAbort = () => {
+      settleReject(new SubmissionZipCancelledError())
+    }
+
+    signal?.addEventListener('abort', onAbort)
+    timer = setTimeout(() => {
+      settleReject(new SubmissionVoucherTimeoutError(timeoutMs))
+    }, timeoutMs)
+
+    void load().then(settleResolve, settleReject)
+  })
+}
+
+/**
+ * Fetch one voucher with timeout + cancel race, and at most one retry for transient rejects.
+ * Timeout never retries.
+ */
+export async function loadSubmissionVoucherBlobWithPolicy(
+  load: () => Promise<Blob>,
+  options: {
+    signal?: AbortSignal
+    timeoutMs: number
+    receiptId?: string
+    storagePath?: string
+  },
+): Promise<Blob> {
+  const attempt = () =>
+    raceVoucherFetchBlob(load, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    })
+
+  try {
+    return await attempt()
+  } catch (error) {
+    if (error instanceof SubmissionZipCancelledError || error instanceof SubmissionZipFatalError) {
+      throw error
+    }
+    if (error instanceof SubmissionVoucherTimeoutError || isNonRetryableVoucherFetchError(error)) {
+      console.warn('[submission-zip] voucher fetch failed (no retry)', {
+        receiptId: options.receiptId,
+        storagePath: options.storagePath,
+        code: getVoucherFetchErrorCode(error),
+        message: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+    if (!isRetryableVoucherFetchError(error)) {
+      console.warn('[submission-zip] voucher fetch failed (no retry)', {
+        receiptId: options.receiptId,
+        storagePath: options.storagePath,
+        code: getVoucherFetchErrorCode(error),
+        message: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+
+    console.warn('[submission-zip] voucher fetch transient failure; retrying once', {
+      receiptId: options.receiptId,
+      storagePath: options.storagePath,
+      code: getVoucherFetchErrorCode(error),
+      message: error instanceof Error ? error.message : String(error),
+    })
+
+    try {
+      return await attempt()
+    } catch (retryError) {
+      console.warn('[submission-zip] voucher fetch failed after retry', {
+        receiptId: options.receiptId,
+        storagePath: options.storagePath,
+        code: getVoucherFetchErrorCode(retryError),
+        message: retryError instanceof Error ? retryError.message : String(retryError),
+      })
+      throw retryError
+    }
   }
 }
 
@@ -160,12 +383,13 @@ const assertNoSecretsInPublicText = (text: string, label: string) => {
 
 /**
  * Generate confirmation/submission ZIP in the browser.
- * Storage getBytes is cooperative-cancel only (cannot abort mid-download).
+ * Storage getBytes cannot be aborted mid-download; wait ends via timeout/cancel race.
  */
 export async function generateAccountingSubmissionZip(
   input: GenerateAccountingSubmissionZipInput,
 ): Promise<SubmissionZipResult> {
   const limits = input.limits ?? SUBMISSION_ZIP_CLIENT_LIMITS
+  const voucherFetchTimeoutMs = input.voucherFetchTimeoutMs ?? SUBMISSION_VOUCHER_FETCH_TIMEOUT_MS
   const warnings: string[] = []
   const pkg = input.packageData
   const signal = input.signal
@@ -272,54 +496,73 @@ export async function generateAccountingSubmissionZip(
   const failedVouchers: Array<{ relativePath: string; reason: string }> = []
   let runningBytes = reportBytes
   let vouchersDone = 0
+  const vouchersTotal = receiptFetchPlan.size
+  const fetchEntries = [...receiptFetchPlan.entries()]
 
   emit(input.onProgress, {
     stage: 'fetchingVouchers',
-    message: '証憑原本を取得しています',
+    message:
+      vouchersTotal > 0 ? `証憑 1/${vouchersTotal}を取得準備中` : '証憑原本はありません',
     reportsDone: reportTotal,
     reportsTotal: reportTotal,
     vouchersDone: 0,
-    vouchersTotal: receiptFetchPlan.size,
+    vouchersTotal,
   })
 
-  for (const [receiptId, plan] of receiptFetchPlan) {
-    // Cooperative cancel: do not start the next fetch
+  for (let index = 0; index < fetchEntries.length; index += 1) {
+    const [receiptId, plan] = fetchEntries[index]
+    const currentVoucherIndex = index + 1
+    const currentVoucherFileName = publicVoucherFileName(plan.relativePath)
+
+    // Cancel: do not start the next fetch
     if (signal?.aborted) {
       emit(input.onProgress, {
-        stage: 'fetchingVouchers',
-        message: 'キャンセル処理中です。現在のファイル取得が完了すると停止します。',
+        stage: 'cancelled',
+        message: 'ZIP生成をキャンセルしました',
         reportsDone: reportTotal,
         reportsTotal: reportTotal,
         vouchersDone,
-        vouchersTotal: receiptFetchPlan.size,
+        vouchersTotal,
+        currentVoucherIndex,
+        currentVoucherFileName,
         cancelRequested: true,
       })
       throw new SubmissionZipCancelledError()
     }
+
+    emit(input.onProgress, {
+      stage: 'fetchingVouchers',
+      message: `証憑 ${currentVoucherIndex}/${vouchersTotal}を取得中`,
+      reportsDone: reportTotal,
+      reportsTotal: reportTotal,
+      vouchersDone,
+      vouchersTotal,
+      currentVoucherIndex,
+      currentVoucherFileName,
+    })
 
     try {
       if (!plan.sourceStoragePath?.trim()) {
         throw new Error('原本Storageパスがありません')
       }
 
-      // getBytes cannot be aborted mid-flight — wait, then stop before using the result
-      const blob = await input.receiptLoader({
-        sourceReceiptId: receiptId,
-        sourceStoragePath: plan.sourceStoragePath,
-        sourceMimeType: plan.sourceMimeType,
-        signal,
-      })
+      const blob = await loadSubmissionVoucherBlobWithPolicy(
+        () =>
+          input.receiptLoader({
+            sourceReceiptId: receiptId,
+            sourceStoragePath: plan.sourceStoragePath,
+            sourceMimeType: plan.sourceMimeType,
+            signal,
+          }),
+        {
+          signal,
+          timeoutMs: voucherFetchTimeoutMs,
+          receiptId,
+          storagePath: plan.sourceStoragePath,
+        },
+      )
 
       if (signal?.aborted) {
-        emit(input.onProgress, {
-          stage: 'cancelled',
-          message: 'キャンセル処理中です。現在のファイル取得が完了すると停止します。',
-          reportsDone: reportTotal,
-          reportsTotal: reportTotal,
-          vouchersDone,
-          vouchersTotal: receiptFetchPlan.size,
-          cancelRequested: true,
-        })
         throw new SubmissionZipCancelledError()
       }
 
@@ -345,49 +588,48 @@ export async function generateAccountingSubmissionZip(
       }
 
       if (files.has(plan.relativePath)) {
-        vouchersDone += 1
-        continue
-      }
-      if (occupied.has(plan.relativePath)) {
+        // Same relative path already stored (should be rare after dedupe by receiptId)
+      } else if (occupied.has(plan.relativePath)) {
         throw new SubmissionZipFatalError(
           'path.collision',
           `相対パスが重複しています: ${plan.relativePath}`,
         )
+      } else {
+        const copy = new Uint8Array(bytes.byteLength)
+        copy.set(bytes)
+        const storeBlob = new Blob([copy.buffer], {
+          type:
+            validated.kind === 'pdf'
+              ? 'application/pdf'
+              : validated.kind === 'png'
+                ? 'image/png'
+                : validated.kind === 'webp'
+                  ? 'image/webp'
+                  : 'image/jpeg',
+        })
+        files.set(plan.relativePath, storeBlob)
+        occupied.add(plan.relativePath)
       }
-
-      const copy = new Uint8Array(bytes.byteLength)
-      copy.set(bytes)
-      const storeBlob = new Blob([copy.buffer], {
-        type:
-          validated.kind === 'pdf'
-            ? 'application/pdf'
-            : validated.kind === 'png'
-              ? 'image/png'
-              : validated.kind === 'webp'
-                ? 'image/webp'
-                : 'image/jpeg',
-      })
-      files.set(plan.relativePath, storeBlob)
-      occupied.add(plan.relativePath)
     } catch (error) {
       if (error instanceof SubmissionZipFatalError || error instanceof SubmissionZipCancelledError) {
         throw error
       }
       const reason = error instanceof Error ? error.message : '証憑取得に失敗しました'
       failedVouchers.push({ relativePath: plan.relativePath, reason })
-      warnings.push(`${plan.relativePath}: ${reason}`)
+      warnings.push(`${publicVoucherFileName(plan.relativePath) || plan.relativePath}: ${reason}`)
     }
 
     vouchersDone += 1
     emit(input.onProgress, {
       stage: 'fetchingVouchers',
-      message: signal?.aborted
-        ? 'キャンセル処理中です。現在のファイル取得が完了すると停止します。'
-        : '証憑原本を取得しています',
+      message:
+        vouchersDone < vouchersTotal
+          ? `証憑 ${vouchersDone + 1}/${vouchersTotal}を取得準備中`
+          : '証憑原本の取得が完了しました',
       reportsDone: reportTotal,
       reportsTotal: reportTotal,
       vouchersDone,
-      vouchersTotal: receiptFetchPlan.size,
+      vouchersTotal,
       cancelRequested: Boolean(signal?.aborted),
     })
   }
@@ -413,7 +655,7 @@ export async function generateAccountingSubmissionZip(
     reportsDone: reportTotal,
     reportsTotal: reportTotal,
     vouchersDone,
-    vouchersTotal: receiptFetchPlan.size,
+    vouchersTotal,
   })
 
   const fileEntries: SubmissionZipFileEntry[] = []
@@ -520,7 +762,7 @@ export async function generateAccountingSubmissionZip(
     reportsDone: reportTotal,
     reportsTotal: reportTotal,
     vouchersDone,
-    vouchersTotal: receiptFetchPlan.size,
+    vouchersTotal,
   })
 
   const zipBlob = await assembleSubmissionZipBlob(files, signal)
@@ -532,7 +774,7 @@ export async function generateAccountingSubmissionZip(
     reportsDone: reportTotal,
     reportsTotal: reportTotal,
     vouchersDone,
-    vouchersTotal: receiptFetchPlan.size,
+    vouchersTotal,
   })
 
   return {
@@ -570,8 +812,9 @@ export function downloadBlobFile(fileName: string, blob: Blob) {
 }
 
 /**
- * Default Storage loader. AbortSignal cannot interrupt Firebase getBytes mid-transfer;
- * cooperative cancel is enforced by the generate loop between files.
+ * Default Storage loader. AbortSignal / timeout races are applied by
+ * loadSubmissionVoucherBlobWithPolicy in generateAccountingSubmissionZip;
+ * getBytes itself cannot be interrupted mid-transfer.
  */
 export async function loadSubmissionReceiptBlob(
   input: {

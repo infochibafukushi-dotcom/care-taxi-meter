@@ -308,7 +308,7 @@ export function SubmissionPackagePanel({
         ? {
             ...current,
             cancelRequested: true,
-            message: 'キャンセル処理中です。現在のファイル取得が完了すると停止します。',
+            message: 'キャンセル処理中です…',
           }
         : current,
     )
@@ -696,11 +696,17 @@ export function SubmissionPackagePanel({
               <li>
                 状態 {STAGE_LABELS[progress.stage]} — {progress.message}
               </li>
+              {progress.currentVoucherFileName ? (
+                <li>対象ファイル {progress.currentVoucherFileName}</li>
+              ) : null}
               <li>
                 帳票生成 {progress.reportsDone} / {progress.reportsTotal}
               </li>
               <li>
                 証憑取得 {progress.vouchersDone} / {progress.vouchersTotal}
+                {progress.stage === 'fetchingVouchers' && progress.currentVoucherIndex
+                  ? `（現在 ${progress.currentVoucherIndex}/${progress.vouchersTotal}）`
+                  : ''}
               </li>
               {progress.stage === 'compressing' ? <li>ZIP圧縮 実行中</li> : null}
             </ul>
@@ -762,7 +768,7 @@ export function SubmissionPackagePanel({
       </div>
       {isZipping && progress?.cancelRequested ? (
         <p className="accounting-note" role="status">
-          キャンセル処理中です。現在のファイル取得が完了すると停止します（Storage取得の途中打ち切りはできません）。
+          キャンセル処理中です。取得待ちはすぐに終了します（Storageの実通信は裏側で残る場合があります）。
         </p>
       ) : null}
       <p className="accounting-note">
