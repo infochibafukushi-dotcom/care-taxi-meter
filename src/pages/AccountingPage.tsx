@@ -26,13 +26,16 @@ import {
   fetchUnorganizedAccountingReceipts,
   getAccountingReceiptOriginalFileUrl,
   getAccountingReceiptPreviewImageUrl,
+  invalidateAccountingReceipt,
   loadAccountingReceiptOcrImageBlob,
   OCR_IMAGE_UNAVAILABLE_MESSAGE,
   rejectAccountingReceiptWorkflow,
+  relinkAccountingReceiptToExpense,
   resolveAccountingReceiptDownloadUrl,
   saveConfirmedAccountingReceipt,
   replaceAccountingReceiptOcrImage,
   saveReceiptOnly,
+  unlinkAccountingReceiptFromExpense,
   uploadAccountingReceiptFile,
   type StoredAccountingReceipt,
 } from '../services/accountingReceipts'
@@ -133,6 +136,10 @@ import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPane
 import { TaxAdvisorPackagePanel } from '../components/accounting/TaxAdvisorPackagePanel'
 import { SubmissionPackagePanel } from '../components/accounting/SubmissionPackagePanel'
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
+import {
+  selectAccountingReceiptInbox,
+  type AccountingReceiptInboxEntry,
+} from '../utils/accountingReceiptLink'
 import {
   buildFixedAssetInputFromDraft,
   createAccountingFixedAsset,
@@ -537,6 +544,7 @@ export function AccountingPage() {
   const [ocrCandidateNotice, setOcrCandidateNotice] = useState('')
   const [invoiceNumberWarning, setInvoiceNumberWarning] = useState('')
   const [unorganizedReceipts, setUnorganizedReceipts] = useState<StoredAccountingReceipt[]>([])
+  const [focusReceiptId, setFocusReceiptId] = useState('')
   const [allReceipts, setAllReceipts] = useState<StoredAccountingReceipt[]>([])
   const [isSavingReceiptOnly, setIsSavingReceiptOnly] = useState(false)
   const [recentReceiptBlobs, setRecentReceiptBlobs] = useState<Record<string, Blob>>({})
@@ -761,7 +769,7 @@ export function AccountingPage() {
         }
 
         try {
-          unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope)
+          unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope, expenseRows)
         } catch (error) {
           loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
         }
@@ -1093,20 +1101,51 @@ export function AccountingPage() {
     setReceiptImageZoom(1)
   }
 
-  const reloadAllReceipts = async () => {
-    const rows = await fetchAccountingReceipts(accessScope)
-    setAllReceipts(rows)
-  }
-
   const reloadUnorganizedReceipts = async () => {
-    const rows = await fetchUnorganizedAccountingReceipts(accessScope)
-    setUnorganizedReceipts(rows)
+    const [expenseRows, receiptRows] = await Promise.all([
+      expenses.length > 0 ? Promise.resolve(expenses) : fetchAccountingExpenses(accessScope),
+      fetchAccountingReceipts(accessScope),
+    ])
+    setAllReceipts(receiptRows)
+    setUnorganizedReceipts(
+      selectAccountingReceiptInbox(receiptRows, expenseRows).map((entry) => entry.receipt),
+    )
   }
 
   const reloadExpensesAdjustmentsAndReceipts = async () => {
-    await reloadExpensesAndAdjustments()
-    await reloadUnorganizedReceipts()
-    await reloadAllReceipts()
+    const [expenseRows, adjustmentRows, receiptRows] = await Promise.all([
+      fetchAccountingExpenses(accessScope),
+      fetchAccountingAdjustments(accessScope),
+      fetchAccountingReceipts(accessScope),
+    ])
+    setExpenses(expenseRows)
+    setAdjustments(adjustmentRows)
+    setAllReceipts(receiptRows)
+    setUnorganizedReceipts(
+      selectAccountingReceiptInbox(receiptRows, expenseRows).map((entry) => entry.receipt),
+    )
+  }
+
+  const receiptInboxEntries = useMemo(
+    () => selectAccountingReceiptInbox(allReceipts, expenses),
+    [allReceipts, expenses],
+  )
+
+  const plainUnorganizedReceipts = useMemo(
+    () => receiptInboxEntries.filter((entry) => entry.kind === 'unorganized').map((entry) => entry.receipt),
+    [receiptInboxEntries],
+  )
+
+  const navigateAccountingTab = (
+    tab: AccountingTab,
+    options?: { focusReceiptId?: string },
+  ) => {
+    setActiveTab(tab)
+    if (tab === 'unorganized-receipts') {
+      setFocusReceiptId(options?.focusReceiptId?.trim() ?? '')
+    } else if (options?.focusReceiptId) {
+      setFocusReceiptId(options.focusReceiptId.trim())
+    }
   }
 
   const isNewExpenseEntry = !editingExpenseId
@@ -2144,9 +2183,14 @@ export function AccountingPage() {
     }
   }
 
-  const handleDeleteUnorganizedReceipt = async (receiptId: string) => {
+  const handleDeleteUnorganizedReceipt = async (
+    receipt: StoredAccountingReceipt,
+    kind: AccountingReceiptInboxEntry['kind'],
+  ) => {
     const confirmed = window.confirm(
-      'この未整理の領収書を削除します。よろしいですか？\n※削除すると元に戻せません。',
+      kind === 'orphan'
+        ? 'このリンク切れ証憑を削除します。よろしいですか？\n※削除すると元に戻せません。'
+        : 'この未整理の領収書を削除します。よろしいですか？\n※削除すると元に戻せません。',
     )
     if (!confirmed) {
       return
@@ -2154,9 +2198,11 @@ export function AccountingPage() {
 
     try {
       setErrorMessage('')
-      const result = await deleteAccountingReceipt(receiptId)
+      const result = await deleteAccountingReceipt(receipt.id, {
+        allowLinkedOrphan: kind === 'orphan',
+      })
 
-      if (expenseForm?.receiptId === receiptId) {
+      if (expenseForm?.receiptId === receipt.id) {
         await resetExpenseFormToNew({ retainPendingUploads: true })
       }
 
@@ -2165,9 +2211,62 @@ export function AccountingPage() {
           ? '画像ファイルは既に存在しません。未整理データのみ削除しました。'
           : '未整理領収書とアップロード画像を削除しました。',
       )
-      await reloadUnorganizedReceipts()
+      await reloadExpensesAdjustmentsAndReceipts()
+      setFocusReceiptId('')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '未整理領収書の削除に失敗しました。')
+    }
+  }
+
+  const handleUnlinkOrphanReceipt = async (receipt: StoredAccountingReceipt) => {
+    const confirmed = window.confirm(
+      '経費へのリンクを解除し、通常の未整理へ戻します。よろしいですか？',
+    )
+    if (!confirmed) {
+      return
+    }
+    try {
+      setErrorMessage('')
+      await unlinkAccountingReceiptFromExpense({ receiptId: receipt.id })
+      setStatusMessage('リンクを解除し、未整理へ戻しました。')
+      await reloadExpensesAdjustmentsAndReceipts()
+      setFocusReceiptId(receipt.id)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'リンク解除に失敗しました。')
+    }
+  }
+
+  const handleRelinkOrphanReceipt = async (receipt: StoredAccountingReceipt, expenseId: string) => {
+    try {
+      setErrorMessage('')
+      await relinkAccountingReceiptToExpense({
+        receiptId: receipt.id,
+        expenseId,
+        previousLinkedExpenseId: receipt.linkedExpenseId,
+      })
+      setStatusMessage('既存経費へ再紐付けしました。')
+      await reloadExpensesAdjustmentsAndReceipts()
+      setFocusReceiptId('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '再紐付けに失敗しました。')
+    }
+  }
+
+  const handleInvalidateOrphanReceipt = async (receipt: StoredAccountingReceipt) => {
+    const confirmed = window.confirm(
+      'この証憑を無効化します。経費リンクも解除され、提出対象から除外されます。よろしいですか？',
+    )
+    if (!confirmed) {
+      return
+    }
+    try {
+      setErrorMessage('')
+      await invalidateAccountingReceipt({ receiptId: receipt.id })
+      setStatusMessage('証憑を無効化しました。')
+      await reloadExpensesAdjustmentsAndReceipts()
+      setFocusReceiptId('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '証憑の無効化に失敗しました。')
     }
   }
 
@@ -2528,8 +2627,8 @@ export function AccountingPage() {
         await resetExpenseFormToNew()
       }
 
-      setStatusMessage('経費を削除しました（集計対象から除外）。')
-      await reloadExpensesAndAdjustments()
+      setStatusMessage('経費を削除しました（紐付証憑のリンクも解除し、集計対象から除外）。')
+      await reloadExpensesAdjustmentsAndReceipts()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の削除に失敗しました。')
     }
@@ -3264,14 +3363,19 @@ export function AccountingPage() {
 
         {activeTab === 'unorganized-receipts' ? (
           <UnorganizedReceiptsPanel
-            receipts={unorganizedReceipts}
+            entries={receiptInboxEntries}
+            expenses={expenses}
+            focusReceiptId={focusReceiptId}
             ocrRunningReceiptId={ocrRunningReceiptId}
             ocrStatusByReceiptId={ocrStatusByReceiptId}
             onRegisterAsExpense={handleRegisterReceiptAsExpense}
             onRunOcr={(receipt) => void handleRunOcrOnUnorganizedReceipt(receipt)}
             onConfirm={(receipt) => void handleConfirmUnorganizedReceipt(receipt)}
             onReject={(receipt) => void handleRejectUnorganizedReceipt(receipt)}
-            onDelete={(receiptId) => void handleDeleteUnorganizedReceipt(receiptId)}
+            onUnlinkOrphan={(receipt) => void handleUnlinkOrphanReceipt(receipt)}
+            onRelinkOrphan={(receipt, expenseId) => void handleRelinkOrphanReceipt(receipt, expenseId)}
+            onInvalidateOrphan={(receipt) => void handleInvalidateOrphanReceipt(receipt)}
+            onDelete={(receipt, kind) => void handleDeleteUnorganizedReceipt(receipt, kind)}
           />
         ) : null}
 
@@ -4515,7 +4619,7 @@ export function AccountingPage() {
           <AuditMaterialsPanel
             expenses={expenses}
             allReceipts={allReceipts}
-            unorganizedReceipts={unorganizedReceipts}
+            unorganizedReceipts={plainUnorganizedReceipts}
             fixedAssets={fixedAssets}
             salesRows={salesRows}
             profitLoss={profitLoss}
@@ -4542,13 +4646,13 @@ export function AccountingPage() {
             settlementAuxiliary={settlementAuxiliary}
             settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             allReceipts={allReceipts}
-            unorganizedReceipts={unorganizedReceipts}
+            unorganizedReceipts={plainUnorganizedReceipts}
             onReloadAuxiliary={reloadSettlementAuxiliary}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onExportPackageRecorded={handleExportPackageRecorded}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
-            onNavigateAccountingTab={setActiveTab}
+            onNavigateAccountingTab={(tab) => navigateAccountingTab(tab)}
           />
         ) : null}
 
@@ -4568,12 +4672,12 @@ export function AccountingPage() {
             settlementAuxiliary={settlementAuxiliary}
             settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             allReceipts={allReceipts}
-            unorganizedReceipts={unorganizedReceipts}
+            unorganizedReceipts={plainUnorganizedReceipts}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onExportPackageRecorded={handleExportPackageRecorded}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
-            onNavigateAccountingTab={setActiveTab}
+            onNavigateAccountingTab={(tab) => navigateAccountingTab(tab)}
           />
         ) : null}
 
@@ -4593,12 +4697,12 @@ export function AccountingPage() {
             settlementAuxiliary={settlementAuxiliary}
             settlementAuxiliaryLoadError={settlementAuxiliaryLoadError}
             receipts={allReceipts}
-            unorganizedReceipts={unorganizedReceipts}
+            unorganizedReceipts={plainUnorganizedReceipts}
             companyName={storeName}
             onExportPackageRecorded={handleExportPackageRecorded}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
-            onNavigateAccountingTab={setActiveTab}
+            onNavigateAccountingTab={navigateAccountingTab}
           />
         ) : null}
 

@@ -81,6 +81,7 @@ type SubmissionPackagePanelProps = {
   onError?: (message: string) => void
   onNavigateAccountingTab?: (
     tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor' | 'submission',
+    options?: { focusReceiptId?: string },
   ) => void
 }
 
@@ -628,13 +629,44 @@ export function SubmissionPackagePanel({
         <section className="accounting-submission-issues" aria-label="パッケージ課題">
           <h3>課題</h3>
           <ul>
-            {pkg.issues.slice(0, 20).map((issue, index) => (
-              <li key={`${issue.code}-${index}`} className={`is-${issue.severity}`}>
-                <strong>{issue.severity === 'blocking' ? '要修正' : '要確認'}</strong>
-                {' · '}
-                {issue.message}
-              </li>
-            ))}
+            {pkg.issues.slice(0, 20).map((issue, index) => {
+              const receiptNo = issue.relatedTemporaryNos?.find((value) => value.startsWith('RCP-'))
+              const sourceReceiptId = receiptNo
+                ? pkg.items.find(
+                    (item) =>
+                      item.receiptTemporaryNo === receiptNo ||
+                      item.temporaryNumbers?.includes(receiptNo),
+                  )?.sourceReceiptId
+                : undefined
+              const canOpenReceipt =
+                issue.code === 'receipts.orphanLinkedExpense' &&
+                Boolean(sourceReceiptId) &&
+                Boolean(onNavigateAccountingTab)
+
+              return (
+                <li key={`${issue.code}-${index}`} className={`is-${issue.severity}`}>
+                  <strong>{issue.severity === 'blocking' ? '要修正' : '要確認'}</strong>
+                  {' · '}
+                  {issue.message}
+                  {canOpenReceipt ? (
+                    <>
+                      {' '}
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() =>
+                          onNavigateAccountingTab?.('unorganized-receipts', {
+                            focusReceiptId: sourceReceiptId,
+                          })
+                        }
+                      >
+                        証憑を確認
+                      </button>
+                    </>
+                  ) : null}
+                </li>
+              )
+            })}
             {pkg.issues.length > 20 ? <li>…ほか {pkg.issues.length - 20} 件</li> : null}
           </ul>
         </section>

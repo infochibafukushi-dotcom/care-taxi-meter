@@ -766,6 +766,49 @@ describe('buildAccountingFilingChecks', () => {
     expect(
       oneWayReceipt.items.find((item) => item.id === 'receipts.orphanLinkedExpense')?.status,
     ).toBe('complete')
+
+    const deletedExpenseOrphan = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [makeExpense({ id: 'e1', isDeleted: true, receiptId: 'r1' })],
+      receipts: [makeReceipt({ id: 'r1', linkedExpenseId: 'e1', status: 'linked' })],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+    expect(
+      deletedExpenseOrphan.items.find((item) => item.id === 'receipts.orphanLinkedExpense')?.status,
+    ).toBe('blocking')
+
+    const invalidExpenseOrphan = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [makeExpense({ id: 'e1', confirmationStatus: '無効', receiptId: 'r1' })],
+      receipts: [makeReceipt({ id: 'r1', linkedExpenseId: 'e1', status: 'linked' })],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+    expect(
+      invalidExpenseOrphan.items.find((item) => item.id === 'receipts.orphanLinkedExpense')?.status,
+    ).toBe('blocking')
+
+    const receiptIdMismatchOrphan = buildAccountingFilingChecks({
+      targetYear: 2026,
+      fiscalPeriod: period,
+      expenses: [makeExpense({ id: 'e1', receiptId: 'r-other' })],
+      receipts: [makeReceipt({ id: 'r1', linkedExpenseId: 'e1', status: 'linked' })],
+      unorganizedReceipts: [],
+      fixedAssets: [],
+      settlementAuxiliary: baseAuxiliary,
+      company: null,
+    })
+    expect(
+      receiptIdMismatchOrphan.items.find((item) => item.id === 'receipts.orphanLinkedExpense')
+        ?.status,
+    ).toBe('blocking')
   })
 
   it('blocks linked receipts missing original storage and urls', () => {

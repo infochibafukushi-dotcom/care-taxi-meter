@@ -1113,6 +1113,34 @@ body.route-accounting,
   gap: 0.75rem;
 }
 
+.accounting-unorganized-card.is-orphan {
+  border-color: #c47b2b;
+  background: #fff8ef;
+}
+
+.accounting-unorganized-card.is-focused {
+  outline: 2px solid #2f6fed;
+  outline-offset: 2px;
+}
+
+.accounting-unorganized-orphan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.accounting-unorganized-relink {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.accounting-unorganized-relink select {
+  max-width: 100%;
+}
+
 .accounting-unorganized-card {
   display: grid;
   gap: 0.75rem;

@@ -38,6 +38,7 @@ import {
   ensureUniqueRelativePath,
   resolveSafeSubmissionExtension,
 } from './accountingSubmissionFileName'
+import { isOrphanLinkedReceipt } from './accountingReceiptLink'
 import {
   assignSubmissionTemporaryNumbers,
   getReceiptDisplayAmount,
@@ -755,12 +756,11 @@ export const buildAccountingSubmissionPackage = (
     if (voucherReceiptIds.has(receipt.id)) {
       return false
     }
-    const linkedExpenseId = receipt.linkedExpenseId?.trim()
-    if (!linkedExpenseId) {
+    if (isOrphanLinkedReceipt(receipt, expensesById)) {
       return true
     }
-    const linkedExpense = expensesById.get(linkedExpenseId)
-    if (!linkedExpense || isExpenseDeleted(linkedExpense)) {
+    const linkedExpenseId = receipt.linkedExpenseId?.trim()
+    if (!linkedExpenseId) {
       return true
     }
     // Linked one-way to a period expense that somehow skipped voucher packaging
@@ -791,17 +791,13 @@ export const buildAccountingSubmissionPackage = (
       continue
     }
 
-    const linkedExpenseId = receipt.linkedExpenseId?.trim()
-    if (linkedExpenseId) {
-      const linkedExpense = expensesById.get(linkedExpenseId)
-      if (!linkedExpense || isExpenseDeleted(linkedExpense)) {
-        issues.push({
-          code: 'receipts.orphanLinkedExpense',
-          severity: 'blocking',
-          message: `${receiptNo}: 参照先経費がありません`,
-          relatedTemporaryNos: [receiptNo],
-        })
-      }
+    if (isOrphanLinkedReceipt(receipt, expensesById)) {
+      issues.push({
+        code: 'receipts.orphanLinkedExpense',
+        severity: 'blocking',
+        message: `${receiptNo}: 参照先経費がありません`,
+        relatedTemporaryNos: [receiptNo],
+      })
     } else {
       issues.push({
         code: 'voucher.unlinked',

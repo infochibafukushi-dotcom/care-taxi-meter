@@ -3,6 +3,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -11,6 +12,7 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import { deleteObject, getBytes, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseApp } from '../lib/firebase'
@@ -23,6 +25,7 @@ import type {
   AccountingReceiptOcrCandidates,
   AccountingReceiptWorkflowStatus,
   ReceiptStatus,
+  StoredAccountingExpense,
   StoredAccountingReceipt,
 } from '../types/accounting'
 import {
@@ -36,6 +39,7 @@ import {
   normalizeReceiptStatus,
 } from '../types/accounting'
 import type { AccountingReceiptOcrResult } from '../utils/accountingExpenseForm'
+import { selectAccountingReceiptInbox } from '../utils/accountingReceiptLink'
 import {
   buildConfirmedDraftFromCandidates,
   buildOcrCandidatesFromParsed,
@@ -308,21 +312,12 @@ export async function fetchAccountingReceipts(scope?: TenantAccessScope) {
   }
 }
 
-export async function fetchUnorganizedAccountingReceipts(scope?: TenantAccessScope) {
+export async function fetchUnorganizedAccountingReceipts(
+  scope?: TenantAccessScope,
+  expenses: StoredAccountingExpense[] = [],
+) {
   const receipts = await fetchAccountingReceipts(scope)
-  return receipts.filter((receipt) => {
-    const workflow =
-      receipt.receiptStatus ??
-      mapLegacyStatusToWorkflow(
-        receipt.status,
-        Boolean(receipt.ocrCandidates || receipt.ocrRawText),
-        receipt.linkedExpenseId,
-      )
-    return (
-      receipt.status === 'unorganized' &&
-      (workflow === 'draft' || workflow === 'ocr_ready')
-    )
-  })
+  return selectAccountingReceiptInbox(receipts, expenses).map((entry) => entry.receipt)
 }
 
 const buildEditHistoryUnion = (
@@ -913,6 +908,87 @@ export async function linkAccountingReceiptToExpense({
   })
 }
 
+/** 経費リンクを解除し、通常の未整理へ戻す */
+export async function unlinkAccountingReceiptFromExpense({
+  receiptId,
+}: {
+  receiptId: string
+}) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const receiptRef = doc(db, collectionName, receiptId)
+  const snapshot = await getDoc(receiptRef)
+  if (!snapshot.exists()) {
+    return
+  }
+
+  const receipt = toStoredReceipt(snapshot)
+  const hasOcr = Boolean(receipt.ocrCandidates || receipt.ocrRawText)
+  const receiptStatus: AccountingReceiptWorkflowStatus = hasOcr ? 'ocr_ready' : 'draft'
+
+  await updateDoc(receiptRef, {
+    status: 'unorganized' satisfies ReceiptStatus,
+    receiptStatus,
+    linkedExpenseId: deleteField(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
+ * 既存経費へ再紐付け（証憑 + 経費 receiptId を同一 batch で更新）。
+ * 以前のリンク先経費が同一証憑を指していた場合はそちらも解除する。
+ */
+export async function relinkAccountingReceiptToExpense({
+  receiptId,
+  expenseId,
+  previousLinkedExpenseId,
+}: {
+  receiptId: string
+  expenseId: string
+  previousLinkedExpenseId?: string
+}) {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const batch = writeBatch(db)
+  const receiptRef = doc(db, collectionName, receiptId)
+  const expenseRef = doc(db, 'accountingExpenses', expenseId)
+
+  batch.update(receiptRef, {
+    status: 'linked' satisfies ReceiptStatus,
+    receiptStatus: 'confirmed' satisfies AccountingReceiptWorkflowStatus,
+    linkedExpenseId: expenseId,
+    updatedAt: serverTimestamp(),
+  })
+  batch.update(expenseRef, {
+    receiptId,
+    updatedAt: serverTimestamp(),
+  })
+
+  const previousId = previousLinkedExpenseId?.trim()
+  if (previousId && previousId !== expenseId) {
+    const previousExpenseRef = doc(db, 'accountingExpenses', previousId)
+    const previousSnap = await getDoc(previousExpenseRef)
+    if (previousSnap.exists()) {
+      const previousReceiptId =
+        typeof previousSnap.data().receiptId === 'string' ? previousSnap.data().receiptId.trim() : ''
+      if (previousReceiptId === receiptId) {
+        batch.update(previousExpenseRef, {
+          receiptId: deleteField(),
+          updatedAt: serverTimestamp(),
+        })
+      }
+    }
+  }
+
+  await batch.commit()
+}
+
 export async function invalidateAccountingReceipt({
   receiptId,
 }: {
@@ -926,12 +1002,16 @@ export async function invalidateAccountingReceipt({
   await updateDoc(doc(db, collectionName, receiptId), {
     status: 'invalid' satisfies ReceiptStatus,
     receiptStatus: 'rejected' satisfies AccountingReceiptWorkflowStatus,
+    linkedExpenseId: deleteField(),
     invalidatedAt: new Date().toISOString(),
     updatedAt: serverTimestamp(),
   })
 }
 
-export async function deleteAccountingReceipt(receiptId: string): Promise<DeleteAccountingReceiptResult> {
+export async function deleteAccountingReceipt(
+  receiptId: string,
+  options?: { allowLinkedOrphan?: boolean },
+): Promise<DeleteAccountingReceiptResult> {
   if (isReviewDemoRuntimeEnabled()) {
     return {}
   }
@@ -961,7 +1041,12 @@ export async function deleteAccountingReceipt(receiptId: string): Promise<Delete
 
   const receipt = toStoredReceipt(snapshot)
 
-  if (receipt.status !== 'unorganized') {
+  const allowLinkedOrphan = options?.allowLinkedOrphan === true
+  if (receipt.status === 'unorganized') {
+    // ok
+  } else if (receipt.status === 'linked' && allowLinkedOrphan && receipt.linkedExpenseId) {
+    // リンク切れ証憑の削除（呼び出し側で orphan 判定済み）
+  } else {
     throw new Error('未整理の領収書のみ削除できます。')
   }
 

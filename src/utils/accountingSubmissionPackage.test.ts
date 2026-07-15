@@ -394,6 +394,37 @@ describe('buildAccountingSubmissionPackage', () => {
     expect(pkg.summary.unlinkedVoucherCount).toBe(1)
   })
 
+  it('flags orphan linked receipts as blocking with RCP message and internal sourceReceiptId', () => {
+    const pkg = buildAccountingSubmissionPackage({
+      fiscalPeriod,
+      expenses: [],
+      receipts: [
+        makeReceipt({
+          id: 'secret-orphan-receipt',
+          status: 'linked',
+          linkedExpenseId: 'missing-expense',
+          receiptDate: '2026-08-20',
+          vendorNameCandidate: 'リンク切れ店',
+        }),
+      ],
+      fixedAssets: [],
+      filingSummary: readyFiling,
+      targetYear: 2026,
+      createdAt: '2026-07-15T00:00:00.000Z',
+    })
+    const orphanIssue = pkg.issues.find((issue) => issue.code === 'receipts.orphanLinkedExpense')
+    expect(orphanIssue?.severity).toBe('blocking')
+    expect(orphanIssue?.message).toMatch(/^RCP-\d+: 参照先経費がありません$/)
+    const receiptNo = orphanIssue?.relatedTemporaryNos?.[0]
+    const item = pkg.items.find((row) => row.receiptTemporaryNo === receiptNo)
+    expect(item?.sourceReceiptId).toBe('secret-orphan-receipt')
+    const publicCsv = buildSubmissionCatalogCsv(pkg)
+    const publicManifest = JSON.stringify(toPublicSubmissionManifest(pkg))
+    expect(publicCsv).not.toContain('secret-orphan-receipt')
+    expect(publicManifest).not.toContain('secret-orphan-receipt')
+    expect(pkg.summary.isSubmissionReady).toBe(false)
+  })
+
   it('detects link mismatch between expense.receiptId and receipt.linkedExpenseId', () => {
     const pkg = buildAccountingSubmissionPackage({
       fiscalPeriod,

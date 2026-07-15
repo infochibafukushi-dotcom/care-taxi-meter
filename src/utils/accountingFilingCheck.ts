@@ -30,6 +30,7 @@ import {
   sumReceivableBreakdownByKind,
   sumSettlementBreakdownBalances,
 } from './accountingSettlementAuxiliaryForm'
+import { isOrphanLinkedReceipt } from './accountingReceiptLink'
 
 export type SettlementAmountCompareInput = {
   expectedAmountYen: number | null
@@ -563,14 +564,9 @@ export const buildAccountingFilingChecks = (
     })
   }
 
-  const orphanLinkedExpense = receipts.filter((receipt) => {
-    const linkedExpenseId = receipt.linkedExpenseId?.trim()
-    if (!linkedExpenseId) {
-      return false
-    }
-    const linkedExpense = expensesById.get(linkedExpenseId)
-    return !linkedExpense || isExpenseDeleted(linkedExpense)
-  })
+  const orphanLinkedExpense = receipts.filter((receipt) =>
+    isOrphanLinkedReceipt(receipt, expensesById),
+  )
   if (orphanLinkedExpense.length > 0) {
     items.push({
       id: 'receipts.orphanLinkedExpense',
