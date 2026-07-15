@@ -1,0 +1,10 @@
+Font: Noto Sans JP
+Style: Regular (static)
+Source: Google Fonts (fonts.google.com / fonts.gstatic.com)
+Version path: notosansjp/v56
+File: NotoSansJP-Regular.ttf
+Size: 5472784 bytes
+SHA-256: D930D5D52D15231C283089760F84584272AD5E37E14607BA0D19C798E7A9CAEC
+License: SIL Open Font License 1.1 (see OFL.txt)
+Upstream project: https://github.com/notofonts/noto-cjk
+Redistribution: Allowed under OFL 1.1 (bundling with software permitted)

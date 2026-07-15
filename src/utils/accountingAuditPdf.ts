@@ -1,3 +1,5 @@
+import { registerJapanesePdfFont, setJapanesePdfFont } from './pdfJapaneseFont'
+
 type PdfTableOptions = {
   fileName: string
   title: string
@@ -19,6 +21,8 @@ const buildTablePdfDocument = async ({
 }: Omit<PdfTableOptions, 'fileName'>): Promise<JsPdfInstance> => {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
+  await registerJapanesePdfFont(pdf)
+
   const pageWidth = pdf.internal.pageSize.getWidth()
   const pageHeight = pdf.internal.pageSize.getHeight()
   const margin = 10
@@ -30,6 +34,7 @@ const buildTablePdfDocument = async ({
   let y = margin
 
   const addPageHeader = () => {
+    setJapanesePdfFont(pdf)
     pdf.setFontSize(13)
     pdf.text(title, margin, y)
     y += 8
@@ -49,6 +54,7 @@ const buildTablePdfDocument = async ({
       addPageHeader()
     }
 
+    setJapanesePdfFont(pdf)
     row.forEach((cell, index) => {
       pdf.text(truncate(String(cell), 22), margin + index * columnWidth + 1, y)
     })
@@ -61,8 +67,11 @@ const buildTablePdfDocument = async ({
 const buildLinePdfDocument = async (title: string, lines: string[]): Promise<JsPdfInstance> => {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  await registerJapanesePdfFont(pdf)
+
   let y = 14
 
+  setJapanesePdfFont(pdf)
   pdf.setFontSize(14)
   pdf.text(title, 14, y)
   y += 8
@@ -72,6 +81,7 @@ const buildLinePdfDocument = async (title: string, lines: string[]): Promise<JsP
     if (y > 280) {
       pdf.addPage()
       y = 14
+      setJapanesePdfFont(pdf)
     }
     pdf.text(line, 14, y)
     y += 6

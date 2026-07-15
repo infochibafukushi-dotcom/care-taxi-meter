@@ -40,3 +40,7 @@ tmp-*
 
 # Generated visual verification artifacts (binary files are not accepted in PRs)
 docs/screenshots/
+
+# Local smoke / PDF size probes
+.smoke-artifacts/
+
