@@ -2099,6 +2099,15 @@ body.route-accounting,
   color: #5b6472;
 }
 
+.accounting-submission-progress {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
 .accounting-submission-actions {
   flex-wrap: wrap;
 }

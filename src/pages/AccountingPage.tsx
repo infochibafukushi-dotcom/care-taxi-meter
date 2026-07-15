@@ -2626,6 +2626,8 @@ export function AccountingPage() {
       sourceFingerprint: payload.sourceFingerprint,
       sourceRecordCounts: payload.sourceRecordCounts,
       exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
+      submissionPurpose: payload.submissionPurpose,
+      archiveEntryCount: payload.archiveEntryCount,
     })
     if ('error' in result) {
       throw new Error(
@@ -4550,14 +4552,21 @@ export function AccountingPage() {
         {activeTab === 'submission' ? (
           <SubmissionPackagePanel
             franchiseeId={tenantScope.franchiseeId}
+            storeId={tenantScope.storeId}
+            storeName={storeName}
             initialTargetYear={targetYear}
+            staffId={staffId}
+            staffName={staffName}
             caseRecords={caseRecords}
             expenses={expenses}
+            adjustments={adjustments}
+            fixedCosts={fixedCosts}
             fixedAssets={fixedAssets}
             settlementAuxiliary={settlementAuxiliary}
             receipts={allReceipts}
             unorganizedReceipts={unorganizedReceipts}
             companyName={storeName}
+            onExportPackageRecorded={handleExportPackageRecorded}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
             onNavigateAccountingTab={setActiveTab}

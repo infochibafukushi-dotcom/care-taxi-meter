@@ -9,12 +9,13 @@ export type AccountingExportType =
   | 'etax-csv'
   | 'tax-advisor-pdf'
   | 'tax-advisor-csv'
+  | 'submission-zip'
 
 export const ACCOUNTING_EXPORT_SCHEMA_VERSION = '1d.1'
 
 export type AccountingExportFileManifestItem = {
   fileName: string
-  format: 'pdf' | 'csv'
+  format: 'pdf' | 'csv' | 'zip' | 'json'
   documentType: string
   rowCount?: number
   byteSize?: number
@@ -71,6 +72,10 @@ export type AccountingExportInput = {
   sourceFingerprint?: string
   sourceRecordCounts?: AccountingExportSourceRecordCounts
   exportSchemaVersion?: string
+  /** Phase 2B submission ZIP purpose */
+  submissionPurpose?: 'confirmation' | 'submission'
+  /** Entries inside a submission ZIP (not the download file count) */
+  archiveEntryCount?: number
 }
 
 export type StoredAccountingExport = AccountingExportInput & {
@@ -89,6 +94,7 @@ const EXPORT_TYPE_LABELS: Record<AccountingExportType, string> = {
   'etax-csv': 'e-Tax CSV',
   'tax-advisor-pdf': '税理士相談用 PDF',
   'tax-advisor-csv': '税理士相談用 CSV',
+  'submission-zip': '税務確認提出ZIP',
 }
 
 export const formatAccountingExportTypeLabel = (type: string): string => {
@@ -102,7 +108,13 @@ export const formatAccountingExportTypeLabel = (type: string): string => {
 export type AccountingExportPackageRecordPayload = {
   exportType: Extract<
     AccountingExportType,
-    'etax-pdf' | 'etax-csv' | 'tax-advisor-pdf' | 'tax-advisor-csv' | 'audit-pdf' | 'audit-csv'
+    | 'etax-pdf'
+    | 'etax-csv'
+    | 'tax-advisor-pdf'
+    | 'tax-advisor-csv'
+    | 'audit-pdf'
+    | 'audit-csv'
+    | 'submission-zip'
   >
   files: AccountingExportFileManifestItem[]
   fiscalPeriod?: AccountingExportFiscalPeriodSnapshot
@@ -110,4 +122,8 @@ export type AccountingExportPackageRecordPayload = {
   sourceFingerprint?: string
   sourceRecordCounts?: AccountingExportSourceRecordCounts
   targetYearMonth: string
+  /** confirmation ZIP vs submission-ready ZIP */
+  submissionPurpose?: 'confirmation' | 'submission'
+  /** Entries inside the ZIP; fileCount remains download files (1 for ZIP) */
+  archiveEntryCount?: number
 }

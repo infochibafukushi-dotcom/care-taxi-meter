@@ -9,13 +9,14 @@ type PdfTableOptions = {
 const truncate = (value: string, maxLength: number) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value
 
-export async function downloadAuditTablePdf({
-  fileName,
+type JsPdfInstance = import('jspdf').jsPDF
+
+const buildTablePdfDocument = async ({
   title,
   headers,
   rows,
   orientation = 'landscape',
-}: PdfTableOptions) {
+}: Omit<PdfTableOptions, 'fileName'>): Promise<JsPdfInstance> => {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
   const pageWidth = pdf.internal.pageSize.getWidth()
@@ -54,10 +55,10 @@ export async function downloadAuditTablePdf({
     y += rowHeight
   })
 
-  pdf.save(fileName)
+  return pdf
 }
 
-export async function downloadAuditLinePdf(fileName: string, title: string, lines: string[]) {
+const buildLinePdfDocument = async (title: string, lines: string[]): Promise<JsPdfInstance> => {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   let y = 14
@@ -76,5 +77,34 @@ export async function downloadAuditLinePdf(fileName: string, title: string, line
     y += 6
   })
 
+  return pdf
+}
+
+const pdfToBlob = (pdf: JsPdfInstance): Blob => {
+  const output = pdf.output('blob')
+  return output instanceof Blob ? output : new Blob([output], { type: 'application/pdf' })
+}
+
+/** ZIP / programmatic use — returns PDF Blob without triggering download. */
+export async function buildAuditTablePdfBlob(
+  options: Omit<PdfTableOptions, 'fileName'>,
+): Promise<Blob> {
+  const pdf = await buildTablePdfDocument(options)
+  return pdfToBlob(pdf)
+}
+
+/** Standalone download — preserves existing behavior. */
+export async function downloadAuditTablePdf(options: PdfTableOptions) {
+  const pdf = await buildTablePdfDocument(options)
+  pdf.save(options.fileName)
+}
+
+export async function buildAuditLinePdfBlob(title: string, lines: string[]): Promise<Blob> {
+  const pdf = await buildLinePdfDocument(title, lines)
+  return pdfToBlob(pdf)
+}
+
+export async function downloadAuditLinePdf(fileName: string, title: string, lines: string[]) {
+  const pdf = await buildLinePdfDocument(title, lines)
   pdf.save(fileName)
 }

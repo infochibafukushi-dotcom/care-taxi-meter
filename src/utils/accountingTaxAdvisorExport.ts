@@ -418,9 +418,8 @@ const appendTableSection = (
   })
 }
 
-export async function exportTaxAdvisorPackagePdf(pkg: TaxAdvisorPackage) {
+const buildTaxAdvisorPackagePdfDocument = async (pkg: TaxAdvisorPackage) => {
   const { jsPDF } = await import('jspdf')
-  const fileName = `tax-advisor-package-${pkg.header.targetYear}.pdf`
   const sections = buildPackagePdfSections(pkg)
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const margin = 10
@@ -456,6 +455,23 @@ export async function exportTaxAdvisorPackagePdf(pkg: TaxAdvisorPackage) {
     appendTableSection(pdf, section, margin, headerHeight, rowHeight)
   })
 
+  return pdf
+}
+
+/** ZIP / programmatic use — PDF Blob without download. */
+export async function buildTaxAdvisorPackagePdfBlob(pkg: TaxAdvisorPackage): Promise<Blob> {
+  const pdf = await buildTaxAdvisorPackagePdfDocument(pkg)
+  const output = pdf.output('blob')
+  return output instanceof Blob ? output : new Blob([output], { type: 'application/pdf' })
+}
+
+export async function exportTaxAdvisorPackagePdf(pkg: TaxAdvisorPackage) {
+  const fileName = `tax-advisor-package-${pkg.header.targetYear}.pdf`
+  const pdf = await buildTaxAdvisorPackagePdfDocument(pkg)
   pdf.save(fileName)
   return fileName
+}
+
+export async function downloadTaxAdvisorPackagePdf(pkg: TaxAdvisorPackage) {
+  return exportTaxAdvisorPackagePdf(pkg)
 }

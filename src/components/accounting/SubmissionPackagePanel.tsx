@@ -1,15 +1,41 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StoredCaseRecord } from '../../services/caseRecords'
 import type { StoredAccountingReceipt } from '../../services/accountingReceipts'
 import { fetchCompanyById } from '../../services/companies'
-import type { StoredAccountingExpense } from '../../types/accounting'
+import { subscribeMeterSettings, type MeterSettings } from '../../services/meterSettings'
+import {
+  downloadBlobFile,
+  estimateSubmissionZipFileCount,
+  estimateSubmissionZipVoucherCount,
+  generateAccountingSubmissionZip,
+  loadSubmissionReceiptBlob,
+} from '../../services/accountingSubmissionZip'
+import type {
+  StoredAccountingAdjustment,
+  StoredAccountingExpense,
+  StoredAccountingFixedCost,
+} from '../../types/accounting'
 import type { StoredAccountingFixedAsset } from '../../types/accountingFixedAssets'
 import type { StoredAccountingSettlementAuxiliary } from '../../types/accountingSettlementAuxiliary'
+import type { AccountingExportPackageRecordPayload } from '../../types/accountingExportHistory'
+import { ACCOUNTING_EXPORT_SCHEMA_VERSION } from '../../types/accountingExportHistory'
 import type { Company } from '../../types/work'
 import { SUBMISSION_ITEM_AVAILABILITY_LABELS } from '../../types/accountingSubmissionPackage'
+import type { SubmissionZipProgress } from '../../types/accountingSubmissionZip'
+import {
+  SubmissionZipCancelledError,
+  SubmissionZipFatalError,
+} from '../../types/accountingSubmissionZip'
 import { COMPANY_FISCAL_POLICY } from '../../constants/companyFiscalPolicy'
+import {
+  SUBMISSION_ZIP_CLIENT_LIMITS,
+  SUBMISSION_ZIP_LIMIT_EXCEEDED_MESSAGE,
+} from '../../constants/accountingSubmissionZipLimits'
 import { getCompanyFiscalPeriod } from '../../utils/accountingFiscalPeriod'
-import { buildAccountingFilingChecks } from '../../utils/accountingFilingCheck'
+import {
+  buildAccountingFilingChecks,
+  buildReadinessSnapshot,
+} from '../../utils/accountingFilingCheck'
 import { buildCalendarYearOptions } from '../../utils/accountingPl'
 import { downloadCsvFile } from '../../utils/accountingCsv'
 import {
@@ -19,18 +45,37 @@ import {
   buildSubmissionPackageTreeNodes,
   buildUnlinkedVoucherCsv,
 } from '../../utils/accountingSubmissionPackage'
+import { buildSubmissionZipReportFiles } from '../../utils/accountingSubmissionZipReports'
+import { buildTaxAdvisorPackage } from '../../utils/accountingTaxAdvisorData'
+import {
+  buildDefaultSettlementAuxiliary,
+  mergeSettlementAuxiliary,
+} from '../../utils/accountingSettlementAuxiliaryForm'
+import {
+  buildAccountingExportSourceFingerprint,
+  buildETaxExportFingerprintInput,
+  toFiscalPeriodSnapshot,
+} from '../../utils/accountingExportFingerprint'
+import { mapCaseRecordToSalesBreakdown } from '../../utils/accountingSalesMapping'
 import { FilingExportCautionBanner } from './FilingCheckPanel'
 
 type SubmissionPackagePanelProps = {
   franchiseeId?: string
+  storeId?: string
+  storeName?: string
   initialTargetYear: number
+  staffId?: string
+  staffName?: string
   expenses: StoredAccountingExpense[]
+  adjustments?: StoredAccountingAdjustment[]
+  fixedCosts?: StoredAccountingFixedCost[]
   receipts: StoredAccountingReceipt[]
   unorganizedReceipts?: StoredAccountingReceipt[]
   fixedAssets: StoredAccountingFixedAsset[]
   caseRecords: StoredCaseRecord[]
   settlementAuxiliary: StoredAccountingSettlementAuxiliary | null
   companyName?: string
+  onExportPackageRecorded?: (payload: AccountingExportPackageRecordPayload) => Promise<void>
   onStatus?: (message: string) => void
   onError?: (message: string) => void
   onNavigateAccountingTab?: (
@@ -38,23 +83,51 @@ type SubmissionPackagePanelProps = {
   ) => void
 }
 
+const STAGE_LABELS: Record<SubmissionZipProgress['stage'], string> = {
+  preparing: '準備中',
+  generatingReports: '帳票生成',
+  fetchingVouchers: '証憑取得',
+  hashing: 'ハッシュ計算',
+  compressing: 'ZIP圧縮',
+  downloading: 'ダウンロード',
+  completed: '完了',
+  cancelled: 'キャンセル',
+  failed: '失敗',
+}
+
 export function SubmissionPackagePanel({
   franchiseeId,
+  storeId = '',
+  storeName = '',
   initialTargetYear,
+  staffId = '',
+  staffName = '',
   expenses,
+  adjustments = [],
+  fixedCosts = [],
   receipts,
   unorganizedReceipts = [],
   fixedAssets,
   caseRecords,
   settlementAuxiliary,
   companyName,
+  onExportPackageRecorded,
   onStatus,
   onError,
   onNavigateAccountingTab,
 }: SubmissionPackagePanelProps) {
   const [selectedYear, setSelectedYear] = useState(initialTargetYear)
   const [company, setCompany] = useState<Company | null>(null)
+  const [meterSettings, setMeterSettings] = useState<MeterSettings | null>(null)
+  const [isZipping, setIsZipping] = useState(false)
+  const [progress, setProgress] = useState<SubmissionZipProgress | null>(null)
+  const [zipWarnings, setZipWarnings] = useState<string[]>([])
+  const abortRef = useRef<AbortController | null>(null)
   const yearOptions = useMemo(() => buildCalendarYearOptions(), [])
+
+  useEffect(() => {
+    setSelectedYear(initialTargetYear)
+  }, [initialTargetYear])
 
   useEffect(() => {
     if (!franchiseeId) {
@@ -72,9 +145,37 @@ export function SubmissionPackagePanel({
     }
   }, [franchiseeId])
 
+  useEffect(() => {
+    if (!franchiseeId || !storeId) {
+      setMeterSettings(null)
+      return
+    }
+    const unsubscribe = subscribeMeterSettings({ franchiseeId, storeId }, (settings: MeterSettings) => {
+      setMeterSettings(settings)
+    })
+    return unsubscribe
+  }, [franchiseeId, storeId])
+
   const fiscalPeriod = useMemo(
     () => getCompanyFiscalPeriod(COMPANY_FISCAL_POLICY, selectedYear),
     [selectedYear],
+  )
+
+  const auxiliary = useMemo(
+    () =>
+      mergeSettlementAuxiliary(
+        settlementAuxiliary,
+        buildDefaultSettlementAuxiliary({
+          franchiseeId: franchiseeId ?? '',
+          storeId,
+          targetYear: selectedYear,
+          company,
+          meterSettings,
+          staffId,
+          staffName,
+        }),
+      ),
+    [company, franchiseeId, meterSettings, selectedYear, settlementAuxiliary, staffId, staffName, storeId],
   )
 
   const filingSummary = useMemo(
@@ -86,7 +187,7 @@ export function SubmissionPackagePanel({
         receipts,
         unorganizedReceipts,
         fixedAssets,
-        settlementAuxiliary,
+        settlementAuxiliary: auxiliary,
         company,
       }),
     [
@@ -96,8 +197,41 @@ export function SubmissionPackagePanel({
       receipts,
       unorganizedReceipts,
       fixedAssets,
-      settlementAuxiliary,
+      auxiliary,
       company,
+    ],
+  )
+
+  const taxAdvisorPackage = useMemo(
+    () =>
+      buildTaxAdvisorPackage({
+        targetYear: selectedYear,
+        storeName: storeName || companyName || '',
+        company,
+        meterSettings,
+        caseRecords,
+        expenses,
+        adjustments,
+        fixedCosts,
+        fixedAssets,
+        auxiliary,
+        allReceipts: receipts,
+        unorganizedReceipts,
+      }),
+    [
+      selectedYear,
+      storeName,
+      companyName,
+      company,
+      meterSettings,
+      caseRecords,
+      expenses,
+      adjustments,
+      fixedCosts,
+      fixedAssets,
+      auxiliary,
+      receipts,
+      unorganizedReceipts,
     ],
   )
 
@@ -109,7 +243,7 @@ export function SubmissionPackagePanel({
         receipts,
         fixedAssets,
         caseRecords,
-        settlementAuxiliary,
+        settlementAuxiliary: auxiliary,
         filingSummary,
         companyName: companyName || company?.name,
         targetYear: selectedYear,
@@ -120,7 +254,7 @@ export function SubmissionPackagePanel({
       receipts,
       fixedAssets,
       caseRecords,
-      settlementAuxiliary,
+      auxiliary,
       filingSummary,
       companyName,
       company,
@@ -130,6 +264,10 @@ export function SubmissionPackagePanel({
 
   const treeNodes = useMemo(() => buildSubmissionPackageTreeNodes(pkg), [pkg])
   const hasUnlinkedList = pkg.items.some((item) => item.type === 'unlinkedList')
+  const estimatedFiles = estimateSubmissionZipFileCount(pkg)
+  const estimatedVouchers = estimateSubmissionZipVoucherCount(pkg)
+  const zipButtonLabel = pkg.summary.isSubmissionReady ? '税務確認ZIPを作成' : '確認用ZIPを作成'
+  const zipPurposeLabel = pkg.summary.isSubmissionReady ? '提出準備済みZIP' : '確認用ZIP'
 
   const handleDownloadCatalog = () => {
     try {
@@ -158,17 +296,256 @@ export function SubmissionPackagePanel({
     }
   }
 
+  const handleCancelZip = () => {
+    abortRef.current?.abort()
+    setProgress((current) =>
+      current
+        ? {
+            ...current,
+            cancelRequested: true,
+            message: 'キャンセル処理中です。現在のファイル取得が完了すると停止します。',
+          }
+        : current,
+    )
+  }
+
+  const handleCreateZip = async () => {
+    if (isZipping) {
+      return
+    }
+    if (!pkg.summary.canGenerateZip || !fiscalPeriod) {
+      onError?.('パッケージを構築できないためZIPを作成できません。')
+      return
+    }
+    if (estimatedFiles > SUBMISSION_ZIP_CLIENT_LIMITS.maxFiles) {
+      onError?.(SUBMISSION_ZIP_LIMIT_EXCEEDED_MESSAGE)
+      return
+    }
+
+    const confirmLines = [
+      `証憑原本${estimatedVouchers}件を取得してZIPを作成します。`,
+      pkg.summary.missingVoucherCount > 0
+        ? `不足証憑が${pkg.summary.missingVoucherCount}件あるため、確認用ZIPとして作成されます。`
+        : pkg.summary.isSubmissionReady
+          ? '提出準備が整っているため、確認用表記なしのZIP名になります。'
+          : '提出準備が未完了のため、確認用ZIPとして作成されます。',
+      `申告前 blocking: ${pkg.summary.filingBlockingCount}件`,
+      `クライアント暫定上限: ファイル${SUBMISSION_ZIP_CLIENT_LIMITS.maxFiles}件 / 合計約${Math.round(
+        SUBMISSION_ZIP_CLIENT_LIMITS.maxTotalEstimatedBytes / (1024 * 1024),
+      )}MB`,
+    ]
+    if (!window.confirm(confirmLines.join('\n'))) {
+      return
+    }
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    setIsZipping(true)
+    setZipWarnings([])
+    setProgress({
+      stage: 'preparing',
+      message: '確認用ZIPを作成しています',
+      reportsDone: 0,
+      reportsTotal: 0,
+      vouchersDone: 0,
+      vouchersTotal: estimatedVouchers,
+    })
+
+    try {
+      const catalogCsv = buildSubmissionCatalogCsv(pkg)
+      const unlinkedCsv = hasUnlinkedList ? buildUnlinkedVoucherCsv(pkg) : undefined
+
+      const reportFiles = await buildSubmissionZipReportFiles({
+        taxAdvisorPackage,
+        fiscalPeriod,
+        caseRecords,
+        filingSummary,
+        catalogCsv,
+        // Placeholder only — discarded; finalizeMissingVoucherCsv rebuilds after fetch
+        missingVoucherCsv: buildMissingVoucherCsv(pkg),
+        unlinkedVoucherCsv: unlinkedCsv,
+      })
+
+      const result = await generateAccountingSubmissionZip({
+        packageData: pkg,
+        reportFiles,
+        receiptLoader: loadSubmissionReceiptBlob,
+        signal: controller.signal,
+        onProgress: setProgress,
+        finalizeMissingVoucherCsv: (failedPaths) => {
+          // Always rebuild from post-fetch state — never ship the pre-fetch CSV as-is
+          const rebuiltBase = buildMissingVoucherCsv(pkg)
+          if (failedPaths.length === 0) {
+            return rebuiltBase
+          }
+          const extraLines = failedPaths.map((row) =>
+            [
+              '',
+              '',
+              '',
+              '',
+              '',
+              `取得失敗: ${row.reason}`,
+              '',
+              'blocking',
+              '証憑取得',
+            ]
+              .map((cell) => {
+                const value = String(cell)
+                return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+              })
+              .join(','),
+          )
+          const trimmed = rebuiltBase.replace(/\r?\n$/, '')
+          return `${trimmed}\r\n${extraLines.join('\r\n')}\r\n`
+        },
+      })
+
+      downloadBlobFile(result.fileName, result.blob)
+      setZipWarnings(result.warnings)
+      setProgress({
+        stage: 'completed',
+        message: result.isConfirmationZip
+          ? '確認用ZIPのダウンロードを呼び出しました'
+          : '税務確認ZIPのダウンロードを呼び出しました',
+        reportsDone: 1,
+        reportsTotal: 1,
+        vouchersDone: estimatedVouchers,
+        vouchersTotal: estimatedVouchers,
+      })
+
+      onStatus?.(
+        `${result.fileName} を出力しました（ZIP内 ${result.archiveEntryCount} エントリ` +
+          (result.warnings.length > 0 ? ` / 警告 ${result.warnings.length}件` : '') +
+          '）。端末保存の完了は保証されません。',
+      )
+
+      if (onExportPackageRecorded) {
+        try {
+          const periodSnapshot = toFiscalPeriodSnapshot(fiscalPeriod)
+          let sourceFingerprint: string | undefined
+          try {
+            sourceFingerprint = await buildAccountingExportSourceFingerprint(
+              buildETaxExportFingerprintInput({
+                fiscalPeriod: periodSnapshot,
+                exportType: 'submission-zip',
+                exportSchemaVersion: ACCOUNTING_EXPORT_SCHEMA_VERSION,
+                expenses,
+                receipts,
+                fixedAssets,
+                adjustments,
+                fixedCosts,
+                settlementAuxiliary: auxiliary,
+                caseRecords: caseRecords.map((record) => ({
+                  id: record.id,
+                  updatedAt: record.createdAt,
+                  closedAt: record.closedAt,
+                  totalFareYen:
+                    typeof record.actualFareYen === 'number' && Number.isFinite(record.actualFareYen)
+                      ? record.actualFareYen
+                      : record.totalFareYen,
+                  actualFareYen: record.actualFareYen,
+                  salesCategoryAmounts: mapCaseRecordToSalesBreakdown(record),
+                })),
+                company: company
+                  ? {
+                      corporateName: company.corporateName,
+                      name: company.name,
+                      invoiceNumber: company.invoiceNumber,
+                      address: company.address,
+                      representativeName: company.representativeName,
+                    }
+                  : null,
+              }),
+            )
+          } catch {
+            sourceFingerprint = undefined
+          }
+
+          const filingReadiness = buildReadinessSnapshot(filingSummary)
+          await onExportPackageRecorded({
+            exportType: 'submission-zip',
+            files: [
+              {
+                fileName: result.fileName,
+                format: 'zip',
+                documentType: 'submission-package',
+                byteSize: result.byteSize,
+                contentHash: result.contentHash,
+              },
+            ],
+            fiscalPeriod: periodSnapshot,
+            readiness: {
+              ...filingReadiness,
+              blockingCount: filingReadiness.blockingCount + result.fetchFailureCount,
+              isFilingReady: result.isSubmissionReady && filingReadiness.isFilingReady,
+            },
+            sourceFingerprint,
+            sourceRecordCounts: {
+              expenses: expenses.length,
+              receipts: receipts.length,
+              fixedCosts: fixedCosts.length,
+              fixedAssets: fixedAssets.length,
+              adjustments: adjustments.length,
+              sales: caseRecords.length,
+            },
+            targetYearMonth: fiscalPeriod.endYearMonth,
+            submissionPurpose: result.isConfirmationZip ? 'confirmation' : 'submission',
+            archiveEntryCount: result.archiveEntryCount,
+          })
+        } catch {
+          // History failure must not fail ZIP success
+          onStatus?.(
+            `${result.fileName} の出力は完了しましたが、出力操作履歴の保存に失敗しました。`,
+          )
+        }
+      }
+    } catch (error) {
+      if (error instanceof SubmissionZipCancelledError) {
+        setProgress({
+          stage: 'cancelled',
+          message: 'ZIP生成をキャンセルしました（ダウンロード・成功履歴は作成していません）',
+          reportsDone: 0,
+          reportsTotal: 0,
+          vouchersDone: 0,
+          vouchersTotal: estimatedVouchers,
+          cancelRequested: true,
+        })
+        onStatus?.('ZIP生成をキャンセルしました。')
+      } else {
+        const message =
+          error instanceof SubmissionZipFatalError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : 'ZIP生成に失敗しました。'
+        setProgress({
+          stage: 'failed',
+          message,
+          reportsDone: 0,
+          reportsTotal: 0,
+          vouchersDone: 0,
+          vouchersTotal: estimatedVouchers,
+        })
+        onError?.(message)
+      }
+    } finally {
+      setIsZipping(false)
+      abortRef.current = null
+    }
+  }
+
   return (
     <section className="accounting-panel accounting-submission-panel" aria-label="税務確認提出パッケージ">
       <header className="accounting-etax-header-card">
         <h2>税務確認提出パッケージ</h2>
         <p className="accounting-note">
-          Phase 2A：提出フォルダ構成のプレビューです。証憑原本付きZIPは Phase 2B
-          で対応予定です（Storage取得・ZIP生成は行いません）。
+          Phase 2B：確認用ZIPをブラウザで生成できます。大容量は Phase 2C
+          対応予定です。端末への保存完了は保証しません。
         </p>
         <p className="accounting-note">
-          経費と領収書の対応は現状 1:1（任意の receiptId / linkedExpenseId）です。パッケージ型は将来の複数証憑に備え
-          receiptRefs 配列を持ちます。
+          経費と領収書の対応は現状 1:1 です。パッケージ型は将来の複数証憑に備え receiptRefs
+          配列を持ちます。
         </p>
 
         <div className="accounting-tax-advisor-year-select">
@@ -177,6 +554,7 @@ export function SubmissionPackagePanel({
             id="submission-target-year"
             value={selectedYear}
             onChange={(event) => setSelectedYear(Number(event.target.value))}
+            disabled={isZipping}
           >
             {yearOptions.map((year) => (
               <option key={year} value={year}>
@@ -196,10 +574,6 @@ export function SubmissionPackagePanel({
             <dd>{pkg.companyName || '（未設定）'}</dd>
           </div>
           <div>
-            <dt>スキーマ</dt>
-            <dd>{pkg.schemaVersion}</dd>
-          </div>
-          <div>
             <dt>確認用ZIP</dt>
             <dd>{pkg.summary.canGenerateZip ? '生成可能' : '不可'}</dd>
           </div>
@@ -213,6 +587,10 @@ export function SubmissionPackagePanel({
                   }件）`}
             </dd>
           </div>
+          <div>
+            <dt>ZIP用途</dt>
+            <dd>{zipPurposeLabel}</dd>
+          </div>
         </dl>
       </header>
 
@@ -221,31 +599,16 @@ export function SubmissionPackagePanel({
       <section className="accounting-submission-summary" aria-label="パッケージ集計">
         <h3>出力予定</h3>
         <ul className="accounting-submission-counts">
-          <li>帳票 {pkg.summary.reportItemCount}件</li>
-          <li>
-            CSV{' '}
-            {
-              pkg.items.filter(
-                (item) =>
-                  item.format === 'csv' &&
-                  (item.type === 'catalog' ||
-                    item.type === 'report' ||
-                    item.type === 'missingVoucherList' ||
-                    item.type === 'unlinkedList'),
-              ).length
-            }
-            件
-          </li>
-          <li>証憑原本 {pkg.summary.linkedVoucherCount}件</li>
-          <li>未紐付け {pkg.summary.unlinkedVoucherCount}件</li>
+          <li>推定ファイル数 {estimatedFiles}件</li>
+          <li>証憑原本 {estimatedVouchers}件</li>
           <li>不足証憑 {pkg.summary.missingVoucherCount}件</li>
-          <li>経費 {pkg.summary.expenseCount}</li>
-          <li>領収書 {pkg.summary.receiptCount}</li>
+          <li>未紐付け {pkg.summary.unlinkedVoucherCount}件</li>
           <li>申告 要修正 {pkg.summary.filingBlockingCount}</li>
-          <li>申告 要確認 {pkg.summary.filingWarningCount}</li>
           <li>
-            パッケージ課題 blocking {pkg.summary.blockingIssueCount} / warning{' '}
-            {pkg.summary.warningIssueCount}
+            クライアント暫定上限 ファイル{SUBMISSION_ZIP_CLIENT_LIMITS.maxFiles} / 合計
+            {Math.round(SUBMISSION_ZIP_CLIENT_LIMITS.maxTotalEstimatedBytes / (1024 * 1024))}MB /
+            単体
+            {Math.round(SUBMISSION_ZIP_CLIENT_LIMITS.maxSingleFileBytes / (1024 * 1024))}MB
           </li>
         </ul>
       </section>
@@ -282,23 +645,87 @@ export function SubmissionPackagePanel({
         </ul>
       </section>
 
+      {(progress || zipWarnings.length > 0) && (
+        <section className="accounting-submission-progress" aria-live="polite">
+          <h3>ZIP進捗</h3>
+          {progress ? (
+            <ul className="accounting-submission-counts">
+              <li>
+                状態 {STAGE_LABELS[progress.stage]} — {progress.message}
+              </li>
+              <li>
+                帳票生成 {progress.reportsDone} / {progress.reportsTotal}
+              </li>
+              <li>
+                証憑取得 {progress.vouchersDone} / {progress.vouchersTotal}
+              </li>
+              {progress.stage === 'compressing' ? <li>ZIP圧縮 実行中</li> : null}
+            </ul>
+          ) : null}
+          {zipWarnings.length > 0 ? (
+            <ul className="accounting-submission-issues">
+              {zipWarnings.slice(0, 10).map((warning, index) => (
+                <li key={`warn-${index}`} className="is-warning">
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {!isZipping && progress ? (
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={() => {
+                setProgress(null)
+                setZipWarnings([])
+              }}
+            >
+              進捗をクリア
+            </button>
+          ) : null}
+        </section>
+      )}
+
       <div className="accounting-export-actions accounting-submission-actions">
-        <button className="primary-action" type="button" onClick={handleDownloadCatalog}>
+        <button className="primary-action" type="button" onClick={handleDownloadCatalog} disabled={isZipping}>
           00_資料一覧.csv
         </button>
-        <button className="secondary-action" type="button" onClick={handleDownloadMissing}>
+        <button className="secondary-action" type="button" onClick={handleDownloadMissing} disabled={isZipping}>
           12_不足証憑一覧.csv
         </button>
         {hasUnlinkedList ? (
-          <button className="secondary-action" type="button" onClick={handleDownloadUnlinked}>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={handleDownloadUnlinked}
+            disabled={isZipping}
+          >
             未紐付け一覧.csv
           </button>
         ) : null}
-        <button className="secondary-action" type="button" disabled title="Phase 2B で対応予定">
-          証憑原本付きZIP（準備中）
+        <button
+          className="primary-action"
+          type="button"
+          onClick={() => void handleCreateZip()}
+          disabled={isZipping || !pkg.summary.canGenerateZip}
+        >
+          {isZipping ? 'ZIP作成中…' : zipButtonLabel}
         </button>
+        {isZipping ? (
+          <button className="secondary-action" type="button" onClick={handleCancelZip}>
+            キャンセル
+          </button>
+        ) : null}
       </div>
-      <p className="accounting-note">証憑原本付きZIPは Phase 2B で対応予定です。</p>
+      {isZipping && progress?.cancelRequested ? (
+        <p className="accounting-note" role="status">
+          キャンセル処理中です。現在のファイル取得が完了すると停止します（Storage取得の途中打ち切りはできません）。
+        </p>
+      ) : null}
+      <p className="accounting-note">
+        ZIPには公開manifestのみ同梱します。内部manifest・Storageパス・Firestore
+        IDは含めません。クライアント上限は暫定値です。大容量は Phase 2C 予定です。
+      </p>
 
       {onNavigateAccountingTab ? (
         <p className="accounting-note accounting-submission-links">

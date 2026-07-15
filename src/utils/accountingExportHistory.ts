@@ -23,6 +23,8 @@ export type RecordAccountingExportOperationParams = {
   sourceFingerprint?: string
   sourceRecordCounts?: AccountingExportSourceRecordCounts
   exportSchemaVersion?: string
+  submissionPurpose?: 'confirmation' | 'submission'
+  archiveEntryCount?: number
 }
 
 const sumRowCount = (files: AccountingExportFileManifestItem[]) =>
@@ -101,6 +103,12 @@ export async function recordAccountingExportOperation(
   }
   if (params.sourceRecordCounts) {
     input.sourceRecordCounts = params.sourceRecordCounts
+  }
+  if (params.submissionPurpose) {
+    input.submissionPurpose = params.submissionPurpose
+  }
+  if (params.archiveEntryCount !== undefined) {
+    input.archiveEntryCount = params.archiveEntryCount
   }
 
   // Defensive: strip any accidental undefined before Firestore write.
