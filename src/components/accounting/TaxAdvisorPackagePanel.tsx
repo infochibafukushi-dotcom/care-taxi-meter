@@ -66,7 +66,7 @@ type TaxAdvisorPackagePanelProps = {
   onError: (message: string) => void
   onStatus?: (message: string) => void
   onNavigateAccountingTab?: (
-    tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor',
+    tab: 'expenses' | 'unorganized-receipts' | 'fixed-assets' | 'etax' | 'tax-advisor' | 'submission',
   ) => void
 }
 

@@ -2015,6 +2015,98 @@ body.route-accounting,
   gap: 1rem;
 }
 
+.accounting-submission-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.accounting-submission-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accounting-submission-counts li {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  font-size: 0.9rem;
+}
+
+.accounting-submission-issues ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-submission-issues .is-blocking {
+  color: #9b1c1c;
+}
+
+.accounting-submission-issues .is-warning {
+  color: #9a6700;
+}
+
+.accounting-submission-tree-list {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  list-style: none;
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 28rem;
+  overflow: auto;
+  font-size: 0.9rem;
+}
+
+.accounting-submission-tree-root {
+  font-weight: 600;
+}
+
+.accounting-submission-tree-list code {
+  margin-right: 0.5rem;
+  word-break: break-all;
+}
+
+.accounting-submission-avail {
+  display: inline-block;
+  margin-right: 0.4rem;
+  font-size: 0.75rem;
+  color: #4a5568;
+}
+
+.accounting-submission-avail.is-available {
+  color: #0d7a5f;
+}
+
+.accounting-submission-avail.is-dataMissing,
+.accounting-submission-avail.is-notImplemented {
+  color: #9b1c1c;
+}
+
+.accounting-submission-avail.is-voucherPendingPhase2B {
+  color: #9a6700;
+}
+
+.accounting-submission-tree-label {
+  color: #5b6472;
+}
+
+.accounting-submission-actions {
+  flex-wrap: wrap;
+}
+
+.accounting-submission-links .secondary-action {
+  margin: 0.25rem 0.25rem 0.25rem 0;
+}
+
 .accounting-tax-advisor-year-select {
   display: flex;
   flex-wrap: wrap;

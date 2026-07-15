@@ -131,6 +131,7 @@ import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedger
 import { AuditMaterialsPanel } from '../components/accounting/AuditMaterialsPanel'
 import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPanel'
 import { TaxAdvisorPackagePanel } from '../components/accounting/TaxAdvisorPackagePanel'
+import { SubmissionPackagePanel } from '../components/accounting/SubmissionPackagePanel'
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
 import {
   buildFixedAssetInputFromDraft,
@@ -241,6 +242,7 @@ type AccountingTab =
   | 'audit'
   | 'etax'
   | 'tax-advisor'
+  | 'submission'
   | 'export'
   | 'sales'
 
@@ -255,6 +257,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'export', label: 'CSV・PDF出力' },
   { tab: 'etax', label: 'e-Tax入力用決算資料' },
   { tab: 'tax-advisor', label: '税理士相談用 一式資料' },
+  { tab: 'submission', label: '税務確認・提出資料' },
 ]
 
 const confirmationStatusOptions: ExpenseConfirmationStatus[] = ['未確認', '確認済み', '無効']
@@ -4538,6 +4541,23 @@ export function AccountingPage() {
             unorganizedReceipts={unorganizedReceipts}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
             onExportPackageRecorded={handleExportPackageRecorded}
+            onStatus={setStatusMessage}
+            onError={setErrorMessage}
+            onNavigateAccountingTab={setActiveTab}
+          />
+        ) : null}
+
+        {activeTab === 'submission' ? (
+          <SubmissionPackagePanel
+            franchiseeId={tenantScope.franchiseeId}
+            initialTargetYear={targetYear}
+            caseRecords={caseRecords}
+            expenses={expenses}
+            fixedAssets={fixedAssets}
+            settlementAuxiliary={settlementAuxiliary}
+            receipts={allReceipts}
+            unorganizedReceipts={unorganizedReceipts}
+            companyName={storeName}
             onStatus={setStatusMessage}
             onError={setErrorMessage}
             onNavigateAccountingTab={setActiveTab}
