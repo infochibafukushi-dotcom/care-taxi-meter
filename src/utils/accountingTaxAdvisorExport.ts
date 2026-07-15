@@ -17,6 +17,7 @@ import {
 } from './accountingCsv'
 import { formatFareYen } from '../services/fare'
 import { formatLedgerAssetStatus } from './accountingTaxAdvisorData'
+import { registerJapanesePdfFont, setJapanesePdfFont } from './pdfJapaneseFont'
 
 const CSV_EOL = '\r\n'
 
@@ -392,6 +393,7 @@ const appendTableSection = (
   let y = margin
 
   const addPageHeader = () => {
+    setJapanesePdfFont(pdf)
     pdf.setFontSize(13)
     pdf.text(section.title, margin, y)
     y += 8
@@ -406,11 +408,12 @@ const appendTableSection = (
 
   section.rows.forEach((row) => {
     if (y > pageHeight - margin - rowHeight) {
-      pdf.addPage()
+      pdf.addPage('a4', section.orientation ?? 'portrait')
       y = margin
       addPageHeader()
     }
 
+    setJapanesePdfFont(pdf)
     row.forEach((cell, index) => {
       pdf.text(truncate(String(cell), 22), margin + index * columnWidth + 1, y)
     })
@@ -422,10 +425,12 @@ const buildTaxAdvisorPackagePdfDocument = async (pkg: TaxAdvisorPackage) => {
   const { jsPDF } = await import('jspdf')
   const sections = buildPackagePdfSections(pkg)
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  await registerJapanesePdfFont(pdf)
   const margin = 10
   const headerHeight = 8
   const rowHeight = 6
 
+  setJapanesePdfFont(pdf)
   pdf.setFontSize(16)
   pdf.text('税理士相談用 一式資料', margin, 20)
   pdf.setFontSize(11)
@@ -437,21 +442,24 @@ const buildTaxAdvisorPackagePdfDocument = async (pkg: TaxAdvisorPackage) => {
   pdf.text('目的: 税理士相談・申告前確認用の根拠資料一式', margin, 72)
 
   pdf.addPage()
+  setJapanesePdfFont(pdf)
   pdf.setFontSize(14)
   pdf.text('目次', margin, 20)
   pdf.setFontSize(10)
   let tocY = 30
   sections.forEach((section, index) => {
+    setJapanesePdfFont(pdf)
     pdf.text(`${index + 1}. ${section.title}`, margin, tocY)
     tocY += 7
     if (tocY > 280) {
       pdf.addPage()
       tocY = 20
+      setJapanesePdfFont(pdf)
     }
   })
 
   sections.forEach((section) => {
-    pdf.addPage()
+    pdf.addPage('a4', section.orientation ?? 'portrait')
     appendTableSection(pdf, section, margin, headerHeight, rowHeight)
   })
 
