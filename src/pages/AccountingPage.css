@@ -235,6 +235,49 @@ body.route-accounting,
   padding: 1rem;
 }
 
+.accounting-fixed-asset-edit {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.accounting-fixed-asset-edit label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.accounting-fixed-asset-recalc,
+.accounting-fixed-asset-dialog,
+.accounting-fixed-asset-vehicle-fields {
+  border: 1px solid var(--border-color, #d8dee8);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+
+.accounting-fixed-asset-dialog {
+  position: relative;
+  z-index: 2;
+}
+
+.accounting-fixed-asset-recalc dl,
+.accounting-fixed-asset-card dl {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-fixed-asset-recalc dt,
+.accounting-fixed-asset-card dt {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.accounting-fixed-asset-recalc dd,
+.accounting-fixed-asset-card dd {
+  margin: 0;
+  font-weight: 600;
+}
+
 .accounting-audit-export-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -527,6 +570,34 @@ body.route-accounting,
   border: 1px dashed #cbd5e1;
   border-radius: 0.75rem;
   background: #f8fafc;
+}
+
+.accounting-expense-details-panel {
+  margin: 0.5rem 0 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.accounting-expense-details-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.accounting-expense-details-fields {
+  margin-top: 0.75rem;
+}
+
+.accounting-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.accounting-checkbox-label input[type='checkbox'] {
+  width: auto;
 }
 
 .accounting-audit-menu summary {

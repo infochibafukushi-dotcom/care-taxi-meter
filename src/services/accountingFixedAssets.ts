@@ -2,12 +2,14 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   getFirestore,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type {
@@ -26,6 +28,7 @@ import { removeUndefinedFields } from '../utils/removeUndefinedFields'
 import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
+import type { AccountingExpenseInput } from '../types/accounting'
 
 const collectionName = 'accountingFixedAssets'
 
@@ -325,4 +328,125 @@ export async function softDeleteAccountingFixedAsset({
     deletedBy,
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function fetchAccountingExpenseLinkById(expenseId: string): Promise<{
+  exists: boolean
+  id: string
+  description: string
+  receiptDate: string
+  postingDate: string
+  taxIncludedAmount: number
+  plTreatment: string
+  isDeleted: boolean
+} | null> {
+  const id = expenseId.trim()
+  if (!id) {
+    return null
+  }
+
+  if (isReviewDemoRuntimeEnabled()) {
+    return null
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const snap = await getDoc(doc(db, 'accountingExpenses', id))
+  if (!snap.exists()) {
+    return { exists: false, id, description: '', receiptDate: '', postingDate: '', taxIncludedAmount: 0, plTreatment: '', isDeleted: false }
+  }
+
+  const data = snap.data() as Record<string, unknown>
+  return {
+    exists: true,
+    id,
+    description: String(data.description ?? ''),
+    receiptDate: String(data.receiptDate ?? data.transactionDate ?? ''),
+    postingDate: String(data.postingDate ?? ''),
+    taxIncludedAmount: Number(data.taxIncludedAmount ?? 0),
+    plTreatment: String(data.plTreatment ?? ''),
+    isDeleted: data.isDeleted === true,
+  }
+}
+
+export type FixedAssetLinkedExpenseSyncInput = {
+  assetId: string
+  assetPatch: Partial<AccountingFixedAssetInput> & {
+    isDeleted?: boolean
+    deletedAt?: string
+    deletedBy?: string
+  }
+  linkedExpenseId?: string
+  expensePatch?: Partial<{
+    receiptDate: string
+    description: string
+    taxIncludedAmount: number
+    plTreatment: AccountingExpenseInput['plTreatment']
+  }>
+  requireLinkedExpense?: boolean
+}
+
+/**
+ * Atomically updates a fixed asset and optional linked expense.
+ * If a linked expense id is set but the expense document is missing,
+ * throws when requireLinkedExpense is true; otherwise updates asset only.
+ */
+export async function updateFixedAssetWithOptionalLinkedExpense({
+  assetId,
+  assetPatch,
+  linkedExpenseId,
+  expensePatch,
+  requireLinkedExpense = false,
+}: FixedAssetLinkedExpenseSyncInput): Promise<{ linkedExpenseFound: boolean }> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return { linkedExpenseFound: false }
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const assetRef = doc(db, collectionName, assetId)
+  const expenseId = linkedExpenseId?.trim() || ''
+
+  if (!expenseId || !expensePatch) {
+    await updateDoc(
+      assetRef,
+      removeUndefinedFields({
+        ...assetPatch,
+        updatedAt: serverTimestamp(),
+      }),
+    )
+    return { linkedExpenseFound: false }
+  }
+
+  const expenseRef = doc(db, 'accountingExpenses', expenseId)
+  const expenseSnap = await getDoc(expenseRef)
+  if (!expenseSnap.exists()) {
+    if (requireLinkedExpense) {
+      throw new Error('紐付け経費が見つかりません。固定資産のみの更新は停止しました。')
+    }
+    await updateDoc(
+      assetRef,
+      removeUndefinedFields({
+        ...assetPatch,
+        updatedAt: serverTimestamp(),
+      }),
+    )
+    return { linkedExpenseFound: false }
+  }
+
+  const batch = writeBatch(db)
+  batch.update(
+    assetRef,
+    removeUndefinedFields({
+      ...assetPatch,
+      updatedAt: serverTimestamp(),
+    }),
+  )
+  batch.update(
+    expenseRef,
+    removeUndefinedFields({
+      ...expensePatch,
+      updatedAt: serverTimestamp(),
+    }),
+  )
+  await batch.commit()
+  return { linkedExpenseFound: true }
 }

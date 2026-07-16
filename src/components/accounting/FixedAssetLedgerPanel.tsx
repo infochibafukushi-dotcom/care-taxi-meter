@@ -1,17 +1,28 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatFareYen } from '../../services/fare'
 import {
+  fetchAccountingExpenseLinkById,
   softDeleteAccountingFixedAsset,
-  updateAccountingFixedAsset,
+  updateFixedAssetWithOptionalLinkedExpense,
 } from '../../services/accountingFixedAssets'
-import {
-  calculateDepreciationSchedule,
-  calculateRemainingBookValue,
-  deriveFixedAssetStatus,
-} from '../../utils/accountingDepreciation'
 import { getCurrentYearMonthInJapan } from '../../utils/accountingPl'
 import {
+  buildFixedAssetEditDraft,
+  buildKindChangeImpact,
+  categoryOptionsForKind,
+  materialFieldsChanged,
+  recalculateFixedAssetPreview,
+  validateFixedAssetEditDraft,
+  type FixedAssetEditDraft,
+} from '../../utils/accountingFixedAssetEdit'
+import { toYearMonth } from '../../utils/accountingDepreciation'
+import {
+  ASSET_CONDITIONS,
+  EXPENSE_REGISTRATION_TYPE_LABELS,
+  EXPENSE_REGISTRATION_TYPES,
   FIXED_ASSET_STATUS_LABELS,
+  VEHICLE_TYPES,
+  type ExpenseRegistrationType,
   type StoredAccountingFixedAsset,
 } from '../../types/accountingFixedAssets'
 
@@ -33,6 +44,22 @@ type FixedAssetLedgerPanelProps = {
   onStatus: (message: string) => void
 }
 
+const emptyDraft = (): FixedAssetEditDraft => ({
+  purchaseDate: '',
+  assetName: '',
+  assetCategory: '',
+  acquisitionCost: 0,
+  useStartDate: '',
+  appliedUsefulLifeYears: 1,
+  usefulLifeChangeReason: '',
+  notes: '',
+  assetKind: 'fixed',
+  registrationType: 'fixed',
+  condition: '新品',
+  vehicleType: '',
+  firstRegistrationYearMonth: '',
+})
+
 export function FixedAssetLedgerPanel({
   fixedAssets,
   staffId,
@@ -45,9 +72,16 @@ export function FixedAssetLedgerPanel({
   const [sortKey, setSortKey] = useState<SortKey>('purchaseDate')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [editingAssetId, setEditingAssetId] = useState('')
-  const [editNotes, setEditNotes] = useState('')
-  const [editAppliedUsefulLifeYears, setEditAppliedUsefulLifeYears] = useState(0)
-  const [editUsefulLifeChangeReason, setEditUsefulLifeChangeReason] = useState('')
+  const [draft, setDraft] = useState<FixedAssetEditDraft>(emptyDraft)
+  const [originalAsset, setOriginalAsset] = useState<StoredAccountingFixedAsset | null>(null)
+  const [linkedExpenseStatus, setLinkedExpenseStatus] = useState<
+    'unknown' | 'loading' | 'found' | 'missing' | 'none'
+  >('unknown')
+  const [linkedExpenseLabel, setLinkedExpenseLabel] = useState('')
+  const [pendingKindChange, setPendingKindChange] = useState<{
+    nextType: ExpenseRegistrationType
+  } | null>(null)
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   const smallAssets = useMemo(
@@ -62,17 +96,15 @@ export function FixedAssetLedgerPanel({
     () =>
       fixedAssets
         .filter((asset) => !asset.isDeleted && asset.assetKind === 'fixed')
-        .map((asset) => ({
-          ...asset,
-          remainingBookValue: calculateRemainingBookValue(asset, asOfYearMonth),
-          status: deriveFixedAssetStatus(
-            {
-              ...asset,
-              remainingBookValue: calculateRemainingBookValue(asset, asOfYearMonth),
-            },
-            asOfYearMonth,
-          ),
-        })),
+        .map((asset) => {
+          const preview = recalculateFixedAssetPreview(buildFixedAssetEditDraft(asset), asOfYearMonth)
+          return {
+            ...asset,
+            monthlyDepreciationYen: preview.monthlyDepreciationYen,
+            remainingBookValue: preview.remainingBookValue,
+            status: preview.status,
+          }
+        }),
     [asOfYearMonth, fixedAssets],
   )
 
@@ -100,19 +132,131 @@ export function FixedAssetLedgerPanel({
     })
   }, [searchQuery, sortDirection, sortKey, visibleAssets])
 
+  const preview = useMemo(
+    () => recalculateFixedAssetPreview(draft, asOfYearMonth),
+    [asOfYearMonth, draft],
+  )
+
+  const originalPreview = useMemo(
+    () => (originalAsset ? recalculateFixedAssetPreview(buildFixedAssetEditDraft(originalAsset), asOfYearMonth) : null),
+    [asOfYearMonth, originalAsset],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const loadLink = async () => {
+      if (!originalAsset) {
+        setLinkedExpenseStatus('none')
+        setLinkedExpenseLabel('')
+        return
+      }
+      const expenseId = originalAsset.expenseId?.trim()
+      if (!expenseId) {
+        setLinkedExpenseStatus('none')
+        setLinkedExpenseLabel('紐付け経費なし')
+        return
+      }
+      setLinkedExpenseStatus('loading')
+      try {
+        const linked = await fetchAccountingExpenseLinkById(expenseId)
+        if (cancelled) return
+        if (!linked || !linked.exists) {
+          setLinkedExpenseStatus('missing')
+          setLinkedExpenseLabel(`紐付け経費が見つかりません（ID: ${expenseId}）`)
+          return
+        }
+        setLinkedExpenseStatus('found')
+        setLinkedExpenseLabel(
+          `${linked.description || '(内容なし)'} / ${linked.taxIncludedAmount.toLocaleString('ja-JP')}円`,
+        )
+      } catch {
+        if (cancelled) return
+        setLinkedExpenseStatus('missing')
+        setLinkedExpenseLabel('紐付け経費が見つかりません')
+      }
+    }
+    void loadLink()
+    return () => {
+      cancelled = true
+    }
+  }, [originalAsset])
+
   const openEdit = (asset: StoredAccountingFixedAsset) => {
     setEditingAssetId(asset.id)
-    setEditNotes(asset.notes ?? '')
-    setEditAppliedUsefulLifeYears(asset.appliedUsefulLifeYears)
-    setEditUsefulLifeChangeReason(asset.usefulLifeChangeReason ?? '')
+    setOriginalAsset(asset)
+    setDraft(buildFixedAssetEditDraft(asset))
+    setPendingKindChange(null)
+    setShowSaveConfirm(false)
+    onError('')
+    if (asset.status === 'fully_depreciated' || asset.remainingBookValue === 0) {
+      onStatus('償却済み（または残高0）の資産を編集しています。保存内容を確認してください。')
+    }
   }
 
-  const handleSaveEdit = async (asset: StoredAccountingFixedAsset) => {
-    if (
-      editAppliedUsefulLifeYears !== asset.standardUsefulLifeYears &&
-      !editUsefulLifeChangeReason.trim()
-    ) {
-      onError('耐用年数を変更した場合は変更理由を入力してください。')
+  const closeEdit = () => {
+    setEditingAssetId('')
+    setOriginalAsset(null)
+    setDraft(emptyDraft())
+    setPendingKindChange(null)
+    setShowSaveConfirm(false)
+  }
+
+  const updateDraft = (patch: Partial<FixedAssetEditDraft>) => {
+    setDraft((current) => {
+      const next = { ...current, ...patch }
+      if (patch.registrationType === 'small') {
+        next.assetKind = 'small'
+      }
+      if (patch.registrationType === 'fixed') {
+        next.assetKind = 'fixed'
+      }
+      if (patch.assetCategory === '車両' && !next.vehicleType) {
+        next.vehicleType = '普通車'
+      }
+      return next
+    })
+  }
+
+  const requestRegistrationTypeChange = (nextType: ExpenseRegistrationType) => {
+    if (nextType === draft.registrationType) return
+    setPendingKindChange({ nextType })
+  }
+
+  const confirmRegistrationTypeChange = () => {
+    if (!pendingKindChange) return
+    updateDraft({ registrationType: pendingKindChange.nextType })
+    setPendingKindChange(null)
+  }
+
+  const kindImpact =
+    pendingKindChange && originalPreview
+      ? buildKindChangeImpact({
+          before: draft.registrationType,
+          after: pendingKindChange.nextType,
+          beforePreview: preview,
+          afterPreview: recalculateFixedAssetPreview(
+            { ...draft, registrationType: pendingKindChange.nextType },
+            asOfYearMonth,
+          ),
+        })
+      : null
+
+  const beginSave = () => {
+    if (!originalAsset) return
+    const validationError = validateFixedAssetEditDraft(draft, preview)
+    if (validationError) {
+      onError(validationError)
+      return
+    }
+    setShowSaveConfirm(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!originalAsset || isSaving) return
+    const validationError = validateFixedAssetEditDraft(draft, preview)
+    if (validationError) {
+      onError(validationError)
+      setShowSaveConfirm(false)
       return
     }
 
@@ -120,54 +264,118 @@ export function FixedAssetLedgerPanel({
     onError('')
 
     try {
-      const schedule = calculateDepreciationSchedule({
-        acquisitionCost: asset.acquisitionCost,
-        usefulLifeYears: editAppliedUsefulLifeYears,
-        useStartDate: asset.useStartDate,
-      })
+      const changed = materialFieldsChanged(originalAsset, draft)
+      const needsLinkedExpenseSync =
+        Boolean(originalAsset.expenseId) &&
+        (changed.purchaseDate ||
+          changed.assetName ||
+          changed.acquisitionCost ||
+          changed.registrationTypeChanged)
 
-      await updateAccountingFixedAsset(asset.id, {
-        notes: editNotes,
-        appliedUsefulLifeYears: editAppliedUsefulLifeYears,
-        usefulLifeChangeReason: editUsefulLifeChangeReason,
-        monthlyDepreciationYen: schedule.monthlyDepreciationYen,
-        depreciationStartYearMonth: schedule.depreciationStartYearMonth,
-        depreciationEndYearMonth: schedule.depreciationEndYearMonth,
-        remainingBookValue: calculateRemainingBookValue(
-          {
-            ...asset,
-            appliedUsefulLifeYears: editAppliedUsefulLifeYears,
-            monthlyDepreciationYen: schedule.monthlyDepreciationYen,
-            depreciationStartYearMonth: schedule.depreciationStartYearMonth,
-            depreciationEndYearMonth: schedule.depreciationEndYearMonth,
+      if (needsLinkedExpenseSync && linkedExpenseStatus === 'missing') {
+        throw new Error(
+          '紐付け経費が見つかりません。購入日・資産名・取得価額・資産区分の変更は保存できません。',
+        )
+      }
+
+      if (draft.registrationType === 'normal') {
+        if (!originalAsset.expenseId || linkedExpenseStatus !== 'found') {
+          throw new Error(
+            '通常経費へ変更するには紐付け経費が必要です。紐付け経費が見つからないため保存を中止しました。',
+          )
+        }
+
+        await updateFixedAssetWithOptionalLinkedExpense({
+          assetId: originalAsset.id,
+          linkedExpenseId: originalAsset.expenseId,
+          requireLinkedExpense: true,
+          assetPatch: {
+            isDeleted: true,
+            deletedAt: new Date().toISOString(),
+            deletedBy: staffId,
+            notes: draft.notes,
+            updatedBy: staffId,
           },
-          asOfYearMonth,
-        ),
-        updatedBy: staffId,
-      })
+          expensePatch: {
+            plTreatment: 'expense',
+            taxIncludedAmount: Number(draft.acquisitionCost),
+            receiptDate: draft.purchaseDate,
+            description: draft.assetName.trim(),
+          },
+        })
+        onStatus('通常経費へ変更し、固定資産台帳から除外しました。')
+      } else {
+        const nextKind = draft.registrationType === 'small' ? 'small' : 'fixed'
+        const assetPatch = {
+          purchaseDate: draft.purchaseDate,
+          assetName: draft.assetName.trim(),
+          assetCategory: draft.assetCategory,
+          acquisitionCost: Number(draft.acquisitionCost),
+          useStartDate: draft.useStartDate,
+          appliedUsefulLifeYears:
+            nextKind === 'fixed' ? Number(draft.appliedUsefulLifeYears) : 1,
+          usefulLifeChangeReason: draft.usefulLifeChangeReason.trim() || undefined,
+          notes: draft.notes,
+          assetKind: nextKind as 'small' | 'fixed',
+          condition: draft.condition,
+          vehicleType: draft.assetCategory === '車両' ? draft.vehicleType || undefined : undefined,
+          firstRegistrationYearMonth:
+            draft.assetCategory === '車両' && draft.condition === '中古'
+              ? draft.firstRegistrationYearMonth || undefined
+              : undefined,
+          standardUsefulLifeYears: preview.standardUsefulLifeYears,
+          monthlyDepreciationYen: preview.monthlyDepreciationYen,
+          depreciationStartYearMonth: preview.depreciationStartYearMonth,
+          depreciationEndYearMonth: preview.depreciationEndYearMonth,
+          remainingBookValue: preview.remainingBookValue,
+          status: preview.status,
+          updatedBy: staffId,
+        }
 
-      setEditingAssetId('')
-      onStatus('固定資産を更新しました。')
+        const expensePatch = needsLinkedExpenseSync
+          ? {
+              receiptDate: draft.purchaseDate,
+              description: draft.assetName.trim(),
+              taxIncludedAmount: Number(draft.acquisitionCost),
+              plTreatment: (nextKind === 'fixed' ? 'excluded' : 'expense') as 'excluded' | 'expense',
+            }
+          : undefined
+
+        await updateFixedAssetWithOptionalLinkedExpense({
+          assetId: originalAsset.id,
+          linkedExpenseId: originalAsset.expenseId,
+          requireLinkedExpense: needsLinkedExpenseSync,
+          assetPatch,
+          expensePatch,
+        })
+        onStatus('固定資産を更新しました。')
+      }
+
+      closeEdit()
       await onReload()
     } catch (error) {
       onError(error instanceof Error ? error.message : '固定資産の更新に失敗しました。')
     } finally {
       setIsSaving(false)
+      setShowSaveConfirm(false)
     }
   }
 
   const handleDelete = async (assetId: string) => {
-    const confirmed = window.confirm('この固定資産を削除しますか？')
+    const confirmed = window.confirm('この資産を削除しますか？')
     if (!confirmed) {
       return
     }
 
     try {
       await softDeleteAccountingFixedAsset({ assetId, deletedBy: staffId })
-      onStatus('固定資産を削除しました。')
+      onStatus('資産を削除しました。')
+      if (editingAssetId === assetId) {
+        closeEdit()
+      }
       await onReload()
     } catch (error) {
-      onError(error instanceof Error ? error.message : '固定資産の削除に失敗しました。')
+      onError(error instanceof Error ? error.message : '資産の削除に失敗しました。')
     }
   }
 
@@ -176,10 +384,333 @@ export function FixedAssetLedgerPanel({
       setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
       return
     }
-
     setSortKey(key)
     setSortDirection('asc')
   }
+
+  const renderEditForm = (asset: StoredAccountingFixedAsset) => (
+    <div className="accounting-fixed-asset-edit" aria-label="固定資産編集">
+      <p className="accounting-note">
+        紐付け経費:{' '}
+        {linkedExpenseStatus === 'loading'
+          ? '確認中…'
+          : linkedExpenseStatus === 'missing'
+            ? linkedExpenseLabel
+            : linkedExpenseStatus === 'none'
+              ? 'なし'
+              : linkedExpenseLabel}
+      </p>
+
+      <label>
+        1. 購入日
+        <input
+          type="date"
+          value={draft.purchaseDate}
+          onChange={(event) => updateDraft({ purchaseDate: event.target.value })}
+        />
+      </label>
+      <label>
+        2. 資産名
+        <input
+          type="text"
+          value={draft.assetName}
+          onChange={(event) => updateDraft({ assetName: event.target.value })}
+        />
+      </label>
+      <label>
+        3. 資産区分（登録タイプ）
+        <select
+          value={draft.registrationType}
+          onChange={(event) =>
+            requestRegistrationTypeChange(event.target.value as ExpenseRegistrationType)
+          }
+        >
+          {EXPENSE_REGISTRATION_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {EXPENSE_REGISTRATION_TYPE_LABELS[type]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        資産区分（品目）
+        <select
+          value={draft.assetCategory}
+          onChange={(event) => updateDraft({ assetCategory: event.target.value })}
+        >
+          <option value="">選択してください</option>
+          {categoryOptionsForKind(draft.registrationType === 'small' ? 'small' : 'fixed').map(
+            (category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ),
+          )}
+        </select>
+      </label>
+      <label>
+        4. 取得価額
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={draft.acquisitionCost || ''}
+          onChange={(event) =>
+            updateDraft({ acquisitionCost: Number(event.target.value.replace(/[^\d.-]/g, '')) || 0 })
+          }
+        />
+      </label>
+      <label>
+        5. 使用開始日
+        <input
+          type="date"
+          value={draft.useStartDate}
+          onChange={(event) => updateDraft({ useStartDate: event.target.value })}
+        />
+      </label>
+      <label>
+        6. 償却開始月（自動）
+        <input type="month" value={preview.depreciationStartYearMonth} readOnly />
+      </label>
+      {draft.registrationType === 'fixed' ? (
+        <label>
+          7. 耐用年数
+          <input
+            type="number"
+            min={1}
+            value={draft.appliedUsefulLifeYears || ''}
+            onChange={(event) =>
+              updateDraft({
+                appliedUsefulLifeYears: Number(event.target.value.replace(/[^\d]/g, '')) || 0,
+              })
+            }
+          />
+        </label>
+      ) : (
+        <p className="accounting-note">7. 耐用年数：少額資産／通常経費では月次償却しません。</p>
+      )}
+
+      {draft.assetCategory === '車両' ? (
+        <div className="accounting-fixed-asset-vehicle-fields" aria-label="車両固有項目">
+          <p className="accounting-note">8. 車両固有項目</p>
+          <label>
+            車両種別
+            <select
+              value={draft.vehicleType}
+              onChange={(event) =>
+                updateDraft({ vehicleType: event.target.value as FixedAssetEditDraft['vehicleType'] })
+              }
+            >
+              <option value="">未選択</option>
+              {VEHICLE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            新品／中古
+            <select
+              value={draft.condition}
+              onChange={(event) =>
+                updateDraft({ condition: event.target.value as FixedAssetEditDraft['condition'] })
+              }
+            >
+              {ASSET_CONDITIONS.map((condition) => (
+                <option key={condition} value={condition}>
+                  {condition}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draft.condition === '中古' ? (
+            <label>
+              初度登録年月
+              <input
+                type="month"
+                value={draft.firstRegistrationYearMonth}
+                onChange={(event) => updateDraft({ firstRegistrationYearMonth: event.target.value })}
+              />
+            </label>
+          ) : null}
+        </div>
+      ) : (
+        <p className="accounting-note">8. 車両固有項目：対象外</p>
+      )}
+
+      {draft.registrationType === 'fixed' &&
+      preview.standardUsefulLifeYears !== draft.appliedUsefulLifeYears ? (
+        <label>
+          9. 変更理由
+          <textarea
+            rows={2}
+            value={draft.usefulLifeChangeReason}
+            onChange={(event) => updateDraft({ usefulLifeChangeReason: event.target.value })}
+          />
+        </label>
+      ) : (
+        <p className="accounting-note">9. 変更理由：標準耐用年数のままです。</p>
+      )}
+
+      <label>
+        10. 備考
+        <textarea rows={2} value={draft.notes} onChange={(event) => updateDraft({ notes: event.target.value })} />
+      </label>
+
+      <div className="accounting-fixed-asset-recalc" aria-label="再計算結果">
+        <p className="accounting-note">11. 再計算結果</p>
+        <dl>
+          <div>
+            <dt>月額償却費</dt>
+            <dd>{formatFareYen(preview.monthlyDepreciationYen)}円</dd>
+          </div>
+          <div>
+            <dt>償却終了予定月</dt>
+            <dd>{preview.depreciationEndYearMonth || '―'}</dd>
+          </div>
+          <div>
+            <dt>償却済み累計額</dt>
+            <dd>{formatFareYen(preview.cumulativeDepreciationYen)}円</dd>
+          </div>
+          <div>
+            <dt>未償却残高</dt>
+            <dd>{formatFareYen(preview.remainingBookValue)}円</dd>
+          </div>
+          <div>
+            <dt>状態</dt>
+            <dd>{FIXED_ASSET_STATUS_LABELS[preview.status]}</dd>
+          </div>
+          <div>
+            <dt>PLへの影響（当月償却 / 一括）</dt>
+            <dd>
+              {draft.registrationType === 'fixed'
+                ? `毎月 ${formatFareYen(preview.monthlyDepreciationYen)}円`
+                : `取得月に ${formatFareYen(draft.acquisitionCost)}円`}
+            </dd>
+          </div>
+        </dl>
+        {originalPreview &&
+        (originalAsset?.acquisitionCost !== draft.acquisitionCost ||
+          originalAsset.appliedUsefulLifeYears !== draft.appliedUsefulLifeYears ||
+          originalAsset.useStartDate !== draft.useStartDate) ? (
+          <p className="accounting-note">
+            変更前: 取得 {formatFareYen(originalAsset?.acquisitionCost ?? 0)}円 / 耐用{' '}
+            {originalAsset?.appliedUsefulLifeYears ?? '-'}年 / 使用開始 {originalAsset?.useStartDate} /
+            月額 {formatFareYen(originalPreview.monthlyDepreciationYen)}円
+            <br />
+            変更後: 取得 {formatFareYen(draft.acquisitionCost)}円 / 耐用 {draft.appliedUsefulLifeYears}年 /
+            使用開始 {draft.useStartDate} / 月額 {formatFareYen(preview.monthlyDepreciationYen)}円
+          </p>
+        ) : null}
+      </div>
+
+      <div className="accounting-form-actions">
+        <button className="primary-action" type="button" disabled={isSaving} onClick={beginSave}>
+          保存
+        </button>
+        <button className="secondary-action" type="button" disabled={isSaving} onClick={closeEdit}>
+          キャンセル
+        </button>
+        <button
+          className="secondary-action"
+          type="button"
+          disabled={isSaving}
+          onClick={() => void handleDelete(asset.id)}
+        >
+          削除
+        </button>
+      </div>
+
+      {pendingKindChange && kindImpact ? (
+        <div className="accounting-fixed-asset-dialog" role="dialog" aria-label="資産区分変更の確認">
+          <h4>資産区分の変更確認</h4>
+          <ul>
+            <li>
+              変更前: {kindImpact.beforeKindLabel}
+            </li>
+            <li>
+              変更後: {kindImpact.afterKindLabel}
+            </li>
+            <li>
+              変更前のPL反映額: {formatFareYen(kindImpact.beforePlAmountYen)}円
+            </li>
+            <li>
+              変更後のPL反映予定額: {formatFareYen(kindImpact.afterPlAmountYen)}円
+            </li>
+            <li>
+              減価償却費: {formatFareYen(kindImpact.beforeMonthlyDepreciationYen)}円 →{' '}
+              {formatFareYen(kindImpact.afterMonthlyDepreciationYen)}円 / 月
+            </li>
+            <li>{kindImpact.summary}</li>
+            <li>保存後に再計算されます。</li>
+          </ul>
+          <div className="accounting-form-actions">
+            <button className="primary-action" type="button" onClick={confirmRegistrationTypeChange}>
+              区分変更を反映
+            </button>
+            <button className="secondary-action" type="button" onClick={() => setPendingKindChange(null)}>
+              戻る
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {showSaveConfirm ? (
+        <div className="accounting-fixed-asset-dialog" role="dialog" aria-label="保存確認">
+          <h4>保存内容の確認</h4>
+          <ul>
+            <li>
+              購入日: {originalAsset?.purchaseDate} → {draft.purchaseDate}
+            </li>
+            <li>
+              資産名: {originalAsset?.assetName} → {draft.assetName}
+            </li>
+            <li>
+              取得価額: {formatFareYen(originalAsset?.acquisitionCost ?? 0)}円 →{' '}
+              {formatFareYen(draft.acquisitionCost)}円
+            </li>
+            <li>
+              使用開始日: {originalAsset?.useStartDate} → {draft.useStartDate}
+            </li>
+            <li>
+              耐用年数: {originalAsset?.appliedUsefulLifeYears}年 → {draft.appliedUsefulLifeYears}年
+            </li>
+            <li>
+              月額償却費: {formatFareYen(originalPreview?.monthlyDepreciationYen ?? 0)}円 →{' '}
+              {formatFareYen(preview.monthlyDepreciationYen)}円
+            </li>
+            <li>
+              償却終了予定月: {originalPreview?.depreciationEndYearMonth} → {preview.depreciationEndYearMonth}
+            </li>
+            <li>
+              未償却残高: {formatFareYen(originalPreview?.remainingBookValue ?? 0)}円 →{' '}
+              {formatFareYen(preview.remainingBookValue)}円
+            </li>
+            <li>償却開始月（自動）: {toYearMonth(draft.useStartDate)}</li>
+          </ul>
+          <div className="accounting-form-actions">
+            <button
+              className="primary-action"
+              type="button"
+              disabled={isSaving}
+              onClick={() => void handleSaveEdit()}
+            >
+              {isSaving ? '保存中…' : '確定して保存'}
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isSaving}
+              onClick={() => setShowSaveConfirm(false)}
+            >
+              戻る
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 
   return (
     <section className="accounting-panel" aria-label="固定資産台帳">
@@ -216,6 +747,7 @@ export function FixedAssetLedgerPanel({
                   <th>取得価額</th>
                   <th>PL反映月</th>
                   <th>備考</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -227,6 +759,24 @@ export function FixedAssetLedgerPanel({
                     <td>{formatFareYen(asset.acquisitionCost)}円</td>
                     <td>{asset.depreciationStartYearMonth}</td>
                     <td>{asset.notes || '―'}</td>
+                    <td>
+                      {editingAssetId === asset.id ? (
+                        renderEditForm(asset)
+                      ) : (
+                        <>
+                          <button className="secondary-action" type="button" onClick={() => openEdit(asset)}>
+                            編集
+                          </button>
+                          <button
+                            className="secondary-action"
+                            type="button"
+                            onClick={() => void handleDelete(asset.id)}
+                          >
+                            削除
+                          </button>
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -277,44 +827,7 @@ export function FixedAssetLedgerPanel({
               </div>
             </dl>
             {editingAssetId === asset.id ? (
-              <div className="accounting-fixed-asset-edit">
-                <label>
-                  適用耐用年数
-                  <input
-                    type="number"
-                    min={1}
-                    value={editAppliedUsefulLifeYears}
-                    onChange={(event) => setEditAppliedUsefulLifeYears(Number(event.target.value) || 0)}
-                  />
-                </label>
-                {editAppliedUsefulLifeYears !== asset.standardUsefulLifeYears ? (
-                  <label>
-                    変更理由
-                    <textarea
-                      rows={2}
-                      value={editUsefulLifeChangeReason}
-                      onChange={(event) => setEditUsefulLifeChangeReason(event.target.value)}
-                    />
-                  </label>
-                ) : null}
-                <label>
-                  備考
-                  <textarea rows={2} value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
-                </label>
-                <div className="accounting-form-actions">
-                  <button
-                    className="primary-action"
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => void handleSaveEdit(asset)}
-                  >
-                    保存
-                  </button>
-                  <button className="secondary-action" type="button" onClick={() => setEditingAssetId('')}>
-                    キャンセル
-                  </button>
-                </div>
-              </div>
+              renderEditForm(asset)
             ) : (
               <div className="accounting-form-actions">
                 <button className="secondary-action" type="button" onClick={() => openEdit(asset)}>
@@ -359,7 +872,7 @@ export function FixedAssetLedgerPanel({
           <tbody>
             {filteredAssets.length > 0 ? (
               filteredAssets.map((asset) => (
-                <tr key={asset.id}>
+                <tr key={`desktop-${asset.id}`}>
                   <td>{asset.purchaseDate}</td>
                   <td>{asset.assetName}</td>
                   <td>{asset.assetCategory}</td>
@@ -373,7 +886,11 @@ export function FixedAssetLedgerPanel({
                     <button className="secondary-action" type="button" onClick={() => openEdit(asset)}>
                       編集
                     </button>
-                    <button className="secondary-action" type="button" onClick={() => void handleDelete(asset.id)}>
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() => void handleDelete(asset.id)}
+                    >
                       削除
                     </button>
                   </td>
