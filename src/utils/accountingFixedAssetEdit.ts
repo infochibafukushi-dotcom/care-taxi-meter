@@ -17,6 +17,12 @@ import {
   type StoredAccountingFixedAsset,
   type VehicleType,
 } from '../types/accountingFixedAssets'
+import {
+  isValidChassisNumberFormat,
+  normalizeChassisNumber,
+  parseModelYearInput,
+  validateModelYearValue,
+} from './accountingVehicleAssetFields'
 
 export type FixedAssetEditDraft = {
   purchaseDate: string
@@ -33,6 +39,8 @@ export type FixedAssetEditDraft = {
   condition: AssetCondition
   vehicleType: VehicleType | ''
   firstRegistrationYearMonth: string
+  chassisNumber: string
+  modelYear: number | ''
 }
 
 export type FixedAssetRecalcPreview = {
@@ -69,6 +77,8 @@ export const buildFixedAssetEditDraft = (asset: StoredAccountingFixedAsset): Fix
   condition: asset.condition,
   vehicleType: asset.vehicleType ?? '',
   firstRegistrationYearMonth: asset.firstRegistrationYearMonth ?? '',
+  chassisNumber: asset.chassisNumber ?? '',
+  modelYear: asset.modelYear ?? '',
 })
 
 export const categoryOptionsForKind = (kind: 'small' | 'fixed') =>
@@ -268,7 +278,36 @@ export const validateFixedAssetEditDraft = (
   if (draft.condition && !ASSET_CONDITIONS.includes(draft.condition)) {
     return '新品／中古の区分が不正です。'
   }
+  if (draft.assetCategory === '車両') {
+    const chassis = normalizeChassisNumber(draft.chassisNumber)
+    if (!isValidChassisNumberFormat(chassis)) {
+      return '車台番号は英数字とハイフンのみ入力できます。'
+    }
+    const modelYear = parseModelYearInput(draft.modelYear)
+    const yearCheck = validateModelYearValue(modelYear, {
+      firstRegistrationYearMonth: draft.firstRegistrationYearMonth,
+    })
+    if (yearCheck.error) {
+      return yearCheck.error
+    }
+  }
   return null
+}
+
+/** Soft warnings that do not block save */
+export const collectFixedAssetEditWarnings = (draft: FixedAssetEditDraft): string[] => {
+  const warnings: string[] = []
+  if (draft.assetCategory !== '車両') {
+    return warnings
+  }
+  const modelYear = parseModelYearInput(draft.modelYear)
+  const yearCheck = validateModelYearValue(modelYear, {
+    firstRegistrationYearMonth: draft.firstRegistrationYearMonth,
+  })
+  if (yearCheck.warning) {
+    warnings.push(yearCheck.warning)
+  }
+  return warnings
 }
 
 export const materialFieldsChanged = (
@@ -284,5 +323,32 @@ export const materialFieldsChanged = (
     registrationTypeChanged: (original.assetKind === 'small' ? 'small' : 'fixed') !== draft.registrationType,
     useStartDate: original.useStartDate !== draft.useStartDate,
     usefulLife: original.appliedUsefulLifeYears !== Number(draft.appliedUsefulLifeYears),
+  }
+}
+
+export const affectsDepreciationRecalc = (
+  changed: ReturnType<typeof materialFieldsChanged>,
+) =>
+  changed.acquisitionCost ||
+  changed.useStartDate ||
+  changed.usefulLife ||
+  changed.registrationTypeChanged ||
+  changed.assetKind
+
+export const buildVehicleFieldsForSave = (draft: FixedAssetEditDraft) => {
+  if (draft.assetCategory !== '車両') {
+    return {
+      vehicleType: undefined as undefined,
+      firstRegistrationYearMonth: '',
+      chassisNumber: '',
+      modelYear: null as number | null,
+    }
+  }
+
+  return {
+    vehicleType: draft.vehicleType || undefined,
+    firstRegistrationYearMonth: draft.firstRegistrationYearMonth.trim() || '',
+    chassisNumber: normalizeChassisNumber(draft.chassisNumber),
+    modelYear: parseModelYearInput(draft.modelYear),
   }
 }

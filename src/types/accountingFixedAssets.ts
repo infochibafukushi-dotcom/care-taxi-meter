@@ -66,6 +66,10 @@ export type AccountingFixedAssetInput = AccountingTenantFields & {
   condition: AssetCondition
   vehicleType?: VehicleType
   firstRegistrationYearMonth?: string
+  /** 車台番号（車体番号）。車両管理用・任意 */
+  chassisNumber?: string
+  /** 年式（西暦4桁）。初度登録年月とは別。未設定は null 可 */
+  modelYear?: number | null
   acquisitionCost: number
   standardUsefulLifeYears: number
   appliedUsefulLifeYears: number
@@ -98,6 +102,10 @@ export type ExpenseAssetRegistrationDraft = {
   condition: AssetCondition
   vehicleType: VehicleType | ''
   firstRegistrationYearMonth: string
+  /** 車台番号（車体番号）。未入力可 */
+  chassisNumber: string
+  /** 年式。未入力は '' */
+  modelYear: number | ''
   acquisitionCost: number
   purchaseDate: string
   useStartDate: string
@@ -121,6 +129,8 @@ export const buildEmptyExpenseAssetDraft = (): ExpenseAssetRegistrationDraft => 
   condition: '新品',
   vehicleType: '',
   firstRegistrationYearMonth: '',
+  chassisNumber: '',
+  modelYear: '',
   acquisitionCost: 0,
   purchaseDate: '',
   useStartDate: '',

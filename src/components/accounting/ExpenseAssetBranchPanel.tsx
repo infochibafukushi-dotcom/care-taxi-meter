@@ -29,6 +29,15 @@ import {
   type ExpenseRegistrationType,
   type StoredAccountingFixedAsset,
 } from '../../types/accountingFixedAssets'
+import {
+  findDuplicateChassisAssets,
+  getCurrentCalendarYear,
+  hasIncompleteVehicleInfo,
+  normalizeChassisNumber,
+  parseModelYearInput,
+  shouldShowVehicleManagementFields,
+  validateModelYearValue,
+} from '../../utils/accountingVehicleAssetFields'
 
 type ExpenseAssetBranchPanelProps = {
   hasExpenseCategory: boolean
@@ -39,6 +48,10 @@ type ExpenseAssetBranchPanelProps = {
   vendorName: string
   suggestedCategory?: string
   smallAssetUsageAssets: Array<Pick<StoredAccountingFixedAsset, 'assetKind' | 'purchaseDate' | 'acquisitionCost' | 'isDeleted'>>
+  /** 車台番号重複チェック用（アクティブ資産） */
+  existingFixedAssets?: Array<
+    Pick<StoredAccountingFixedAsset, 'id' | 'chassisNumber' | 'isDeleted' | 'assetCategory' | 'assetName'>
+  >
   onChange: (draft: ExpenseAssetRegistrationDraft) => void
 }
 
@@ -51,6 +64,7 @@ export function ExpenseAssetBranchPanel({
   vendorName,
   suggestedCategory = '',
   smallAssetUsageAssets,
+  existingFixedAssets = [],
   onChange,
 }: ExpenseAssetBranchPanelProps) {
   const [showFixedDetails, setShowFixedDetails] = useState(draft.registrationType === 'fixed')
@@ -60,6 +74,42 @@ export function ExpenseAssetBranchPanel({
     () => calculateSmallAssetUsageForYear(smallAssetUsageAssets, currentYear),
     [currentYear, smallAssetUsageAssets],
   )
+
+  const chassisDuplicateWarning = useMemo(() => {
+    if (draft.registrationType !== 'fixed' || draft.assetCategory !== '車両') return ''
+    const duplicates = findDuplicateChassisAssets(existingFixedAssets, draft.chassisNumber)
+    if (duplicates.length === 0) return ''
+    const names = duplicates.map((asset) => asset.assetName || asset.id).join('、')
+    return `同じ車台番号の資産が既にあります（${names}）。重複の可能性があるため確認してください。`
+  }, [draft.assetCategory, draft.chassisNumber, draft.registrationType, existingFixedAssets])
+
+  const modelYearWarning = useMemo(() => {
+    if (draft.registrationType !== 'fixed' || draft.assetCategory !== '車両') return ''
+    return (
+      validateModelYearValue(parseModelYearInput(draft.modelYear), {
+        firstRegistrationYearMonth: draft.firstRegistrationYearMonth,
+      }).warning ?? ''
+    )
+  }, [
+    draft.assetCategory,
+    draft.firstRegistrationYearMonth,
+    draft.modelYear,
+    draft.registrationType,
+  ])
+
+  const incompleteVehicleWarning = useMemo(() => {
+    if (!shouldShowVehicleManagementFields(draft.registrationType, draft.assetCategory)) return ''
+    if (
+      !hasIncompleteVehicleInfo({
+        assetCategory: draft.assetCategory,
+        chassisNumber: draft.chassisNumber,
+        modelYear: parseModelYearInput(draft.modelYear) ?? undefined,
+      })
+    ) {
+      return ''
+    }
+    return '車両情報未入力（車台番号・年式は後から固定資産台帳で追記できます）'
+  }, [draft.assetCategory, draft.chassisNumber, draft.modelYear, draft.registrationType])
 
   if (!hasExpenseCategory) {
     return null
@@ -305,6 +355,10 @@ export function ExpenseAssetBranchPanel({
                     assetCategory,
                     assetName: assetCategory,
                     vehicleType: assetCategory === '車両' ? '普通車' : '',
+                    chassisNumber: assetCategory === '車両' ? draft.chassisNumber : '',
+                    modelYear: assetCategory === '車両' ? draft.modelYear : '',
+                    firstRegistrationYearMonth:
+                      assetCategory === '車両' ? draft.firstRegistrationYearMonth : '',
                   }),
                 )
               }}
@@ -317,30 +371,77 @@ export function ExpenseAssetBranchPanel({
             </select>
           </label>
 
-          {draft.assetCategory === '車両' ? (
-            <fieldset className="accounting-radio-fieldset">
-              <legend>車種</legend>
-              <div className="accounting-radio-row">
-                {VEHICLE_TYPES.map((vehicleType) => (
-                  <label key={vehicleType} className="accounting-radio-label">
-                    <input
-                      type="radio"
-                      name="vehicleType"
-                      checked={draft.vehicleType === vehicleType}
-                      onChange={() =>
-                        onChange(
-                          recalculateSchedule({
-                            ...draft,
-                            vehicleType,
-                          }),
-                        )
-                      }
-                    />
-                    {vehicleType}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+          {shouldShowVehicleManagementFields(draft.registrationType, draft.assetCategory) ? (
+            <>
+              <fieldset className="accounting-radio-fieldset">
+                <legend>車種</legend>
+                <div className="accounting-radio-row">
+                  {VEHICLE_TYPES.map((vehicleType) => (
+                    <label key={vehicleType} className="accounting-radio-label">
+                      <input
+                        type="radio"
+                        name="vehicleType"
+                        checked={draft.vehicleType === vehicleType}
+                        onChange={() =>
+                          onChange(
+                            recalculateSchedule({
+                              ...draft,
+                              vehicleType,
+                            }),
+                          )
+                        }
+                      />
+                      {vehicleType}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <label>
+                車台番号（車体番号）
+                <input
+                  type="text"
+                  autoComplete="off"
+                  placeholder="未確定の場合は空欄可"
+                  value={draft.chassisNumber}
+                  onChange={(event) => updateDraft({ chassisNumber: event.target.value })}
+                  onBlur={() =>
+                    updateDraft({ chassisNumber: normalizeChassisNumber(draft.chassisNumber) })
+                  }
+                />
+              </label>
+              {chassisDuplicateWarning ? (
+                <p className="accounting-warning" role="status">
+                  {chassisDuplicateWarning}
+                </p>
+              ) : null}
+
+              <label>
+                年式
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1950}
+                  max={getCurrentCalendarYear() + 1}
+                  placeholder="例：2024"
+                  value={draft.modelYear === '' ? '' : draft.modelYear}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim()
+                    updateDraft({ modelYear: raw === '' ? '' : Number(raw) || '' })
+                  }}
+                />
+              </label>
+              {modelYearWarning ? (
+                <p className="accounting-warning" role="status">
+                  {modelYearWarning}
+                </p>
+              ) : null}
+              {incompleteVehicleWarning ? (
+                <p className="accounting-warning" role="status">
+                  {incompleteVehicleWarning}
+                </p>
+              ) : null}
+            </>
           ) : null}
 
           <fieldset className="accounting-radio-fieldset">
@@ -367,7 +468,7 @@ export function ExpenseAssetBranchPanel({
             </div>
           </fieldset>
 
-          {draft.assetCategory === '車両' && draft.condition === '中古' ? (
+          {draft.assetCategory === '車両' ? (
             <label>
               初度登録年月
               <input
@@ -382,6 +483,11 @@ export function ExpenseAssetBranchPanel({
                   )
                 }
               />
+              {draft.condition === '中古' ? (
+                <span className="accounting-note">中古車の場合は耐用年数計算のため入力してください。</span>
+              ) : (
+                <span className="accounting-note">任意。年式とは別項目です。</span>
+              )}
             </label>
           ) : null}
 

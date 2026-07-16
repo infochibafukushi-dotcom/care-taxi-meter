@@ -9,13 +9,23 @@ import { getCurrentYearMonthInJapan } from '../../utils/accountingPl'
 import {
   buildFixedAssetEditDraft,
   buildKindChangeImpact,
+  buildVehicleFieldsForSave,
+  affectsDepreciationRecalc,
   categoryOptionsForKind,
+  collectFixedAssetEditWarnings,
   materialFieldsChanged,
   recalculateFixedAssetPreview,
   validateFixedAssetEditDraft,
   type FixedAssetEditDraft,
 } from '../../utils/accountingFixedAssetEdit'
 import { toYearMonth } from '../../utils/accountingDepreciation'
+import {
+  findDuplicateChassisAssets,
+  formatChassisNumberDisplay,
+  formatModelYearDisplay,
+  hasIncompleteVehicleInfo,
+  normalizeChassisNumber,
+} from '../../utils/accountingVehicleAssetFields'
 import {
   ASSET_CONDITIONS,
   EXPENSE_REGISTRATION_TYPE_LABELS,
@@ -58,6 +68,8 @@ const emptyDraft = (): FixedAssetEditDraft => ({
   condition: '新品',
   vehicleType: '',
   firstRegistrationYearMonth: '',
+  chassisNumber: '',
+  modelYear: '',
 })
 
 export function FixedAssetLedgerPanel({
@@ -306,6 +318,8 @@ export function FixedAssetLedgerPanel({
         onStatus('通常経費へ変更し、固定資産台帳から除外しました。')
       } else {
         const nextKind = draft.registrationType === 'small' ? 'small' : 'fixed'
+        const vehicleFields = buildVehicleFieldsForSave(draft)
+        const shouldRecalcDepreciation = affectsDepreciationRecalc(changed)
         const assetPatch = {
           purchaseDate: draft.purchaseDate,
           assetName: draft.assetName.trim(),
@@ -318,18 +332,38 @@ export function FixedAssetLedgerPanel({
           notes: draft.notes,
           assetKind: nextKind as 'small' | 'fixed',
           condition: draft.condition,
-          vehicleType: draft.assetCategory === '車両' ? draft.vehicleType || undefined : undefined,
-          firstRegistrationYearMonth:
-            draft.assetCategory === '車両' && draft.condition === '中古'
-              ? draft.firstRegistrationYearMonth || undefined
-              : undefined,
-          standardUsefulLifeYears: preview.standardUsefulLifeYears,
-          monthlyDepreciationYen: preview.monthlyDepreciationYen,
-          depreciationStartYearMonth: preview.depreciationStartYearMonth,
-          depreciationEndYearMonth: preview.depreciationEndYearMonth,
-          remainingBookValue: preview.remainingBookValue,
-          status: preview.status,
+          ...vehicleFields,
+          ...(shouldRecalcDepreciation
+            ? {
+                standardUsefulLifeYears: preview.standardUsefulLifeYears,
+                monthlyDepreciationYen: preview.monthlyDepreciationYen,
+                depreciationStartYearMonth: preview.depreciationStartYearMonth,
+                depreciationEndYearMonth: preview.depreciationEndYearMonth,
+                remainingBookValue: preview.remainingBookValue,
+                status: preview.status,
+              }
+            : {}),
           updatedBy: staffId,
+        }
+
+        const softWarnings = collectFixedAssetEditWarnings(draft)
+        const chassisDupes = findDuplicateChassisAssets(fixedAssets, draft.chassisNumber, {
+          excludeAssetId: originalAsset.id,
+        })
+        if (chassisDupes.length > 0) {
+          softWarnings.push(
+            `同じ車台番号の資産が既にあります（${chassisDupes
+              .map((asset) => asset.assetName || asset.id)
+              .join('、')}）。`,
+          )
+        }
+        if (softWarnings.length > 0) {
+          const confirmed = window.confirm(
+            `${softWarnings.join('\n')}\n\n警告がありますが保存しますか？`,
+          )
+          if (!confirmed) {
+            return
+          }
         }
 
         const expensePatch = needsLinkedExpenseSync
@@ -524,15 +558,45 @@ export function FixedAssetLedgerPanel({
               ))}
             </select>
           </label>
-          {draft.condition === '中古' ? (
-            <label>
-              初度登録年月
-              <input
-                type="month"
-                value={draft.firstRegistrationYearMonth}
-                onChange={(event) => updateDraft({ firstRegistrationYearMonth: event.target.value })}
-              />
-            </label>
+          <label>
+            初度登録年月
+            <input
+              type="month"
+              value={draft.firstRegistrationYearMonth}
+              onChange={(event) => updateDraft({ firstRegistrationYearMonth: event.target.value })}
+            />
+          </label>
+          <label>
+            車台番号（車体番号）
+            <input
+              type="text"
+              autoComplete="off"
+              value={draft.chassisNumber}
+              onChange={(event) => updateDraft({ chassisNumber: event.target.value })}
+              onBlur={() => updateDraft({ chassisNumber: normalizeChassisNumber(draft.chassisNumber) })}
+            />
+          </label>
+          <label>
+            年式
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1950}
+              value={draft.modelYear === '' ? '' : draft.modelYear}
+              onChange={(event) => {
+                const raw = event.target.value.trim()
+                updateDraft({ modelYear: raw === '' ? '' : Number(raw) || '' })
+              }}
+            />
+          </label>
+          {hasIncompleteVehicleInfo({
+            assetCategory: draft.assetCategory,
+            chassisNumber: draft.chassisNumber,
+            modelYear: typeof draft.modelYear === 'number' ? draft.modelYear : undefined,
+          }) ? (
+            <p className="accounting-warning" role="status">
+              車両情報未入力
+            </p>
           ) : null}
         </div>
       ) : (
@@ -809,6 +873,30 @@ export function FixedAssetLedgerPanel({
                 <dt>取得価額</dt>
                 <dd>{formatFareYen(asset.acquisitionCost)}円</dd>
               </div>
+              {asset.assetCategory === '車両' ? (
+                <>
+                  <div>
+                    <dt>車両種別</dt>
+                    <dd>{asset.vehicleType || '―'}</dd>
+                  </div>
+                  <div>
+                    <dt>新品／中古</dt>
+                    <dd>{asset.condition}</dd>
+                  </div>
+                  <div>
+                    <dt>年式</dt>
+                    <dd>{formatModelYearDisplay(asset.modelYear)}</dd>
+                  </div>
+                  <div>
+                    <dt>初度登録年月</dt>
+                    <dd>{asset.firstRegistrationYearMonth || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt>車台番号</dt>
+                    <dd>{formatChassisNumberDisplay(asset.chassisNumber)}</dd>
+                  </div>
+                </>
+              ) : null}
               <div>
                 <dt>耐用年数</dt>
                 <dd>{asset.appliedUsefulLifeYears}年</dd>
@@ -822,10 +910,19 @@ export function FixedAssetLedgerPanel({
                 <dd>{formatFareYen(asset.remainingBookValue)}円</dd>
               </div>
               <div>
+                <dt>状態</dt>
+                <dd>{FIXED_ASSET_STATUS_LABELS[asset.status]}</dd>
+              </div>
+              <div>
                 <dt>備考</dt>
                 <dd>{asset.notes || '―'}</dd>
               </div>
             </dl>
+            {asset.assetCategory === '車両' && hasIncompleteVehicleInfo(asset) ? (
+              <p className="accounting-warning" role="status">
+                車両情報未入力
+              </p>
+            ) : null}
             {editingAssetId === asset.id ? (
               renderEditForm(asset)
             ) : (
@@ -865,6 +962,7 @@ export function FixedAssetLedgerPanel({
                   </button>
                 </th>
               ))}
+              <th>年式</th>
               <th>備考</th>
               <th>操作</th>
             </tr>
@@ -881,6 +979,9 @@ export function FixedAssetLedgerPanel({
                   <td>{formatFareYen(asset.monthlyDepreciationYen)}円</td>
                   <td>{formatFareYen(asset.remainingBookValue)}円</td>
                   <td>{FIXED_ASSET_STATUS_LABELS[asset.status]}</td>
+                  <td>
+                    {asset.assetCategory === '車両' ? formatModelYearDisplay(asset.modelYear) : '―'}
+                  </td>
                   <td>{asset.notes || '―'}</td>
                   <td>
                     <button className="secondary-action" type="button" onClick={() => openEdit(asset)}>
@@ -898,7 +999,7 @@ export function FixedAssetLedgerPanel({
               ))
             ) : (
               <tr>
-                <td colSpan={10}>固定資産はありません。</td>
+                <td colSpan={11}>固定資産はありません。</td>
               </tr>
             )}
           </tbody>

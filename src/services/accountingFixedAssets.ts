@@ -25,6 +25,10 @@ import {
 } from '../utils/accountingDepreciation'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
+import {
+  normalizeChassisNumber,
+  parseModelYearInput,
+} from '../utils/accountingVehicleAssetFields'
 import { createAccountingTenantConstraints, logAccountingQueryFailure } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
@@ -56,6 +60,13 @@ const normalizeStoredFixedAsset = (snapshot: {
         : undefined,
     firstRegistrationYearMonth:
       typeof data.firstRegistrationYearMonth === 'string' ? data.firstRegistrationYearMonth : undefined,
+    chassisNumber: typeof data.chassisNumber === 'string' ? data.chassisNumber : undefined,
+    modelYear:
+      typeof data.modelYear === 'number' && Number.isFinite(data.modelYear)
+        ? data.modelYear
+        : typeof data.modelYear === 'string' && data.modelYear.trim() !== '' && Number.isFinite(Number(data.modelYear))
+          ? Number(data.modelYear)
+          : undefined,
     acquisitionCost: Number(data.acquisitionCost ?? 0),
     standardUsefulLifeYears: Number(data.standardUsefulLifeYears ?? 0),
     appliedUsefulLifeYears: Number(data.appliedUsefulLifeYears ?? 0),
@@ -135,6 +146,8 @@ export const buildFixedAssetInputFromDraft = ({
     condition: '新品' | '中古'
     vehicleType?: string
     firstRegistrationYearMonth?: string
+    chassisNumber?: string
+    modelYear?: number | ''
     acquisitionCost: number
     purchaseDate: string
     useStartDate: string
@@ -192,7 +205,16 @@ export const buildFixedAssetInputFromDraft = ({
       draft.vehicleType === '普通車' || draft.vehicleType === '軽自動車' || draft.vehicleType === '福祉車両'
         ? draft.vehicleType
         : undefined,
-    firstRegistrationYearMonth: draft.firstRegistrationYearMonth,
+    firstRegistrationYearMonth:
+      draft.assetCategory === '車両' && draft.firstRegistrationYearMonth?.trim()
+        ? draft.firstRegistrationYearMonth.trim()
+        : undefined,
+    chassisNumber:
+      draft.assetCategory === '車両'
+        ? normalizeChassisNumber(draft.chassisNumber) || undefined
+        : undefined,
+    modelYear:
+      draft.assetCategory === '車両' ? parseModelYearInput(draft.modelYear) ?? undefined : undefined,
     acquisitionCost: draft.acquisitionCost,
     standardUsefulLifeYears,
     appliedUsefulLifeYears,

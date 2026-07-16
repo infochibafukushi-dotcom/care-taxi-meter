@@ -146,6 +146,12 @@ import {
   fetchAccountingFixedAssets,
 } from '../services/accountingFixedAssets'
 import {
+  isValidChassisNumberFormat,
+  normalizeChassisNumber,
+  parseModelYearInput,
+  validateModelYearValue,
+} from '../utils/accountingVehicleAssetFields'
+import {
   buildEmptyExpenseAssetDraft,
   type ExpenseAssetRegistrationDraft,
   type StoredAccountingFixedAsset,
@@ -2371,6 +2377,24 @@ export function AccountingPage() {
       return false
     }
 
+    if (assetDraft.registrationType === 'fixed' && assetDraft.assetCategory === '車両') {
+      const chassis = normalizeChassisNumber(assetDraft.chassisNumber)
+      if (chassis && !isValidChassisNumberFormat(chassis)) {
+        const message = '車台番号は英数字とハイフンのみ入力できます。'
+        setErrorMessage(message)
+        setExpenseFormActionError(message)
+        return false
+      }
+      const yearCheck = validateModelYearValue(parseModelYearInput(assetDraft.modelYear), {
+        firstRegistrationYearMonth: assetDraft.firstRegistrationYearMonth,
+      })
+      if (yearCheck.error) {
+        setErrorMessage(yearCheck.error)
+        setExpenseFormActionError(yearCheck.error)
+        return false
+      }
+    }
+
     return true
   }
 
@@ -4071,6 +4095,7 @@ export function AccountingPage() {
                     vendorName={expenseForm.vendorName}
                     suggestedCategory={expenseForm.suggestedExpenseCategory}
                     smallAssetUsageAssets={fixedAssets}
+                    existingFixedAssets={fixedAssets}
                     onChange={setAssetDraft}
                   />
 
