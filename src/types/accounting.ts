@@ -208,6 +208,11 @@ export type AccountingExpenseInput = AccountingTenantFields &
     taxCalculationMode?: 'auto' | 'manual' | 'ocr'
     paymentMethod: AccountingPaymentMethod | ''
     invoiceNumber?: string
+    /**
+     * 仕入先の請求書番号・注文番号など（例: 04890-15126953-1）。
+     * 適格請求書発行事業者登録番号（invoiceNumber）とは別フィールド。
+     */
+    billingInvoiceNumber?: string
     invoiceCheckStatus?: InvoiceCheckStatus
     invoiceRegisteredName?: string
     invoiceCheckedAt?: string
