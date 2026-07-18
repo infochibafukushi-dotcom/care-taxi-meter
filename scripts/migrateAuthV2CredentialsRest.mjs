@@ -35,6 +35,7 @@ const authBase = `https://identitytoolkit.googleapis.com/v1/projects/${projectId
 const headers = {
   Authorization: `Bearer ${token}`,
   'Content-Type': 'application/json',
+  'x-goog-user-project': projectId,
 }
 
 async function listCollection(collection) {
