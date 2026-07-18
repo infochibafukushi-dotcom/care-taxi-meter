@@ -207,12 +207,18 @@ export type AccountingExpenseInput = AccountingTenantFields &
     /** 税額の算出方法 */
     taxCalculationMode?: 'auto' | 'manual' | 'ocr'
     paymentMethod: AccountingPaymentMethod | ''
+    /**
+     * 適格請求書発行事業者登録番号（T+13桁）。
+     * 請求書番号（billingInvoiceNumber）とは別フィールド。
+     */
     invoiceNumber?: string
     /**
      * 仕入先の請求書番号・注文番号など（例: 04890-15126953-1）。
      * 適格請求書発行事業者登録番号（invoiceNumber）とは別フィールド。
      */
     billingInvoiceNumber?: string
+    /** 紐付固定資産 ID（経費側からの参照。資産側 expenseId と併用） */
+    linkedAssetId?: string
     invoiceCheckStatus?: InvoiceCheckStatus
     invoiceRegisteredName?: string
     invoiceCheckedAt?: string

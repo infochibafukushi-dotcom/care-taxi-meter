@@ -9,7 +9,6 @@ import {
   fetchAccountingExpenses,
   invalidateAccountingExpense,
   softDeleteAccountingExpense,
-  updateAccountingExpense,
 } from '../services/accountingExpenses'
 import {
   createAccountingAdjustment,
@@ -141,10 +140,9 @@ import {
   type AccountingReceiptInboxEntry,
 } from '../utils/accountingReceiptLink'
 import {
-  buildFixedAssetInputFromDraft,
-  createAccountingFixedAsset,
   fetchAccountingFixedAssets,
 } from '../services/accountingFixedAssets'
+import { saveExpenseWithFixedAssetSync } from '../services/accountingExpenseFixedAssetSave'
 import {
   isValidChassisNumberFormat,
   normalizeChassisNumber,
@@ -154,6 +152,7 @@ import {
 import {
   buildEmptyExpenseAssetDraft,
   type ExpenseAssetRegistrationDraft,
+  type ExpenseRegistrationType,
   type StoredAccountingFixedAsset,
 } from '../types/accountingFixedAssets'
 import type { StoredAccountingSettlementAuxiliary } from '../types/accountingSettlementAuxiliary'
@@ -186,6 +185,7 @@ import {
 import {
   EXPENSE_LIST_CONFIRMATION_STATUS_HEADER,
   EXPENSE_LIST_RECEIPT_PENDING_LABEL,
+  formatExpenseListBillingInvoiceNumber,
   formatExpenseListConfirmationStatus,
   formatExpenseListInvoiceNumber,
   formatExpenseListInvoiceStatus,
@@ -220,9 +220,15 @@ import {
 import {
   type ExpenseDuplicateCandidate,
   type ExpenseDuplicateMatch,
-  findExpenseDuplicates,
+  findExpenseDuplicatesIncludingBilling,
   formatExpenseDuplicateLabel,
+  hasBlockingExpenseDuplicate,
 } from '../utils/accountingExpenseDuplicate'
+import {
+  buildAssetCategoryChangeConfirmMessage,
+  buildExpenseDeleteWithLinkedAssetConfirmMessage,
+  resolveLinkedFixedAssetsForExpense,
+} from '../utils/accountingExpenseFixedAssetSync'
 import { formatCaseDateTime } from '../utils/caseRecords'
 import {
   applyAccountingReceiptOcrToExpense,
@@ -442,7 +448,7 @@ function DuplicateExpensePromptDialog({
   onCancel,
 }: {
   matches: ExpenseDuplicateMatch[]
-  severity: 'warning' | 'strong'
+  severity: 'warning' | 'strong' | 'blocking'
   onReviewExisting: (expenseId: string) => void
   onContinue: () => void
   onCancel: () => void
@@ -453,9 +459,11 @@ function DuplicateExpensePromptDialog({
   }
 
   const title =
-    severity === 'strong'
-      ? '同じ領収書画像が既に登録されています。二重計上の可能性が高いです。'
-      : '同じ日付・同じ金額の経費が既に登録されています。二重計上の可能性があります。'
+    severity === 'blocking'
+      ? '同一仕入先・同一請求書番号の経費が既に登録されています。保存できません。'
+      : severity === 'strong'
+        ? '同じ領収書画像が既に登録されています。二重計上の可能性が高いです。'
+        : '同じ日付・同じ金額の経費が既に登録されています。二重計上の可能性があります。'
 
   return (
     <div className="accounting-duplicate-dialog-backdrop" role="presentation">
@@ -470,10 +478,24 @@ function DuplicateExpensePromptDialog({
           <p>既存登録：</p>
           <ul>
             {matches.map((match) => (
-              <li key={match.expense.id}>{formatExpenseDuplicateLabel(match.expense)}</li>
+              <li key={match.expense.id}>
+                {formatExpenseDuplicateLabel(match.expense)}
+                <br />
+                <span className="accounting-note">
+                  証憑日 {getExpenseReceiptDate(match.expense)} / 仕入先{' '}
+                  {match.expense.vendorName || '－'} / 内容{' '}
+                  {match.expense.description || '－'} / 金額{' '}
+                  {formatFareYen(match.expense.taxIncludedAmount)} / 確認状態{' '}
+                  {match.expense.confirmationStatus}
+                </span>
+              </li>
             ))}
           </ul>
-          <p>このまま登録しますか？</p>
+          {severity === 'blocking' ? (
+            <p>請求書番号が一致するため、このまま登録することはできません。</p>
+          ) : (
+            <p>このまま登録しますか？</p>
+          )}
         </div>
         <div className="accounting-duplicate-dialog-actions">
           <button
@@ -483,9 +505,11 @@ function DuplicateExpensePromptDialog({
           >
             既存を確認
           </button>
-          <button className="primary-action" type="button" onClick={onContinue}>
-            登録を続ける
-          </button>
+          {severity !== 'blocking' ? (
+            <button className="primary-action" type="button" onClick={onContinue}>
+              登録を続ける
+            </button>
+          ) : null}
           <button className="secondary-action" type="button" onClick={onCancel}>
             キャンセル
           </button>
@@ -543,6 +567,9 @@ export function AccountingPage() {
   const [expenseForm, setExpenseForm] = useState<AccountingExpenseInput | null>(null)
   const [editingExpenseId, setEditingExpenseId] = useState('')
   const [isSavingExpense, setIsSavingExpense] = useState(false)
+  const isSavingExpenseRef = useRef(false)
+  const clientExpenseIdRef = useRef<string>('')
+  const baselineRegistrationTypeRef = useRef<ExpenseRegistrationType>('normal')
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false)
   const [isRunningOcr, setIsRunningOcr] = useState(false)
   const [ocrRunningReceiptId, setOcrRunningReceiptId] = useState('')
@@ -572,7 +599,7 @@ export function AccountingPage() {
   const [isExpenseCategoryHelpOpen, setIsExpenseCategoryHelpOpen] = useState(false)
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
     matches: ExpenseDuplicateMatch[]
-    severity: 'warning' | 'strong'
+    severity: 'warning' | 'strong' | 'blocking'
     onContinue: () => void
   } | null>(null)
   const [receiptImageZoom, setReceiptImageZoom] = useState(1)
@@ -1164,7 +1191,9 @@ export function AccountingPage() {
     date: getExpenseReceiptDate(form),
     amount: form.taxIncludedAmount,
     vendorName: form.vendorName,
+    description: form.description,
     invoiceNumber: form.invoiceNumber,
+    billingInvoiceNumber: form.billingInvoiceNumber,
     imageHash: form.imageHash,
   })
 
@@ -1172,9 +1201,20 @@ export function AccountingPage() {
     candidate: ExpenseDuplicateCandidate,
     onContinue: () => Promise<void> | void,
   ) => {
-    const matches = findExpenseDuplicates(expenses, candidate)
+    const matches = findExpenseDuplicatesIncludingBilling(expenses, candidate)
     if (matches.length === 0) {
       void onContinue()
+      return
+    }
+
+    if (hasBlockingExpenseDuplicate(matches)) {
+      setDuplicatePrompt({
+        matches: matches.filter((match) => match.severity === 'blocking'),
+        severity: 'blocking',
+        onContinue: () => {
+          setDuplicatePrompt(null)
+        },
+      })
       return
     }
 
@@ -1193,7 +1233,7 @@ export function AccountingPage() {
     if (!expenseForm) {
       return []
     }
-    return findExpenseDuplicates(
+    return findExpenseDuplicatesIncludingBilling(
       expenses,
       buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
     )
@@ -2403,6 +2443,10 @@ export function AccountingPage() {
       return
     }
 
+    if (isSavingExpenseRef.current || isSavingExpense) {
+      return
+    }
+
     if (expenseForm.confirmationStatus === '確認済み' && !expenseForm.expenseCategory) {
       const message = '経費科目を選択しないと確認済みにできません。'
       setErrorMessage(message)
@@ -2414,7 +2458,37 @@ export function AccountingPage() {
       return
     }
 
+    const duplicateMatches = findExpenseDuplicatesIncludingBilling(
+      expenses,
+      buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
+    )
+    if (hasBlockingExpenseDuplicate(duplicateMatches)) {
+      setDuplicatePrompt({
+        matches: duplicateMatches.filter((match) => match.severity === 'blocking'),
+        severity: 'blocking',
+        onContinue: () => setDuplicatePrompt(null),
+      })
+      return
+    }
+
+    if (editingExpenseId) {
+      const fromType = baselineRegistrationTypeRef.current
+      const toType = assetDraft.registrationType
+      if (fromType !== toType) {
+        const confirmed = window.confirm(
+          buildAssetCategoryChangeConfirmMessage({ fromType, toType }),
+        )
+        if (!confirmed) {
+          return
+        }
+      }
+    }
+
     const persistExpense = async () => {
+      if (isSavingExpenseRef.current) {
+        return
+      }
+      isSavingExpenseRef.current = true
       setIsSavingExpense(true)
       setErrorMessage('')
       setExpenseFormActionError('')
@@ -2456,45 +2530,52 @@ export function AccountingPage() {
             expenseForm.vendorName,
         }
 
-        let expenseId = editingExpenseId
         const wasEditing = Boolean(editingExpenseId)
-        if (editingExpenseId) {
-          await updateAccountingExpense(editingExpenseId, expensePayload)
-        } else {
-          expenseId = await createAccountingExpense(expensePayload)
+        if (!wasEditing && !clientExpenseIdRef.current) {
+          clientExpenseIdRef.current = `exp_${Date.now().toString(36)}_${Math.random()
+            .toString(36)
+            .slice(2, 10)}`
         }
 
-        if (
-          syncedAssetDraft.registrationType === 'small' ||
-          syncedAssetDraft.registrationType === 'fixed'
-        ) {
-          await createAccountingFixedAsset(
-            buildFixedAssetInputFromDraft({
-              draft: {
-                ...syncedAssetDraft,
-                registrationType: syncedAssetDraft.registrationType,
-              },
-              expenseId,
-              franchiseeId: tenantScope.franchiseeId,
-              storeId: tenantScope.storeId,
-              staffId,
-              staffName,
-            }),
-          )
-        }
+        const saveResult = await saveExpenseWithFixedAssetSync({
+          mode: wasEditing ? 'update' : 'create',
+          expenseId: editingExpenseId || undefined,
+          clientExpenseId: wasEditing ? undefined : clientExpenseIdRef.current,
+          expensePayload,
+          registrationType: syncedAssetDraft.registrationType,
+          assetDraft: syncedAssetDraft,
+          franchiseeId: tenantScope.franchiseeId,
+          storeId: tenantScope.storeId,
+          staffId,
+          staffName,
+          knownAssets: fixedAssets,
+          actor: {
+            userId: staffId,
+            userName: staffName,
+            role: (accessScope.role ?? '') as StaffRole | '',
+            franchiseeId: tenantScope.franchiseeId,
+            storeId: tenantScope.storeId,
+          },
+        })
 
         const successMessage =
           syncedAssetDraft.registrationType === 'small'
-            ? '経費と少額資産一覧へ登録しました。'
+            ? saveResult.assetAction === 'update'
+              ? '経費と少額資産を更新しました。'
+              : '経費と少額資産一覧へ登録しました。'
             : syncedAssetDraft.registrationType === 'fixed'
-              ? '経費と固定資産台帳へ登録しました。'
+              ? saveResult.assetAction === 'update'
+                ? '経費と固定資産を更新しました。'
+                : '経費と固定資産台帳へ登録しました。'
               : wasEditing
                 ? '経費を更新しました。'
                 : '経費を登録しました。'
 
+        clientExpenseIdRef.current = ''
         setEditingExpenseId('')
         setEditingExpenseBaseline(null)
         setEditingExpenseSummary(null)
+        baselineRegistrationTypeRef.current = 'normal'
         setAssetDraft(buildEmptyExpenseAssetDraft())
         await resetExpenseFormToNew({ retainPendingUploads: true })
         setStatusMessage(successMessage)
@@ -2505,15 +2586,22 @@ export function AccountingPage() {
         setErrorMessage(message)
         setExpenseFormActionError(message)
       } finally {
+        isSavingExpenseRef.current = false
         setIsSavingExpense(false)
       }
     }
 
-    if (expenseForm.confirmationStatus === '確認済み') {
+    if (duplicateMatches.length > 0) {
       promptDuplicateCheckBeforeConfirm(
         buildDuplicateCandidateFromForm(expenseForm, editingExpenseId || undefined),
         persistExpense,
       )
+      return
+    }
+
+    if (expenseForm.confirmationStatus === '確認済み') {
+      // 確認済み保存でも重複候補が無い場合はそのまま保存
+      await persistExpense()
       return
     }
 
@@ -2526,11 +2614,26 @@ export function AccountingPage() {
       return
     }
 
+    const linkedResolution = resolveLinkedFixedAssetsForExpense({
+      expenseId,
+      linkedAssetId: expense.linkedAssetId,
+      assets: fixedAssets,
+    })
+    if (linkedResolution.status === 'multiple') {
+      setErrorMessage(
+        'この経費には複数の固定資産が紐付いています。データ確認が必要です。編集を開始できません。',
+      )
+      return
+    }
+    const linkedAsset = linkedResolution.status === 'one' ? linkedResolution.asset : null
+
     const nextForm: AccountingExpenseInput = {
       ...expense,
       receiptDate: getExpenseReceiptDate(expense),
       postingDate: getExpensePostingDate(expense),
       plTreatment: normalizePlTreatment(expense.plTreatment),
+      billingInvoiceNumber: expense.billingInvoiceNumber ?? '',
+      linkedAssetId: expense.linkedAssetId ?? linkedAsset?.id ?? '',
     }
     const nextDraft = buildAssetDraftForExpenseEdit({
       expense,
@@ -2538,7 +2641,9 @@ export function AccountingPage() {
       description: expense.description,
       vendorName: expense.vendorName,
       suggestedCategory: expense.suggestedExpenseCategory,
+      linkedAsset,
     })
+    baselineRegistrationTypeRef.current = nextDraft.registrationType
 
     setEditingExpenseId(expenseId)
     setEditingExpenseBaseline({
@@ -2633,8 +2738,17 @@ export function AccountingPage() {
   }
 
   const handleDeleteExpense = async (expenseId: string) => {
+    const expense = expenses.find((row) => row.id === expenseId)
+    const linkedResolution = resolveLinkedFixedAssetsForExpense({
+      expenseId,
+      linkedAssetId: expense?.linkedAssetId,
+      assets: fixedAssets,
+    })
+
     const confirmed = window.confirm(
-      'この経費を削除しますか？\n削除後はPL・集計・CSV出力から除外されます。',
+      linkedResolution.status === 'none'
+        ? 'この経費を削除しますか？\n削除後はPL・集計・CSV出力から除外されます。'
+        : buildExpenseDeleteWithLinkedAssetConfirmMessage(),
     )
     if (!confirmed) {
       return
@@ -2645,14 +2759,29 @@ export function AccountingPage() {
         expenseId,
         deletedBy: staffId,
         deletedByName: staffName,
+        knownAssets: fixedAssets,
+        franchiseeId: tenantScope.franchiseeId,
+        storeId: tenantScope.storeId,
+        actor: {
+          userId: staffId,
+          userName: staffName,
+          role: (accessScope.role ?? '') as StaffRole | '',
+          franchiseeId: tenantScope.franchiseeId,
+          storeId: tenantScope.storeId,
+        },
       })
 
       if (editingExpenseId === expenseId) {
         await resetExpenseFormToNew()
       }
 
-      setStatusMessage('経費を削除しました（紐付証憑のリンクも解除し、集計対象から除外）。')
+      setStatusMessage(
+        linkedResolution.status === 'none'
+          ? '経費を削除しました（紐付証憑のリンクも解除し、集計対象から除外）。'
+          : '経費と紐付固定資産を削除しました（集計対象から除外）。',
+      )
       await reloadExpensesAdjustmentsAndReceipts()
+      await reloadFixedAssets()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の削除に失敗しました。')
     }
@@ -3828,7 +3957,7 @@ export function AccountingPage() {
 
                   <div className="accounting-invoice-quote-row">
                     <label>
-                      ② インボイス番号
+                      ② 適格請求書番号
                       <input
                         type="text"
                         value={expenseForm.invoiceNumber ?? ''}
@@ -3845,6 +3974,20 @@ export function AccountingPage() {
                       {isLookingUpInvoice ? '取得中...' : '引用'}
                     </button>
                   </div>
+                  <label>
+                    請求書番号
+                    <input
+                      type="text"
+                      value={expenseForm.billingInvoiceNumber ?? ''}
+                      placeholder="04938-2312929-1"
+                      onChange={(event) =>
+                        handleExpenseFieldChange('billingInvoiceNumber', event.target.value)
+                      }
+                    />
+                  </label>
+                  <p className="accounting-note">
+                    請求書番号は仕入先の請求書・注文番号です。適格請求書番号（T番号）とは別項目です。
+                  </p>
                   {invoiceQuoteMessage ? (
                     <p
                       className={
@@ -4455,6 +4598,10 @@ export function AccountingPage() {
                         </dd>
                       </div>
                       <div>
+                        <dt>請求書番号</dt>
+                        <dd>{formatExpenseListBillingInvoiceNumber(expense.billingInvoiceNumber)}</dd>
+                      </div>
+                      <div>
                         <dt>インボイス状態</dt>
                         <dd>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</dd>
                       </div>
@@ -4536,6 +4683,7 @@ export function AccountingPage() {
                     <th>{POSTING_DATE_FIELD_LABEL}</th>
                     <th>仕入先</th>
                     <th>T番号</th>
+                    <th>請求書番号</th>
                     <th>インボイス状態</th>
                     <th>内容</th>
                     <th>経費科目</th>
@@ -4555,6 +4703,7 @@ export function AccountingPage() {
                         <td className="accounting-expense-invoice-number">
                           {formatExpenseListInvoiceNumber(expense.invoiceNumber)}
                         </td>
+                        <td>{formatExpenseListBillingInvoiceNumber(expense.billingInvoiceNumber)}</td>
                         <td>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</td>
                         <td>{expense.description}</td>
                         <td>{expense.expenseCategory || '未選択'}</td>

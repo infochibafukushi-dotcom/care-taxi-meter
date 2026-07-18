@@ -2,9 +2,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
-  deleteField,
   doc,
-  getDoc,
   getDocs,
   getFirestore,
   orderBy,
@@ -12,7 +10,6 @@ import {
   serverTimestamp,
   updateDoc,
   where,
-  writeBatch,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
 import type {
@@ -36,8 +33,6 @@ import {
 } from '../utils/accountingTax'
 import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { linkAccountingReceiptToExpense } from './accountingReceipts'
-
-const receiptsCollectionName = 'accountingReceipts'
 import {
   createAccountingTenantConstraints,
   logAccountingQueryFailure,
@@ -100,6 +95,9 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
       ? (data.lineItems as StoredAccountingExpense['lineItems'])
       : [],
     invoiceNumber: typeof data.invoiceNumber === 'string' ? data.invoiceNumber : '',
+    billingInvoiceNumber:
+      typeof data.billingInvoiceNumber === 'string' ? data.billingInvoiceNumber : '',
+    linkedAssetId: typeof data.linkedAssetId === 'string' ? data.linkedAssetId : '',
     invoiceCheckStatus:
       typeof data.invoiceCheckStatus === 'string'
         ? (data.invoiceCheckStatus as StoredAccountingExpense['invoiceCheckStatus'])
@@ -313,74 +311,31 @@ export async function softDeleteAccountingExpense({
   deletedBy,
   deletedByName,
   deleteReason,
+  knownAssets,
+  actor,
+  franchiseeId,
+  storeId,
 }: {
   expenseId: string
   deletedBy: string
   deletedByName: string
   deleteReason?: string
+  knownAssets?: import('../types/accountingFixedAssets').StoredAccountingFixedAsset[]
+  actor?: import('./auditLogs').AuditActor | null
+  franchiseeId?: string
+  storeId?: string
 }) {
-  if (isReviewDemoRuntimeEnabled()) {
-    return
-  }
-
-  const db = getFirestore(getFirebaseApp())
-  const expenseRef = doc(db, collectionName, expenseId)
-  const expenseSnap = await getDoc(expenseRef)
-  if (!expenseSnap.exists()) {
-    return
-  }
-
-  const expenseData = expenseSnap.data() as Record<string, unknown>
-  const linkedReceiptIds = new Set<string>()
-  const receiptId =
-    typeof expenseData.receiptId === 'string' ? expenseData.receiptId.trim() : ''
-  if (receiptId) {
-    linkedReceiptIds.add(receiptId)
-  }
-
-  try {
-    const linkedReceipts = await getDocs(
-      query(collection(db, receiptsCollectionName), where('linkedExpenseId', '==', expenseId)),
-    )
-    for (const receiptDoc of linkedReceipts.docs) {
-      linkedReceiptIds.add(receiptDoc.id)
-    }
-  } catch {
-    // 単一フィールド query が拒否されても expense.receiptId 側は解除する
-  }
-
-  const batch = writeBatch(db)
-  batch.update(
-    expenseRef,
-    removeUndefinedFields({
-      isDeleted: true,
-      deletedAt: serverTimestamp(),
-      deletedBy,
-      deleteReason: deleteReason ?? '',
-      receiptId: deleteField(),
-      updatedBy: deletedBy,
-      updatedByName: deletedByName,
-      updatedAt: serverTimestamp(),
-    }),
-  )
-
-  for (const linkedId of linkedReceiptIds) {
-    const receiptRef = doc(db, receiptsCollectionName, linkedId)
-    const receiptSnap = await getDoc(receiptRef)
-    if (!receiptSnap.exists()) {
-      continue
-    }
-    const receiptData = receiptSnap.data() as Record<string, unknown>
-    const hasOcr = Boolean(receiptData.ocrCandidates || receiptData.ocrRawText)
-    batch.update(receiptRef, {
-      status: 'unorganized',
-      receiptStatus: hasOcr ? 'ocr_ready' : 'draft',
-      linkedExpenseId: deleteField(),
-      updatedAt: serverTimestamp(),
-    })
-  }
-
-  await batch.commit()
+  const { softDeleteExpenseWithLinkedAssets } = await import('./accountingExpenseFixedAssetSave')
+  await softDeleteExpenseWithLinkedAssets({
+    expenseId,
+    deletedBy,
+    deletedByName,
+    deleteReason,
+    knownAssets,
+    actor,
+    franchiseeId,
+    storeId,
+  })
 }
 
 export const computeExpenseImageHash = computeFileSha256
@@ -423,6 +378,8 @@ export const buildEmptyExpenseInput = ({
     taxCalculationMode: 'auto',
     paymentMethod: '',
     invoiceNumber: '',
+    billingInvoiceNumber: '',
+    linkedAssetId: '',
     invoiceCheckStatus: '未確認',
     invoiceStatus: 'unknown',
     taxCategory: 'taxable',

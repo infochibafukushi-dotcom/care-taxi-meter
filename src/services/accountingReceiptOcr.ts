@@ -65,8 +65,63 @@ type OcrWorker = Awaited<ReturnType<typeof createWorker>>
 let workerPromise: Promise<OcrWorker> | null = null
 let activeWorker: OcrWorker | null = null
 
+const PII_LOG_KEYS = new Set([
+  'invoiceNumber',
+  'registeredName',
+  'supplierName',
+  'vendorName',
+  'phoneNumber',
+  'address',
+  'invoiceRegisteredName',
+  'description',
+  'ocrRawText',
+  'text',
+  'downloadUrl',
+  'storagePath',
+  'url',
+  'receiptImageUrl',
+  'token',
+])
+
+/** DEV かつ ?debugAccounting=1 のときだけ。本番では URL フラグ単体では無効。 */
+export const isAccountingOcrDebugLoggingEnabled = () => {
+  if (!import.meta.env.DEV) {
+    return false
+  }
+  if (typeof window === 'undefined') {
+    return false
+  }
+  try {
+    return new URLSearchParams(window.location.search).get('debugAccounting') === '1'
+  } catch {
+    return false
+  }
+}
+
+const sanitizeOcrLogDetail = (detail?: Record<string, unknown>) => {
+  if (!detail) {
+    return {}
+  }
+  const safe: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(detail)) {
+    if (PII_LOG_KEYS.has(key)) {
+      if (typeof value === 'string') {
+        safe[key] = value ? `[redacted:${value.length}]` : ''
+      } else if (value != null) {
+        safe[key] = '[redacted]'
+      }
+      continue
+    }
+    safe[key] = value
+  }
+  return safe
+}
+
 const logOcrStep = (step: string, detail?: Record<string, unknown>) => {
-  console.info(`[Accounting OCR] step:${step}`, detail ?? {})
+  if (!isAccountingOcrDebugLoggingEnabled()) {
+    return
+  }
+  console.info(`[Accounting OCR] step:${step}`, sanitizeOcrLogDetail(detail))
 }
 
 const reportProgress = (
@@ -210,7 +265,7 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   })
   logOcrStep('blob-load-done', { size: imageBlob.size, type: imageBlob.type })
 
-  console.info('[Accounting OCR] prepared-image', {
+  logOcrStep('prepared-image', {
     isPreparedOcrImage: Boolean(input.isPreparedOcrImage),
     size: imageBlob.size,
     type: imageBlob.type,
@@ -273,7 +328,7 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
 
   if (parsed.invoiceNumber) {
     reportProgress(input.onProgress, 'parsing', 'インボイス登録事業者を検索しています…')
-    logOcrStep('invoice-lookup-start', { invoiceNumber: parsed.invoiceNumber })
+    logOcrStep('invoice-lookup-start', { hasInvoiceNumber: true })
     const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber)
     invoiceLookupStatus = lookup.status
     parsed = applyInvoiceRegistrantLookupToParsedFields(parsed, lookup)
@@ -282,8 +337,7 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
     }
     logOcrStep('invoice-lookup-done', {
       status: lookup.status,
-      registeredName: invoiceRegistrant?.registeredName ?? '',
-      invoiceNumber: parsed.invoiceNumber,
+      hasRegisteredName: Boolean(invoiceRegistrant?.registeredName),
     })
   }
 
@@ -294,23 +348,13 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
   })
   const finalSuggested = ocrCandidates.accountTitle || suggestedExpenseCategory
 
-  const parsedFields = {
-    supplierName: ocrCandidates.vendorName || parsed.vendorName,
-    receiptDate: ocrCandidates.date || parsed.receiptDate,
-    totalAmount: ocrCandidates.amount ?? parsed.taxIncludedAmount,
-    consumptionTax: ocrCandidates.taxAmount ?? parsed.consumptionTaxAmount,
-    description: ocrCandidates.description,
-    invoiceNumber: ocrCandidates.invoiceNumber,
-    invoiceRegisteredName: ocrCandidates.invoiceRegisteredName,
-    invoiceStatus: ocrCandidates.invoiceStatus,
-    taxCategory: ocrCandidates.taxCategory,
-    phoneNumber: ocrCandidates.phoneNumber,
-    address: ocrCandidates.address,
-    invoiceLookupMethod: parsed.invoiceLookupMethod,
+  logOcrStep('parse-done', {
+    hasSupplier: Boolean(ocrCandidates.vendorName || parsed.vendorName),
+    hasReceiptDate: Boolean(ocrCandidates.date || parsed.receiptDate),
+    hasAmount: (ocrCandidates.amount ?? parsed.taxIncludedAmount) != null,
+    hasInvoiceNumber: Boolean(ocrCandidates.invoiceNumber),
     suggestedExpenseCategory: finalSuggested,
-  }
-  console.log(parsedFields)
-  logOcrStep('parse-done', parsedFields)
+  })
 
   reportProgress(input.onProgress, 'done')
 

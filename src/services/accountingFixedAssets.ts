@@ -36,7 +36,7 @@ import type { AccountingExpenseInput } from '../types/accounting'
 
 const collectionName = 'accountingFixedAssets'
 
-const normalizeStoredFixedAsset = (snapshot: {
+export const normalizeStoredFixedAssetForSync = (snapshot: {
   id: string
   data: () => Record<string, unknown>
 }): StoredAccountingFixedAsset => {
@@ -271,7 +271,7 @@ export async function fetchAccountingFixedAssets(scope?: TenantAccessScope) {
     )
 
     return snapshots.docs
-      .map(normalizeStoredFixedAsset)
+      .map(normalizeStoredFixedAssetForSync)
       .filter((entry) => matchesTenantScope(entry, scope))
       .map((asset) => {
         const asOfYearMonth = toYearMonth(new Date().toISOString())
