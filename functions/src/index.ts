@@ -11,6 +11,7 @@ export {
   getPreOpeningReservationResetCapability,
 } from './preOpeningDataReset'
 export { deleteStaffMemberCompletely } from './deleteStaffMemberCompletely'
+export { runLightweightFirestoreBackup } from './lightweightFirestoreBackup'
 
 initializeApp()
 

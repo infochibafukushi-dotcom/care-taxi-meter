@@ -1,6 +1,7 @@
 /**
  * 軽量バックアップ方針（文字データのみ）。
- * 新規 GCS バケット / Scheduler / 有料リソースの作成は、費用承認まで実行しない。
+ * 運用: GCS `care-taxi-meter-fs-backup-ane1` + Cloud Function `runLightweightFirestoreBackup`（毎日 03:30 JST）。
+ * Lifecycle 30日削除。画像/PDF/Storage は複製しない（コレクション allowlist）。
  */
 
 export const LIGHTWEIGHT_BACKUP_RETENTION_DAYS = 30
