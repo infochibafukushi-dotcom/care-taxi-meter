@@ -129,6 +129,7 @@ import {
 } from '../types/accounting'
 import { canAccessAccounting } from '../types/permissions'
 import { ExpenseCategoryHelpDialog } from '../components/accounting/ExpenseCategoryHelpDialog'
+import { ExpenseListFilterPanel } from '../components/accounting/ExpenseListFilterPanel'
 import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
 import { ExpenseAssetBranchPanel } from '../components/accounting/ExpenseAssetBranchPanel'
 import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedgerPanel'
@@ -199,6 +200,12 @@ import {
   formatExpenseListInvoiceStatus,
   getExpenseListActionStatusLabel,
 } from '../utils/accountingExpenseListDisplay'
+import {
+  DEFAULT_EXPENSE_LIST_FILTERS,
+  queryExpenseList,
+  selectExpensesForFilteredCsv,
+  type ExpenseListFilters,
+} from '../utils/accountingExpenseListQuery'
 import { buildAccountingSalesRows, calculateSalesIntegrityCheck, EXPENSE_FARE_SALES_WARNING, filterCaseRecordsByYearMonth, SALES_INTEGRITY_WARNING, sumExpenseFareYenFromCaseRecords } from '../utils/accountingSalesMapping'
 import {
   aggregateExpensesByInvoiceStatus,
@@ -597,6 +604,12 @@ export function AccountingPage() {
   const [activeTab, setActiveTab] = useState<AccountingTab>('expenses')
   const [targetYearMonth, setTargetYearMonth] = useState(getCurrentYearMonthInJapan())
   const [targetYear, setTargetYear] = useState(getCurrentCalendarYearInJapan())
+  const [expenseListFilters, setExpenseListFilters] = useState<ExpenseListFilters>(
+    DEFAULT_EXPENSE_LIST_FILTERS,
+  )
+  const [expenseSearchInput, setExpenseSearchInput] = useState('')
+  const [expenseFiltersExpanded, setExpenseFiltersExpanded] = useState(false)
+  const [expenseCsvScope, setExpenseCsvScope] = useState<'filtered' | 'all'>('all')
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
@@ -1015,6 +1028,27 @@ export function AccountingPage() {
     () => monthExpenses.filter((expense) => isExpenseEligibleForReporting(expense)),
     [monthExpenses],
   )
+  const expenseListQuery = useMemo(
+    () => queryExpenseList(expenses, targetYearMonth, expenseListFilters),
+    [expenseListFilters, expenses, targetYearMonth],
+  )
+  const filteredMonthExpenses = expenseListQuery.items
+  const filteredReportingExpenses = useMemo(
+    () => selectExpensesForFilteredCsv(filteredMonthExpenses),
+    [filteredMonthExpenses],
+  )
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setExpenseListFilters((current) => {
+        if (current.searchQuery === expenseSearchInput) {
+          return current
+        }
+        return { ...current, searchQuery: expenseSearchInput }
+      })
+    }, 300)
+    return () => window.clearTimeout(timerId)
+  }, [expenseSearchInput])
   const taxCategorySummary = useMemo(
     () => aggregateExpensesByTaxCategory(expenses, targetYearMonth),
     [expenses, targetYearMonth],
@@ -3052,9 +3086,15 @@ export function AccountingPage() {
     }
 
     return {
-      csv: buildExpensesCsv(reportingMonthExpenses, targetYearMonth),
+      csv: buildExpensesCsv(
+        expenseCsvScope === 'filtered' ? filteredReportingExpenses : reportingMonthExpenses,
+        targetYearMonth,
+      ),
       fileName: `accounting-expenses-${fileSuffix}.csv`,
-      rowCount: reportingMonthExpenses.length,
+      rowCount:
+        expenseCsvScope === 'filtered'
+          ? filteredReportingExpenses.length
+          : reportingMonthExpenses.length,
       targetYearMonth,
     }
   }
@@ -4754,13 +4794,30 @@ export function AccountingPage() {
               </div>
             </section>
 
+            <ExpenseListFilterPanel
+              filters={expenseListFilters}
+              searchInput={expenseSearchInput}
+              filtersExpanded={expenseFiltersExpanded}
+              resultCount={expenseListQuery.totalCount}
+              resultTotalYen={expenseListQuery.totalTaxIncludedAmount}
+              activeConditionLabels={expenseListQuery.activeConditionLabels}
+              isFiltered={expenseListQuery.isFiltered}
+              onSearchInputChange={setExpenseSearchInput}
+              onFiltersChange={setExpenseListFilters}
+              onClear={() => {
+                setExpenseSearchInput('')
+                setExpenseListFilters(DEFAULT_EXPENSE_LIST_FILTERS)
+              }}
+              onToggleExpanded={() => setExpenseFiltersExpanded((current) => !current)}
+            />
+
             <div
               className="accounting-expense-cards"
               id={ACCOUNTING_EXPENSE_LIST_SECTION_ID}
               aria-label="当月経費一覧（カード）"
             >
-              {monthExpenses.length > 0 ? (
-                monthExpenses.map((expense) => (
+              {filteredMonthExpenses.length > 0 ? (
+                filteredMonthExpenses.map((expense) => (
                   <article key={expense.id} className="accounting-expense-card">
                     <header>
                       <strong>{expense.vendorName || '（仕入先未入力）'}</strong>
@@ -4862,7 +4919,11 @@ export function AccountingPage() {
                   </article>
                 ))
               ) : (
-                <p className="accounting-note">当月の経費はありません。</p>
+                <p className="accounting-note">
+                  {expenseListQuery.isFiltered
+                    ? '条件に一致する経費はありません。'
+                    : '当月の経費はありません。'}
+                </p>
               )}
             </div>
 
@@ -4885,8 +4946,8 @@ export function AccountingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {monthExpenses.length > 0 ? (
-                    monthExpenses.map((expense) => (
+                  {filteredMonthExpenses.length > 0 ? (
+                    filteredMonthExpenses.map((expense) => (
                       <tr key={expense.id}>
                         <td>{getExpenseReceiptDate(expense)}</td>
                         <td>{getExpensePostingDate(expense)}</td>
@@ -4949,7 +5010,11 @@ export function AccountingPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={11}>対象月の経費はありません。</td>
+                      <td colSpan={12}>
+                        {expenseListQuery.isFiltered
+                          ? '条件に一致する経費はありません。'
+                          : '対象月の経費はありません。'}
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -5077,6 +5142,27 @@ export function AccountingPage() {
             <p className="accounting-note">
               管理会計PL（月次・年次）・確定売上・経費一覧をCSV出力します。経費CSVは確認済み・未削除のみ含みます。
             </p>
+            <fieldset className="accounting-expense-csv-scope">
+              <legend>経費CSVの出力範囲</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="expense-csv-scope"
+                  checked={expenseCsvScope === 'filtered'}
+                  onChange={() => setExpenseCsvScope('filtered')}
+                />
+                現在の絞り込み結果を出力
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="expense-csv-scope"
+                  checked={expenseCsvScope === 'all'}
+                  onChange={() => setExpenseCsvScope('all')}
+                />
+                全件を出力
+              </label>
+            </fieldset>
             <div className="accounting-export-actions">
               <button className="primary-action" type="button" onClick={() => void handleExport('monthly-pl')}>
                 月次PL CSV

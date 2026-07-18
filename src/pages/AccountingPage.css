@@ -2717,3 +2717,143 @@ body.route-accounting,
     flex: 1 1 calc(50% - 0.25rem);
   }
 }
+
+/* 経費一覧: 検索・絞り込み・並び替え */
+.accounting-expense-filter-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid #d8dee8;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+}
+
+.accounting-expense-filter-panel--active {
+  border-color: #2563eb;
+  box-shadow: inset 3px 0 0 #2563eb;
+  background: #eff6ff;
+}
+
+.accounting-expense-filter-toolbar {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.accounting-expense-filter-search {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-expense-filter-search input,
+.accounting-expense-filter-fields input,
+.accounting-expense-filter-fields select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.accounting-expense-filter-toggle {
+  min-height: 2.75rem;
+  width: 100%;
+}
+
+.accounting-expense-filter-summary {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.accounting-expense-filter-summary p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.accounting-expense-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.accounting-expense-filter-active-conditions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.accounting-expense-filter-active-conditions ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.accounting-expense-filter-fields {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+
+.accounting-expense-filter-fields label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.accounting-expense-filter-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+}
+
+.accounting-expense-filter-checkbox input {
+  width: auto;
+  min-height: auto;
+}
+
+.accounting-expense-csv-scope {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid #d8dee8;
+  border-radius: 0.75rem;
+}
+
+.accounting-expense-csv-scope label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+}
+
+@media (min-width: 768px) {
+  .accounting-expense-filter-toolbar {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+
+  .accounting-expense-filter-toggle {
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .accounting-expense-filter-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1101px) {
+  .accounting-expense-filter-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
