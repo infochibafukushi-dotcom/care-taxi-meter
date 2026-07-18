@@ -250,3 +250,121 @@ export const disableStaffAuth = onCall({ region: 'asia-northeast1' }, async (req
   })
   return { disabled: true }
 })
+
+/**
+ * Unified staff create/update via Admin SDK (no plaintext password writes).
+ * Password (optional) is stored only in staffCredentials.
+ */
+export const saveStaffMemberProfile = onCall({ region: 'asia-northeast1' }, async (request) => {
+  assertAuthV2Enabled()
+  const caller = requireCallerClaims(request)
+  const data = (request.data?.staffMember || request.data || {}) as Record<string, unknown>
+  const password = typeof request.data?.password === 'string' ? request.data.password.trim() : ''
+
+  const staffId = toStringValue(data.id).trim()
+  if (!staffId) {
+    throw new HttpsError('invalid-argument', 'staffId が必要です。')
+  }
+
+  const companyId = toStringValue(data.franchiseeId) || toStringValue(data.companyId)
+  const storeId = toStringValue(data.storeId)
+  const role = toRole(data.role)
+  const name = toStringValue(data.name).trim()
+  const loginId = (toStringValue(data.loginId) || toStringValue(data.userId)).trim()
+
+  if (!companyId || !storeId || !name || !loginId) {
+    throw new HttpsError('invalid-argument', '会社・店舗・氏名・ログインIDは必須です。')
+  }
+
+  assertCanManageStaff(caller, { companyId, storeId, role })
+
+  // Cross-tenant defense: manager cannot move staff to another store; owner cannot change company.
+  if (caller.role === 'manager' && storeId !== caller.storeId) {
+    throw new HttpsError('permission-denied', '他店舗への変更はできません。')
+  }
+  if (caller.role === 'owner' && companyId !== caller.franchiseeId) {
+    throw new HttpsError('permission-denied', '他社への変更はできません。')
+  }
+  if (caller.role !== 'hq_admin' && role === 'hq_admin') {
+    throw new HttpsError('permission-denied', '本部管理者ロールは付与できません。')
+  }
+
+  const ref = getFirestore().collection('staffMembers').doc(staffId)
+  const existing = await ref.get()
+  if (!existing.exists && !password) {
+    throw new HttpsError('invalid-argument', '新規スタッフにはパスワードが必要です。')
+  }
+
+  const enabled = toBooleanValue(data.enabled ?? data.isActive, true)
+  const profile = {
+    id: staffId,
+    companyId,
+    franchiseeId: companyId,
+    storeId,
+    storeName: toStringValue(data.storeName),
+    userId: loginId,
+    loginId,
+    name,
+    role,
+    canDrive: toBooleanValue(data.canDrive, role === 'owner' || role === 'driver'),
+    isActive: enabled,
+    enabled,
+    status: toStringValue(data.status) || (enabled ? 'employed' : 'disabled'),
+    phoneNumber: toStringValue(data.phoneNumber),
+    email: toStringValue(data.email),
+    address: toStringValue(data.address),
+    licenseNumber: toStringValue(data.licenseNumber),
+    licenseExpiresAt: toStringValue(data.licenseExpiresAt),
+    accidentHistory: toStringValue(data.accidentHistory),
+    memo: toStringValue(data.memo),
+    sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : 1,
+    updatedAt: new Date(),
+    ...(existing.exists ? {} : { createdAt: new Date() }),
+  }
+
+  // Never write plaintext password — Admin SDK merge without password key.
+  await ref.set(profile, { merge: true })
+
+  if (password) {
+    await upsertStaffCredentialPassword({
+      staffId,
+      companyId,
+      franchiseeId: companyId,
+      storeId,
+      normalizedUserId: normalizeLoginIdentifier(loginId),
+      password,
+      authUid: staffId,
+    })
+  }
+
+  const sync = await syncAuthClaimsForStaff(staffId)
+  if (!enabled) {
+    try {
+      await getAuth().updateUser(staffId, { disabled: true })
+      await getAuth().revokeRefreshTokens(staffId)
+    } catch (error) {
+      const code = (error as { code?: string }).code
+      if (code !== 'auth/user-not-found') throw error
+    }
+  }
+
+  logger.info(
+    'saveStaffMemberProfile',
+    redactAuthSecrets({
+      actorStaffId: caller.staffId,
+      targetStaffId: staffId,
+      companyId,
+      storeId,
+      role,
+      passwordUpdated: Boolean(password),
+      claimsSynced: sync.synced,
+    }),
+  )
+
+  return {
+    saved: true,
+    staffId,
+    passwordUpdated: Boolean(password),
+    claims: sync.claims,
+  }
+})

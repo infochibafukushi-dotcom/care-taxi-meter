@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "deploy": "firebase deploy --only functions:purgeExpiredGpsRoutes,functions:loginStaff,functions:loginStaffV2,functions:upsertStaffCredential,functions:syncStaffAuthClaims,functions:disableStaffAuth,functions:getPreOpeningResetCapability,functions:getPreOpeningReservationResetCapability,functions:executePreOpeningDataReset,functions:executePreOpeningReservationReset,functions:deleteStaffMemberCompletely,functions:runLightweightFirestoreBackup,functions:getAccountingReceiptAccessUrl"
+    "deploy": "firebase deploy --only functions:purgeExpiredGpsRoutes,functions:loginStaff,functions:loginStaffV2,functions:upsertStaffCredential,functions:syncStaffAuthClaims,functions:disableStaffAuth,functions:saveStaffMemberProfile,functions:getPreOpeningResetCapability,functions:getPreOpeningReservationResetCapability,functions:executePreOpeningDataReset,functions:executePreOpeningReservationReset,functions:deleteStaffMemberCompletely,functions:runLightweightFirestoreBackup,functions:getAccountingReceiptAccessUrl"
   },
   "dependencies": {
     "care-taxi-meter": "file:..",

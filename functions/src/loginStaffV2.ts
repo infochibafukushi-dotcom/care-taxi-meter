@@ -6,6 +6,7 @@ import { logger } from 'firebase-functions'
 import {
   AUTH_FAILURE_MESSAGE_V2,
   AUTH_V2_ENABLED,
+  AUTH_V2_ENFORCE,
   LOGIN_LOCK_MESSAGE,
   LOGIN_LOCK_MINUTES,
   MAX_LOGIN_FAILURES,
@@ -275,11 +276,11 @@ async function rejectAuthFailure({
     })
   }
 
-  const authFallback = FALLBACK_ELIGIBLE_REASONS.has(reason)
+  const authFallback = !AUTH_V2_ENFORCE && FALLBACK_ELIGIBLE_REASONS.has(reason)
   logger.info('loginStaffV2 auth failure', redactAuthSecrets({ reason, failureCount, authFallback }))
 
-  // not_migrated → failed-precondition so ENFORCE=false clients may try loginStaff.
-  // bad_password / disabled / inactive → unauthenticated, no legacy bypass.
+  // not_migrated → failed-precondition only when ENFORCE=false (legacy fallback window).
+  // With ENFORCE=true, all auth failures are unauthenticated / no fallback.
   if (authFallback) {
     throw new HttpsError('failed-precondition', AUTH_FAILURE_MESSAGE_V2, {
       authFallback: true,

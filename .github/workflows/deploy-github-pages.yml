@@ -42,9 +42,9 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY || vars.VITE_GOOGLE_MAPS_API_KEY }}
           VITE_RESERVATION_API_BASE_URL: ${{ vars.VITE_RESERVATION_API_BASE_URL }}
-          # Phase2 trial: prefer loginStaffV2 with limited legacy fallback. Never set ENFORCE.
+          # Phase3A: V2 enforced. Never enable legacy fallback on Pages.
           VITE_AUTH_V2_ENABLED: ${{ vars.VITE_AUTH_V2_ENABLED || 'true' }}
-          VITE_AUTH_V2_ENFORCE: 'false'
+          VITE_AUTH_V2_ENFORCE: ${{ vars.VITE_AUTH_V2_ENFORCE || 'true' }}
         run: npm run build:pages
 
       - name: Verify SPA fallback

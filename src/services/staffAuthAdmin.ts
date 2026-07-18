@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { getFirebaseApp } from '../lib/firebase'
 import { AUTH_V2_ENABLED } from '../config/authFlags'
+import type { StaffMember } from '../types/work'
 
 const functionsRegion = 'asia-northeast1'
 
@@ -10,9 +11,15 @@ type StaffCredentialUpsertResponse = {
   credentialId?: string
 }
 
+type SaveStaffMemberProfileResponse = {
+  saved: boolean
+  staffId: string
+  passwordUpdated: boolean
+  claims?: Record<string, unknown>
+}
+
 /**
- * Functions-mediated credential / claims updates.
- * No-ops when Auth V2 is disabled (except callers that require password changes).
+ * Functions-mediated credential / claims / profile updates.
  */
 export async function upsertStaffCredentialViaFunctions({
   staffId,
@@ -62,5 +69,27 @@ export async function disableStaffAuthViaFunctions(staffId: string) {
     'disableStaffAuth',
   )
   const response = await callable({ staffId })
+  return response.data
+}
+
+/** Phase3A: staff create/update goes through Functions (no client password writes). */
+export async function saveStaffMemberProfileViaFunctions({
+  staffMember,
+  password,
+}: {
+  staffMember: StaffMember
+  password: string
+}): Promise<SaveStaffMemberProfileResponse> {
+  const functions = getFunctions(getFirebaseApp(), functionsRegion)
+  const callable = httpsCallable<
+    { staffMember: Omit<StaffMember, 'password'>; password: string },
+    SaveStaffMemberProfileResponse
+  >(functions, 'saveStaffMemberProfile')
+
+  const { password: _ignored, ...profile } = staffMember
+  const response = await callable({
+    staffMember: profile,
+    password: password.trim(),
+  })
   return response.data
 }

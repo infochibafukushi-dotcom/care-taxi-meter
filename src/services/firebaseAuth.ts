@@ -2,7 +2,7 @@ import { FirebaseError } from 'firebase/app'
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut, type User } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { getFirebaseApp } from '../lib/firebase'
-import { AUTH_V2_ENABLED } from '../config/authFlags'
+import { AUTH_V2_ENABLED, AUTH_V2_ENFORCE } from '../config/authFlags'
 import type { StaffMember, StaffRole } from '../types/work'
 
 const functionsRegion = 'asia-northeast1'
@@ -200,6 +200,11 @@ const getCallableErrorDetails = (error: unknown): Record<string, unknown> | null
  * Never fallback on wrong password, lockout, disabled staff, or inactive company.
  */
 export function shouldFallbackToLegacyLogin(error: unknown): boolean {
+  // Phase3A: ENFORCE stops all legacy fallbacks.
+  if (AUTH_V2_ENFORCE) {
+    return false
+  }
+
   const code = getCallableErrorCode(error)
   const details = getCallableErrorDetails(error)
 
@@ -281,8 +286,12 @@ export async function signInStaffWithFirebaseAuth({
   password: string
   userId: string
 }): Promise<LoginStaffResult | null> {
-  // AUTH_V2_ENFORCE stays hard-off. When V2 enabled, try V2 first with limited legacy fallback.
+  // Phase3A: ENFORCE → V2 only. Without ENFORCE but ENABLED → V2 with limited fallback.
+  // Without ENABLED → legacy loginStaff (emergency / pre-cutover only).
   if (!AUTH_V2_ENABLED) {
+    if (AUTH_V2_ENFORCE) {
+      throw new Error('認証設定が不正です（ENFORCE時は V2 を有効にしてください）。')
+    }
     try {
       return await signInViaLegacyLoginStaff({ companyId, userId, password })
     } catch (error) {
@@ -306,7 +315,9 @@ export async function signInStaffWithFirebaseAuth({
     const response = await callLoginCallable('loginStaffV2', { companyId, userId, password })
     const parsed = parseLoginStaffResponse(response.data, 'loginStaffV2')
     if (!parsed) {
-      // Malformed V2 response is technical — try legacy while ENFORCE=false.
+      if (AUTH_V2_ENFORCE) {
+        throw new Error('認証に失敗しました。')
+      }
       console.info('[firebaseAuth] loginStaffV2 returned unusable payload; trying loginStaff fallback')
       return signInViaLegacyLoginStaff({ companyId, userId, password })
     }
@@ -319,6 +330,7 @@ export async function signInStaffWithFirebaseAuth({
       message,
       detailsKeys: getCallableErrorDetails(error) ? Object.keys(getCallableErrorDetails(error)!) : null,
       authFallback: shouldFallbackToLegacyLogin(error),
+      enforce: AUTH_V2_ENFORCE,
     })
 
     if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {

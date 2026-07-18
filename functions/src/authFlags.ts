@@ -2,8 +2,8 @@ import { HttpsError } from 'firebase-functions/v2/https'
 
 /**
  * Auth V2 feature flags.
- * Production defaults: both false (existing loginStaff remains the live path).
- * Never set AUTH_V2_ENFORCE=true without an explicit cutover approval.
+ * Phase3A: ENABLED=true and ENFORCE=true (no legacy login fallback).
+ * loginStaff code remains deployed for emergency rollback only.
  */
 export const AUTH_V2_ENABLED = process.env.AUTH_V2_ENABLED === 'true'
 export const AUTH_V2_ENFORCE = process.env.AUTH_V2_ENFORCE === 'true'
@@ -15,10 +15,18 @@ export const AUTH_FAILURE_MESSAGE_V2 =
   '会社ID、ユーザーIDまたはパスワードが正しくありません。'
 export const LOGIN_LOCK_MESSAGE = 'しばらくしてから再度お試しください。'
 export const AUTH_V2_DISABLED_MESSAGE = '新しい認証方式は現在無効です。'
+export const AUTH_V2_ENFORCED_LEGACY_BLOCKED_MESSAGE =
+  'この環境では従来のログイン方式は利用できません。'
 
 export function assertAuthV2Enabled() {
   if (!AUTH_V2_ENABLED) {
     throw new HttpsError('failed-precondition', AUTH_V2_DISABLED_MESSAGE)
+  }
+}
+
+export function assertLegacyLoginAllowed() {
+  if (AUTH_V2_ENFORCE) {
+    throw new HttpsError('failed-precondition', AUTH_V2_ENFORCED_LEGACY_BLOCKED_MESSAGE)
   }
 }
 

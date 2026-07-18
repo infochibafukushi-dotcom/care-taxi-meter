@@ -90,7 +90,7 @@ describe('Auth V2 phase2 staff password writes', () => {
     expect(payload).not.toHaveProperty('password')
   })
 
-  it('keeps ENFORCE hard-off on client', () => {
+  it('keeps ENFORCE off by default in unit tests without Vite env', () => {
     expect(getClientAuthFlags().AUTH_V2_ENFORCE).toBe(false)
   })
 
@@ -109,10 +109,11 @@ describe('Auth V2 phase2 staff password writes', () => {
     expect(source).toContain('loginStaffV2')
   })
 
-  it('saveStaffMember stops writing password field', () => {
+  it('saveStaffMember routes through Functions and omits password payload helper', () => {
     const source = readFileSync(join(repoRoot, 'src/services/staffMembers.ts'), 'utf8')
-    expect(source).toContain('includePassword: false')
-    expect(source).toContain('upsertStaffCredentialViaFunctions')
-    expect(source).toContain('never write plaintext password')
+    expect(source).toContain('saveStaffMemberProfileViaFunctions')
+    expect(source).toContain('Never write plaintext password')
+    const payload = buildStaffAdminPayload(baseStaff(), { includePassword: false })
+    expect(payload).not.toHaveProperty('password')
   })
 })

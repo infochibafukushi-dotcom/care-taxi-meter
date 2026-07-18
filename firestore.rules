@@ -77,6 +77,26 @@ service cloud.firestore {
         || (request.resource.data.role != 'hq_admin' && request.resource.data.role != 'superAdmin')
         || isHqAdmin();
     }
+    // Phase3A: block client writes that create/change plaintext password fields.
+    // Existing password values may remain untouched.
+    function rejectsStaffPasswordWrite() {
+      return resource == null
+        ? (!('password' in request.resource.data) || request.resource.data.password == '')
+        : !request.resource.data.diff(resource.data).affectedKeys().hasAny(['password']);
+    }
+    function rejectsCompanyPasswordWrite() {
+      return resource == null
+        ? (
+          (!('representativeInitialPassword' in request.resource.data) || request.resource.data.representativeInitialPassword == '')
+          && (!('ownerPassword' in request.resource.data) || request.resource.data.ownerPassword == '')
+          && (!('initialPassword' in request.resource.data) || request.resource.data.initialPassword == '')
+        )
+        : !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'representativeInitialPassword',
+          'ownerPassword',
+          'initialPassword',
+        ]);
+    }
     function preservesStaffTenantIdentity() {
       return docFranchisee(request.resource.data) == docFranchisee(resource.data)
         && request.resource.data.storeId == resource.data.storeId
@@ -172,9 +192,15 @@ service cloud.firestore {
     }
 
     match /companies/{companyDocumentId} {
-      allow read, write: if isHqAdmin();
+      allow read: if isHqAdmin();
+      allow create: if isHqAdmin() && rejectsCompanyPasswordWrite();
+      allow update: if isHqAdmin() && rejectsCompanyPasswordWrite();
+      allow delete: if isHqAdmin();
       allow read: if isFranchiseeOwner() && companyDocumentId == franchiseeId();
-      allow update: if isFranchiseeOwner() && companyDocumentId == franchiseeId() && request.resource.data.id == resource.data.id;
+      allow update: if isFranchiseeOwner()
+        && companyDocumentId == franchiseeId()
+        && request.resource.data.id == resource.data.id
+        && rejectsCompanyPasswordWrite();
     }
 
     match /stores/{storeDocumentId} {
@@ -185,7 +211,7 @@ service cloud.firestore {
     }
 
     match /staffMembers/{staffMemberId} {
-      allow read, write: if isHqAdmin();
+      allow read: if isHqAdmin();
       // get: 未作成ドキュメントも owner/manager が存在確認できる（新規保存前の getDoc 用）
       allow get: if isFranchiseeOwner()
         && (resource == null || sameFranchisee(resource.data));
@@ -196,24 +222,36 @@ service cloud.firestore {
       allow list: if isFranchiseeOwner() && sameFranchisee(resource.data);
       allow list: if isStoreManager() && sameStore(resource.data);
       allow list: if isDriver() && staffMemberId == staffId() && sameStore(resource.data);
+      // Phase3A: profile writes allowed only without password mutations.
+      // Password/credential changes go through Cloud Functions Admin SDK.
+      allow create: if isHqAdmin()
+        && rejectsStaffPasswordWrite()
+        && hasTenant(request.resource.data);
       allow create: if isFranchiseeOwner()
         && sameFranchisee(request.resource.data)
         && hasTenant(request.resource.data)
-        && preventsHqGrant();
+        && preventsHqGrant()
+        && rejectsStaffPasswordWrite();
       allow create: if isStoreManager()
         && sameStore(request.resource.data)
         && hasTenant(request.resource.data)
-        && preventsHqGrant();
+        && preventsHqGrant()
+        && rejectsStaffPasswordWrite();
+      allow update: if isHqAdmin()
+        && rejectsStaffPasswordWrite()
+        && hasTenant(request.resource.data);
       allow update: if isFranchiseeOwner()
         && sameFranchisee(resource.data)
         && sameFranchisee(request.resource.data)
         && hasTenant(request.resource.data)
-        && preventsHqGrant();
+        && preventsHqGrant()
+        && rejectsStaffPasswordWrite();
       allow update: if isStoreManager()
         && sameStore(resource.data)
         && sameStore(request.resource.data)
         && hasTenant(request.resource.data)
-        && preventsHqGrant();
+        && preventsHqGrant()
+        && rejectsStaffPasswordWrite();
       allow delete: if false;
     }
 

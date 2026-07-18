@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { HttpsError, onCall } from 'firebase-functions/v2/https'
+import { assertLegacyLoginAllowed } from './authFlags'
 
 const defaultFranchiseeId = 'default-franchisee'
 const LOGIN_ATTEMPTS_COLLECTION = 'loginAttempts'
@@ -455,6 +456,9 @@ async function resolveStaffMemberForLogin({
 }
 
 export const loginStaff = onCall({ region: 'asia-northeast1' }, async (request) => {
+  // Phase3A: keep function deployed, but block when ENFORCE is on.
+  assertLegacyLoginAllowed()
+
   const companyId = normalizeLoginInput(String(request.data?.companyId || ''))
   const userId = normalizeLoginInput(String(request.data?.userId || ''))
   const password = normalizeLoginInput(String(request.data?.password || ''))

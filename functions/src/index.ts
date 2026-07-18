@@ -9,6 +9,7 @@ export {
   upsertStaffCredential,
   syncStaffAuthClaims,
   disableStaffAuth,
+  saveStaffMemberProfile,
 } from './manageStaffAuth'
 export {
   executePreOpeningDataReset,

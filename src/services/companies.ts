@@ -160,10 +160,22 @@ export function getCompanyNotificationSettings(company: Company | null | undefin
 
 
 export async function saveCompany(company: Company) {
+  // Phase3A: never write plaintext company password fields from the client.
+  // Existing values remain in Firestore untouched.
+  const {
+    representativeInitialPassword: _a,
+    ownerPassword: _b,
+    initialPassword: _c,
+    ...safeCompany
+  } = company as Company & {
+    ownerPassword?: string
+    initialPassword?: string
+  }
+
   await setDoc(
     getCompanyRef(company.id),
     {
-      ...company,
+      ...safeCompany,
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
     },
