@@ -34,6 +34,7 @@ import {
   saveConfirmedAccountingReceipt,
   replaceAccountingReceiptOcrImage,
   saveReceiptOnly,
+  softHideAccountingReceipt,
   unlinkAccountingReceiptFromExpense,
   uploadAccountingReceiptFile,
   type StoredAccountingReceipt,
@@ -139,6 +140,12 @@ import {
   selectAccountingReceiptInbox,
   type AccountingReceiptInboxEntry,
 } from '../utils/accountingReceiptLink'
+import {
+  IMAGE_HARD_DELETE_CONFIRM_MESSAGE,
+  IMAGE_SOFT_HIDE_DELETE_REASON,
+  IMAGE_SOFT_HIDE_MESSAGE,
+  resolveAccountingImageDeleteAction,
+} from '../utils/accountingImageDeletePolicy'
 import {
   fetchAccountingFixedAssets,
 } from '../services/accountingFixedAssets'
@@ -519,6 +526,53 @@ function DuplicateExpensePromptDialog({
   )
 }
 
+function ImageDeleteConfirmDialog({
+  mode,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  mode: 'hard_delete' | 'soft_hide'
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const title =
+    mode === 'hard_delete' ? IMAGE_HARD_DELETE_CONFIRM_MESSAGE : IMAGE_SOFT_HIDE_MESSAGE
+
+  return (
+    <div className="accounting-duplicate-dialog-backdrop" role="presentation">
+      <section
+        className="accounting-duplicate-dialog"
+        role="alertdialog"
+        aria-labelledby="accounting-image-delete-dialog-title"
+        aria-busy={busy}
+      >
+        <h3 id="accounting-image-delete-dialog-title">{title}</h3>
+        <div className="accounting-duplicate-dialog-actions">
+          <button className="secondary-action" type="button" disabled={busy} onClick={onCancel}>
+            キャンセル
+          </button>
+          {mode === 'hard_delete' ? (
+            <button
+              className="accounting-image-delete-confirm-button"
+              type="button"
+              disabled={busy}
+              onClick={onConfirm}
+            >
+              {busy ? '削除中…' : '完全に削除'}
+            </button>
+          ) : (
+            <button className="primary-action" type="button" disabled={busy} onClick={onConfirm}>
+              {busy ? '処理中…' : '非表示にする'}
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function AccountingPage() {
   const [searchParams] = useSearchParams()
   const showAccountingDiagnostics = useMemo(() => isAccountingDebugEnabled(searchParams), [searchParams])
@@ -568,6 +622,12 @@ export function AccountingPage() {
   const [editingExpenseId, setEditingExpenseId] = useState('')
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const isSavingExpenseRef = useRef(false)
+  const [isDeletingReceipt, setIsDeletingReceipt] = useState(false)
+  const isDeletingReceiptRef = useRef(false)
+  const [imageDeletePrompt, setImageDeletePrompt] = useState<{
+    receipt: StoredAccountingReceipt
+    mode: 'hard_delete' | 'soft_hide'
+  } | null>(null)
   const clientExpenseIdRef = useRef<string>('')
   const baselineRegistrationTypeRef = useRef<ExpenseRegistrationType>('normal')
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false)
@@ -2229,38 +2289,69 @@ export function AccountingPage() {
     }
   }
 
-  const handleDeleteUnorganizedReceipt = async (
+  const handleDeleteUnorganizedReceipt = (
     receipt: StoredAccountingReceipt,
-    kind: AccountingReceiptInboxEntry['kind'],
+    _kind: AccountingReceiptInboxEntry['kind'],
   ) => {
-    const confirmed = window.confirm(
-      kind === 'orphan'
-        ? 'このリンク切れ証憑を削除します。よろしいですか？\n※削除すると元に戻せません。'
-        : 'この未整理の領収書を削除します。よろしいですか？\n※削除すると元に戻せません。',
-    )
-    if (!confirmed) {
+    if (isDeletingReceiptRef.current || isDeletingReceipt || isSavingExpense) {
       return
     }
 
-    try {
-      setErrorMessage('')
-      const result = await deleteAccountingReceipt(receipt.id, {
-        allowLinkedOrphan: kind === 'orphan',
-      })
+    const linkedExpense = receipt.linkedExpenseId
+      ? expenses.find((expense) => expense.id === receipt.linkedExpenseId) ?? null
+      : null
+    const decision = resolveAccountingImageDeleteAction(receipt, { linkedExpense })
+    setImageDeletePrompt({
+      receipt,
+      mode: decision.action,
+    })
+  }
 
-      if (expenseForm?.receiptId === receipt.id) {
-        await resetExpenseFormToNew({ retainPendingUploads: true })
+  const handleConfirmImageDeletePrompt = async () => {
+    if (!imageDeletePrompt || isDeletingReceiptRef.current || isDeletingReceipt) {
+      return
+    }
+
+    const { receipt, mode } = imageDeletePrompt
+    isDeletingReceiptRef.current = true
+    setIsDeletingReceipt(true)
+    setErrorMessage('')
+
+    try {
+      if (mode === 'soft_hide') {
+        await softHideAccountingReceipt({
+          receiptId: receipt.id,
+          deletedBy: staffId,
+          deleteReason: IMAGE_SOFT_HIDE_DELETE_REASON,
+          accessScope,
+        })
+        setStatusMessage(IMAGE_SOFT_HIDE_MESSAGE)
+      } else {
+        const linkedExpense = receipt.linkedExpenseId
+          ? expenses.find((expense) => expense.id === receipt.linkedExpenseId) ?? null
+          : null
+        const result = await deleteAccountingReceipt(receipt.id, {
+          accessScope,
+          linkedExpense,
+        })
+        if (expenseForm?.receiptId === receipt.id) {
+          await resetExpenseFormToNew({ retainPendingUploads: true })
+        }
+        setStatusMessage(
+          result.storageImageWasMissing
+            ? '画像ファイルは既に存在しません。未整理データのみ削除しました。'
+            : '未整理領収書とアップロード画像を削除しました。',
+        )
       }
 
-      setStatusMessage(
-        result.storageImageWasMissing
-          ? '画像ファイルは既に存在しません。未整理データのみ削除しました。'
-          : '未整理領収書とアップロード画像を削除しました。',
-      )
+      setImageDeletePrompt(null)
       await reloadExpensesAdjustmentsAndReceipts()
       setFocusReceiptId('')
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '未整理領収書の削除に失敗しました。')
+      setErrorMessage(error instanceof Error ? error.message : '証憑の削除に失敗しました。')
+    } finally {
+      isDeletingReceiptRef.current = false
+      setIsDeletingReceipt(false)
     }
   }
 
@@ -3528,7 +3619,8 @@ export function AccountingPage() {
             onUnlinkOrphan={(receipt) => void handleUnlinkOrphanReceipt(receipt)}
             onRelinkOrphan={(receipt, expenseId) => void handleRelinkOrphanReceipt(receipt, expenseId)}
             onInvalidateOrphan={(receipt) => void handleInvalidateOrphanReceipt(receipt)}
-            onDelete={(receipt, kind) => void handleDeleteUnorganizedReceipt(receipt, kind)}
+            onDelete={(receipt, kind) => handleDeleteUnorganizedReceipt(receipt, kind)}
+            isBusy={isDeletingReceipt || isSavingExpense || isUploadingReceipt}
           />
         ) : null}
 
@@ -5022,6 +5114,18 @@ export function AccountingPage() {
           }}
           onContinue={duplicatePrompt.onContinue}
           onCancel={() => setDuplicatePrompt(null)}
+        />
+      ) : null}
+      {imageDeletePrompt ? (
+        <ImageDeleteConfirmDialog
+          mode={imageDeletePrompt.mode}
+          busy={isDeletingReceipt}
+          onCancel={() => {
+            if (!isDeletingReceipt) {
+              setImageDeletePrompt(null)
+            }
+          }}
+          onConfirm={() => void handleConfirmImageDeletePrompt()}
         />
       ) : null}
     </main>

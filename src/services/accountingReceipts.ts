@@ -54,6 +54,12 @@ import {
 } from './accountingTenant'
 import type { TenantAccessScope } from './tenancy'
 import { matchesTenantScope } from './tenancy'
+import {
+  IMAGE_SOFT_HIDE_DELETE_REASON,
+  IMAGE_SOFT_HIDE_MESSAGE,
+  assertTenantCanDeleteAccountingImage,
+  canHardDeleteAccountingImage,
+} from '../utils/accountingImageDeletePolicy'
 
 const collectionName = 'accountingReceipts'
 
@@ -250,6 +256,9 @@ export const toStoredReceipt = (snapshot: {
     createdAt: readTimestampAsIso(data.createdAt),
     updatedAt: readTimestampAsIso(data.updatedAt),
     invalidatedAt: typeof data.invalidatedAt === 'string' ? data.invalidatedAt : undefined,
+    deletedAt: typeof data.deletedAt === 'string' ? data.deletedAt : undefined,
+    deletedBy: typeof data.deletedBy === 'string' ? data.deletedBy : undefined,
+    deleteReason: typeof data.deleteReason === 'string' ? data.deleteReason : undefined,
   }
 }
 
@@ -991,26 +1000,79 @@ export async function relinkAccountingReceiptToExpense({
 
 export async function invalidateAccountingReceipt({
   receiptId,
+  deletedBy,
+  deleteReason,
 }: {
   receiptId: string
+  deletedBy?: string
+  deleteReason?: string
 }) {
   if (isReviewDemoRuntimeEnabled()) {
     return
   }
 
+  const nowIso = new Date().toISOString()
   const db = getFirestore(getFirebaseApp())
   await updateDoc(doc(db, collectionName, receiptId), {
     status: 'invalid' satisfies ReceiptStatus,
     receiptStatus: 'rejected' satisfies AccountingReceiptWorkflowStatus,
     linkedExpenseId: deleteField(),
-    invalidatedAt: new Date().toISOString(),
+    invalidatedAt: nowIso,
+    deletedAt: nowIso,
+    deletedBy: deletedBy?.trim() || deleteField(),
+    deleteReason: deleteReason?.trim() || deleteField(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
+ * 経理紐付証憑の soft-hide。Storage 原本・経費データは削除しない。
+ */
+export async function softHideAccountingReceipt({
+  receiptId,
+  deletedBy,
+  deleteReason = IMAGE_SOFT_HIDE_DELETE_REASON,
+  accessScope,
+}: {
+  receiptId: string
+  deletedBy?: string
+  deleteReason?: string
+  accessScope?: TenantAccessScope
+}): Promise<void> {
+  if (isReviewDemoRuntimeEnabled()) {
+    return
+  }
+
+  const db = getFirestore(getFirebaseApp())
+  const receiptRef = doc(db, collectionName, receiptId)
+  const snapshot = await getDoc(receiptRef)
+  if (!snapshot.exists()) {
+    return
+  }
+
+  const receipt = toStoredReceipt(snapshot)
+  assertTenantCanDeleteAccountingImage(receipt, accessScope)
+
+  const nowIso = new Date().toISOString()
+  await updateDoc(receiptRef, {
+    status: 'invalid' satisfies ReceiptStatus,
+    receiptStatus: 'rejected' satisfies AccountingReceiptWorkflowStatus,
+    deletedAt: nowIso,
+    deletedBy: deletedBy?.trim() || '',
+    deleteReason: deleteReason.trim() || IMAGE_SOFT_HIDE_DELETE_REASON,
+    invalidatedAt: nowIso,
     updatedAt: serverTimestamp(),
   })
 }
 
 export async function deleteAccountingReceipt(
   receiptId: string,
-  options?: { allowLinkedOrphan?: boolean },
+  options?: {
+    /** @deprecated 経理紐付・リンク切れは soft-hide のみ。true でも hard delete しない */
+    allowLinkedOrphan?: boolean
+    accessScope?: TenantAccessScope
+    linkedExpense?: StoredAccountingExpense | null
+  },
 ): Promise<DeleteAccountingReceiptResult> {
   if (isReviewDemoRuntimeEnabled()) {
     return {}
@@ -1040,14 +1102,10 @@ export async function deleteAccountingReceipt(
   }
 
   const receipt = toStoredReceipt(snapshot)
+  assertTenantCanDeleteAccountingImage(receipt, options?.accessScope)
 
-  const allowLinkedOrphan = options?.allowLinkedOrphan === true
-  if (receipt.status === 'unorganized') {
-    // ok
-  } else if (receipt.status === 'linked' && allowLinkedOrphan && receipt.linkedExpenseId) {
-    // リンク切れ証憑の削除（呼び出し側で orphan 判定済み）
-  } else {
-    throw new Error('未整理の領収書のみ削除できます。')
+  if (!canHardDeleteAccountingImage(receipt, { linkedExpense: options?.linkedExpense ?? null })) {
+    throw new Error(IMAGE_SOFT_HIDE_MESSAGE)
   }
 
   let storageImageWasMissing = false

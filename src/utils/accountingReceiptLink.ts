@@ -12,7 +12,9 @@ export type AccountingReceiptInboxEntry = {
 }
 
 const isInvalidatedReceipt = (receipt: StoredAccountingReceipt) =>
-  receipt.status === 'invalid' || receipt.receiptStatus === 'rejected'
+  Boolean(receipt.deletedAt?.trim()) ||
+  receipt.status === 'invalid' ||
+  receipt.receiptStatus === 'rejected'
 
 /** 証憑リンク対象として有効な経費か（削除・無効は対象外） */
 export const isExpenseEligibleForReceiptLink = (

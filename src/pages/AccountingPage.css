@@ -1401,6 +1401,21 @@ body.route-accounting,
   margin-top: 1rem;
 }
 
+.accounting-image-delete-confirm-button {
+  border: 1px solid #b91c1c;
+  border-radius: 0.4rem;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.accounting-image-delete-confirm-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .accounting-expense-category-field {
   display: grid;
   gap: 0.35rem;

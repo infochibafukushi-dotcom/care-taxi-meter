@@ -34,6 +34,7 @@ type UnorganizedReceiptsPanelProps = {
   onRelinkOrphan: (receipt: StoredAccountingReceipt, expenseId: string) => void
   onInvalidateOrphan: (receipt: StoredAccountingReceipt) => void
   onDelete: (receipt: StoredAccountingReceipt, kind: AccountingReceiptInboxEntry['kind']) => void
+  isBusy?: boolean
 }
 
 const isPdfReceipt = (receipt: StoredAccountingReceipt) =>
@@ -55,6 +56,7 @@ export function UnorganizedReceiptsPanel({
   onRelinkOrphan,
   onInvalidateOrphan,
   onDelete,
+  isBusy = false,
 }: UnorganizedReceiptsPanelProps) {
   const [relinkReceiptId, setRelinkReceiptId] = useState('')
   const [relinkExpenseId, setRelinkExpenseId] = useState('')
@@ -237,6 +239,7 @@ export function UnorganizedReceiptsPanel({
                         <button
                           className="secondary-action"
                           type="button"
+                          disabled={isBusy}
                           onClick={() => onDelete(receipt, 'orphan')}
                         >
                           削除
@@ -306,6 +309,7 @@ export function UnorganizedReceiptsPanel({
                           <button
                             className="secondary-action"
                             type="button"
+                            disabled={isBusy}
                             onClick={() => onDelete(receipt, 'unorganized')}
                           >
                             削除
@@ -400,6 +404,7 @@ export function UnorganizedReceiptsPanel({
                             <button
                               className="secondary-action"
                               type="button"
+                              disabled={isBusy}
                               onClick={() => onDelete(entry.receipt, 'orphan')}
                             >
                               削除
@@ -417,6 +422,7 @@ export function UnorganizedReceiptsPanel({
                             <button
                               className="secondary-action"
                               type="button"
+                              disabled={isBusy}
                               onClick={() => onDelete(entry.receipt, 'unorganized')}
                             >
                               削除

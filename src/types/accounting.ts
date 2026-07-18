@@ -353,6 +353,10 @@ export type StoredAccountingReceipt = AccountingReceiptInput & {
   createdAt?: string
   updatedAt?: string
   invalidatedAt?: string
+  /** soft-hide（経理紐付証憑）。Storage 原本は保持する */
+  deletedAt?: string
+  deletedBy?: string
+  deleteReason?: string
 }
 
 export type {
