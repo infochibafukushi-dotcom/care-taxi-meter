@@ -396,7 +396,22 @@ export function FixedAssetLedgerPanel({
   }
 
   const handleDelete = async (assetId: string) => {
-    const confirmed = window.confirm('この資産を削除しますか？')
+    const target = fixedAssets.find((asset) => asset.id === assetId)
+    const linkedExpenseId = target?.expenseId?.trim()
+    let confirmMessage = 'この資産を削除しますか？'
+    if (linkedExpenseId) {
+      const linked = await fetchAccountingExpenseLinkById(linkedExpenseId)
+      if (linked?.exists && !linked.isDeleted) {
+        confirmMessage = [
+          'この固定資産には経費が紐付いています。',
+          `紐付経費: ${linked.receiptDate || '－'} ${linked.description || linked.id} ${linked.taxIncludedAmount}円`,
+          '',
+          '固定資産のみを削除します（経費は削除しません）。よろしいですか？',
+        ].join('\n')
+      }
+    }
+
+    const confirmed = window.confirm(confirmMessage)
     if (!confirmed) {
       return
     }

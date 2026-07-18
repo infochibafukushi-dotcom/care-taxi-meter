@@ -59,6 +59,10 @@ vi.mock('../utils/reviewDemo', () => ({
   isReviewDemoRuntimeEnabled: vi.fn(() => false),
 }))
 
+vi.mock('./auditLogs', () => ({
+  createAuditLog: vi.fn(async () => undefined),
+}))
+
 import { softDeleteAccountingExpense } from './accountingExpenses'
 
 describe('softDeleteAccountingExpense receipt unlink', () => {
@@ -86,9 +90,14 @@ describe('softDeleteAccountingExpense receipt unlink', () => {
           ocrCandidates: { vendorName: 'x' },
         }),
       })
-    mockGetDocs.mockResolvedValueOnce({
-      docs: [{ id: 'r1' }],
-    })
+    // receipts by linkedExpenseId, then assets by expenseId (+ optional fallback)
+    mockGetDocs
+      .mockResolvedValueOnce({
+        docs: [{ id: 'r1' }],
+      })
+      .mockResolvedValue({
+        docs: [],
+      })
 
     await softDeleteAccountingExpense({
       expenseId: 'e1',
@@ -113,6 +122,61 @@ describe('softDeleteAccountingExpense receipt unlink', () => {
       status: 'unorganized',
       receiptStatus: 'ocr_ready',
       linkedExpenseId: { __delete: true },
+    })
+  })
+
+  it('soft-deletes linked fixed assets with the expense', async () => {
+    mockGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        franchiseeId: 'f1',
+        storeId: 's1',
+        linkedAssetId: 'a1',
+      }),
+    })
+    mockGetDocs
+      .mockResolvedValueOnce({ docs: [] }) // receipts
+      .mockResolvedValueOnce({
+        docs: [
+          {
+            id: 'a1',
+            data: () => ({
+              expenseId: 'e1',
+              isDeleted: false,
+              assetKind: 'fixed',
+              purchaseDate: '2026-07-01',
+              useStartDate: '2026-07-01',
+              assetCategory: 'PC',
+              assetName: 'PC',
+              condition: '新品',
+              acquisitionCost: 150000,
+              standardUsefulLifeYears: 4,
+              appliedUsefulLifeYears: 4,
+              monthlyDepreciationYen: 3125,
+              depreciationStartYearMonth: '2026-07',
+              depreciationEndYearMonth: '2030-06',
+              remainingBookValue: 150000,
+              status: 'active',
+              franchiseeId: 'f1',
+              companyId: 'f1',
+              storeId: 's1',
+            }),
+          },
+        ],
+      })
+
+    await softDeleteAccountingExpense({
+      expenseId: 'e1',
+      deletedBy: 'staff-1',
+      deletedByName: '担当',
+    })
+
+    const assetUpdate = mockUpdate.mock.calls.find(
+      (call) => call[0]?.path === 'accountingFixedAssets/a1',
+    )
+    expect(assetUpdate?.[1]).toMatchObject({
+      isDeleted: true,
+      deletedBy: 'staff-1',
     })
   })
 })

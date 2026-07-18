@@ -2,7 +2,9 @@ import { detectFixedAssetRegistrationWarning } from './accountingAssetDetection'
 import {
   buildEmptyExpenseAssetDraft,
   type ExpenseAssetRegistrationDraft,
+  type StoredAccountingFixedAsset,
 } from '../types/accountingFixedAssets'
+import { buildAssetDraftFromLinkedFixedAsset } from './accountingExpenseFixedAssetSync'
 
 export const NORMAL_EXPENSE_OVERRIDE_CONFIRM_CHECKBOX_ID = 'normal-expense-override-confirm'
 export const NORMAL_EXPENSE_OVERRIDE_REASON_FIELD_ID = 'normal-expense-override-reason'
@@ -68,13 +70,21 @@ export const buildAssetDraftForExpenseEdit = ({
   description = '',
   vendorName = '',
   suggestedCategory = '',
+  linkedAsset,
 }: {
   expense: NormalExpenseOverrideFields
   amountYen: number
   description?: string
   vendorName?: string
   suggestedCategory?: string
+  linkedAsset?: StoredAccountingFixedAsset | null
 }): ExpenseAssetRegistrationDraft => {
+  if (linkedAsset && linkedAsset.isDeleted !== true) {
+    return buildAssetDraftFromLinkedFixedAsset(linkedAsset, {
+      acquisitionCost: amountYen,
+    })
+  }
+
   const { confirmed, reason } = resolveStoredNormalExpenseOverride(expense)
   const judgment = detectNormalExpenseOverrideJudgment({
     amountYen,

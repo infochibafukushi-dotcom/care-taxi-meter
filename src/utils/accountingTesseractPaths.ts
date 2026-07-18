@@ -31,20 +31,48 @@ export const getAccountingTesseractPaths = (): AccountingTesseractPaths => {
 }
 
 export const logAccountingTesseractPaths = (paths: AccountingTesseractPaths) => {
-  console.info('[Accounting OCR] tesseract paths', paths)
+  if (!import.meta.env.DEV) {
+    return
+  }
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    if (new URLSearchParams(window.location.search).get('debugAccounting') !== '1') {
+      return
+    }
+  } catch {
+    return
+  }
+  console.info('[Accounting OCR] tesseract paths', {
+    baseUrl: paths.baseUrl,
+    hasWorkerPath: Boolean(paths.workerPath),
+    hasCorePath: Boolean(paths.corePath),
+    hasLangPath: Boolean(paths.langPath),
+  })
 }
 
 export const verifyAccountingTesseractAsset = async (url: string, label: string) => {
   const response = await fetch(url, { method: 'HEAD' })
-  console.info('[Accounting OCR] asset check', {
-    label,
-    url,
-    ok: response.ok,
-    status: response.status,
-  })
+  if (import.meta.env.DEV) {
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('debugAccounting') === '1'
+      ) {
+        console.info('[Accounting OCR] asset check', {
+          label,
+          ok: response.ok,
+          status: response.status,
+        })
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   if (!response.ok) {
-    throw new Error(`${label} の読み込みに失敗しました (${response.status}): ${url}`)
+    throw new Error(`${label} の読み込みに失敗しました (${response.status})`)
   }
 }
 

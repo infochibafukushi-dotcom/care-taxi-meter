@@ -97,6 +97,16 @@ export const formatExpenseListInvoiceStatus = (
   invoiceStatus: InvoiceStatus | null | undefined | unknown,
 ): string => INVOICE_STATUS_LABELS[normalizeInvoiceStatus(invoiceStatus)]
 
+export const formatExpenseListBillingInvoiceNumber = (
+  billingInvoiceNumber: string | null | undefined,
+): string => {
+  if (typeof billingInvoiceNumber !== 'string') {
+    return '－'
+  }
+  const trimmed = billingInvoiceNumber.trim()
+  return trimmed || '－'
+}
+
 /** 確認状態の表示（既存どおり保存値をそのまま表示） */
 export const formatExpenseListConfirmationStatus = (
   confirmationStatus: ExpenseConfirmationStatus | string | null | undefined,

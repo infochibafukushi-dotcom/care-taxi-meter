@@ -19,7 +19,7 @@ export type AccountingAuthTokenClaims = {
 }
 
 export const isAccountingDebugEnabled = (searchParams?: Pick<URLSearchParams, 'get'>) =>
-  import.meta.env.DEV || searchParams?.get('debugAccounting') === '1'
+  import.meta.env.DEV && searchParams?.get('debugAccounting') === '1'
 
 export type AccountingSessionDiagnostics = {
   firebaseAuthUid: string
