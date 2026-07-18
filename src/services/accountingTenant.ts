@@ -67,15 +67,27 @@ export const formatAccountingQueryErrorMessage = (collectionName: string, error:
   return `${collectionName}: ${message}`
 }
 
+/** ローカルログインだけ残り Firebase Auth が無効なときに表示する（データ削除断定はしない） */
+export const ACCOUNTING_AUTH_REQUIRED_MESSAGE =
+  '認証情報の更新が必要です。再ログインしてください。'
+
+/** settlementAuxiliary 単独失敗時。経費一覧とは独立して扱う */
+export const ACCOUNTING_SETTLEMENT_AUXILIARY_LOAD_HINT =
+  '補助資料（accountingSettlementAuxiliary）の読み込みに失敗しました。経費一覧とは別に再ログインまたは権限を確認してください。'
+
+const ACCOUNTING_TOKEN_ROLES = new Set(['owner', 'franchisee_owner', 'manager', 'store_manager', 'hq_admin', 'superAdmin'])
+
 const toClaimString = (value: unknown) => (typeof value === 'string' ? value : '')
 
-export const readFirebaseAuthTokenClaims = async (): Promise<AccountingAuthTokenClaims | null> => {
+export const readFirebaseAuthTokenClaims = async (
+  options?: { forceRefresh?: boolean },
+): Promise<AccountingAuthTokenClaims | null> => {
   const user = getAuth(getFirebaseApp()).currentUser ?? (await waitForFirebaseAuthUser())
   if (!user) {
     return null
   }
 
-  const token = await user.getIdTokenResult()
+  const token = await user.getIdTokenResult(Boolean(options?.forceRefresh))
   return {
     role: toClaimString(token.claims.role),
     franchiseeId: toClaimString(token.claims.franchiseeId),
@@ -83,6 +95,23 @@ export const readFirebaseAuthTokenClaims = async (): Promise<AccountingAuthToken
     storeId: toClaimString(token.claims.storeId),
     staffId: toClaimString(token.claims.staffId),
   }
+}
+
+export const hasAccountingTokenClaims = (claims: AccountingAuthTokenClaims | null): boolean => {
+  if (!claims) {
+    return false
+  }
+  if (!claims.role || !ACCOUNTING_TOKEN_ROLES.has(claims.role)) {
+    return false
+  }
+  const tenantId = claims.franchiseeId || claims.companyId
+  if (!tenantId) {
+    return false
+  }
+  if (claims.role === 'manager' || claims.role === 'store_manager') {
+    return Boolean(claims.storeId)
+  }
+  return true
 }
 
 /** AdminPage / SalesAnalyticsPage と同じ session → scope 解決 */
@@ -155,16 +184,21 @@ export const validateAccountingFirebaseAuth = async ({
   const firebaseUser = getAuth(getFirebaseApp()).currentUser ?? (await waitForFirebaseAuthUser())
 
   if (authSession && !firebaseUser) {
-    return 'Firebase Auth のセッションが無効です。一度ログアウトしてから再ログインしてください。'
+    return ACCOUNTING_AUTH_REQUIRED_MESSAGE
   }
 
   if (!firebaseUser) {
-    return 'Firebase Auth に未ログインです。ホームから再ログインしてください。'
+    return ACCOUNTING_AUTH_REQUIRED_MESSAGE
   }
 
-  const tokenClaims = await readFirebaseAuthTokenClaims()
-  if (!tokenClaims?.role) {
-    return 'Firebase Auth の role claim がありません。再ログインして custom token を更新してください。'
+  let tokenClaims = await readFirebaseAuthTokenClaims()
+  if (!hasAccountingTokenClaims(tokenClaims)) {
+    // クレーム不足時は強制更新を1回試す（loginStaffV2 直後の伝播遅れ対策）
+    tokenClaims = await readFirebaseAuthTokenClaims({ forceRefresh: true })
+  }
+
+  if (!hasAccountingTokenClaims(tokenClaims)) {
+    return ACCOUNTING_AUTH_REQUIRED_MESSAGE
   }
 
   return ''

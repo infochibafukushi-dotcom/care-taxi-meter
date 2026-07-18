@@ -499,9 +499,15 @@ service cloud.firestore {
     }
 
     match /accountingSettlementAuxiliary/{docId} {
+      // 既存ドキュメントは resource.data のテナント一致を優先。
+      // 旧データでテナント項目が欠けていても、自社ドキュメントIDなら会計ユーザーの get を許可する。
+      // list の無条件許可や他社閲覧は許可しない。
       allow read: if resource == null
         ? (isAccountingUser() && canReadSettlementAuxiliaryDoc(docId))
-        : canReadAccounting(resource.data);
+        : (
+          canReadAccounting(resource.data)
+          || (isAccountingUser() && canReadSettlementAuxiliaryDoc(docId))
+        );
       allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
       allow update: if isAccountingUser()
         && canReadAccounting(resource.data)

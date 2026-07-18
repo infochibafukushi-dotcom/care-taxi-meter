@@ -81,9 +81,12 @@ import {
   type ReceiptRotationDegrees,
 } from '../utils/accountingReceiptRotation'
 import { fetchAccountingExports, recordAccountingExport } from '../services/accountingExports'
-import { loadAuthStaffSession } from '../services/authSession'
+import { clearAuthStaffSession, loadAuthStaffSession } from '../services/authSession'
+import { signOutFirebaseAuth } from '../services/firebaseAuth'
 import { formatFareYen } from '../services/fare'
 import {
+  ACCOUNTING_AUTH_REQUIRED_MESSAGE,
+  ACCOUNTING_SETTLEMENT_AUXILIARY_LOAD_HINT,
   collectAccountingSessionDiagnostics,
   formatAccountingQueryErrorMessage,
   isAccountingDebugEnabled,
@@ -140,7 +143,6 @@ import { SubmissionPackagePanel } from '../components/accounting/SubmissionPacka
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
 import {
   selectAccountingReceiptInbox,
-  type AccountingReceiptInboxEntry,
 } from '../utils/accountingReceiptLink'
 import {
   IMAGE_HARD_DELETE_CONFIRM_MESSAGE,
@@ -617,6 +619,9 @@ export function AccountingPage() {
   const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
   const [settlementAuxiliary, setSettlementAuxiliary] = useState<StoredAccountingSettlementAuxiliary | null>(null)
   const [settlementAuxiliaryLoadError, setSettlementAuxiliaryLoadError] = useState('')
+  /** Firebase Auth 無効時は空一覧を「0件」と見せず、再ログインを促す */
+  const [authBlockedMessage, setAuthBlockedMessage] = useState('')
+  const [expensesLoadFailed, setExpensesLoadFailed] = useState(false)
   const [assetDraft, setAssetDraft] = useState<ExpenseAssetRegistrationDraft>(buildEmptyExpenseAssetDraft)
   const [editingExpenseBaseline, setEditingExpenseBaseline] = useState<{
     form: AccountingExpenseInput
@@ -827,6 +832,8 @@ export function AccountingPage() {
     const loadData = async () => {
       setIsLoading(true)
       setErrorMessage('')
+      setAuthBlockedMessage('')
+      setExpensesLoadFailed(false)
 
       const diagnostics = showAccountingDiagnostics
         ? await collectAccountingSessionDiagnostics({
@@ -838,63 +845,82 @@ export function AccountingPage() {
       const authValidationError = await validateAccountingFirebaseAuth({ authSession })
 
       const loadErrors: string[] = []
+
       if (authValidationError) {
-        loadErrors.push(authValidationError)
+        if (cancelled) {
+          return
+        }
+        // ローカルセッションだけ残っている場合は破棄し、空の経費一覧を出さない
+        clearAuthStaffSession()
+        void signOutFirebaseAuth()
+        setAuthBlockedMessage(authValidationError || ACCOUNTING_AUTH_REQUIRED_MESSAGE)
+        setErrorMessage(authValidationError || ACCOUNTING_AUTH_REQUIRED_MESSAGE)
+        setSessionDiagnostics(showAccountingDiagnostics ? diagnostics : null)
+        setIsLoading(false)
+        return
       }
 
-      let records: StoredCaseRecord[] = []
-      let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> = []
-      let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> = []
-      let fixedCostRows: Awaited<ReturnType<typeof fetchAccountingFixedCosts>> = []
-      let fixedAssetRows: StoredAccountingFixedAsset[] = []
-      let unorganizedRows: StoredAccountingReceipt[] = []
+      let records: StoredCaseRecord[] | null = null
+      let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> | null = null
+      let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> | null = null
+      let fixedCostRows: Awaited<ReturnType<typeof fetchAccountingFixedCosts>> | null = null
+      let fixedAssetRows: StoredAccountingFixedAsset[] | null = null
+      let unorganizedRows: StoredAccountingReceipt[] | null = null
+      let allReceiptRows: StoredAccountingReceipt[] | null = null
 
-      if (!authValidationError) {
-        try {
-          records = await fetchCaseRecords(accessScope)
-        } catch (error) {
-          logAccountingQueryFailure('caseRecords', accessScope, error)
-          loadErrors.push(formatAccountingQueryErrorMessage('caseRecords', error))
-        }
+      try {
+        records = await fetchCaseRecords(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('caseRecords', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('caseRecords', error))
+      }
 
-        try {
-          expenseRows = await fetchAccountingExpenses(accessScope)
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenses', error))
+      try {
+        expenseRows = await fetchAccountingExpenses(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingExpenses', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenses', error))
+        if (!cancelled) {
+          setExpensesLoadFailed(true)
         }
+      }
 
-        try {
-          adjustmentRows = await fetchAccountingAdjustments(accessScope)
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
-        }
+      try {
+        adjustmentRows = await fetchAccountingAdjustments(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingAdjustments', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingAdjustments', error))
+      }
 
-        try {
-          fixedCostRows = await fetchAccountingFixedCosts(accessScope)
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedCosts', error))
-        }
+      try {
+        fixedCostRows = await fetchAccountingFixedCosts(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingFixedCosts', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedCosts', error))
+      }
 
-        try {
-          fixedAssetRows = await fetchAccountingFixedAssets(accessScope)
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedAssets', error))
-        }
+      try {
+        fixedAssetRows = await fetchAccountingFixedAssets(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingFixedAssets', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingFixedAssets', error))
+      }
 
-        try {
-          unorganizedRows = await fetchUnorganizedAccountingReceipts(accessScope, expenseRows)
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
-        }
+      try {
+        unorganizedRows = await fetchUnorganizedAccountingReceipts(
+          accessScope,
+          expenseRows ?? [],
+        )
+      } catch (error) {
+        logAccountingQueryFailure('accountingReceipts', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts', error))
+      }
 
-        try {
-          const allReceiptRows = await fetchAccountingReceipts(accessScope)
-          if (!cancelled) {
-            setAllReceipts(allReceiptRows)
-          }
-        } catch (error) {
-          loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts (all)', error))
-        }
+      try {
+        allReceiptRows = await fetchAccountingReceipts(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingReceipts (all)', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingReceipts (all)', error))
       }
 
       if (cancelled) {
@@ -902,12 +928,29 @@ export function AccountingPage() {
       }
 
       setSessionDiagnostics(showAccountingDiagnostics ? diagnostics : null)
-      setCaseRecords(records)
-      setExpenses(expenseRows)
-      setAdjustments(adjustmentRows)
-      setFixedCosts(fixedCostRows)
-      setFixedAssets(fixedAssetRows)
-      setUnorganizedReceipts(unorganizedRows)
+      // 成功したソースだけ反映。失敗時に既存 state を [] で上書きしない
+      if (records) {
+        setCaseRecords(records)
+      }
+      if (expenseRows) {
+        setExpenses(expenseRows)
+        setExpensesLoadFailed(false)
+      }
+      if (adjustmentRows) {
+        setAdjustments(adjustmentRows)
+      }
+      if (fixedCostRows) {
+        setFixedCosts(fixedCostRows)
+      }
+      if (fixedAssetRows) {
+        setFixedAssets(fixedAssetRows)
+      }
+      if (unorganizedRows) {
+        setUnorganizedReceipts(unorganizedRows)
+      }
+      if (allReceiptRows) {
+        setAllReceipts(allReceiptRows)
+      }
       setErrorMessage(loadErrors.join(' / '))
       setIsLoading(false)
     }
@@ -927,29 +970,50 @@ export function AccountingPage() {
     }
 
     let cancelled = false
-    void fetchAccountingSettlementAuxiliary(accessScope, targetYear)
-      .then((row) => {
+
+    const loadSettlement = async () => {
+      // Firebase Auth 準備前の get による permission-denied を避ける
+      const authValidationError = await validateAccountingFirebaseAuth({ authSession })
+      if (authValidationError) {
+        if (!cancelled) {
+          setSettlementAuxiliary(null)
+          setSettlementAuxiliaryLoadError(authValidationError)
+        }
+        return
+      }
+
+      try {
+        const row = await fetchAccountingSettlementAuxiliary(accessScope, targetYear)
         if (!cancelled) {
           setSettlementAuxiliary(row)
           setSettlementAuxiliaryLoadError('')
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           setSettlementAuxiliary(null)
           const message = formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error)
-          setSettlementAuxiliaryLoadError(message)
-          setErrorMessage(message)
+          setSettlementAuxiliaryLoadError(`${message} / ${ACCOUNTING_SETTLEMENT_AUXILIARY_LOAD_HINT}`)
+          // 経費一覧の errorMessage は上書きしない（補助資料単独失敗として扱う）
+          console.error('[accounting] accountingSettlementAuxiliary isolated failure', {
+            collection: 'accountingSettlementAuxiliary',
+            errorCode:
+              error && typeof error === 'object' && 'code' in error
+                ? String((error as { code?: unknown }).code ?? '')
+                : '',
+          })
         }
-      })
+      }
+    }
+
+    void loadSettlement()
 
     return () => {
       cancelled = true
     }
-  }, [accessScopeKey, canAccess, targetYear])
+  }, [accessScopeKey, authSession, canAccess, targetYear])
 
   useEffect(() => {
-    if (!canAccess || expenseForm) {
+    if (!canAccess || authBlockedMessage || expenseForm) {
       return
     }
 
@@ -961,7 +1025,7 @@ export function AccountingPage() {
         staffName,
       }),
     )
-  }, [canAccess, expenseForm, staffId, staffName, tenantScope.franchiseeId, tenantScope.storeId])
+  }, [authBlockedMessage, canAccess, expenseForm, staffId, staffName, tenantScope.franchiseeId, tenantScope.storeId])
 
   useEffect(() => {
     if (!canAccess || adjustmentForm) {
@@ -2418,7 +2482,6 @@ export function AccountingPage() {
 
   const handleDeleteUnorganizedReceipt = (
     receipt: StoredAccountingReceipt,
-    _kind: AccountingReceiptInboxEntry['kind'],
   ) => {
     if (isDeletingReceiptRef.current || isDeletingReceipt || isSavingExpense) {
       return
@@ -2555,14 +2618,20 @@ export function AccountingPage() {
 
   const reloadSettlementAuxiliary = async () => {
     try {
+      const authValidationError = await validateAccountingFirebaseAuth({ authSession })
+      if (authValidationError) {
+        setSettlementAuxiliary(null)
+        setSettlementAuxiliaryLoadError(authValidationError)
+        return
+      }
       const row = await fetchAccountingSettlementAuxiliary(accessScope, targetYear)
       setSettlementAuxiliary(row)
       setSettlementAuxiliaryLoadError('')
     } catch (error) {
       setSettlementAuxiliary(null)
       const message = formatAccountingQueryErrorMessage('accountingSettlementAuxiliary', error)
-      setSettlementAuxiliaryLoadError(message)
-      setErrorMessage(message)
+      setSettlementAuxiliaryLoadError(`${message} / ${ACCOUNTING_SETTLEMENT_AUXILIARY_LOAD_HINT}`)
+      // 経費一覧の errorMessage は上書きしない
     }
   }
 
@@ -2658,6 +2727,15 @@ export function AccountingPage() {
 
   const handleSaveExpense = async () => {
     if (!expenseForm) {
+      return
+    }
+
+    if (authBlockedMessage || expensesLoadFailed) {
+      const message = authBlockedMessage || ACCOUNTING_AUTH_REQUIRED_MESSAGE
+      setErrorMessage(message)
+      setExpenseFormActionError(
+        'データ確認前のため保存できません。再ログインして経費一覧の読み込み成功後に保存してください。',
+      )
       return
     }
 
@@ -3197,6 +3275,27 @@ export function AccountingPage() {
     )
   }
 
+  if (authBlockedMessage) {
+    return (
+      <main className="page accounting-page" aria-labelledby="accounting-title">
+        <section className="content-card accounting-card">
+          <h1 id="accounting-title">経理</h1>
+          <p className="case-error" role="alert">
+            {authBlockedMessage}
+          </p>
+          <p className="accounting-note">
+            経理データの読み込み権限を確認できませんでした。空の経費一覧は表示しません。ホームから再ログインしてください。
+          </p>
+          <div className="admin-header-actions">
+            <Link className="primary-action" to="/">
+              ホームへ戻り再ログイン
+            </Link>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page accounting-page" aria-labelledby="accounting-title">
       <section className="content-card accounting-card">
@@ -3366,9 +3465,30 @@ export function AccountingPage() {
         </nav>
 
         {isLoading ? <p className="empty-note">経理データを読み込み中です。</p> : null}
-        {errorMessage ? (
+        {authBlockedMessage ? (
+          <section className="accounting-panel" aria-label="認証エラー" role="alert">
+            <p className="case-error">{authBlockedMessage}</p>
+            <p className="accounting-note">
+              経理データの読み込み権限を確認できませんでした。ローカルのログイン情報だけでは表示しません。
+            </p>
+            <Link className="primary-action" to="/">
+              ホームへ戻り再ログイン
+            </Link>
+          </section>
+        ) : null}
+        {!authBlockedMessage && errorMessage ? (
           <p className="case-error" role="alert">
             {errorMessage}
+          </p>
+        ) : null}
+        {!authBlockedMessage && settlementAuxiliaryLoadError ? (
+          <p className="accounting-warning" role="status">
+            {settlementAuxiliaryLoadError}
+          </p>
+        ) : null}
+        {!authBlockedMessage && expensesLoadFailed ? (
+          <p className="case-error" role="alert">
+            経費データの読み込みに失敗しました。一覧が空でもデータ消失とは限りません。再ログイン後に再度開いてください。
           </p>
         ) : null}
         {statusMessage ? <p className="save-note">{statusMessage}</p> : null}
@@ -3752,7 +3872,7 @@ export function AccountingPage() {
             onUnlinkOrphan={(receipt) => void handleUnlinkOrphanReceipt(receipt)}
             onRelinkOrphan={(receipt, expenseId) => void handleRelinkOrphanReceipt(receipt, expenseId)}
             onInvalidateOrphan={(receipt) => void handleInvalidateOrphanReceipt(receipt)}
-            onDelete={(receipt, kind) => handleDeleteUnorganizedReceipt(receipt, kind)}
+            onDelete={(receipt) => handleDeleteUnorganizedReceipt(receipt)}
             isBusy={isDeletingReceipt || isSavingExpense || isUploadingReceipt}
           />
         ) : null}
