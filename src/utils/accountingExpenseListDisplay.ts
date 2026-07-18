@@ -27,8 +27,9 @@ const hasOpenableReceiptUrl = (value: string | null | undefined): boolean =>
 
 /**
  * 経費に証憑（PDF/画像）が添付されているか。
- * 開ける URL（原本・プレビュー・互換画像）のみを「添付あり」とみなし、
- * ファイル名だけでは添付あり扱いにしない。
+ * 開ける URL（原本・プレビュー・互換画像）、Storage パス、または receiptId
+ * のいずれかがあれば「添付あり」とみなす。ファイル名だけでは添付あり扱いにしない。
+ * （URL は非保存化されるため、Storage パス・receiptId が主判定になる）
  */
 export const hasExpenseReceiptAttachment = (
   expense: Pick<
@@ -40,11 +41,16 @@ export const hasExpenseReceiptAttachment = (
     | 'receiptFileStoragePath'
     | 'receiptPreviewStoragePath'
     | 'receiptStoragePath'
+    | 'receiptId'
   >,
 ): boolean =>
   hasOpenableReceiptUrl(expense.receiptFileUrl) ||
   hasOpenableReceiptUrl(expense.receiptPreviewImageUrl) ||
-  hasOpenableReceiptUrl(expense.receiptImageUrl)
+  hasOpenableReceiptUrl(expense.receiptImageUrl) ||
+  hasOpenableReceiptUrl(expense.receiptFileStoragePath) ||
+  hasOpenableReceiptUrl(expense.receiptPreviewStoragePath) ||
+  hasOpenableReceiptUrl(expense.receiptStoragePath) ||
+  hasOpenableReceiptUrl(expense.receiptId)
 
 /**
  * 経費一覧の操作列に出す証憑／確認の待ち状態。
@@ -63,6 +69,7 @@ export const getExpenseListActionStatusLabel = (
     | 'receiptFileStoragePath'
     | 'receiptPreviewStoragePath'
     | 'receiptStoragePath'
+    | 'receiptId'
   >,
 ): ExpenseListActionStatusLabel | null => {
   if (!hasExpenseReceiptAttachment(expense)) {

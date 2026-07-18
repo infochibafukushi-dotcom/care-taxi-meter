@@ -524,6 +524,18 @@ export const getExpenseReceiptDate = (
   expense: Pick<AccountingExpenseInput, 'receiptDate' | 'postingDate' | 'transactionDate'>,
 ) => expense.receiptDate || getExpensePostingDate(expense)
 
+/**
+ * 保存時に永続 URL フィールドを空にする。長期有効な download token URL を
+ * Firestore に残さないため（表示は receiptId 経由の短期署名 URL を使用）。
+ * Storage パス・receiptId はそのまま保持する。
+ */
+const stripPersistentReceiptUrlFields = <T extends Record<string, unknown>>(input: T): T => ({
+  ...input,
+  receiptImageUrl: '',
+  receiptPreviewImageUrl: '',
+  receiptFileUrl: '',
+})
+
 export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): AccountingExpenseInput => {
   const postingDate = getExpensePostingDate(input)
   const receiptDate = input.receiptDate || postingDate
@@ -535,7 +547,7 @@ export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): Acc
     taxCalculationMode: input.taxCalculationMode,
   })
 
-  return {
+  return stripPersistentReceiptUrlFields({
     ...input,
     receiptDate,
     postingDate,
@@ -547,7 +559,7 @@ export const normalizeExpenseInputForSave = (input: AccountingExpenseInput): Acc
     taxExcludedAmount: taxFields.taxExcludedAmount,
     taxCalculationMode: taxFields.taxCalculationMode,
     plTreatment: normalizePlTreatment(input.plTreatment),
-  }
+  })
 }
 
 export const normalizeExpensePatchForSave = (
@@ -605,7 +617,7 @@ export const normalizeExpensePatchForSave = (
     patch.receiptDate = input.receiptDate
   }
 
-  return patch
+  return stripPersistentReceiptUrlFields(patch)
 }
 
 export const normalizeAdjustmentSalesCategory = (value: unknown): SalesCategory | '' =>

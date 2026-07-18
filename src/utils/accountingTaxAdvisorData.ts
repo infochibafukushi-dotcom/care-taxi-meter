@@ -142,7 +142,14 @@ export const buildTaxAdvisorReviewItems = ({
     })
   }
 
-  const expensesWithoutImage = fiscalYearExpenses.filter((expense) => !expense.receiptImageUrl?.trim())
+  const expensesWithoutImage = fiscalYearExpenses.filter(
+    (expense) =>
+      !expense.receiptImageUrl?.trim() &&
+      !expense.receiptStoragePath?.trim() &&
+      !expense.receiptFileStoragePath?.trim() &&
+      !expense.receiptPreviewStoragePath?.trim() &&
+      !expense.receiptId?.trim(),
+  )
   if (expensesWithoutImage.length > 0) {
     items.push({
       id: 'review.expense-no-receipt-image',

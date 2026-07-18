@@ -14,8 +14,10 @@ import {
   updateDoc,
   writeBatch,
 } from 'firebase/firestore'
-import { deleteObject, getBytes, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getBytes, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { getFirebaseApp } from '../lib/firebase'
+import { fetchAccountingReceiptAccessUrl } from './accountingReceiptAccess'
+import type { AccountingReceiptAccessVariant } from '../utils/accountingReceiptAccessPolicy'
 import type {
   AccountingReceiptCandidateFields,
   AccountingReceiptConfirmedFields,
@@ -356,13 +358,16 @@ export type UploadAccountingReceiptFileResult = {
   storagePath: string
 }
 
-const uploadStorageFile = async (storagePath: string, file: File) => {
+/**
+ * Storage へアップロードのみ行う。長期有効な download token URL は発行しない
+ * （表示用 URL は getAccountingReceiptAccessUrl 経由の短期署名 URL を使用する）。
+ */
+const uploadStorageFile = async (storagePath: string, file: File): Promise<void> => {
   const storage = getStorage(getFirebaseApp())
   const storageRef = ref(storage, storagePath)
   await uploadBytes(storageRef, file, {
     contentType: file.type || 'application/octet-stream',
   })
-  return getDownloadURL(storageRef)
 }
 
 export async function uploadAccountingReceiptFile({
@@ -467,33 +472,33 @@ export async function uploadAccountingReceiptFile({
       ? `accounting/${franchiseeId}/${storeId}/receipts/${receiptRef.id}/ocr/${ocrFileName}`
       : originalStoragePath
 
-  const originalDownloadUrl = await uploadStorageFile(originalStoragePath, originalFile)
-  const ocrImageDownloadUrl =
-    documentType === 'pdf'
-      ? await uploadStorageFile(ocrImageStoragePath, ocrImageFile)
-      : originalDownloadUrl
+  await uploadStorageFile(originalStoragePath, originalFile)
+  if (documentType === 'pdf') {
+    await uploadStorageFile(ocrImageStoragePath, ocrImageFile)
+  }
 
+  // 永続 URL フィールドは書かない。表示は receiptId 経由の短期署名 URL を使用する。
   await updateDoc(doc(db, collectionName, receiptRef.id), {
     storagePath: originalStoragePath,
-    downloadUrl: originalDownloadUrl,
-    imageUrl: ocrImageDownloadUrl,
+    downloadUrl: '',
+    imageUrl: '',
     originalStoragePath,
-    originalDownloadUrl,
+    originalDownloadUrl: '',
     ocrImageStoragePath,
-    ocrImageDownloadUrl,
+    ocrImageDownloadUrl: '',
     updatedAt: serverTimestamp(),
   })
 
   return {
     receiptId: receiptRef.id,
-    originalDownloadUrl,
+    originalDownloadUrl: '',
     originalStoragePath,
-    ocrImageDownloadUrl,
+    ocrImageDownloadUrl: '',
     ocrImageStoragePath,
     imageHash,
     documentType,
     pdfPageCount: documentType === 'pdf' ? pdfPageCount : undefined,
-    downloadUrl: ocrImageDownloadUrl,
+    downloadUrl: '',
     storagePath: ocrImageStoragePath,
   }
 }
@@ -568,23 +573,24 @@ export async function replaceAccountingReceiptOcrImage({
     }
   }
 
-  const ocrImageDownloadUrl = await uploadStorageFile(storagePath, ocrImageFile)
+  await uploadStorageFile(storagePath, ocrImageFile)
   const isPdf = documentType === 'pdf'
   const imageHash = isPdf ? undefined : await computeFileSha256(ocrImageFile)
   const sharedOriginalPath = !isPdf && (originalStoragePath?.trim() || storagePath)
 
+  // 永続 URL フィールドは書かない（表示は receiptId 経由の短期署名 URL）。
   await updateUnorganizedAccountingReceipt({
     receiptId,
     patch: removeUndefinedFields({
-      ocrImageDownloadUrl,
+      ocrImageDownloadUrl: '',
       ocrImageStoragePath: storagePath,
       ocrImageFileName: ocrImageFile.name,
       ocrImageMimeType: ocrImageFile.type || 'image/jpeg',
       ocrImageSizeBytes: ocrImageFile.size,
-      imageUrl: ocrImageDownloadUrl,
-      downloadUrl: isPdf ? undefined : ocrImageDownloadUrl,
+      imageUrl: '',
+      downloadUrl: isPdf ? undefined : '',
       storagePath: sharedOriginalPath || undefined,
-      originalDownloadUrl: isPdf ? undefined : ocrImageDownloadUrl,
+      originalDownloadUrl: isPdf ? undefined : '',
       originalStoragePath: sharedOriginalPath || undefined,
       originalFileName: isPdf ? undefined : ocrImageFile.name,
       originalMimeType: isPdf ? undefined : ocrImageFile.type || 'image/jpeg',
@@ -597,7 +603,7 @@ export async function replaceAccountingReceiptOcrImage({
   })
 
   return {
-    ocrImageDownloadUrl,
+    ocrImageDownloadUrl: '',
     ocrImageStoragePath: storagePath,
     imageHash,
   }
@@ -1199,25 +1205,42 @@ export async function discardUnorganizedAccountingReceipt(
   return 'deleted'
 }
 
+/**
+ * 証憑の表示用 URL を解決する。
+ * - receiptId がある場合は Cloud Function 経由の短期署名 URL（getAccountingReceiptAccessUrl）を使用する。
+ * - receiptId が無く、旧データの downloadUrl のみが残っている場合はそれを後方互換として返す。
+ * - クライアント側で新たに getDownloadURL（長期有効トークン）を発行することはしない。
+ */
 export async function resolveAccountingReceiptDownloadUrl({
   downloadUrl,
   storagePath,
+  receiptId,
+  variant = 'preview',
 }: {
   downloadUrl?: string
   storagePath?: string
-}) {
+  receiptId?: string
+  variant?: AccountingReceiptAccessVariant
+}): Promise<string> {
+  const normalizedReceiptId = receiptId?.trim() ?? ''
+  if (normalizedReceiptId && !isReviewDemoRuntimeEnabled()) {
+    try {
+      const result = await fetchAccountingReceiptAccessUrl({ receiptId: normalizedReceiptId, variant })
+      if (result.url) {
+        return result.url
+      }
+    } catch {
+      // フォールバックへ（旧データの downloadUrl があれば互換表示）
+    }
+  }
+
   const normalizedUrl = downloadUrl?.trim() ?? ''
   if (normalizedUrl) {
     return normalizedUrl
   }
 
-  const normalizedPath = storagePath?.trim() ?? ''
-  if (!normalizedPath || isReviewDemoRuntimeEnabled()) {
-    return ''
-  }
-
-  const storage = getStorage(getFirebaseApp())
-  return getDownloadURL(ref(storage, normalizedPath))
+  void storagePath
+  return ''
 }
 
 export type { AccountingReceiptInput, StoredAccountingReceipt }

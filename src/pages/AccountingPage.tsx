@@ -39,6 +39,7 @@ import {
   uploadAccountingReceiptFile,
   type StoredAccountingReceipt,
 } from '../services/accountingReceipts'
+import { fetchAccountingReceiptAccessUrl } from '../services/accountingReceiptAccess'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
 import { lookupInvoiceRegistrant } from '../services/invoiceRegistrantLookup'
 import {
@@ -644,6 +645,12 @@ export function AccountingPage() {
   const [ocrStatusByReceiptId, setOcrStatusByReceiptId] = useState<Record<string, string>>({})
   const [ocrProgressMessage, setOcrProgressMessage] = useState('')
   const [receiptPreviewObjectUrl, setReceiptPreviewObjectUrl] = useState('')
+  /** receiptId をキーにした短期署名プレビューURL（expenseForm には保存しない） */
+  const [receiptAccessPreviewUrl, setReceiptAccessPreviewUrl] = useState<{
+    receiptId: string
+    url: string
+  } | null>(null)
+  const [isOpeningReceiptOriginal, setIsOpeningReceiptOriginal] = useState(false)
   const [receiptDropDepth, setReceiptDropDepth] = useState(0)
   const [receiptLocalSelectionActive, setReceiptLocalSelectionActive] = useState(false)
   const [receiptSelectionError, setReceiptSelectionError] = useState(false)
@@ -1042,11 +1049,26 @@ export function AccountingPage() {
     }
     return allReceipts.find((row) => row.id === receiptId) ?? unorganizedReceipts.find((row) => row.id === receiptId)
   }, [allReceipts, expenseForm?.receiptId, unorganizedReceipts])
-  const expenseReceiptPreviewUrl =
-    receiptPreviewObjectUrl ||
+  const expenseReceiptPreviewReceiptId = expenseForm?.receiptId?.trim() || ''
+  const expenseReceiptLegacyPreviewUrl =
     expenseForm?.receiptPreviewImageUrl ||
     expenseForm?.receiptImageUrl ||
     (linkedReceiptForForm ? getAccountingReceiptPreviewImageUrl(linkedReceiptForForm) : '') ||
+    ''
+  const expenseReceiptPreviewStoragePath =
+    expenseForm?.receiptPreviewStoragePath ||
+    expenseForm?.receiptStoragePath ||
+    linkedReceiptForForm?.ocrImageStoragePath ||
+    linkedReceiptForForm?.storagePath ||
+    ''
+  const receiptAccessPreviewUrlForForm =
+    receiptAccessPreviewUrl && receiptAccessPreviewUrl.receiptId === expenseReceiptPreviewReceiptId
+      ? receiptAccessPreviewUrl.url
+      : ''
+  const expenseReceiptPreviewUrl =
+    receiptPreviewObjectUrl ||
+    expenseReceiptLegacyPreviewUrl ||
+    receiptAccessPreviewUrlForForm ||
     ''
   const expenseReceiptIsPdf = Boolean(
     isAccountingReceiptPdfMime(expenseForm?.receiptFileMimeType) ||
@@ -1058,6 +1080,12 @@ export function AccountingPage() {
     expenseForm?.receiptFileUrl ||
     (linkedReceiptForForm ? getAccountingReceiptOriginalFileUrl(linkedReceiptForForm) : '') ||
     ''
+  const expenseReceiptOriginalStoragePath =
+    expenseForm?.receiptFileStoragePath ||
+    expenseForm?.receiptStoragePath ||
+    linkedReceiptForForm?.originalStoragePath ||
+    linkedReceiptForForm?.storagePath ||
+    ''
   const expenseReceiptFileName =
     expenseForm?.receiptFileName ||
     linkedReceiptForForm?.originalFileName ||
@@ -1065,6 +1093,43 @@ export function AccountingPage() {
     ''
   const expenseReceiptPageCount = linkedReceiptForForm?.pdfPageCount
   const isReceiptDropActive = isDropZoneDragActive(receiptDropDepth)
+
+  // 画像URLを永続化しないため、ローカル選択も旧URLも無い場合のみ receiptId 経由の
+  // 短期署名 URL を取得する。expenseForm には保存しない（メモリ内 state のみ）。
+  useEffect(() => {
+    if (
+      receiptPreviewObjectUrl ||
+      expenseReceiptLegacyPreviewUrl ||
+      !expenseReceiptPreviewReceiptId ||
+      !expenseReceiptPreviewStoragePath
+    ) {
+      return
+    }
+    if (receiptAccessPreviewUrl?.receiptId === expenseReceiptPreviewReceiptId) {
+      return
+    }
+
+    let cancelled = false
+    fetchAccountingReceiptAccessUrl({ receiptId: expenseReceiptPreviewReceiptId, variant: 'preview' })
+      .then((result) => {
+        if (!cancelled && result.url) {
+          setReceiptAccessPreviewUrl({ receiptId: expenseReceiptPreviewReceiptId, url: result.url })
+        }
+      })
+      .catch(() => {
+        // 取得失敗時はプレビュー非表示のまま（永続URLは発行しない）
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    receiptPreviewObjectUrl,
+    expenseReceiptLegacyPreviewUrl,
+    expenseReceiptPreviewReceiptId,
+    expenseReceiptPreviewStoragePath,
+    receiptAccessPreviewUrl,
+  ])
   const expenseHasPersistedReceipt =
     Boolean(editingExpenseId) &&
     hasExistingAccountingReceiptAttachment(expenseForm) &&
@@ -1588,6 +1653,37 @@ export function AccountingPage() {
     receiptFileInputRef.current?.click()
   }
 
+  /**
+   * PDF原本を新規タブで開く。href に永続 URL を持たせず、クリック時に
+   * receiptId 経由の短期署名 URL を取得してから window.open する。
+   * 旧データで永続 URL しかない場合のみ互換的にそちらを使う。
+   */
+  const handleOpenReceiptOriginal = async () => {
+    if (isOpeningReceiptOriginal) {
+      return
+    }
+    const receiptId = expenseForm?.receiptId?.trim() || ''
+    setIsOpeningReceiptOriginal(true)
+    try {
+      if (receiptId && expenseReceiptOriginalStoragePath) {
+        const result = await fetchAccountingReceiptAccessUrl({ receiptId, variant: 'original' })
+        if (result.url) {
+          window.open(result.url, '_blank', 'noopener,noreferrer')
+          return
+        }
+      }
+      if (expenseReceiptOriginalUrl) {
+        window.open(expenseReceiptOriginalUrl, '_blank', 'noopener,noreferrer')
+      }
+    } catch {
+      if (expenseReceiptOriginalUrl) {
+        window.open(expenseReceiptOriginalUrl, '_blank', 'noopener,noreferrer')
+      }
+    } finally {
+      setIsOpeningReceiptOriginal(false)
+    }
+  }
+
   const handleRotateReceiptImage = async (action: 'left' | 'right' | 'reset') => {
     if (!expenseForm || !hasAccountingFormReceiptImage(expenseForm)) {
       setErrorMessage(RECEIPT_IMAGE_REQUIRED_MESSAGE)
@@ -1967,6 +2063,8 @@ export function AccountingPage() {
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
         downloadUrl: previewUrl,
         storagePath: previewPath,
+        receiptId: expenseForm.receiptId,
+        variant: 'preview',
       })
 
       if (
@@ -1978,16 +2076,9 @@ export function AccountingPage() {
         return
       }
 
-      if (downloadUrl && downloadUrl !== expenseForm.receiptImageUrl) {
-        setExpenseForm((current) =>
-          current
-            ? {
-                ...current,
-                receiptImageUrl: downloadUrl,
-                receiptPreviewImageUrl: downloadUrl,
-              }
-            : current,
-        )
+      // expenseForm には保存しない。プレビュー表示用のメモリ内 state のみ更新する。
+      if (downloadUrl && expenseForm.receiptId?.trim()) {
+        setReceiptAccessPreviewUrl({ receiptId: expenseForm.receiptId.trim(), url: downloadUrl })
       }
 
       const receiptId = expenseForm.receiptId ?? ''
@@ -2208,6 +2299,8 @@ export function AccountingPage() {
       const downloadUrl = await resolveAccountingReceiptDownloadUrl({
         downloadUrl: previewUrl || receipt.ocrImageDownloadUrl,
         storagePath: receipt.ocrImageStoragePath || receipt.storagePath,
+        receiptId: receipt.id,
+        variant: 'preview',
       })
 
       if (
@@ -3888,15 +3981,15 @@ export function AccountingPage() {
                       <p className="accounting-note">
                         PDF原本は全ページ保存されています。OCRは1ページ目を対象にしています。
                       </p>
-                      {expenseReceiptOriginalUrl ? (
-                        <a
+                      {expenseReceiptOriginalStoragePath || expenseReceiptOriginalUrl ? (
+                        <button
                           className="secondary-action accounting-receipt-pdf-open"
-                          href={expenseReceiptOriginalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          type="button"
+                          disabled={isOpeningReceiptOriginal}
+                          onClick={() => void handleOpenReceiptOriginal()}
                         >
-                          PDF原本を開く
-                        </a>
+                          {isOpeningReceiptOriginal ? '開いています…' : 'PDF原本を開く'}
+                        </button>
                       ) : null}
                     </div>
                   ) : null}
@@ -4008,15 +4101,15 @@ export function AccountingPage() {
                             : 'PDF原本は全ページ保存されています'}
                         </p>
                         <p>OCR対象：1ページ目</p>
-                        {expenseReceiptOriginalUrl ? (
-                          <a
+                        {expenseReceiptOriginalStoragePath || expenseReceiptOriginalUrl ? (
+                          <button
                             className="secondary-action accounting-receipt-pdf-open"
-                            href={expenseReceiptOriginalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            type="button"
+                            disabled={isOpeningReceiptOriginal}
+                            onClick={() => void handleOpenReceiptOriginal()}
                           >
-                            PDF原本を開く
-                          </a>
+                            {isOpeningReceiptOriginal ? '開いています…' : 'PDF原本を開く'}
+                          </button>
                         ) : null}
                       </div>
                     ) : null}
@@ -4499,8 +4592,10 @@ export function AccountingPage() {
                         <dd>{expenseForm.imageHash || '―'}</dd>
                       </div>
                       <div>
-                        <dt>imageUrl</dt>
-                        <dd>{expenseForm.receiptPreviewImageUrl || expenseForm.receiptImageUrl || '―'}</dd>
+                        <dt>プレビュー画像</dt>
+                        <dd>
+                          {expenseReceiptPreviewStoragePath || expenseReceiptLegacyPreviewUrl ? '有' : '無'}
+                        </dd>
                       </div>
                       <div>
                         <dt>storagePath</dt>
@@ -4511,14 +4606,18 @@ export function AccountingPage() {
                       <div>
                         <dt>原本ファイル</dt>
                         <dd>
-                          {expenseForm.receiptFileUrl ? (
-                            <a
-                              href={expenseForm.receiptFileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {expenseForm.receiptFileName || expenseForm.receiptFileUrl}
-                            </a>
+                          {expenseReceiptOriginalStoragePath || expenseReceiptOriginalUrl ? (
+                            <>
+                              <span>{expenseReceiptFileName || expenseReceiptOriginalStoragePath || '有'}</span>{' '}
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                disabled={isOpeningReceiptOriginal}
+                                onClick={() => void handleOpenReceiptOriginal()}
+                              >
+                                {isOpeningReceiptOriginal ? '開いています…' : '開く'}
+                              </button>
+                            </>
                           ) : (
                             '―'
                           )}

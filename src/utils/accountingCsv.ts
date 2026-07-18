@@ -183,6 +183,10 @@ export const buildExpensesCsv = (
     invoiceNumber?: string
     confirmationStatus: string
     receiptImageUrl?: string
+    receiptStoragePath?: string
+    receiptFileStoragePath?: string
+    receiptPreviewStoragePath?: string
+    receiptId?: string
     memo?: string
     normalExpenseOverrideReason?: string
   }>,
@@ -216,7 +220,13 @@ export const buildExpensesCsv = (
         expense.taxRate ?? '',
         expense.consumptionTaxAmount,
         expense.invoiceNumber ?? '',
-        expense.receiptImageUrl ? '有' : '無',
+        expense.receiptImageUrl?.trim() ||
+        expense.receiptStoragePath?.trim() ||
+        expense.receiptFileStoragePath?.trim() ||
+        expense.receiptPreviewStoragePath?.trim() ||
+        expense.receiptId?.trim()
+          ? '有'
+          : '無',
         getPlTreatmentLabel(normalizePlTreatment(expense.plTreatment)),
         memoParts.join(' / '),
       ])
@@ -397,7 +407,7 @@ const buildReceiptRowsCsv = (
       'OCR状態',
       '確認状態',
       '経費登録済みか',
-      '画像URLまたは画像有無',
+      '画像有無',
     ]),
     ...receipts.map((receipt) =>
       csvLine([
@@ -416,6 +426,14 @@ const buildReceiptRowsCsv = (
   return `\uFEFF${lines.join(CSV_EOL)}`
 }
 
+/** URL文字列そのものはCSVに出さず、有無のみ表示する（トークン付きURLの流出防止） */
+const formatImageReference = (receipt: {
+  downloadUrl?: string
+  imageUrl?: string
+  storagePath?: string
+}): string =>
+  receipt.downloadUrl?.trim() || receipt.imageUrl?.trim() || receipt.storagePath?.trim() ? '有' : '無'
+
 export const buildAllReceiptsCsv = (
   receipts: Array<{
     savedAt?: string
@@ -427,6 +445,7 @@ export const buildAllReceiptsCsv = (
     linkedExpenseId?: string
     downloadUrl?: string
     imageUrl?: string
+    storagePath?: string
   }>,
 ) =>
   buildReceiptRowsCsv(
@@ -442,7 +461,7 @@ export const buildAllReceiptsCsv = (
           (receipt.receiptStatus ?? 'draft') as keyof typeof ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS
         ] ?? receipt.receiptStatus ?? '',
       linkedToExpense: receipt.linkedExpenseId ? 'はい' : 'いいえ',
-      imageReference: receipt.downloadUrl || receipt.imageUrl || '無',
+      imageReference: formatImageReference(receipt),
     })),
   )
 
@@ -457,6 +476,7 @@ export const buildUnorganizedReceiptsCsv = (
     linkedExpenseId?: string
     downloadUrl?: string
     imageUrl?: string
+    storagePath?: string
   }>,
 ) =>
   buildReceiptRowsCsv(
@@ -472,7 +492,7 @@ export const buildUnorganizedReceiptsCsv = (
           (receipt.receiptStatus ?? 'draft') as keyof typeof ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS
         ] ?? receipt.receiptStatus ?? '',
       linkedToExpense: receipt.linkedExpenseId ? 'はい' : 'いいえ',
-      imageReference: receipt.downloadUrl || receipt.imageUrl || '無',
+      imageReference: formatImageReference(receipt),
     })),
   )
 

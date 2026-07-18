@@ -12,6 +12,7 @@ export {
 } from './preOpeningDataReset'
 export { deleteStaffMemberCompletely } from './deleteStaffMemberCompletely'
 export { runLightweightFirestoreBackup } from './lightweightFirestoreBackup'
+export { getAccountingReceiptAccessUrl } from './getAccountingReceiptAccessUrl'
 
 initializeApp()
 

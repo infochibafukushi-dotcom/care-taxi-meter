@@ -41,6 +41,12 @@ service firebase.storage {
 
     // 旧パス: .../receipts/{receiptId}/{fileName}
     // 新パス: .../receipts/{receiptId}/original|ocr/{fileName}
+    //
+    // 注意: このルールで許可される read は Storage オブジェクトへの直接アクセス
+    // （getBytes / uploadBytes 後続の確認など）であり、クライアントで長期有効な
+    // download token URL（getDownloadURL）を発行・永続化してはならない。
+    // 画面表示用の証憑 URL は getAccountingReceiptAccessUrl（Cloud Functions）が発行する
+    // 短期署名 URL（v4 signed URL、数分で失効）を経由すること。
     match /accounting/{pathFranchiseeId}/{storeId}/receipts/{receiptId}/{allPaths=**} {
       allow read: if isHqAdmin()
         || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))

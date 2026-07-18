@@ -191,7 +191,19 @@ describe('経費一覧の証憑／確認待ちバッジ', () => {
     )
   })
 
-  it('ファイル名だけでは証憑ありと扱わず「証憑待ち」になる', () => {
+  it('ファイル名だけ（URL・パス・receiptIdなし）では証憑ありと扱わず「証憑待ち」になる', () => {
+    const row = expense({
+      confirmationStatus: '未確認',
+      receiptFileName: 'LANinvoice.pdf',
+      receiptFileUrl: '',
+      receiptImageUrl: undefined,
+      receiptPreviewImageUrl: '   ',
+    })
+    expect(hasExpenseReceiptAttachment(row)).toBe(false)
+    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_RECEIPT_PENDING_LABEL)
+  })
+
+  it('URLが空でもStorageパスがあれば証憑ありと扱う（URLは非保存化される前提）', () => {
     const row = expense({
       confirmationStatus: '未確認',
       receiptFileName: 'LANinvoice.pdf',
@@ -200,8 +212,20 @@ describe('経費一覧の証憑／確認待ちバッジ', () => {
       receiptImageUrl: undefined,
       receiptPreviewImageUrl: '   ',
     })
-    expect(hasExpenseReceiptAttachment(row)).toBe(false)
-    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_RECEIPT_PENDING_LABEL)
+    expect(hasExpenseReceiptAttachment(row)).toBe(true)
+    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_CONFIRMATION_PENDING_LABEL)
+  })
+
+  it('URL・パスが空でもreceiptIdがあれば証憑ありと扱う', () => {
+    const row = expense({
+      confirmationStatus: '未確認',
+      receiptId: 'receipt-1',
+      receiptFileUrl: '',
+      receiptImageUrl: '',
+      receiptPreviewImageUrl: '',
+    })
+    expect(hasExpenseReceiptAttachment(row)).toBe(true)
+    expect(getExpenseListActionStatusLabel(row)).toBe(EXPENSE_LIST_CONFIRMATION_PENDING_LABEL)
   })
 
   it('PDF添付済みなら「証憑待ち」が消える', () => {

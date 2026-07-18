@@ -5,6 +5,7 @@ import {
   getAccountingReceiptOriginalFileUrl,
   getAccountingReceiptPreviewImageUrl,
 } from '../../services/accountingReceipts'
+import { fetchAccountingReceiptAccessUrl } from '../../services/accountingReceiptAccess'
 import type { StoredAccountingExpense } from '../../types/accounting'
 import {
   ACCOUNTING_RECEIPT_WORKFLOW_STATUS_LABELS,
@@ -41,6 +42,130 @@ const isPdfReceipt = (receipt: StoredAccountingReceipt) =>
   receipt.documentType === 'pdf' ||
   isAccountingReceiptPdfMime(receipt.mimeType) ||
   isAccountingReceiptPdfMime(receipt.originalMimeType)
+
+const hasThumbSourcePath = (receipt: StoredAccountingReceipt) =>
+  Boolean(receipt.ocrImageStoragePath?.trim() || (!isPdfReceipt(receipt) && receipt.storagePath?.trim()))
+
+/**
+ * 未整理領収書のサムネイル。
+ * receiptId 経由の短期署名 URL（getAccountingReceiptAccessUrl）を優先し、
+ * 失敗時のみ旧データの永続 URL を後方互換として使う。
+ */
+function ReceiptThumb({ receipt }: { receipt: StoredAccountingReceipt }) {
+  const [accessUrl, setAccessUrl] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const legacyUrl = getAccountingReceiptPreviewImageUrl(receipt)
+  const canFetchAccessUrl = hasThumbSourcePath(receipt)
+
+  useEffect(() => {
+    setAccessUrl('')
+    setStatus('idle')
+
+    if (!canFetchAccessUrl) {
+      return
+    }
+
+    let cancelled = false
+    setStatus('loading')
+
+    fetchAccountingReceiptAccessUrl({ receiptId: receipt.id, variant: 'preview' })
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+        if (result.url) {
+          setAccessUrl(result.url)
+          setStatus('ready')
+        } else {
+          setStatus('error')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus('error')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- receipt.id で十分
+  }, [receipt.id, canFetchAccessUrl])
+
+  const displayUrl = accessUrl || (status === 'error' || !canFetchAccessUrl ? legacyUrl : '')
+
+  if (status === 'loading') {
+    return (
+      <div className="accounting-unorganized-thumb accounting-unorganized-thumb--empty">
+        読込中…
+      </div>
+    )
+  }
+
+  if (!displayUrl) {
+    return (
+      <div className="accounting-unorganized-thumb accounting-unorganized-thumb--empty">
+        {isPdfReceipt(receipt) ? 'PDF（プレビューなし）' : '画像なし'}
+      </div>
+    )
+  }
+
+  return <img alt="領収書サムネイル" className="accounting-unorganized-thumb" src={displayUrl} />
+}
+
+/**
+ * PDF原本を開くリンク。href に永続 URL を持たせず、クリック時に
+ * receiptId 経由の短期署名 URL を取得してから window.open する。
+ * 旧データで永続 URL しかない場合のみ互換的に使用する。
+ */
+function PdfOriginalOpenButton({ receipt }: { receipt: StoredAccountingReceipt }) {
+  const [isBusy, setIsBusy] = useState(false)
+  const legacyOriginalUrl = getAccountingReceiptOriginalFileUrl(receipt)
+  const hasOriginalPath = Boolean(receipt.originalStoragePath?.trim() || receipt.storagePath?.trim())
+
+  if (!hasOriginalPath && !legacyOriginalUrl) {
+    return null
+  }
+
+  const handleOpen = async () => {
+    if (isBusy) {
+      return
+    }
+    setIsBusy(true)
+    try {
+      if (hasOriginalPath) {
+        const result = await fetchAccountingReceiptAccessUrl({
+          receiptId: receipt.id,
+          variant: 'original',
+        })
+        if (result.url) {
+          window.open(result.url, '_blank', 'noopener,noreferrer')
+          return
+        }
+      }
+      if (legacyOriginalUrl) {
+        window.open(legacyOriginalUrl, '_blank', 'noopener,noreferrer')
+      }
+    } catch {
+      if (legacyOriginalUrl) {
+        window.open(legacyOriginalUrl, '_blank', 'noopener,noreferrer')
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  return (
+    <button
+      className="secondary-action accounting-receipt-pdf-open"
+      type="button"
+      disabled={isBusy}
+      onClick={() => void handleOpen()}
+    >
+      {isBusy ? '開いています…' : 'PDF原本を開く'}
+    </button>
+  )
+}
 
 export function UnorganizedReceiptsPanel({
   entries,
@@ -101,8 +226,6 @@ export function UnorganizedReceiptsPanel({
           <div className="accounting-unorganized-cards">
             {entries.map((entry) => {
               const { receipt, kind } = entry
-              const previewUrl = getAccountingReceiptPreviewImageUrl(receipt)
-              const originalUrl = getAccountingReceiptOriginalFileUrl(receipt)
               const pdf = isPdfReceipt(receipt)
               const isFocused = focusReceiptId === receipt.id
               const isOrphan = kind === 'orphan'
@@ -116,20 +239,14 @@ export function UnorganizedReceiptsPanel({
                   ref={isFocused ? focusRef : undefined}
                   data-receipt-id={receipt.id}
                 >
-                  {previewUrl ? (
-                    <div className="accounting-unorganized-thumb-wrap">
-                      <img alt="領収書サムネイル" className="accounting-unorganized-thumb" src={previewUrl} />
-                      {pdf ? (
-                        <span className="accounting-unorganized-pdf-badge">
-                          {receipt.pdfPageCount != null ? `PDF・全${receipt.pdfPageCount}ページ` : 'PDF'}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="accounting-unorganized-thumb accounting-unorganized-thumb--empty">
-                      {pdf ? 'PDF（プレビューなし）' : '画像なし'}
-                    </div>
-                  )}
+                  <div className="accounting-unorganized-thumb-wrap">
+                    <ReceiptThumb receipt={receipt} />
+                    {pdf ? (
+                      <span className="accounting-unorganized-pdf-badge">
+                        {receipt.pdfPageCount != null ? `PDF・全${receipt.pdfPageCount}ページ` : 'PDF'}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="accounting-unorganized-body">
                     <header>
                       <strong>
@@ -314,16 +431,7 @@ export function UnorganizedReceiptsPanel({
                           >
                             削除
                           </button>
-                          {pdf && originalUrl ? (
-                            <a
-                              className="secondary-action accounting-receipt-pdf-open"
-                              href={originalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              PDF原本を開く
-                            </a>
-                          ) : null}
+                          {pdf ? <PdfOriginalOpenButton receipt={receipt} /> : null}
                         </div>
                         <div className="accounting-unorganized-actions">
                           <button
