@@ -1,17 +1,28 @@
 /**
- * Allowlist for meter-side pre-opening sales/operations reset.
+ * Allowlist for production-safe selective pre-opening reset.
  * Only paths listed here may be counted or deleted.
  * Unknown collections / Storage prefixes are never deleted.
  *
+ * Deletes (scoped by franchiseeId + storeId):
+ * - caseRecords / caseCounters / ops Storage (売上・運行)
+ * - workSessions / staffAttendance (勤怠実績)
+ *
+ * Reservations / quotes / email logs are deleted via reservation-v4 API
+ * (not Firestore collections on the meter side).
+ *
  * Intentionally excludes:
- * - accounting* (経理)
- * - workSessions / staffAttendance (従業員勤怠)
- * - audit/admin/reset/login logs (監査・セキュリティ)
- * - master data (加盟店・店舗・従業員・車両・設定)
+ * - accounting* (経理・証憑・固定資産・PL・インボイス)
+ * - masters (加盟店・店舗・スタッフ・車両・料金・設定)
+ * - audit / auth / security logs
+ * - reservation blocks / business-hour settings (reservation-v4)
  */
 
 /** Top-level Firestore collections deleted by franchiseeId + storeId scope. */
-export const PRE_OPENING_RESET_SCOPED_COLLECTIONS = ['caseRecords'] as const
+export const PRE_OPENING_RESET_SCOPED_COLLECTIONS = [
+  'caseRecords',
+  'workSessions',
+  'staffAttendance',
+] as const
 
 /** Extra Firestore targets with custom delete/count logic (still allowlisted). */
 export const PRE_OPENING_RESET_EXTRA_TARGETS = ['caseCounters'] as const
@@ -27,22 +38,6 @@ export const PRE_OPENING_RESET_STORAGE_PREFIX_TEMPLATES = [
  * none of these are on the delete allowlist.
  */
 export const PRE_OPENING_RESET_PRESERVED_CATEGORIES = [
-  'reservations',
-  'franchisees',
-  'stores',
-  'employees',
-  'employeeAttendance',
-  'workSessions',
-  'vehicles',
-  'fareSettings',
-  'meterSettings',
-  'companySettings',
-  'firebaseAuth',
-  'auditLogs',
-  'adminActionLogs',
-  'resetLogs',
-  'loginAttempts',
-  'staffAttendance',
   'accounting',
   'accountingReceipts',
   'accountingExpenses',
@@ -53,6 +48,25 @@ export const PRE_OPENING_RESET_PRESERVED_CATEGORIES = [
   'accountingFixedAssets',
   'accountingSettlementAuxiliary',
   'accountingStorage',
+  'franchisees',
+  'stores',
+  'employees',
+  'vehicles',
+  'fareSettings',
+  'meterSettings',
+  'companySettings',
+  'shiftSettings',
+  'workCategories',
+  'reservationBlocks',
+  'businessHours',
+  'firebaseAuth',
+  'auditLogs',
+  'adminActionLogs',
+  'loginAttempts',
+  'maintenanceLogs',
+  'operationLogs',
+  'debugLogs',
+  'errorLogs',
 ] as const
 
 /** Firestore collections that must never appear on the delete allowlist. */
@@ -65,8 +79,6 @@ export const PRE_OPENING_RESET_PROTECTED_FIRESTORE_COLLECTIONS = [
   'hqSettings',
   'fcPlans',
   'appSettings',
-  'workSessions',
-  'staffAttendance',
   'loginAttempts',
   'auditLogs',
   'maintenanceLogs',
@@ -74,7 +86,6 @@ export const PRE_OPENING_RESET_PROTECTED_FIRESTORE_COLLECTIONS = [
   'operationLogs',
   'debugLogs',
   'errorLogs',
-  'resetLogs',
   'accountingReceipts',
   'accountingExpenses',
   'accountingAdjustments',
@@ -83,9 +94,13 @@ export const PRE_OPENING_RESET_PROTECTED_FIRESTORE_COLLECTIONS = [
   'accountingExports',
   'accountingFixedAssets',
   'accountingSettlementAuxiliary',
+  /** Lock/state doc — not historical logs; never bulk-deleted by allowlist wipe. */
+  'preOpeningResetState',
 ] as const
 
 export const PRE_OPENING_RESET_PROTECTED_STORAGE_ROOT = 'accounting/' as const
+
+export const PRE_OPENING_RESET_STATE_COLLECTION = 'preOpeningResetState' as const
 
 export type PreOpeningResetScopedCollection =
   (typeof PRE_OPENING_RESET_SCOPED_COLLECTIONS)[number]
@@ -114,6 +129,10 @@ export function buildAllowlistedStoragePrefixes(
   )
 }
 
+export function buildPreOpeningResetStateDocId(franchiseeId: string, storeId: string): string {
+  return `${franchiseeId.replaceAll('/', '_')}__${storeId.replaceAll('/', '_')}`
+}
+
 export function isAllowlistedScopedCollection(collectionName: string): boolean {
   return (PRE_OPENING_RESET_SCOPED_COLLECTIONS as readonly string[]).includes(collectionName)
 }
@@ -133,6 +152,14 @@ export function isProtectedStoragePath(storagePath: string): boolean {
 
 export function assertAllowlistExcludesAccounting(): void {
   for (const collectionName of PRE_OPENING_RESET_SCOPED_COLLECTIONS) {
+    if (collectionName.startsWith('accounting')) {
+      throw new Error(`Allowlist must not include accounting collection: ${collectionName}`)
+    }
+    if (isProtectedFirestoreCollection(collectionName)) {
+      throw new Error(`Allowlist must not include protected collection: ${collectionName}`)
+    }
+  }
+  for (const collectionName of PRE_OPENING_RESET_EXTRA_TARGETS) {
     if (collectionName.startsWith('accounting') || isProtectedFirestoreCollection(collectionName)) {
       throw new Error(`Allowlist must not include protected collection: ${collectionName}`)
     }

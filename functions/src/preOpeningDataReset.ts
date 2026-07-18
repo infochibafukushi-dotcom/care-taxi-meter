@@ -6,15 +6,17 @@ import {
   PRE_OPENING_RESET_FIRESTORE_TARGET_KEYS,
   PRE_OPENING_RESET_PRESERVED_CATEGORIES,
   PRE_OPENING_RESET_SCOPED_COLLECTIONS,
+  PRE_OPENING_RESET_STATE_COLLECTION,
   buildAllowlistedStoragePrefixes,
+  buildPreOpeningResetStateDocId,
   isAllowlistedScopedCollection,
   isProtectedStoragePath,
 } from './preOpeningResetAllowlist'
 import {
-  assertDevelopmentResetAllowedForFunctions,
-} from './developmentResetGuard'
+  evaluatePreOpeningResetEligibility,
+  matchesStoreIdConfirmText,
+} from './preOpeningResetGuard'
 
-const PRE_OPENING_RESET_CONFIRM_TEXT = 'RESET'
 const DELETE_BATCH_SIZE = 450
 
 type PreOpeningResetScope = 'reservations'
@@ -35,6 +37,12 @@ type ReservationTargetCounts = Record<string, number>
 
 type FirestoreTargetCounts = Record<string, number> & {
   storageFiles: number
+}
+
+type CategorySummaryCounts = {
+  salesOperations: number
+  reservationsCustomers: number
+  attendance: number
 }
 
 const emptyReservationTargets = (): ReservationTargetCounts => ({
@@ -67,8 +75,10 @@ const emptyFirestoreTargets = (): FirestoreTargetCounts =>
 const buildPreservedPayload = () => ({
   categories: [...PRE_OPENING_RESET_PRESERVED_CATEGORIES],
   accountingProtected: true as const,
-  reservationDataUntouched: true as const,
-  note: '経理データおよび経理証憑は削除されません。予約データは削除されません。',
+  reservationBlocksProtected: true as const,
+  mastersProtected: true as const,
+  auditLogsProtected: true as const,
+  note: '経理・加盟店・店舗・スタッフ・予約ブロック・料金/車両/設定・監査/認証ログは削除しません。',
 })
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
@@ -85,6 +95,9 @@ type ReservationCapabilityResponse = {
   storeId?: string
   targets?: ReservationTargetCounts
   dashboard?: ReservationDashboardCounts
+  preOpeningAllowed?: boolean
+  locked?: boolean
+  message?: string
 }
 
 type ReservationResetResponse = {
@@ -99,6 +112,7 @@ type ReservationResetResponse = {
   dashboard?: ReservationDashboardCounts
   logId?: number | null
   message?: string
+  locked?: boolean
 }
 
 const normalizeScopeInput = (data: Record<string, unknown> | undefined) => {
@@ -155,8 +169,26 @@ const normalizeReservationDashboard = (
   }
 }
 
-const sumReservationTargetCounts = (targets: ReservationTargetCounts) =>
-  Object.values(targets).reduce((total, count) => total + Number(count || 0), 0)
+const sumReservationDeleteTargets = (targets: ReservationTargetCounts) =>
+  Number(targets.reservations || 0) +
+  Number(targets.quotes || 0) +
+  Number(targets.quote_consents || 0) +
+  Number(targets.email_logs || 0) +
+  Number(targets.meter_fixed_fare_runs || 0) +
+  Number(targets.pre_opening_reset_logs || 0)
+
+const buildCategorySummary = (
+  firestore: FirestoreTargetCounts,
+  reservation: ReservationTargetCounts,
+): CategorySummaryCounts => ({
+  salesOperations:
+    Number(firestore.caseRecords || 0) +
+    Number(firestore.caseCounters || 0) +
+    Number(firestore.storageFiles || 0),
+  reservationsCustomers: sumReservationDeleteTargets(reservation),
+  attendance:
+    Number(firestore.workSessions || 0) + Number(firestore.staffAttendance || 0),
+})
 
 const assertReservationResetSupported = (capability: {
   supported: boolean
@@ -166,7 +198,7 @@ const assertReservationResetSupported = (capability: {
     return
   }
 
-  if (sumReservationTargetCounts(capability.reservationTargets) > 0) {
+  if (sumReservationDeleteTargets(capability.reservationTargets) > 0) {
     throw new HttpsError(
       'failed-precondition',
       'reservation-v4 側の開業前予約初期化 API が未対応のため、予約データを削除できません。',
@@ -193,7 +225,7 @@ const assertCallableAuth = (request: CallableRequest<Record<string, unknown>>): 
   if (role !== 'owner' && role !== 'hq_admin') {
     throw new HttpsError(
       'permission-denied',
-      '開業前テストデータ初期化は owner または hq_admin のみ実行できます',
+      '開業前データリセットは owner または hq_admin のみ実行できます',
     )
   }
 
@@ -229,6 +261,62 @@ const assertScopeAuthorized = async (
   if (storeFranchiseeId !== auth.franchiseeId) {
     throw new HttpsError('permission-denied', 'この店舗は操作できません')
   }
+}
+
+async function readCompanyStatus(franchiseeId: string): Promise<string> {
+  const db = getFirestore()
+  const snapshot = await db.collection('companies').doc(franchiseeId).get()
+  if (!snapshot.exists) {
+    throw new HttpsError('not-found', '加盟店が見つかりません')
+  }
+  const data = snapshot.data() ?? {}
+  return toStringValue(data.status) || (data.enabled === false ? 'suspended' : 'active')
+}
+
+async function readResetLockState(franchiseeId: string, storeId: string): Promise<boolean> {
+  const db = getFirestore()
+  const docId = buildPreOpeningResetStateDocId(franchiseeId, storeId)
+  const snapshot = await db.collection(PRE_OPENING_RESET_STATE_COLLECTION).doc(docId).get()
+  if (!snapshot.exists) {
+    return false
+  }
+  return snapshot.data()?.locked === true
+}
+
+async function assertPreOpeningResetAllowed(franchiseeId: string, storeId: string) {
+  const companyStatus = await readCompanyStatus(franchiseeId)
+  const locked = await readResetLockState(franchiseeId, storeId)
+  const decision = evaluatePreOpeningResetEligibility({ companyStatus, locked })
+  if (!decision.allowed) {
+    throw new HttpsError('failed-precondition', decision.reason)
+  }
+  return decision
+}
+
+async function writeResetLockState({
+  franchiseeId,
+  storeId,
+  executedBy,
+}: {
+  franchiseeId: string
+  storeId: string
+  executedBy: string
+}) {
+  const db = getFirestore()
+  const docId = buildPreOpeningResetStateDocId(franchiseeId, storeId)
+  await db
+    .collection(PRE_OPENING_RESET_STATE_COLLECTION)
+    .doc(docId)
+    .set(
+      {
+        franchiseeId,
+        storeId,
+        locked: true,
+        executedAt: new Date().toISOString(),
+        executedBy,
+      },
+      { merge: true },
+    )
 }
 
 const getReservationV4Config = () => {
@@ -284,7 +372,10 @@ async function callReservationV4AdminApi<T>(
       (response.status >= 500
         ? `reservation-v4 管理APIでサーバーエラーが発生しました (${response.status})。`
         : `reservation-v4 API error (${response.status})`)
-    throw new HttpsError('internal', message)
+    throw new HttpsError(
+      response.status === 409 || response.status === 400 ? 'failed-precondition' : 'internal',
+      message,
+    )
   }
 
   return payload as T
@@ -456,24 +547,49 @@ async function deleteStorageFilesByScope(franchiseeId: string, storeId: string) 
 
 async function deleteFirestoreScopedData(franchiseeId: string, storeId: string) {
   const deleted = emptyFirestoreTargets()
+  const failed = emptyFirestoreTargets()
+
   for (const collectionName of PRE_OPENING_RESET_SCOPED_COLLECTIONS) {
-    deleted[collectionName] = await deleteCollectionByScope(collectionName, franchiseeId, storeId)
+    try {
+      deleted[collectionName] = await deleteCollectionByScope(
+        collectionName,
+        franchiseeId,
+        storeId,
+      )
+    } catch {
+      deleted[collectionName] = 0
+      failed[collectionName] = -1
+    }
   }
-  deleted.caseCounters = await deleteCaseCountersByStore(storeId)
+
+  try {
+    deleted.caseCounters = await deleteCaseCountersByStore(storeId)
+  } catch {
+    deleted.caseCounters = 0
+    failed.caseCounters = -1
+  }
+
   try {
     deleted.storageFiles = await deleteStorageFilesByScope(franchiseeId, storeId)
   } catch {
     deleted.storageFiles = 0
+    failed.storageFiles = -1
   }
-  return deleted
+
+  return { deleted, failed }
 }
 
 function buildFailedFirestoreCounts(
   targets: FirestoreTargetCounts,
   deleted: FirestoreTargetCounts,
+  hardFailed: FirestoreTargetCounts,
 ) {
   const failed = emptyFirestoreTargets()
   for (const key of Object.keys(targets)) {
+    if (Number(hardFailed[key] || 0) < 0) {
+      failed[key] = Number(targets[key] || 0)
+      continue
+    }
     failed[key] = Math.max(0, Number(targets[key] || 0) - Number(deleted[key] || 0))
   }
   return failed
@@ -493,6 +609,9 @@ async function fetchReservationResetCapability(
     supported: capability.supported === true,
     reservationTargets,
     dashboard: normalizeReservationDashboard(reservationTargets, capability.dashboard),
+    preOpeningAllowed: capability.preOpeningAllowed !== false,
+    locked: capability.locked === true,
+    message: toStringValue(capability.message),
   }
 }
 
@@ -500,11 +619,13 @@ async function executeReservationReset({
   franchiseeId,
   storeId,
   executedBy,
+  confirmText,
   resetScope,
 }: {
   franchiseeId: string
   storeId: string
   executedBy: string
+  confirmText: string
   resetScope: PreOpeningResetScope
 }) {
   const capability = await fetchReservationResetCapability(franchiseeId, storeId, resetScope)
@@ -517,7 +638,7 @@ async function executeReservationReset({
       body: {
         franchiseeId,
         storeId,
-        confirmText: PRE_OPENING_RESET_CONFIRM_TEXT,
+        confirmText,
         executedBy,
         scope: resetScope,
       },
@@ -543,35 +664,70 @@ async function executeReservationReset({
   }
 }
 
-/** Meter-side capability: Firestore/Storage counts only. Does not call reservation-v4. */
+async function buildUnifiedCapability(franchiseeId: string, storeId: string) {
+  const companyStatus = await readCompanyStatus(franchiseeId)
+  const locked = await readResetLockState(franchiseeId, storeId)
+  const eligibility = evaluatePreOpeningResetEligibility({ companyStatus, locked })
+
+  const firestoreTargets = await countFirestoreTargets(franchiseeId, storeId)
+
+  let reservationSupported = false
+  let reservationTargets = emptyReservationTargets()
+  let dashboard: ReservationDashboardCounts = {
+    totalReservations: 0,
+    unhandledReservations: 0,
+    confirmedReservations: 0,
+  }
+  let reservationMessage = ''
+
+  try {
+    const reservationCapability = await fetchReservationResetCapability(
+      franchiseeId,
+      storeId,
+      'reservations',
+    )
+    reservationSupported = reservationCapability.supported
+    reservationTargets = reservationCapability.reservationTargets
+    dashboard = reservationCapability.dashboard
+    reservationMessage = reservationCapability.message
+    if (reservationCapability.locked) {
+      // reservation-v4 lock also blocks selective reset
+    }
+  } catch (error) {
+    reservationMessage =
+      error instanceof Error ? error.message : 'reservation-v4 capability の取得に失敗しました'
+  }
+
+  return {
+    supported: eligibility.allowed,
+    franchiseeId,
+    storeId,
+    companyStatus: eligibility.companyStatus,
+    locked: eligibility.locked,
+    reason: eligibility.allowed ? '' : eligibility.reason,
+    targets: {
+      firestore: firestoreTargets,
+      reservation: reservationTargets,
+    },
+    categories: buildCategorySummary(firestoreTargets, reservationTargets),
+    dashboard,
+    reservationSupported,
+    reservationMessage,
+    preserved: buildPreservedPayload(),
+  }
+}
+
+/** Unified selective pre-opening reset capability (meter + reservation + attendance). */
 export const getPreOpeningResetCapability = onCall(
   {
     region: 'asia-northeast1',
+    secrets: [reservationV4AdminToken],
   },
   async (request) => {
-    try {
-      assertDevelopmentResetAllowedForFunctions()
-    } catch (error) {
-      throw new HttpsError(
-        'failed-precondition',
-        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
-      )
-    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
-
-    const firestoreTargets = await countFirestoreTargets(scope.franchiseeId, scope.storeId)
-
-    return {
-      supported: true,
-      franchiseeId: scope.franchiseeId,
-      storeId: scope.storeId,
-      targets: {
-        firestore: firestoreTargets,
-      },
-      preserved: buildPreservedPayload(),
-    }
+    return buildUnifiedCapability(scope.franchiseeId, scope.storeId)
   },
 )
 
@@ -581,17 +737,10 @@ export const getPreOpeningReservationResetCapability = onCall(
     secrets: [reservationV4AdminToken],
   },
   async (request) => {
-    try {
-      assertDevelopmentResetAllowedForFunctions()
-    } catch (error) {
-      throw new HttpsError(
-        'failed-precondition',
-        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
-      )
-    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
+    await assertPreOpeningResetAllowed(scope.franchiseeId, scope.storeId)
 
     const reservationCapability = await fetchReservationResetCapability(
       scope.franchiseeId,
@@ -611,51 +760,113 @@ export const getPreOpeningReservationResetCapability = onCall(
   },
 )
 
-/** Meter-side reset: sales/operations only. Does not call reservation-v4. */
+/** Unified selective reset: sales/ops + attendance + reservations. Not the dev full wipe. */
 export const executePreOpeningDataReset = onCall(
   {
     region: 'asia-northeast1',
+    secrets: [reservationV4AdminToken],
   },
   async (request) => {
-    try {
-      assertDevelopmentResetAllowedForFunctions()
-    } catch (error) {
-      throw new HttpsError(
-        'failed-precondition',
-        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
-      )
-    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
+    await assertPreOpeningResetAllowed(scope.franchiseeId, scope.storeId)
 
-    const confirmText = toStringValue(request.data?.confirmText)
-    if (confirmText !== PRE_OPENING_RESET_CONFIRM_TEXT) {
+    if (!matchesStoreIdConfirmText(request.data?.confirmText, scope.storeId)) {
       throw new HttpsError(
         'invalid-argument',
-        'confirmText が不正です。RESET を指定してください。',
+        'confirmText が不正です。店舗IDを完全一致で入力してください。',
       )
     }
 
     const executedBy = toStringValue(request.data?.executedBy) || auth.uid
+    const confirmText = scope.storeId
+
     const firestoreTargets = await countFirestoreTargets(scope.franchiseeId, scope.storeId)
-    const deletedFirestore = await deleteFirestoreScopedData(scope.franchiseeId, scope.storeId)
+    const firestoreDelete = await deleteFirestoreScopedData(scope.franchiseeId, scope.storeId)
+    const failedFirestore = buildFailedFirestoreCounts(
+      firestoreTargets,
+      firestoreDelete.deleted,
+      firestoreDelete.failed,
+    )
+
+    let reservationTargets = emptyReservationTargets()
+    let deletedReservation = emptyReservationTargets()
+    let failedReservation = emptyReservationTargets()
+    let dashboard: ReservationDashboardCounts = {
+      totalReservations: 0,
+      unhandledReservations: 0,
+      confirmedReservations: 0,
+    }
+    let reservationSupported = false
+    let reservationError = ''
+
+    try {
+      const reservationReset = await executeReservationReset({
+        franchiseeId: scope.franchiseeId,
+        storeId: scope.storeId,
+        executedBy,
+        confirmText,
+        resetScope: 'reservations',
+      })
+      reservationSupported = reservationReset.capability.supported
+      reservationTargets = reservationReset.targets
+      deletedReservation = reservationReset.deletedReservation
+      failedReservation = reservationReset.failedReservation
+      dashboard = reservationReset.dashboard
+    } catch (error) {
+      reservationError =
+        error instanceof Error ? error.message : '予約データの初期化に失敗しました。'
+      try {
+        const capability = await fetchReservationResetCapability(
+          scope.franchiseeId,
+          scope.storeId,
+          'reservations',
+        )
+        reservationTargets = capability.reservationTargets
+        failedReservation = { ...capability.reservationTargets }
+        dashboard = capability.dashboard
+        reservationSupported = capability.supported
+      } catch {
+        // keep zeros
+      }
+    }
+
+    await writeResetLockState({
+      franchiseeId: scope.franchiseeId,
+      storeId: scope.storeId,
+      executedBy,
+    })
+
+    const categories = buildCategorySummary(firestoreTargets, reservationTargets)
+    const hasHardFailure =
+      Object.values(failedFirestore).some((count) => Number(count) > 0) ||
+      Object.values(failedReservation).some((count) => Number(count) > 0) ||
+      Boolean(reservationError)
 
     return {
-      success: true,
+      success: !hasHardFailure,
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       executedBy,
       executedAt: new Date().toISOString(),
+      locked: true,
       targets: {
         firestore: firestoreTargets,
+        reservation: reservationTargets,
       },
       deleted: {
-        firestore: deletedFirestore,
+        firestore: firestoreDelete.deleted,
+        reservation: deletedReservation,
       },
       failed: {
-        firestore: buildFailedFirestoreCounts(firestoreTargets, deletedFirestore),
+        firestore: failedFirestore,
+        reservation: failedReservation,
       },
+      categories,
+      dashboard,
+      reservationSupported,
+      reservationError,
       preserved: buildPreservedPayload(),
     }
   },
@@ -667,23 +878,15 @@ export const executePreOpeningReservationReset = onCall(
     secrets: [reservationV4AdminToken],
   },
   async (request) => {
-    try {
-      assertDevelopmentResetAllowedForFunctions()
-    } catch (error) {
-      throw new HttpsError(
-        'failed-precondition',
-        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
-      )
-    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
+    await assertPreOpeningResetAllowed(scope.franchiseeId, scope.storeId)
 
-    const confirmText = toStringValue(request.data?.confirmText)
-    if (confirmText !== PRE_OPENING_RESET_CONFIRM_TEXT) {
+    if (!matchesStoreIdConfirmText(request.data?.confirmText, scope.storeId)) {
       throw new HttpsError(
         'invalid-argument',
-        'confirmText が不正です。RESET を指定してください。',
+        'confirmText が不正です。店舗IDを完全一致で入力してください。',
       )
     }
 
@@ -693,6 +896,7 @@ export const executePreOpeningReservationReset = onCall(
       franchiseeId: scope.franchiseeId,
       storeId: scope.storeId,
       executedBy,
+      confirmText: scope.storeId,
       resetScope: 'reservations',
     })
 

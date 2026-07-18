@@ -88,7 +88,7 @@ export function PreOpeningReservationResetPanel({
         setMessage('reservation-v4 側の開業前予約初期化 API は未対応です。')
         return
       }
-      setMessage('削除対象件数を取得しました。RESET と入力して実行してください。')
+      setMessage('削除対象件数を取得しました。店舗IDを入力して実行してください。')
     } catch (error) {
       setCapability(null)
       setDashboard(preOpeningReservationDashboardEmptyCounts())
@@ -120,8 +120,8 @@ export function PreOpeningReservationResetPanel({
       setMessage('加盟店IDと店舗IDを指定してください。')
       return
     }
-    if (confirmText !== 'RESET') {
-      setMessage('確認文字列に RESET を入力してください。')
+    if (confirmText.trim() !== storeId.trim()) {
+      setMessage('確認文字列に店舗IDを完全一致で入力してください。')
       return
     }
     if (
@@ -257,7 +257,7 @@ export function PreOpeningReservationResetPanel({
 
       <div className="pre-opening-reset-confirm-block">
         <label className="pre-opening-reset-input-label" htmlFor="pre-opening-reservation-reset-confirm">
-          確認文字列（RESET）
+          確認文字列（店舗IDを完全入力）
         </label>
         <input
           id="pre-opening-reservation-reset-confirm"
@@ -265,7 +265,7 @@ export function PreOpeningReservationResetPanel({
           type="text"
           value={confirmText}
           onChange={(event) => setConfirmText(event.target.value)}
-          placeholder="RESET"
+          placeholder={storeId || '店舗ID'}
           autoComplete="off"
           disabled={isExecuting}
         />

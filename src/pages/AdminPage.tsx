@@ -55,8 +55,11 @@ import { useWorkSession } from "../hooks/useWorkSession";
 import { ROLE_LABELS, canAccessAdminSection } from "../types/permissions";
 import { calculateSalesSummary, getActualFareYen, getMonthRangeInJapan } from "../utils/caseRecords";
 import { logDiagnostic } from "../utils/diagnostics";
+import { isPreOpeningCompanyStatus } from "../utils/preOpeningResetGuard";
 import { tenantScopeFromSession, tenantAccessScopeFromSessionSource } from "../services/tenancy";
 import { loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
+import { fetchCompanies } from "../services/companies";
+import type { CompanyStatus } from "../types/work";
 
 type AdminSummaryState = {
   errorMessage: string;
@@ -149,8 +152,8 @@ const adminCenterCards: Array<{
   },
   {
     id: "preOpeningReset",
-    label: "開業前テストデータ初期化（完全）",
-    description: "テスト運用データとログの完全初期化（開業後は使用不可）",
+    label: "開業前データリセット",
+    description: "開業前モード中のみ。売上・予約・勤怠の選択削除（経理・設定は保持）",
   },
 ];
 
@@ -505,9 +508,16 @@ export function AdminPage() {
   const [masterMessage, setMasterMessage] = useState(
     "店舗・従業員・車両情報を読み込み中です。",
   );
-  const availableAdminCenterCards = adminCenterCards.filter((card) =>
-    canAccessAdminSection(currentRole, card.id),
-  );
+  const [companyStatus, setCompanyStatus] = useState<CompanyStatus | "">("");
+  const availableAdminCenterCards = adminCenterCards.filter((card) => {
+    if (!canAccessAdminSection(currentRole, card.id)) {
+      return false;
+    }
+    if (card.id === "preOpeningReset" && !isPreOpeningCompanyStatus(companyStatus)) {
+      return false;
+    }
+    return true;
+  });
   const ownerDefaultStore: Store = stores.find((store) => store.id === currentStoreId) ?? {
     id: currentStoreId,
     companyId: currentFranchiseeId,
@@ -666,6 +676,29 @@ export function AdminPage() {
       isMounted = false;
     };
   }, [currentFranchiseeId, currentStoreId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    void fetchCompanies()
+      .then((companies) => {
+        if (!isMounted) return;
+        const company = companies.find(
+          (entry) =>
+            entry.id === currentFranchiseeId ||
+            entry.franchiseeId === currentFranchiseeId,
+        );
+        setCompanyStatus(company?.status ?? "");
+      })
+      .catch((error) => {
+        logAdminLoadFailure("loadCompanyStatus", "companies", { franchiseeId: currentFranchiseeId }, error);
+        if (isMounted) {
+          setCompanyStatus("");
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentFranchiseeId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2547,6 +2580,7 @@ export function AdminPage() {
               storeId={ownerDefaultStore.id}
               executedBy={currentStaffId || currentStaffName}
               storeLabel={ownerDefaultStore.name}
+              companyStatus={companyStatus}
             />
           ) : null}
 

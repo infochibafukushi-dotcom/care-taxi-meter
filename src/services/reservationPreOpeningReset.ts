@@ -5,6 +5,7 @@ const functionsRegion = 'asia-northeast1'
 
 export type PreOpeningResetTargetCounts = {
   firestore: Record<string, number>
+  reservation: Record<string, number>
 }
 
 export type PreOpeningReservationTargetCounts = {
@@ -17,10 +18,18 @@ export type PreOpeningReservationDashboardCounts = {
   confirmedReservations: number
 }
 
+export type PreOpeningResetCategorySummary = {
+  salesOperations: number
+  reservationsCustomers: number
+  attendance: number
+}
+
 export type PreOpeningResetPreservedPayload = {
   categories: string[]
   accountingProtected: boolean
-  reservationDataUntouched: boolean
+  reservationBlocksProtected: boolean
+  mastersProtected: boolean
+  auditLogsProtected: boolean
   note: string
 }
 
@@ -28,7 +37,14 @@ export type PreOpeningResetCapabilityResult = {
   supported: boolean
   franchiseeId: string
   storeId: string
+  companyStatus: string
+  locked: boolean
+  reason: string
   targets: PreOpeningResetTargetCounts
+  categories: PreOpeningResetCategorySummary
+  dashboard: PreOpeningReservationDashboardCounts
+  reservationSupported: boolean
+  reservationMessage: string
   preserved: PreOpeningResetPreservedPayload
 }
 
@@ -46,9 +62,14 @@ export type PreOpeningResetExecuteResult = {
   storeId: string
   executedBy: string
   executedAt: string
+  locked: boolean
   targets: PreOpeningResetTargetCounts
   deleted: PreOpeningResetTargetCounts
   failed: PreOpeningResetTargetCounts
+  categories: PreOpeningResetCategorySummary
+  dashboard: PreOpeningReservationDashboardCounts
+  reservationSupported: boolean
+  reservationError: string
   preserved: PreOpeningResetPreservedPayload
 }
 
@@ -81,27 +102,13 @@ const DEFAULT_RESERVATION_KEYS = [
 /** Must match functions/src/preOpeningResetAllowlist.ts firestore target keys. */
 export const DEFAULT_FIRESTORE_KEYS = [
   'caseRecords',
+  'workSessions',
+  'staffAttendance',
   'caseCounters',
   'storageFiles',
 ] as const
 
 export const DEFAULT_PRESERVED_CATEGORIES = [
-  'reservations',
-  'franchisees',
-  'stores',
-  'employees',
-  'employeeAttendance',
-  'workSessions',
-  'vehicles',
-  'fareSettings',
-  'meterSettings',
-  'companySettings',
-  'firebaseAuth',
-  'auditLogs',
-  'adminActionLogs',
-  'resetLogs',
-  'loginAttempts',
-  'staffAttendance',
   'accounting',
   'accountingReceipts',
   'accountingExpenses',
@@ -112,6 +119,25 @@ export const DEFAULT_PRESERVED_CATEGORIES = [
   'accountingFixedAssets',
   'accountingSettlementAuxiliary',
   'accountingStorage',
+  'franchisees',
+  'stores',
+  'employees',
+  'vehicles',
+  'fareSettings',
+  'meterSettings',
+  'companySettings',
+  'shiftSettings',
+  'workCategories',
+  'reservationBlocks',
+  'businessHours',
+  'firebaseAuth',
+  'auditLogs',
+  'adminActionLogs',
+  'loginAttempts',
+  'maintenanceLogs',
+  'operationLogs',
+  'debugLogs',
+  'errorLogs',
 ] as const
 
 const emptyCountMap = (keys: readonly string[]) =>
@@ -120,15 +146,24 @@ const emptyCountMap = (keys: readonly string[]) =>
     return accumulator
   }, {})
 
+const emptyCategories = (): PreOpeningResetCategorySummary => ({
+  salesOperations: 0,
+  reservationsCustomers: 0,
+  attendance: 0,
+})
+
 const emptyPreserved = (): PreOpeningResetPreservedPayload => ({
   categories: [...DEFAULT_PRESERVED_CATEGORIES],
   accountingProtected: true,
-  reservationDataUntouched: true,
-  note: '経理データおよび経理証憑は削除されません。予約データは削除されません。',
+  reservationBlocksProtected: true,
+  mastersProtected: true,
+  auditLogsProtected: true,
+  note: '経理・加盟店・店舗・スタッフ・予約ブロック・料金/車両/設定・監査/認証ログは削除しません。',
 })
 
 const emptyTargets = (): PreOpeningResetTargetCounts => ({
   firestore: emptyCountMap(DEFAULT_FIRESTORE_KEYS),
+  reservation: emptyCountMap(DEFAULT_RESERVATION_KEYS),
 })
 
 const emptyReservationOnlyTargets = (): PreOpeningReservationTargetCounts => ({
@@ -162,6 +197,7 @@ const normalizeTargetCounts = (value: unknown): PreOpeningResetTargetCounts => {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   return {
     firestore: normalizeCountMap(source.firestore, DEFAULT_FIRESTORE_KEYS),
+    reservation: normalizeCountMap(source.reservation, DEFAULT_RESERVATION_KEYS),
   }
 }
 
@@ -186,6 +222,15 @@ const normalizeDashboardCounts = (value: unknown): PreOpeningReservationDashboar
   }
 }
 
+const normalizeCategories = (value: unknown): PreOpeningResetCategorySummary => {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  return {
+    salesOperations: Number(source.salesOperations) || 0,
+    reservationsCustomers: Number(source.reservationsCustomers) || 0,
+    attendance: Number(source.attendance) || 0,
+  }
+}
+
 const normalizePreserved = (value: unknown): PreOpeningResetPreservedPayload => {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const categories = Array.isArray(source.categories)
@@ -194,7 +239,9 @@ const normalizePreserved = (value: unknown): PreOpeningResetPreservedPayload => 
   return {
     categories,
     accountingProtected: source.accountingProtected !== false,
-    reservationDataUntouched: source.reservationDataUntouched !== false,
+    reservationBlocksProtected: source.reservationBlocksProtected !== false,
+    mastersProtected: source.mastersProtected !== false,
+    auditLogsProtected: source.auditLogsProtected !== false,
     note:
       typeof source.note === 'string' && source.note.trim()
         ? source.note
@@ -204,11 +251,19 @@ const normalizePreserved = (value: unknown): PreOpeningResetPreservedPayload => 
 
 const parseCapabilityResult = (data: unknown): PreOpeningResetCapabilityResult => {
   const payload = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+  const targets = normalizeTargetCounts(payload.targets)
   return {
-    supported: payload.supported !== false,
+    supported: payload.supported === true,
     franchiseeId: String(payload.franchiseeId ?? ''),
     storeId: String(payload.storeId ?? ''),
-    targets: normalizeTargetCounts(payload.targets),
+    companyStatus: String(payload.companyStatus ?? ''),
+    locked: payload.locked === true,
+    reason: String(payload.reason ?? ''),
+    targets,
+    categories: normalizeCategories(payload.categories),
+    dashboard: normalizeDashboardCounts(payload.dashboard),
+    reservationSupported: payload.reservationSupported === true,
+    reservationMessage: String(payload.reservationMessage ?? ''),
     preserved: normalizePreserved(payload.preserved),
   }
 }
@@ -241,9 +296,14 @@ const parseExecuteResult = (data: unknown): PreOpeningResetExecuteResult => {
     storeId: String(payload.storeId ?? ''),
     executedBy: String(payload.executedBy ?? ''),
     executedAt: String(payload.executedAt ?? ''),
+    locked: payload.locked === true,
     targets: normalizeTargetCounts(payload.targets),
     deleted: normalizeTargetCounts(payload.deleted),
     failed: normalizeTargetCounts(payload.failed),
+    categories: normalizeCategories(payload.categories),
+    dashboard: normalizeDashboardCounts(payload.dashboard),
+    reservationSupported: payload.reservationSupported === true,
+    reservationError: String(payload.reservationError ?? ''),
     preserved: normalizePreserved(payload.preserved),
   }
 }
@@ -269,7 +329,7 @@ const parseReservationExecuteResult = (
 }
 
 /**
- * Browser-side entry point for meter-side pre-opening reset.
+ * Browser-side entry point for selective pre-opening reset.
  * Calls Firebase Callable Functions only. Never contacts reservation-v4 admin APIs.
  */
 export async function fetchPreOpeningResetCapability(
@@ -366,3 +426,4 @@ export const preOpeningResetEmptyTargets = emptyTargets
 export const preOpeningReservationResetEmptyTargets = emptyReservationOnlyTargets
 export const preOpeningReservationDashboardEmptyCounts = emptyDashboard
 export const preOpeningResetEmptyPreserved = emptyPreserved
+export const preOpeningResetEmptyCategories = emptyCategories

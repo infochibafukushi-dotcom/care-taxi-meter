@@ -21,6 +21,7 @@ import {
   isDevelopmentResetUiAllowed,
   readClientDevelopmentResetConfig,
 } from '../utils/developmentResetGuard'
+import { isPreOpeningCompanyStatus } from '../utils/preOpeningResetGuard'
 import {
   applySubscriptionPlanToCompany,
   defaultSubscriptionPlan,
@@ -592,7 +593,7 @@ export function HeadquartersPage() {
           '要対応加盟店',
           'FC全体KPI',
           '加盟店管理',
-          ...(showDevelopmentResetUi ? (['開業前テストデータ初期化'] as const) : []),
+          '開業前データリセット',
           'FC収益分析',
           '売上分析',
           'エリア分析',
@@ -733,13 +734,11 @@ export function HeadquartersPage() {
         </div>
       </section>
 
-      {showDevelopmentResetUi ? (
-      <section className="admin-section" id="開業前テストデータ初期化">
-        <h2>開業前テストデータ初期化</h2>
+      <section className="admin-section" id="開業前データリセット">
+        <h2>開業前データリセット</h2>
         <p className="empty-note">
-          加盟店・店舗を選択し、開業前のテスト運用データとログを削除します。
-          監査ログ・実行ログも削除されます。開業後は使用しないでください。
-          対象 project: <code>{developmentResetEnv.projectId}</code>（本番では利用不可）
+          開業前モード（審査中／開業準備中）の加盟店・店舗を選択し、売上・運行・予約・勤怠のテスト実績だけを削除します。
+          経理・加盟店・スタッフ・予約ブロック・設定・監査ログは保持します。開発環境専用フルリセットとは別機能です。
         </p>
         <div className="settings-grid hq-form-grid">
           <label>
@@ -751,7 +750,7 @@ export function HeadquartersPage() {
               <option value="">選択してください</option>
               {franchiseCompanies.map((company) => (
                 <option key={company.id} value={company.id}>
-                  {company.name}
+                  {company.name}（{companyStatusLabels[getCompanyStatus(company)]}）
                 </option>
               ))}
             </select>
@@ -773,17 +772,23 @@ export function HeadquartersPage() {
           </label>
         </div>
         {selectedCompany && resetStore ? (
-          <PreOpeningDataResetPanel
-            franchiseeId={selectedCompany.id}
-            storeId={resetStore.id}
-            executedBy={authSession?.id || workSession.currentSession?.staffId || 'hq_admin'}
-            storeLabel={resetStore.name}
-          />
+          isPreOpeningCompanyStatus(getCompanyStatus(selectedCompany)) ? (
+            <PreOpeningDataResetPanel
+              franchiseeId={selectedCompany.id}
+              storeId={resetStore.id}
+              executedBy={authSession?.id || workSession.currentSession?.staffId || 'hq_admin'}
+              storeLabel={resetStore.name}
+              companyStatus={getCompanyStatus(selectedCompany)}
+            />
+          ) : (
+            <p className="case-error" role="alert">
+              選択中の加盟店は開業前モードではないため、開業前データリセットは表示・実行できません。
+            </p>
+          )
         ) : (
           <p className="empty-note">加盟店と店舗を選択すると削除対象件数を表示できます。</p>
         )}
       </section>
-      ) : null}
 
       <section className="admin-section" id="FC収益分析">
         <h2>FC収益分析</h2>
