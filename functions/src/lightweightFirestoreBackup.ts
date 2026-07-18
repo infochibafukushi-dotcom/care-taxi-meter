@@ -119,7 +119,7 @@ export async function executeLightweightFirestoreBackup(): Promise<{
 
 export const runLightweightFirestoreBackup = onSchedule(
   {
-    schedule: 'every day 03:30',
+    schedule: '30 3 * * 0',
     timeZone: 'Asia/Tokyo',
     region: 'asia-northeast1',
     timeoutSeconds: 540,

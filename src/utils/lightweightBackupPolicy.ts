@@ -1,6 +1,6 @@
 /**
  * 軽量バックアップ方針（文字データのみ）。
- * 運用: GCS `care-taxi-meter-fs-backup-ane1` + Cloud Function `runLightweightFirestoreBackup`（毎日 03:30 JST）。
+ * 運用: GCS `care-taxi-meter-fs-backup-ane1` + Cloud Function `runLightweightFirestoreBackup`（毎週日曜 03:30 JST）。
  * Lifecycle 30日削除。画像/PDF/Storage は複製しない（コレクション allowlist）。
  */
 
