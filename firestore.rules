@@ -77,25 +77,21 @@ service cloud.firestore {
         || (request.resource.data.role != 'hq_admin' && request.resource.data.role != 'superAdmin')
         || isHqAdmin();
     }
-    // Phase3A: block client writes that create/change plaintext password fields.
-    // Existing password values may remain untouched.
+    // Phase3B: fully reject plaintext auth field writes (create or update).
     function rejectsStaffPasswordWrite() {
-      return resource == null
-        ? (!('password' in request.resource.data) || request.resource.data.password == '')
-        : !request.resource.data.diff(resource.data).affectedKeys().hasAny(['password']);
+      return !('password' in request.resource.data)
+        && !('initialPassword' in request.resource.data)
+        && !('ownerPassword' in request.resource.data)
+        && !('representativeInitialPassword' in request.resource.data)
+        && !('newPassword' in request.resource.data)
+        && !('bootstrapPassword' in request.resource.data);
     }
     function rejectsCompanyPasswordWrite() {
-      return resource == null
-        ? (
-          (!('representativeInitialPassword' in request.resource.data) || request.resource.data.representativeInitialPassword == '')
-          && (!('ownerPassword' in request.resource.data) || request.resource.data.ownerPassword == '')
-          && (!('initialPassword' in request.resource.data) || request.resource.data.initialPassword == '')
-        )
-        : !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'representativeInitialPassword',
-          'ownerPassword',
-          'initialPassword',
-        ]);
+      return !('representativeInitialPassword' in request.resource.data)
+        && !('ownerPassword' in request.resource.data)
+        && !('initialPassword' in request.resource.data)
+        && !('password' in request.resource.data)
+        && !('bootstrapPassword' in request.resource.data);
     }
     function preservesStaffTenantIdentity() {
       return docFranchisee(request.resource.data) == docFranchisee(resource.data)
@@ -222,7 +218,7 @@ service cloud.firestore {
       allow list: if isFranchiseeOwner() && sameFranchisee(resource.data);
       allow list: if isStoreManager() && sameStore(resource.data);
       allow list: if isDriver() && staffMemberId == staffId() && sameStore(resource.data);
-      // Phase3A: profile writes allowed only without password mutations.
+      // Phase3B: profile writes allowed only without any plaintext password field keys.
       // Password/credential changes go through Cloud Functions Admin SDK.
       allow create: if isHqAdmin()
         && rejectsStaffPasswordWrite()

@@ -68,6 +68,7 @@ const normalizeLoginStaffMember = (data: Record<string, unknown>, id: string): S
     storeName: toStringValue(data.storeName),
     userId: toStringValue(data.userId) || toStringValue(data.loginId),
     loginId: toStringValue(data.loginId) || toStringValue(data.userId),
+    // Form-only; never hydrated from Auth response.
     password: '',
     name: toStringValue(data.name) || '名称未設定のスタッフ',
     role,
@@ -99,9 +100,7 @@ const assertNoSensitiveAuthFields = (payload: Record<string, unknown>, context: 
       if (key in (staffSource as Record<string, unknown>)) {
         const value = (staffSource as Record<string, unknown>)[key]
         if (value != null && value !== '') {
-          console.error(`[firebaseAuth] ${context} staff payload included sensitive field`, {
-            field: key,
-          })
+          console.error(`[firebaseAuth] ${context} staff payload included sensitive field`, { field: key })
           throw new Error('認証応答に不正な項目が含まれています。')
         }
       }
@@ -109,47 +108,35 @@ const assertNoSensitiveAuthFields = (payload: Record<string, unknown>, context: 
   }
 }
 
-const parseLoginStaffResponse = (data: unknown, context: string): LoginStaffResult | null => {
+export function parseLoginStaffResponse(
+  data: unknown,
+  context: string,
+): LoginStaffResult | null {
   const payload = unwrapLoginStaffPayload(data)
   if (!payload) {
-    console.error(`[firebaseAuth] ${context} response payload is empty`, {
-      payloadType: data === null ? 'null' : typeof data,
-    })
     return null
   }
 
   assertNoSensitiveAuthFields(payload, context)
 
-  const customToken = toStringValue(payload.customToken) || toStringValue(payload.token)
-  const staffSource = payload.staffMember ?? payload.staff
-  const staffRecord =
-    staffSource && typeof staffSource === 'object' ? (staffSource as Record<string, unknown>) : null
-  const staffId = staffRecord ? toStringValue(staffRecord.id) : ''
-
-  if (!customToken || !staffRecord || !staffId) {
-    console.error(`[firebaseAuth] ${context} response missing required fields`, {
-      payloadKeys: Object.keys(payload),
-      hasCustomToken: Boolean(customToken),
-      hasStaffMember: Boolean(staffRecord),
-      hasStaffId: Boolean(staffId),
-    })
+  const customToken =
+    toStringValue(payload.customToken) || toStringValue(payload.token)
+  const staffSource =
+    (payload.staffMember as Record<string, unknown> | undefined) ??
+    (payload.staff as Record<string, unknown> | undefined)
+  if (!customToken || !staffSource) {
     return null
   }
 
-  const staffMember = normalizeLoginStaffMember(staffRecord, staffId)
-  console.info(`[firebaseAuth] ${context} response parsed`, {
-    staffId: staffMember.id,
-    role: staffMember.role,
-    companyId: staffMember.companyId,
-    payloadKeys: Object.keys(payload).filter(
-      (key) => !['customToken', 'token', 'password', 'passwordHash', 'passwordSalt'].includes(key),
-    ),
-  })
+  const staffId = toStringValue(staffSource.id) || toStringValue(staffSource.staffId)
+  if (!staffId) {
+    return null
+  }
 
   return {
     customToken,
     companyName: toStringValue(payload.companyName),
-    staffMember,
+    staffMember: normalizeLoginStaffMember(staffSource, staffId),
   }
 }
 
@@ -167,15 +154,16 @@ export const waitForFirebaseAuthUser = (): Promise<User | null> =>
     })
   })
 
-async function callLoginCallable(
-  functionName: 'loginStaff' | 'loginStaffV2',
-  payload: { companyId: string; userId: string; password: string },
-) {
+async function callLoginStaffV2(payload: {
+  companyId: string
+  userId: string
+  password: string
+}) {
   const functions = getFunctions(getFirebaseApp(), functionsRegion)
   const loginCallable = httpsCallable<
     { companyId: string; userId: string; password: string },
     LoginStaffResponse
-  >(functions, functionName)
+  >(functions, 'loginStaffV2')
   return loginCallable(payload)
 }
 
@@ -196,58 +184,10 @@ const getCallableErrorDetails = (error: unknown): Record<string, unknown> | null
 }
 
 /**
- * ENFORCE=false only: allow loginStaff fallback for technical / not-migrated cases.
- * Never fallback on wrong password, lockout, disabled staff, or inactive company.
+ * Phase3B: legacy loginStaff fallback is fully retired.
+ * Kept only so older unit tests / docs can assert ENFORCE never falls back.
  */
-export function shouldFallbackToLegacyLogin(error: unknown): boolean {
-  // Phase3A: ENFORCE stops all legacy fallbacks.
-  if (AUTH_V2_ENFORCE) {
-    return false
-  }
-
-  const code = getCallableErrorCode(error)
-  const details = getCallableErrorDetails(error)
-
-  if (details && details.authFallback === false) {
-    return false
-  }
-  if (details && details.authFallback === true) {
-    return true
-  }
-
-  // Wrong password / auth rejection — never fall back.
-  if (
-    code === 'functions/unauthenticated' ||
-    code === 'unauthenticated' ||
-    code === 'functions/permission-denied' ||
-    code === 'permission-denied'
-  ) {
-    return false
-  }
-
-  // Lockouts stay lockouts.
-  if (code === 'functions/resource-exhausted' || code === 'resource-exhausted') {
-    return false
-  }
-
-  // Technical / reachability / V2 disabled / not migrated.
-  if (
-    code === 'functions/not-found' ||
-    code === 'functions/unavailable' ||
-    code === 'functions/internal' ||
-    code === 'functions/deadline-exceeded' ||
-    code === 'functions/failed-precondition' ||
-    code === 'failed-precondition' ||
-    isCallableNotFoundError(error)
-  ) {
-    return true
-  }
-
-  const message = error instanceof Error ? error.message : String(error)
-  if (/Failed to fetch|network|INTERNAL|unavailable/i.test(message)) {
-    return true
-  }
-
+export function shouldFallbackToLegacyLogin(_error: unknown): boolean {
   return false
 }
 
@@ -264,19 +204,6 @@ async function completeCustomTokenSignIn(
   return parsed
 }
 
-async function signInViaLegacyLoginStaff(payload: {
-  companyId: string
-  userId: string
-  password: string
-}): Promise<LoginStaffResult | null> {
-  const response = await callLoginCallable('loginStaff', payload)
-  const parsed = parseLoginStaffResponse(response.data, 'loginStaff')
-  if (!parsed) {
-    return null
-  }
-  return completeCustomTokenSignIn(parsed, 'loginStaff')
-}
-
 export async function signInStaffWithFirebaseAuth({
   companyId,
   password,
@@ -286,40 +213,15 @@ export async function signInStaffWithFirebaseAuth({
   password: string
   userId: string
 }): Promise<LoginStaffResult | null> {
-  // Phase3A: ENFORCE → V2 only. Without ENFORCE but ENABLED → V2 with limited fallback.
-  // Without ENABLED → legacy loginStaff (emergency / pre-cutover only).
-  if (!AUTH_V2_ENABLED) {
-    if (AUTH_V2_ENFORCE) {
-      throw new Error('認証設定が不正です（ENFORCE時は V2 を有効にしてください）。')
-    }
-    try {
-      return await signInViaLegacyLoginStaff({ companyId, userId, password })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error('[firebaseAuth] loginStaff callable failed', {
-        code: getCallableErrorCode(error) || null,
-        message,
-        detailsKeys: getCallableErrorDetails(error) ? Object.keys(getCallableErrorDetails(error)!) : null,
-      })
-      if (isCallableNotFoundError(error)) {
-        return null
-      }
-      if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {
-        throw new Error('しばらくしてから再度お試しください。', { cause: error })
-      }
-      throw error
-    }
+  if (!AUTH_V2_ENABLED || !AUTH_V2_ENFORCE) {
+    throw new Error('認証設定が不正です（Auth V2 の有効化が必要です）。')
   }
 
   try {
-    const response = await callLoginCallable('loginStaffV2', { companyId, userId, password })
+    const response = await callLoginStaffV2({ companyId, userId, password })
     const parsed = parseLoginStaffResponse(response.data, 'loginStaffV2')
     if (!parsed) {
-      if (AUTH_V2_ENFORCE) {
-        throw new Error('認証に失敗しました。')
-      }
-      console.info('[firebaseAuth] loginStaffV2 returned unusable payload; trying loginStaff fallback')
-      return signInViaLegacyLoginStaff({ companyId, userId, password })
+      throw new Error('認証に失敗しました。')
     }
     return completeCustomTokenSignIn(parsed, 'loginStaffV2')
   } catch (error) {
@@ -328,21 +230,20 @@ export async function signInStaffWithFirebaseAuth({
     console.error('[firebaseAuth] loginStaffV2 callable failed', {
       code: code || null,
       message,
-      detailsKeys: getCallableErrorDetails(error) ? Object.keys(getCallableErrorDetails(error)!) : null,
-      authFallback: shouldFallbackToLegacyLogin(error),
-      enforce: AUTH_V2_ENFORCE,
+      detailsKeys: getCallableErrorDetails(error)
+        ? Object.keys(getCallableErrorDetails(error)!)
+        : null,
     })
 
     if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {
       throw new Error('しばらくしてから再度お試しください。', { cause: error })
     }
 
-    if (!shouldFallbackToLegacyLogin(error)) {
-      throw error
+    if (isCallableNotFoundError(error)) {
+      throw new Error('このアプリは新しい認証方式への更新が必要です。', { cause: error })
     }
 
-    console.info('[firebaseAuth] falling back to loginStaff (technical / not-migrated only)')
-    return signInViaLegacyLoginStaff({ companyId, userId, password })
+    throw error
   }
 }
 

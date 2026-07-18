@@ -14,6 +14,7 @@ import { getFirebaseApp } from '../lib/firebase'
 import { defaultAdminStaffMemberId, defaultAdminStaffUserId } from './staffMembers'
 import { defaultCompany } from './companies'
 import { headquartersStore } from './stores'
+import { saveStaffMemberProfileViaFunctions } from './staffAuthAdmin'
 import {
   assertDevelopmentResetAllowed,
   matchesDevelopmentResetConfirmText,
@@ -98,7 +99,6 @@ async function recreateInitialData(bootstrapAdminPassword: string) {
     storeId: headquartersStore.id,
     storeName: headquartersStore.name,
     userId: defaultAdminStaffUserId,
-    password: bootstrapAdminPassword,
     name: defaultAdminStaffUserId,
     role: 'hq_admin',
     canDrive: false,
@@ -114,6 +114,33 @@ async function recreateInitialData(bootstrapAdminPassword: string) {
     sortOrder: 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  })
+
+  // Phase3B: bootstrap password goes to staffCredentials via Functions only.
+  await saveStaffMemberProfileViaFunctions({
+    staffMember: {
+      id: defaultAdminStaffMemberId,
+      companyId: defaultCompany.id,
+      franchiseeId: defaultCompany.id,
+      storeId: headquartersStore.id,
+      storeName: headquartersStore.name,
+      userId: defaultAdminStaffUserId,
+      loginId: defaultAdminStaffUserId,
+      name: defaultAdminStaffUserId,
+      role: 'hq_admin',
+      canDrive: false,
+      isActive: true,
+      phoneNumber: '',
+      email: '',
+      address: '',
+      licenseNumber: '',
+      licenseExpiresAt: '',
+      accidentHistory: '',
+      memo: 'FC本部初期管理者アカウント（開発リセットで再作成）',
+      enabled: true,
+      sortOrder: 1,
+    },
+    password: bootstrapAdminPassword,
   })
 
   return recreatedDocuments

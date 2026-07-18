@@ -95,7 +95,6 @@ function toCompany(id: string, data: Record<string, unknown>): Company {
     corporateName: toString(data.corporateName),
     representativeName: toString(data.representativeName) || toString(data.ownerName),
     representativeLoginId: toString(data.representativeLoginId) || toString(data.ownerLoginId),
-    representativeInitialPassword: toString(data.representativeInitialPassword) || toString(data.ownerPassword) || toString(data.initialPassword),
     area: toString(data.area),
     status: companyStatuses.includes(status as Company['status']) ? status as Company['status'] : (toBoolean(data.enabled, true) ? 'active' : 'suspended'),
     subscriptionPlan: isSubscriptionPlan(data.subscriptionPlan) ? data.subscriptionPlan : undefined,
@@ -160,16 +159,20 @@ export function getCompanyNotificationSettings(company: Company | null | undefin
 
 
 export async function saveCompany(company: Company) {
-  // Phase3A: never write plaintext company password fields from the client.
-  // Existing values remain in Firestore untouched.
+  // Phase3B: never write plaintext company password fields from the client.
   const {
     representativeInitialPassword: _a,
     ownerPassword: _b,
     initialPassword: _c,
+    password: _d,
+    bootstrapPassword: _e,
     ...safeCompany
   } = company as Company & {
+    representativeInitialPassword?: string
     ownerPassword?: string
     initialPassword?: string
+    password?: string
+    bootstrapPassword?: string
   }
 
   await setDoc(

@@ -2,11 +2,13 @@ import { HttpsError } from 'firebase-functions/v2/https'
 
 /**
  * Auth V2 feature flags.
- * Phase3A: ENABLED=true and ENFORCE=true (no legacy login fallback).
- * loginStaff code remains deployed for emergency rollback only.
+ * Phase3B: ENABLED=true and ENFORCE=true.
+ * loginStaff remains deployed only as a reject stub for old clients.
  */
 export const AUTH_V2_ENABLED = process.env.AUTH_V2_ENABLED === 'true'
 export const AUTH_V2_ENFORCE = process.env.AUTH_V2_ENFORCE === 'true'
+export const AUTH_V2_LEGACY_LOGIN_RETIRED_MESSAGE =
+  'このアプリは新しい認証方式への更新が必要です。'
 
 export const MAX_LOGIN_FAILURES = Number.parseInt(process.env.AUTH_MAX_LOGIN_FAILURES || '5', 10) || 5
 export const LOGIN_LOCK_MINUTES = Number.parseInt(process.env.AUTH_LOGIN_LOCK_MINUTES || '15', 10) || 15

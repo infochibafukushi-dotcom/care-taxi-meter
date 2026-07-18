@@ -1,6 +1,6 @@
 /**
- * Client-side Auth V2 flags (Phase3A).
- * ENFORCE=true forces loginStaffV2 only — no legacy fallback.
+ * Client-side Auth V2 flags (Phase3B).
+ * ENFORCE=true forces loginStaffV2 only — legacy loginStaff is retired.
  */
 export const AUTH_V2_ENABLED =
   String(import.meta.env.VITE_AUTH_V2_ENABLED || '').toLowerCase() === 'true'

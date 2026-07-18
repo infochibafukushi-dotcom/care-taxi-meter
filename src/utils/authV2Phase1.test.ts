@@ -130,7 +130,7 @@ describe('AUTH_V2 compatibility flags', () => {
     const clientAuth = readFileSync(join(repoRoot, 'src/services/firebaseAuth.ts'), 'utf8')
     expect(clientAuth).toContain('loginStaffV2')
     expect(clientAuth).toContain('shouldFallbackToLegacyLogin')
-    expect(clientAuth).toContain("callLoginCallable('loginStaff'")
+    expect(clientAuth).not.toContain("callLoginCallable('loginStaff'")
   })
 })
 

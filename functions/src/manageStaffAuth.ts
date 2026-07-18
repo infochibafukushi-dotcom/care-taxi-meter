@@ -120,7 +120,7 @@ async function syncAuthClaimsForStaff(staffId: string) {
 
 /**
  * Prepare staff credential + claims management via Functions.
- * Active only when AUTH_V2_ENABLED=true. Does not remove staffMembers.password.
+ * Active only when AUTH_V2_ENABLED=true. Updates staffCredentials hash only.
  */
 export const upsertStaffCredential = onCall({ region: 'asia-northeast1' }, async (request) => {
   assertAuthV2Enabled()

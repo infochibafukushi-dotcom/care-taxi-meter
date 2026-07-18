@@ -47,13 +47,13 @@ describe('Auth V2 phase3A enforce', () => {
     const rules = readFileSync(join(repoRoot, 'firestore.rules'), 'utf8')
     expect(rules).toContain('rejectsStaffPasswordWrite')
     expect(rules).toContain('rejectsCompanyPasswordWrite')
-    expect(rules).toContain("affectedKeys().hasAny(['password'])")
+    expect(rules).toContain("!('password' in request.resource.data)")
     expect(rules).toContain("'representativeInitialPassword'")
   })
 
   it('keeps loginStaff export but asserts legacy blocked under enforce', () => {
     const staffLogin = readFileSync(join(repoRoot, 'functions/src/staffLogin.ts'), 'utf8')
-    expect(staffLogin).toContain('assertLegacyLoginAllowed')
+    expect(staffLogin).toContain('このアプリは新しい認証方式への更新が必要です。')
     expect(staffLogin).toContain('export const loginStaff')
     const flags = readFileSync(join(repoRoot, 'functions/src/authFlags.ts'), 'utf8')
     expect(flags).toContain('AUTH_V2_ENFORCED_LEGACY_BLOCKED_MESSAGE')
@@ -63,7 +63,8 @@ describe('Auth V2 phase3A enforce', () => {
     const source = readFileSync(join(repoRoot, 'src/services/firebaseAuth.ts'), 'utf8')
     expect(source).toContain('AUTH_V2_ENFORCE')
     expect(source).toContain('loginStaffV2')
-    expect(source).toContain('if (AUTH_V2_ENFORCE)')
+    expect(source).toContain('shouldFallbackToLegacyLogin')
+    expect(source).not.toContain('signInViaLegacyLoginStaff')
   })
 
   it('staff save goes through Functions profile callable', () => {

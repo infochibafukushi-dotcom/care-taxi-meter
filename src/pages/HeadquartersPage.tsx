@@ -66,7 +66,6 @@ const createCompanyDraft = (sortOrder: number): Company =>
       corporateName: '',
       representativeName: '',
       representativeLoginId: '',
-      representativeInitialPassword: '',
       area: '',
       status: 'screening',
       initialFee: 0,
@@ -394,7 +393,6 @@ export function HeadquartersPage() {
         ownerName,
         representativeName: ownerName,
         representativeLoginId: ownerUserId,
-        ...(ownerPassword ? { representativeInitialPassword: ownerPassword } : {}),
         enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
         status: nextStatus,
       },
@@ -687,7 +685,7 @@ export function HeadquartersPage() {
               <Input label="会社名（法人名）" value={draftCompany.corporateName ?? ''} onChange={(value) => updateDraftCompany('corporateName', value)} />
               <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
               <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
-              <Input label="新しいパスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
+              <Input label="新しいパスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value) }} />
               <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
               <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
               <label>

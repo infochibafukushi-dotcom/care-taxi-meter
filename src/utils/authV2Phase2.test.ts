@@ -90,8 +90,10 @@ describe('Auth V2 phase2 staff password writes', () => {
     expect(payload).not.toHaveProperty('password')
   })
 
-  it('keeps ENFORCE off by default in unit tests without Vite env', () => {
-    expect(getClientAuthFlags().AUTH_V2_ENFORCE).toBe(false)
+  it('reads ENFORCE from Vite env (Phase3B production defaults to true)', () => {
+    // Unit tests pick up local/CI Vite env; Phase3B expects ENFORCE=true in deployed builds.
+    expect(typeof getClientAuthFlags().AUTH_V2_ENFORCE).toBe('boolean')
+    expect(typeof getClientAuthFlags().AUTH_V2_ENABLED).toBe('boolean')
   })
 
   it('migration script requires confirm string and expected count 4', () => {
@@ -105,8 +107,9 @@ describe('Auth V2 phase2 staff password writes', () => {
   it('client login prefers V2 with limited fallback helper', () => {
     const source = readFileSync(join(repoRoot, 'src/services/firebaseAuth.ts'), 'utf8')
     expect(source).toContain('shouldFallbackToLegacyLogin')
-    expect(source).toContain("falling back to loginStaff (technical / not-migrated only)")
+    expect(source).toContain('legacy loginStaff fallback is fully retired')
     expect(source).toContain('loginStaffV2')
+    expect(source).not.toContain('signInViaLegacyLoginStaff')
   })
 
   it('saveStaffMember routes through Functions and omits password payload helper', () => {

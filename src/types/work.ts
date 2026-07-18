@@ -35,7 +35,6 @@ export type Company = {
   invoiceNumber?: string
   representativeName?: string
   representativeLoginId?: string
-  representativeInitialPassword?: string
   area?: string
   status?: CompanyStatus
   subscriptionPlan?: SubscriptionPlan
@@ -91,7 +90,8 @@ export type StaffMember = {
   storeId: string
   storeName: string
   userId: string
-  password: string
+  /** UI-only new-password draft. Never persisted to Firestore. */
+  password?: string
   name: string
   role: StaffRole
   loginId?: string
