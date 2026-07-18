@@ -14,6 +14,7 @@
     "auth:v2:backup:rest": "node scripts/backupAuthV2PreMigrationRest.mjs",
     "auth:v2:migrate": "tsx scripts/migrateAuthV2Credentials.ts",
     "auth:v2:migrate:rest": "node scripts/migrateAuthV2CredentialsRest.mjs",
+    "backup:restore:dry-run": "tsx scripts/backupRestoreDryRun.ts",
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "reset:dev-data": "node scripts/resetDevelopmentData.mjs",
     "repair:chiba-care-taxi-tenant": "tsx scripts/repairChibaCareTaxiTenantFields.ts",
