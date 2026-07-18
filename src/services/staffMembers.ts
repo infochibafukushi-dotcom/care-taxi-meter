@@ -15,6 +15,12 @@ import { FirebaseError } from 'firebase/app'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
 import { signInStaffWithFirebaseAuth, type LoginStaffResult } from './firebaseAuth'
+import {
+  disableStaffAuthViaFunctions,
+  syncStaffAuthClaimsViaFunctions,
+  upsertStaffCredentialViaFunctions,
+} from './staffAuthAdmin'
+import { AUTH_V2_ENABLED } from '../config/authFlags'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
 import { defaultStoreId, getFranchiseeId, getStoreId, matchesTenantScope } from './tenancy'
@@ -282,12 +288,18 @@ export async function saveStaffMember(
   }
 
   const trimmedPassword = staffMember.password?.trim() ?? ''
+  // Phase2: never write plaintext password to staffMembers.
+  // Blank password means "no change". Non-blank requires Auth V2 Functions.
   if (operation === 'create' && !trimmedPassword) {
     throw new Error('新規スタッフにはパスワードが必要です。')
   }
+  if (trimmedPassword && !AUTH_V2_ENABLED) {
+    throw new Error(
+      'パスワードの設定・変更は Auth V2 有効後にサーバー経由でのみ行えます。',
+    )
+  }
 
-  const includePassword = operation === 'create' || Boolean(trimmedPassword)
-  const masterPayload = buildStaffAdminPayload(staffMember, { includePassword })
+  const masterPayload = buildStaffAdminPayload(staffMember, { includePassword: false })
 
   if (!masterPayload.franchiseeId) {
     throw new Error('従業員の会社ID（franchiseeId）が未設定です。')
@@ -323,6 +335,32 @@ export async function saveStaffMember(
       }),
     )
     throw error
+  }
+
+  if (AUTH_V2_ENABLED) {
+    if (trimmedPassword) {
+      await upsertStaffCredentialViaFunctions({
+        staffId: staffMember.id,
+        password: trimmedPassword,
+      })
+    }
+
+    const roleChanged = Boolean(
+      previousStaffMember?.role && previousStaffMember.role !== staffMember.role,
+    )
+    const storeChanged = Boolean(
+      previousStaffMember?.storeId && previousStaffMember.storeId !== staffMember.storeId,
+    )
+    const disabledNow =
+      previousStaffMember?.enabled === true && staffMember.enabled === false
+    const enabledNow =
+      previousStaffMember?.enabled === false && staffMember.enabled === true
+
+    if (disabledNow) {
+      await disableStaffAuthViaFunctions(staffMember.id)
+    } else if (roleChanged || storeChanged || enabledNow || operation === 'create') {
+      await syncStaffAuthClaimsViaFunctions(staffMember.id)
+    }
   }
 
   if (actor && previousStaffMember?.role && previousStaffMember.role !== staffMember.role) {

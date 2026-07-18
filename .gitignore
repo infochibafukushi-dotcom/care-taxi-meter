@@ -51,3 +51,6 @@ build-output.txt
 *.build-log.txt
 *.build-output.txt
 
+
+.auth-v2-backup/
+

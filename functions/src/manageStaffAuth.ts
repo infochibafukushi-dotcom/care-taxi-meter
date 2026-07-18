@@ -159,6 +159,27 @@ export const upsertStaffCredential = onCall({ region: 'asia-northeast1' }, async
     authUid: staffMember.id,
   })
 
+  // Ensure Auth user + claims stay aligned after password rotation / first set.
+  const claims = buildStaffCustomClaims(staffMember)
+  const auth = getAuth()
+  try {
+    await auth.getUser(staffMember.id)
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code !== 'auth/user-not-found') {
+      throw error
+    }
+    await auth.createUser({
+      uid: staffMember.id,
+      displayName: staffMember.name,
+      disabled: !staffMember.enabled,
+    })
+  }
+  await auth.setCustomUserClaims(staffMember.id, claims)
+  if (!staffMember.enabled) {
+    await auth.updateUser(staffMember.id, { disabled: true })
+  }
+
   logger.info(
     'upsertStaffCredential',
     redactAuthSecrets({
@@ -169,7 +190,7 @@ export const upsertStaffCredential = onCall({ region: 'asia-northeast1' }, async
     }),
   )
 
-  return { updated: true, credentialId: result.credentialId }
+  return { updated: true, credentialId: result.credentialId, claimsSynced: true }
 })
 
 export const syncStaffAuthClaims = onCall({ region: 'asia-northeast1' }, async (request) => {

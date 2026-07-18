@@ -11,8 +11,8 @@ type StaffCredentialUpsertResponse = {
 }
 
 /**
- * Prepare client wrappers for Functions-mediated credential updates.
- * No-ops when Auth V2 is disabled so existing plaintext staff save remains unchanged.
+ * Functions-mediated credential / claims updates.
+ * No-ops when Auth V2 is disabled (except callers that require password changes).
  */
 export async function upsertStaffCredentialViaFunctions({
   staffId,
@@ -47,6 +47,19 @@ export async function syncStaffAuthClaimsViaFunctions(staffId: string) {
   const callable = httpsCallable<{ staffId: string }, { synced: boolean }>(
     functions,
     'syncStaffAuthClaims',
+  )
+  const response = await callable({ staffId })
+  return response.data
+}
+
+export async function disableStaffAuthViaFunctions(staffId: string) {
+  if (!AUTH_V2_ENABLED) {
+    return null
+  }
+  const functions = getFunctions(getFirebaseApp(), functionsRegion)
+  const callable = httpsCallable<{ staffId: string }, { disabled: boolean }>(
+    functions,
+    'disableStaffAuth',
   )
   const response = await callable({ staffId })
   return response.data

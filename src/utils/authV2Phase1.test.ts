@@ -129,7 +129,9 @@ describe('AUTH_V2 compatibility flags', () => {
     expect(indexSource).toContain("export { loginStaff } from './staffLogin'")
     expect(indexSource).toContain("export { loginStaffV2 } from './loginStaffV2'")
     const clientAuth = readFileSync(join(repoRoot, 'src/services/firebaseAuth.ts'), 'utf8')
-    expect(clientAuth).toContain("AUTH_V2_ENABLED ? 'loginStaffV2' : 'loginStaff'")
+    expect(clientAuth).toContain('loginStaffV2')
+    expect(clientAuth).toContain('shouldFallbackToLegacyLogin')
+    expect(clientAuth).toContain("callLoginCallable('loginStaff'")
   })
 })
 

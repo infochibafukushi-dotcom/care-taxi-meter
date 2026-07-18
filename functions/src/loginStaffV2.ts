@@ -235,6 +235,9 @@ async function ensureAuthUserWithClaims({
   return auth.createCustomToken(authUid, claims)
 }
 
+/** Reasons that may fall back to loginStaff while AUTH_V2_ENFORCE=false. */
+const FALLBACK_ELIGIBLE_REASONS = new Set(['credential_not_found'])
+
 async function rejectAuthFailure({
   db,
   companyId,
@@ -259,15 +262,35 @@ async function rejectAuthFailure({
     )
     if (result.locked || failureCount >= MAX_LOGIN_FAILURES) {
       logger.warn('loginStaffV2 locked', redactAuthSecrets({ reason, failureCount }))
-      throw new HttpsError('resource-exhausted', LOGIN_LOCK_MESSAGE)
+      throw new HttpsError('resource-exhausted', LOGIN_LOCK_MESSAGE, {
+        authFallback: false,
+        reason: 'locked',
+      })
     }
   } else if (failureCount >= MAX_LOGIN_FAILURES) {
     logger.warn('loginStaffV2 locked', redactAuthSecrets({ reason, failureCount }))
-    throw new HttpsError('resource-exhausted', LOGIN_LOCK_MESSAGE)
+    throw new HttpsError('resource-exhausted', LOGIN_LOCK_MESSAGE, {
+      authFallback: false,
+      reason: 'locked',
+    })
   }
 
-  logger.info('loginStaffV2 auth failure', redactAuthSecrets({ reason, failureCount }))
-  throw new HttpsError('unauthenticated', AUTH_FAILURE_MESSAGE_V2)
+  const authFallback = FALLBACK_ELIGIBLE_REASONS.has(reason)
+  logger.info('loginStaffV2 auth failure', redactAuthSecrets({ reason, failureCount, authFallback }))
+
+  // not_migrated → failed-precondition so ENFORCE=false clients may try loginStaff.
+  // bad_password / disabled / inactive → unauthenticated, no legacy bypass.
+  if (authFallback) {
+    throw new HttpsError('failed-precondition', AUTH_FAILURE_MESSAGE_V2, {
+      authFallback: true,
+      reason,
+    })
+  }
+
+  throw new HttpsError('unauthenticated', AUTH_FAILURE_MESSAGE_V2, {
+    authFallback: false,
+    reason,
+  })
 }
 
 export const loginStaffV2 = onCall({ region: 'asia-northeast1' }, async (request) => {

@@ -179,6 +179,99 @@ async function callLoginCallable(
   return loginCallable(payload)
 }
 
+const getCallableErrorCode = (error: unknown) => {
+  if (error instanceof FirebaseError) {
+    return error.code
+  }
+  const code = (error as { code?: unknown })?.code
+  return typeof code === 'string' ? code : ''
+}
+
+const getCallableErrorDetails = (error: unknown): Record<string, unknown> | null => {
+  const details = (error as { details?: unknown })?.details
+  if (details && typeof details === 'object') {
+    return details as Record<string, unknown>
+  }
+  return null
+}
+
+/**
+ * ENFORCE=false only: allow loginStaff fallback for technical / not-migrated cases.
+ * Never fallback on wrong password, lockout, disabled staff, or inactive company.
+ */
+export function shouldFallbackToLegacyLogin(error: unknown): boolean {
+  const code = getCallableErrorCode(error)
+  const details = getCallableErrorDetails(error)
+
+  if (details && details.authFallback === false) {
+    return false
+  }
+  if (details && details.authFallback === true) {
+    return true
+  }
+
+  // Wrong password / auth rejection — never fall back.
+  if (
+    code === 'functions/unauthenticated' ||
+    code === 'unauthenticated' ||
+    code === 'functions/permission-denied' ||
+    code === 'permission-denied'
+  ) {
+    return false
+  }
+
+  // Lockouts stay lockouts.
+  if (code === 'functions/resource-exhausted' || code === 'resource-exhausted') {
+    return false
+  }
+
+  // Technical / reachability / V2 disabled / not migrated.
+  if (
+    code === 'functions/not-found' ||
+    code === 'functions/unavailable' ||
+    code === 'functions/internal' ||
+    code === 'functions/deadline-exceeded' ||
+    code === 'functions/failed-precondition' ||
+    code === 'failed-precondition' ||
+    isCallableNotFoundError(error)
+  ) {
+    return true
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  if (/Failed to fetch|network|INTERNAL|unavailable/i.test(message)) {
+    return true
+  }
+
+  return false
+}
+
+async function completeCustomTokenSignIn(
+  parsed: LoginStaffResult,
+  authPath: string,
+): Promise<LoginStaffResult> {
+  await signInWithCustomToken(getFirebaseAuth(), parsed.customToken)
+  console.info('[firebaseAuth] signInWithCustomToken succeeded', {
+    staffId: parsed.staffMember.id,
+    authUid: getFirebaseAuth().currentUser?.uid ?? null,
+    authPath,
+  })
+  return parsed
+}
+
+async function signInViaLegacyLoginStaff(payload: {
+  companyId: string
+  userId: string
+  password: string
+}): Promise<LoginStaffResult | null> {
+  const response = await callLoginCallable('loginStaff', payload)
+  const parsed = parseLoginStaffResponse(response.data, 'loginStaff')
+  if (!parsed) {
+    return null
+  }
+  return completeCustomTokenSignIn(parsed, 'loginStaff')
+}
+
 export async function signInStaffWithFirebaseAuth({
   companyId,
   password,
@@ -188,52 +281,56 @@ export async function signInStaffWithFirebaseAuth({
   password: string
   userId: string
 }): Promise<LoginStaffResult | null> {
-  // AUTH_V2_ENFORCE is intentionally hard-off on the client this phase.
-  // Selective V2 testing requires VITE_AUTH_V2_ENABLED=true; default keeps loginStaff.
-  const functionName = AUTH_V2_ENABLED ? 'loginStaffV2' : 'loginStaff'
+  // AUTH_V2_ENFORCE stays hard-off. When V2 enabled, try V2 first with limited legacy fallback.
+  if (!AUTH_V2_ENABLED) {
+    try {
+      return await signInViaLegacyLoginStaff({ companyId, userId, password })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[firebaseAuth] loginStaff callable failed', {
+        code: getCallableErrorCode(error) || null,
+        message,
+        detailsKeys: getCallableErrorDetails(error) ? Object.keys(getCallableErrorDetails(error)!) : null,
+      })
+      if (isCallableNotFoundError(error)) {
+        return null
+      }
+      if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {
+        throw new Error('しばらくしてから再度お試しください。', { cause: error })
+      }
+      throw error
+    }
+  }
 
   try {
-    const response = await callLoginCallable(functionName, { companyId, userId, password })
-    const parsed = parseLoginStaffResponse(response.data, functionName)
+    const response = await callLoginCallable('loginStaffV2', { companyId, userId, password })
+    const parsed = parseLoginStaffResponse(response.data, 'loginStaffV2')
     if (!parsed) {
-      return null
+      // Malformed V2 response is technical — try legacy while ENFORCE=false.
+      console.info('[firebaseAuth] loginStaffV2 returned unusable payload; trying loginStaff fallback')
+      return signInViaLegacyLoginStaff({ companyId, userId, password })
     }
-
-    await signInWithCustomToken(getFirebaseAuth(), parsed.customToken)
-    console.info('[firebaseAuth] signInWithCustomToken succeeded', {
-      staffId: parsed.staffMember.id,
-      authUid: getFirebaseAuth().currentUser?.uid ?? null,
-      authPath: functionName,
-    })
-
-    return parsed
+    return completeCustomTokenSignIn(parsed, 'loginStaffV2')
   } catch (error) {
-    const callableError = error as {
-      code?: unknown
-      message?: unknown
-      details?: unknown
-      name?: unknown
-    }
-    console.error(`[firebaseAuth] ${functionName} callable failed`, {
-      code: typeof callableError.code === 'string' ? callableError.code : null,
-      message: typeof callableError.message === 'string' ? callableError.message : String(error),
-      detailsKeys:
-        callableError.details && typeof callableError.details === 'object'
-          ? Object.keys(callableError.details as Record<string, unknown>)
-          : null,
-      name: typeof callableError.name === 'string' ? callableError.name : null,
+    const code = getCallableErrorCode(error)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[firebaseAuth] loginStaffV2 callable failed', {
+      code: code || null,
+      message,
+      detailsKeys: getCallableErrorDetails(error) ? Object.keys(getCallableErrorDetails(error)!) : null,
+      authFallback: shouldFallbackToLegacyLogin(error),
     })
 
-    if (isCallableNotFoundError(error)) {
-      return null
-    }
-
-    const message = error instanceof Error ? error.message : String(error)
     if (message.includes('resource-exhausted') || message.includes('しばらくしてから再度お試しください')) {
       throw new Error('しばらくしてから再度お試しください。', { cause: error })
     }
 
-    throw error
+    if (!shouldFallbackToLegacyLogin(error)) {
+      throw error
+    }
+
+    console.info('[firebaseAuth] falling back to loginStaff (technical / not-migrated only)')
+    return signInViaLegacyLoginStaff({ companyId, userId, password })
   }
 }
 

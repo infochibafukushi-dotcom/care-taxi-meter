@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { StaffManagementPanel } from "../components/admin/StaffManagementPanel";
 import { StoreManagementPanel } from "../components/admin/StoreManagementPanel";
 import { TimeMeterDiscountSettingsPanel } from "../components/admin/TimeMeterDiscountSettingsPanel";
@@ -435,7 +435,6 @@ const createSpecialVehicleMenuItem = (
 
 export function AdminPage() {
   const workSession = useWorkSession();
-  const location = useLocation();
   const navigate = useNavigate();
   const authSession = useMemo(() => loadAuthStaffSession(), []);
   const hqViewingSession = useMemo(() => loadHqViewingSession(), []);
