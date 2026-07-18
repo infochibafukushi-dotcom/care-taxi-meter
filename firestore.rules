@@ -489,6 +489,16 @@ service cloud.firestore {
       allow write: if isHqAdmin();
     }
 
+    // Server-only credential store (Admin SDK). Deny all client access, including hq_admin.
+    match /staffCredentials/{credentialId} {
+      allow read, create, update, delete: if false;
+    }
+
+    // Login attempt counters are Functions-managed only.
+    match /loginAttempts/{attemptId} {
+      allow read, create, update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if isHqAdmin();
     }

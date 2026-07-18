@@ -7,7 +7,7 @@ import { fetchStores, saveStore } from '../services/stores'
 import { fetchVehicles } from '../services/vehicles'
 import { useWorkSession } from '../hooks/useWorkSession'
 import { clearAuthStaffSession, loadAuthStaffSession, saveHqViewingSession } from '../services/authSession'
-import { signOutFirebaseAuth } from '../services/firebaseAuth'
+import { signOutFirebaseAuth, waitForFirebaseAuthUser } from '../services/firebaseAuth'
 import { defaultFranchiseeId } from '../services/tenancy'
 import { defaultHeadquartersInfo, fetchHeadquartersInfo, saveHeadquartersInfo } from '../services/hqSettings'
 import type { HeadquartersInfo } from '../services/hqSettings'
@@ -177,7 +177,9 @@ const formatMembership = (start?: string) => {
 export function HeadquartersPage() {
   const workSession = useWorkSession()
   const navigate = useNavigate()
-  const authSession = loadAuthStaffSession()
+  const authSession = useMemo(() => loadAuthStaffSession(), [])
+  const [authReady, setAuthReady] = useState(false)
+  const [firebaseAuthed, setFirebaseAuthed] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [stores, setStores] = useState<Store[]>([])
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
@@ -196,6 +198,21 @@ export function HeadquartersPage() {
   const [resetBootstrapPasswordInput, setResetBootstrapPasswordInput] = useState('')
   const [isDevelopmentResetOpen, setIsDevelopmentResetOpen] = useState(false)
   const [isDevelopmentResetRunning, setIsDevelopmentResetRunning] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void waitForFirebaseAuthUser().then((user) => {
+      if (!active) return
+      setFirebaseAuthed(Boolean(user))
+      setAuthReady(true)
+      if (!user && authSession) {
+        clearAuthStaffSession()
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [authSession])
 
   const loadData = async () => {
     setIsLoading(true)
@@ -230,7 +247,9 @@ export function HeadquartersPage() {
 
   useEffect(() => { void Promise.resolve().then(loadData) }, [])
 
-  const isHqAdmin = workSession.currentSession?.staffRole === 'hq_admin' || authSession?.role === 'hq_admin'
+  const isHqAdmin =
+    firebaseAuthed &&
+    (workSession.currentSession?.staffRole === 'hq_admin' || authSession?.role === 'hq_admin')
   const franchiseCompanies = useMemo(() => companies.filter((company) => !isHeadquartersCompany(company)), [companies])
   const franchiseCompanyIds = useMemo(() => new Set(franchiseCompanies.map((company) => company.id)), [franchiseCompanies])
   const franchiseCaseRecords = useMemo(() => caseRecords.filter((caseRecord) => franchiseCompanyIds.has(caseRecord.companyId)), [caseRecords, franchiseCompanyIds])
@@ -504,13 +523,23 @@ export function HeadquartersPage() {
     }
   }
 
+  if (!authReady) {
+    return (
+      <main className="page page--admin page--hq" aria-labelledby="hq-title">
+        <section className="admin-section">
+          <p className="empty-note">認証状態を確認しています…</p>
+        </section>
+      </main>
+    )
+  }
+
   if (!isHqAdmin) {
     return (
       <main className="page page--admin page--hq" aria-labelledby="hq-title">
         <section className="admin-section">
           <p className="eyebrow">FC本部管理システム</p>
           <h1 id="hq-title">アクセス権限がありません</h1>
-          <p className="case-error">FC本部管理画面は hq_admin のみ利用できます。</p>
+          <p className="case-error">FC本部管理画面は hq_admin のみ利用できます。TOPからログインしてください。</p>
           <Link className="secondary-action" to="/">TOPへ戻る</Link>
         </section>
       </main>

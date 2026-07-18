@@ -37,6 +37,7 @@ export const LIGHTWEIGHT_BACKUP_COLLECTION_DENYLIST = [
   'loginAttempts',
   'debugLogs',
   'staffMembers',
+  'staffCredentials',
   'accountingReceipts',
 ] as const
 
@@ -44,12 +45,15 @@ export const LIGHTWEIGHT_BACKUP_COLLECTION_DENYLIST = [
 export const LIGHTWEIGHT_BACKUP_SENSITIVE_FIELD_DENYLIST = [
   'password',
   'passwordHash',
+  'passwordSalt',
+  'hashParameters',
   'token',
   'refreshToken',
   'idToken',
   'accessToken',
   'secret',
   'apiKey',
+  'customToken',
 ] as const
 
 /** Storage / バイナリ参照フィールドは export 対象外（パス文字列もバックアップしない） */

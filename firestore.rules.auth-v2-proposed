@@ -1,0 +1,55 @@
+rules_version = '2';
+/**
+ * Auth V2 proposed rules (reference only — do not deploy wholesale yet).
+ *
+ * Phase 1 already deploys additive denies for staffCredentials + loginAttempts
+ * inside firestore.rules. The fragments below are the future cutover shape.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() { return signedIn() ? request.auth.token.role : null; }
+    function franchiseeId() {
+      return signedIn()
+        ? (request.auth.token.franchiseeId != null
+            ? request.auth.token.franchiseeId
+            : request.auth.token.companyId)
+        : null;
+    }
+    function storeId() { return signedIn() ? request.auth.token.storeId : null; }
+    function staffId() { return signedIn() ? request.auth.token.staffId : null; }
+    function isHqAdmin() { return role() == 'hq_admin' || role() == 'superAdmin'; }
+    function isFranchiseeOwner() { return role() == 'franchisee_owner' || role() == 'owner'; }
+    function isStoreManager() { return role() == 'store_manager' || role() == 'manager'; }
+    function docFranchisee(data) { return data.franchiseeId != null ? data.franchiseeId : data.companyId; }
+    function sameFranchisee(data) {
+      return docFranchisee(data) == franchiseeId()
+        || (request.auth.token.companyId != null && docFranchisee(data) == request.auth.token.companyId);
+    }
+    function sameStore(data) { return sameFranchisee(data) && data.storeId == storeId(); }
+
+    // FUTURE: block client mutation of plaintext password after cutover.
+    function rejectsPasswordFieldMutation() {
+      return resource == null
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['password']);
+    }
+
+    match /staffCredentials/{credentialId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /loginAttempts/{attemptId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /staffMembers/{staffMemberId} {
+      allow read: if isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchisee(resource.data))
+        || (isStoreManager() && sameStore(resource.data))
+        || (role() == 'driver' && staffMemberId == staffId());
+      // FUTURE cutover: && rejectsPasswordFieldMutation()
+      allow create, update: if false; // placeholder — real create/update stays in production rules until cutover
+      allow delete: if false;
+    }
+  }
+}

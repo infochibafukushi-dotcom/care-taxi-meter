@@ -2,6 +2,7 @@ import { FirebaseError } from 'firebase/app'
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut, type User } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { getFirebaseApp } from '../lib/firebase'
+import { AUTH_V2_ENABLED } from '../config/authFlags'
 import type { StaffMember, StaffRole } from '../types/work'
 
 const functionsRegion = 'asia-northeast1'
@@ -84,14 +85,40 @@ const normalizeLoginStaffMember = (data: Record<string, unknown>, id: string): S
   }
 }
 
-const parseLoginStaffResponse = (data: unknown): LoginStaffResult | null => {
+const assertNoSensitiveAuthFields = (payload: Record<string, unknown>, context: string) => {
+  const forbidden = ['password', 'passwordHash', 'passwordSalt', 'salt', 'hash']
+  for (const key of forbidden) {
+    if (key in payload && payload[key] != null && payload[key] !== '') {
+      console.error(`[firebaseAuth] ${context} unexpectedly included sensitive field`, { field: key })
+      throw new Error('認証応答に不正な項目が含まれています。')
+    }
+  }
+  const staffSource = payload.staffMember ?? payload.staff
+  if (staffSource && typeof staffSource === 'object') {
+    for (const key of forbidden) {
+      if (key in (staffSource as Record<string, unknown>)) {
+        const value = (staffSource as Record<string, unknown>)[key]
+        if (value != null && value !== '') {
+          console.error(`[firebaseAuth] ${context} staff payload included sensitive field`, {
+            field: key,
+          })
+          throw new Error('認証応答に不正な項目が含まれています。')
+        }
+      }
+    }
+  }
+}
+
+const parseLoginStaffResponse = (data: unknown, context: string): LoginStaffResult | null => {
   const payload = unwrapLoginStaffPayload(data)
   if (!payload) {
-    console.error('[firebaseAuth] loginStaff response payload is empty', {
+    console.error(`[firebaseAuth] ${context} response payload is empty`, {
       payloadType: data === null ? 'null' : typeof data,
     })
     return null
   }
+
+  assertNoSensitiveAuthFields(payload, context)
 
   const customToken = toStringValue(payload.customToken) || toStringValue(payload.token)
   const staffSource = payload.staffMember ?? payload.staff
@@ -100,7 +127,7 @@ const parseLoginStaffResponse = (data: unknown): LoginStaffResult | null => {
   const staffId = staffRecord ? toStringValue(staffRecord.id) : ''
 
   if (!customToken || !staffRecord || !staffId) {
-    console.error('[firebaseAuth] loginStaff response missing required fields', {
+    console.error(`[firebaseAuth] ${context} response missing required fields`, {
       payloadKeys: Object.keys(payload),
       hasCustomToken: Boolean(customToken),
       hasStaffMember: Boolean(staffRecord),
@@ -110,11 +137,13 @@ const parseLoginStaffResponse = (data: unknown): LoginStaffResult | null => {
   }
 
   const staffMember = normalizeLoginStaffMember(staffRecord, staffId)
-  console.info('[firebaseAuth] loginStaff response parsed', {
+  console.info(`[firebaseAuth] ${context} response parsed`, {
     staffId: staffMember.id,
     role: staffMember.role,
     companyId: staffMember.companyId,
-    payloadKeys: Object.keys(payload),
+    payloadKeys: Object.keys(payload).filter(
+      (key) => !['customToken', 'token', 'password', 'passwordHash', 'passwordSalt'].includes(key),
+    ),
   })
 
   return {
@@ -138,6 +167,18 @@ export const waitForFirebaseAuthUser = (): Promise<User | null> =>
     })
   })
 
+async function callLoginCallable(
+  functionName: 'loginStaff' | 'loginStaffV2',
+  payload: { companyId: string; userId: string; password: string },
+) {
+  const functions = getFunctions(getFirebaseApp(), functionsRegion)
+  const loginCallable = httpsCallable<
+    { companyId: string; userId: string; password: string },
+    LoginStaffResponse
+  >(functions, functionName)
+  return loginCallable(payload)
+}
+
 export async function signInStaffWithFirebaseAuth({
   companyId,
   password,
@@ -147,15 +188,13 @@ export async function signInStaffWithFirebaseAuth({
   password: string
   userId: string
 }): Promise<LoginStaffResult | null> {
-  const functions = getFunctions(getFirebaseApp(), functionsRegion)
-  const loginStaff = httpsCallable<
-    { companyId: string; userId: string; password: string },
-    LoginStaffResponse
-  >(functions, 'loginStaff')
+  // AUTH_V2_ENFORCE is intentionally hard-off on the client this phase.
+  // Selective V2 testing requires VITE_AUTH_V2_ENABLED=true; default keeps loginStaff.
+  const functionName = AUTH_V2_ENABLED ? 'loginStaffV2' : 'loginStaff'
 
   try {
-    const response = await loginStaff({ companyId, userId, password })
-    const parsed = parseLoginStaffResponse(response.data)
+    const response = await callLoginCallable(functionName, { companyId, userId, password })
+    const parsed = parseLoginStaffResponse(response.data, functionName)
     if (!parsed) {
       return null
     }
@@ -164,6 +203,7 @@ export async function signInStaffWithFirebaseAuth({
     console.info('[firebaseAuth] signInWithCustomToken succeeded', {
       staffId: parsed.staffMember.id,
       authUid: getFirebaseAuth().currentUser?.uid ?? null,
+      authPath: functionName,
     })
 
     return parsed
@@ -174,10 +214,13 @@ export async function signInStaffWithFirebaseAuth({
       details?: unknown
       name?: unknown
     }
-    console.error('[firebaseAuth] loginStaff callable failed', {
+    console.error(`[firebaseAuth] ${functionName} callable failed`, {
       code: typeof callableError.code === 'string' ? callableError.code : null,
       message: typeof callableError.message === 'string' ? callableError.message : String(error),
-      details: callableError.details ?? null,
+      detailsKeys:
+        callableError.details && typeof callableError.details === 'object'
+          ? Object.keys(callableError.details as Record<string, unknown>)
+          : null,
       name: typeof callableError.name === 'string' ? callableError.name : null,
     })
 

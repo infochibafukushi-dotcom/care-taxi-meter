@@ -4,6 +4,12 @@ import { logger } from 'firebase-functions'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 
 export { loginStaff } from './staffLogin'
+export { loginStaffV2 } from './loginStaffV2'
+export {
+  upsertStaffCredential,
+  syncStaffAuthClaims,
+  disableStaffAuth,
+} from './manageStaffAuth'
 export {
   executePreOpeningDataReset,
   executePreOpeningReservationReset,

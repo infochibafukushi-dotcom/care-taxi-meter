@@ -57,7 +57,8 @@ import { calculateSalesSummary, getActualFareYen, getMonthRangeInJapan } from ".
 import { logDiagnostic } from "../utils/diagnostics";
 import { isPreOpeningCompanyStatus } from "../utils/preOpeningResetGuard";
 import { tenantScopeFromSession, tenantAccessScopeFromSessionSource } from "../services/tenancy";
-import { loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
+import { clearAuthStaffSession, loadAuthStaffSession, loadHqViewingSession, restoreHqSessionFromViewingMode } from "../services/authSession";
+import { waitForFirebaseAuthUser } from "../services/firebaseAuth";
 import { fetchCompanies } from "../services/companies";
 import type { CompanyStatus } from "../types/work";
 
@@ -449,7 +450,26 @@ export function AdminPage() {
   const currentStoreName = sessionSource?.storeName || "本店";
   const currentStaffId = workSession.currentSession?.staffId ?? authSession?.id ?? "";
   const currentStaffName = workSession.currentSession?.staffName ?? authSession?.name ?? "";
-  const currentRole: StaffRole | "" = workSession.currentSession?.staffRole ?? authSession?.role ?? (location.pathname.startsWith("/hq") || location.pathname.startsWith("/superadmin") ? "hq_admin" : location.pathname.startsWith("/owner") ? "owner" : location.pathname.startsWith("/manager") ? "manager" : location.pathname.startsWith("/driver") ? "driver" : "");
+  // Role comes only from authenticated session state — never from URL path alone.
+  const currentRole: StaffRole | "" =
+    workSession.currentSession?.staffRole ?? authSession?.role ?? "";
+  const [authReady, setAuthReady] = useState(false);
+  const [firebaseAuthed, setFirebaseAuthed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void waitForFirebaseAuthUser().then((user) => {
+      if (!active) return;
+      setFirebaseAuthed(Boolean(user));
+      setAuthReady(true);
+      if (!user && authSession) {
+        clearAuthStaffSession();
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [authSession]);
   const sessionDiagnostics = useMemo(
     () => ({
       companyId: sessionSource?.companyId ?? "",
@@ -1535,6 +1555,37 @@ export function AdminPage() {
       );
     }
   };
+
+  if (!authReady) {
+    return (
+      <main className="page admin-page" aria-labelledby="admin-title">
+        <section className="content-card admin-card">
+          <p className="empty-note">認証状態を確認しています…</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!firebaseAuthed || !currentRole) {
+    return (
+      <main className="page admin-page" aria-labelledby="admin-title">
+        <section className="content-card admin-card">
+          <div className="case-list-header">
+            <div>
+              <p className="eyebrow">Admin Center</p>
+              <h1 id="admin-title">管理センター</h1>
+            </div>
+            <Link className="text-link" to="/">
+              ホームへ戻る
+            </Link>
+          </div>
+          <p className="case-error" role="alert">
+            ログインが必要です。TOPから認証してから管理画面を開いてください。
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   if (availableAdminCenterCards.length === 0) {
     return (
