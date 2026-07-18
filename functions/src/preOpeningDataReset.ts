@@ -10,6 +10,9 @@ import {
   isAllowlistedScopedCollection,
   isProtectedStoragePath,
 } from './preOpeningResetAllowlist'
+import {
+  assertDevelopmentResetAllowedForFunctions,
+} from './developmentResetGuard'
 
 const PRE_OPENING_RESET_CONFIRM_TEXT = 'RESET'
 const DELETE_BATCH_SIZE = 450
@@ -546,6 +549,14 @@ export const getPreOpeningResetCapability = onCall(
     region: 'asia-northeast1',
   },
   async (request) => {
+    try {
+      assertDevelopmentResetAllowedForFunctions()
+    } catch (error) {
+      throw new HttpsError(
+        'failed-precondition',
+        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
+      )
+    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
@@ -570,6 +581,14 @@ export const getPreOpeningReservationResetCapability = onCall(
     secrets: [reservationV4AdminToken],
   },
   async (request) => {
+    try {
+      assertDevelopmentResetAllowedForFunctions()
+    } catch (error) {
+      throw new HttpsError(
+        'failed-precondition',
+        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
+      )
+    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
@@ -598,6 +617,14 @@ export const executePreOpeningDataReset = onCall(
     region: 'asia-northeast1',
   },
   async (request) => {
+    try {
+      assertDevelopmentResetAllowedForFunctions()
+    } catch (error) {
+      throw new HttpsError(
+        'failed-precondition',
+        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
+      )
+    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)
@@ -640,6 +667,14 @@ export const executePreOpeningReservationReset = onCall(
     secrets: [reservationV4AdminToken],
   },
   async (request) => {
+    try {
+      assertDevelopmentResetAllowedForFunctions()
+    } catch (error) {
+      throw new HttpsError(
+        'failed-precondition',
+        error instanceof Error ? error.message : '開発データリセットが許可されていません。',
+      )
+    }
     const auth = assertCallableAuth(request)
     const scope = normalizeScopeInput(request.data)
     await assertScopeAuthorized(auth, scope)

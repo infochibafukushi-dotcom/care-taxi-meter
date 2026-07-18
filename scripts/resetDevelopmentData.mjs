@@ -1,38 +1,62 @@
 #!/usr/bin/env node
+/**
+ * Development Firestore reset CLI (fail-closed).
+ * Never run against production. Requires explicit env flags + confirm + bootstrap password.
+ */
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app'
 import { FieldPath, getFirestore } from 'firebase-admin/firestore'
+import {
+  assertCliDevelopmentResetAllowed,
+  buildDevelopmentResetConfirmText,
+  validateBootstrapAdminPassword,
+} from './lib/developmentResetGuard.mjs'
 
-const CONFIRMATION = 'delete-dev-data'
 const PAGE_SIZE = 300
 const DEFAULT_FRANCHISEE_ID = 'default-franchisee'
 const HEADQUARTERS_STORE_ID = 'store_fc_headquarters'
 const DEFAULT_ADMIN_STAFF_ID = 'staff_admin'
 const DEFAULT_ADMIN_NAME = '山本信勝'
-const DEFAULT_ADMIN_PASSWORD = '123'
 
-const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT
-const confirmation = process.env.CONFIRM_RESET_DEVELOPMENT_DATA
-
-if (confirmation !== CONFIRMATION) {
+let projectId
+let bootstrapAdminPassword
+try {
+  projectId = assertCliDevelopmentResetAllowed(process.env)
+  const passwordCheck = validateBootstrapAdminPassword(process.env.ADMIN_BOOTSTRAP_PASSWORD)
+  if (!passwordCheck.ok) {
+    throw new Error(passwordCheck.message)
+  }
+  bootstrapAdminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
   console.error(
-    `Refusing to reset data. Set CONFIRM_RESET_DEVELOPMENT_DATA=${CONFIRMATION} to continue.`,
+    [
+      'Required (development only):',
+      '  FIREBASE_PROJECT_ID=<dev-project-id>',
+      '  DEV_RESET_ENABLED=true',
+      '  DEV_RESET_ALLOWED_PROJECT_IDS=<comma-separated allowlist including FIREBASE_PROJECT_ID>',
+      `  CONFIRM_RESET_DEVELOPMENT_DATA=${buildDevelopmentResetConfirmText('<project-id>')}`,
+      '  ADMIN_BOOTSTRAP_PASSWORD=<12+ chars with letters and digits>',
+      'Refuse when CI=true. Never set these for production project care-taxi-meter.',
+    ].join('\n'),
   )
   process.exit(1)
 }
+
+console.log(`Target Firebase project ID: ${projectId}`)
+console.log('This is a destructive development reset and cannot be undone.')
 
 function credentialFromEnvironment() {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
   if (serviceAccountJson) {
     return cert(JSON.parse(serviceAccountJson))
   }
-
   return applicationDefault()
 }
 
 if (getApps().length === 0) {
   initializeApp({
     credential: credentialFromEnvironment(),
-    ...(projectId ? { projectId } : {}),
+    projectId,
   })
 }
 
@@ -50,6 +74,7 @@ const fullDeleteCollections = [
 ]
 
 const resetSummary = {
+  projectId,
   deletedByCollection: {},
   recreatedDocuments: [],
 }
@@ -87,7 +112,7 @@ async function deleteCollection(collectionName) {
   resetSummary.deletedByCollection[collectionName] = deletedCount
 }
 
-async function recreateInitialData() {
+async function recreateInitialData(adminPassword) {
   const now = new Date().toISOString()
   const serverNow = new Date()
 
@@ -128,7 +153,7 @@ async function recreateInitialData() {
     storeId: HEADQUARTERS_STORE_ID,
     storeName: '株式会社千葉福祉サポート',
     userId: DEFAULT_ADMIN_NAME,
-    password: DEFAULT_ADMIN_PASSWORD,
+    password: adminPassword,
     name: DEFAULT_ADMIN_NAME,
     role: 'hq_admin',
     canDrive: false,
@@ -139,7 +164,7 @@ async function recreateInitialData() {
     licenseNumber: '',
     licenseExpiresAt: '',
     accidentHistory: '',
-    memo: '株式会社千葉福祉サポート初期管理者アカウント',
+    memo: '株式会社千葉福祉サポート初期管理者アカウント（CLI開発リセットで再作成）',
     enabled: true,
     sortOrder: 1,
     createdAt: serverNow,
@@ -153,6 +178,7 @@ for (const collectionName of fullDeleteCollections) {
   await deleteCollection(collectionName)
 }
 
-await recreateInitialData()
+await recreateInitialData(bootstrapAdminPassword)
 
 console.log(JSON.stringify(resetSummary, null, 2))
+console.log('Bootstrap admin password was set from ADMIN_BOOTSTRAP_PASSWORD (value not logged).')

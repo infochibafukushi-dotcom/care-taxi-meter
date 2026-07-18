@@ -12,6 +12,9 @@ interface ImportMetaEnv {
   readonly VITE_RESERVATION_API_BASE_URL: string
   readonly VITE_ACCOUNTING_OCR_ENDPOINT?: string
   readonly VITE_ACCOUNTING_OCR_API_KEY?: string
+  /** Development reset only — must stay unset/false on production Pages builds. */
+  readonly VITE_DEV_RESET_ENABLED?: string
+  readonly VITE_DEV_RESET_ALLOWED_PROJECT_IDS?: string
   /** Optional override; defaults to `${VITE_RESERVATION_API_BASE_URL}/api/invoice` */
   readonly VITE_INVOICE_API_BASE_URL?: string
 }

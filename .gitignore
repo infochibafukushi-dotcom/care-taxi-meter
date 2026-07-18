@@ -44,3 +44,10 @@ docs/screenshots/
 # Local smoke / PDF size probes
 .smoke-artifacts/
 
+# Local build / probe artifacts (never commit)
+dist-test-no-config/
+build-log.txt
+build-output.txt
+*.build-log.txt
+*.build-output.txt
+

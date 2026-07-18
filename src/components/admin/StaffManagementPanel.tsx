@@ -163,7 +163,7 @@ export function StaffManagementPanel({
               <th>店舗</th>
               <th>氏名</th>
               <th>ログインID</th>
-              <th>パスワード</th>
+              <th>新しいパスワード</th>
               <th>権限</th>
               <th>状態</th>
               <th>電話番号</th>
@@ -197,7 +197,17 @@ export function StaffManagementPanel({
                   </td>
                   <td><input value={staffMember.name} onChange={(event) => onUpdate(staffMember.id, { name: event.target.value })} /></td>
                   <td><input value={staffMember.userId || staffMember.loginId || staffMember.name} onChange={(event) => onUpdate(staffMember.id, { userId: event.target.value, loginId: event.target.value })} /></td>
-                  <td><input type="password" value={staffMember.password} onChange={(event) => onUpdate(staffMember.id, { password: event.target.value })} /></td>
+                  <td>
+                    <input
+                      type="password"
+                      name="new-staff-password"
+                      autoComplete="new-password"
+                      placeholder="変更する場合のみ入力"
+                      aria-label="新しいパスワード"
+                      value={staffMember.password}
+                      onChange={(event) => onUpdate(staffMember.id, { password: event.target.value })}
+                    />
+                  </td>
                   <td>
                     <select
                       value={staffMember.role}

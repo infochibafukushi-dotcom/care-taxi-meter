@@ -1391,6 +1391,9 @@ export function AdminPage() {
           saveStaffMember(staffMember, auditActor, sessionContext),
         ),
       );
+      setStaffMembers((currentStaffMembers) =>
+        currentStaffMembers.map((staffMember) => ({ ...staffMember, password: "" })),
+      );
       setMasterMessage("従業員情報を保存しました。");
     } catch (error) {
       logAdminLoadFailure("saveStaffMembers", "staffMembers", {

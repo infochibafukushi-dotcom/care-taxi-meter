@@ -11,9 +11,15 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { getFirebaseApp } from '../lib/firebase'
-import { defaultAdminStaffMemberId, defaultAdminStaffPassword, defaultAdminStaffUserId } from './staffMembers'
+import { defaultAdminStaffMemberId, defaultAdminStaffUserId } from './staffMembers'
 import { defaultCompany } from './companies'
 import { headquartersStore } from './stores'
+import {
+  assertDevelopmentResetAllowed,
+  matchesDevelopmentResetConfirmText,
+  readClientDevelopmentResetConfig,
+  validateBootstrapAdminPassword,
+} from '../utils/developmentResetGuard'
 
 const resetBatchSize = 450
 
@@ -28,9 +34,16 @@ const resetCollections = [
   'companies',
 ]
 
-type ResetSummary = {
+export type ResetSummary = {
   deletedByCollection: Record<string, number>
   recreatedDocuments: string[]
+  projectId: string
+}
+
+export type HeadquartersDevelopmentResetInput = {
+  projectId: string
+  confirmText: string
+  bootstrapAdminPassword: string
 }
 
 async function deleteCollection(collectionName: string) {
@@ -55,7 +68,7 @@ async function deleteCollection(collectionName: string) {
   }
 }
 
-async function recreateInitialData() {
+async function recreateInitialData(bootstrapAdminPassword: string) {
   const db = getFirestore(getFirebaseApp())
   const recreatedDocuments = [
     `companies/${defaultCompany.id}`,
@@ -85,7 +98,7 @@ async function recreateInitialData() {
     storeId: headquartersStore.id,
     storeName: headquartersStore.name,
     userId: defaultAdminStaffUserId,
-    password: defaultAdminStaffPassword,
+    password: bootstrapAdminPassword,
     name: defaultAdminStaffUserId,
     role: 'hq_admin',
     canDrive: false,
@@ -96,7 +109,7 @@ async function recreateInitialData() {
     licenseNumber: '',
     licenseExpiresAt: '',
     accidentHistory: '',
-    memo: 'FC本部初期管理者アカウント',
+    memo: 'FC本部初期管理者アカウント（開発リセットで再作成）',
     enabled: true,
     sortOrder: 1,
     createdAt: serverTimestamp(),
@@ -106,17 +119,55 @@ async function recreateInitialData() {
   return recreatedDocuments
 }
 
-export async function resetHeadquartersDevelopmentData(): Promise<ResetSummary> {
+const resolveClientProjectId = () => {
+  const config = readClientDevelopmentResetConfig(import.meta.env)
+  return (
+    config.projectId ||
+    (typeof import.meta.env.VITE_FIREBASE_PROJECT_ID === 'string'
+      ? import.meta.env.VITE_FIREBASE_PROJECT_ID
+      : '')
+  )
+}
+
+/**
+ * Destructive HQ reset — only after multi-layer development guard + confirm + bootstrap password.
+ * Never call from production builds (UI is gated; this also enforces fail-closed).
+ */
+export async function resetHeadquartersDevelopmentData(
+  input: HeadquartersDevelopmentResetInput,
+): Promise<ResetSummary> {
+  const envConfig = readClientDevelopmentResetConfig(import.meta.env)
+  const projectId = assertDevelopmentResetAllowed({
+    projectId: input.projectId || resolveClientProjectId(),
+    enabled: envConfig.enabled,
+    allowedProjectIds: envConfig.allowedProjectIds,
+    isCi: false,
+  })
+
+  if (!matchesDevelopmentResetConfirmText(input.confirmText, projectId)) {
+    throw new Error('確認文字列が一致しません。')
+  }
+
+  if (input.projectId.trim() !== projectId) {
+    throw new Error('入力された project ID が現在の環境と一致しません。')
+  }
+
+  const passwordCheck = validateBootstrapAdminPassword(input.bootstrapAdminPassword)
+  if (!passwordCheck.ok) {
+    throw new Error(passwordCheck.message)
+  }
+
   const deletedByCollection: ResetSummary['deletedByCollection'] = {}
 
   for (const collectionName of resetCollections) {
     deletedByCollection[collectionName] = await deleteCollection(collectionName)
   }
 
-  const recreatedDocuments = await recreateInitialData()
+  const recreatedDocuments = await recreateInitialData(input.bootstrapAdminPassword)
 
   return {
     deletedByCollection,
     recreatedDocuments,
+    projectId,
   }
 }

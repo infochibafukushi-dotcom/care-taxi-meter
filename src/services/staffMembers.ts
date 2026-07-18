@@ -14,8 +14,6 @@ import type { DocumentData, QueryConstraint, QueryDocumentSnapshot } from 'fireb
 import { FirebaseError } from 'firebase/app'
 import { getFirebaseApp } from '../lib/firebase'
 import type { StaffMember, StaffRole } from '../types/work'
-import { ensureDefaultCompany } from './companies'
-import { defaultCompanyId, ensureDefaultStore, ensureHeadquartersStore } from './stores'
 import { signInStaffWithFirebaseAuth, type LoginStaffResult } from './firebaseAuth'
 import { createAuditLog } from './auditLogs'
 import type { AuditActor } from './auditLogs'
@@ -30,9 +28,49 @@ export const STAFF_EDIT_FORBIDDEN_MESSAGE = '従業員情報の編集権限が�
 const staffMembersCollectionName = 'staffMembers'
 const validRoles: StaffRole[] = ['driver', 'manager', 'owner', 'hq_admin']
 
+/** Document id for HQ bootstrap admin created only by gated development reset. */
 export const defaultAdminStaffMemberId = 'staff_admin'
+/** Login userId label for HQ bootstrap admin (not a secret). */
 export const defaultAdminStaffUserId = '山本信勝'
-export const defaultAdminStaffPassword = '123'
+
+const AUTH_SENSITIVE_KEYS = new Set([
+  'password',
+  'newPassword',
+  'initialPassword',
+  'ownerPassword',
+  'representativeInitialPassword',
+  'hash',
+  'salt',
+  'customToken',
+  'idToken',
+  'refreshToken',
+  'Authorization',
+])
+
+/** Strip auth-sensitive fields from objects before console logging. */
+export const redactAuthSensitiveFields = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactAuthSensitiveFields(item))
+  }
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+  const result: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (AUTH_SENSITIVE_KEYS.has(key)) {
+      result[key] = nested == null || nested === '' ? '' : '[redacted]'
+      continue
+    }
+    result[key] = redactAuthSensitiveFields(nested)
+  }
+  return result
+}
+
+/** UI/list mapping: never expose stored password to form state. */
+export const stripStaffPasswordForClient = <T extends { password?: string }>(staff: T): T => ({
+  ...staff,
+  password: '',
+})
 
 const toStringValue = (value: unknown) => (typeof value === 'string' ? value : '')
 const toBooleanValue = (value: unknown, fallback = true) =>
@@ -59,7 +97,8 @@ const toStaffMember = (
     storeName: toStringValue(data.storeName),
     userId: toStringValue(data.userId),
     loginId: toStringValue(data.loginId) || toStringValue(data.userId),
-    password: toStringValue(data.password),
+    // Never hydrate passwords into client staff objects (forms must stay blank).
+    password: '',
     name: toStringValue(data.name) || '名称未設定のスタッフ',
     role: toRole(data.role),
     canDrive: toBooleanValue(data.canDrive, toRole(data.role) === 'owner' || toRole(data.role) === 'driver'),
@@ -140,15 +179,20 @@ const getErrorCode = (error: unknown) => {
 
 /**
  * 従業員管理画面用の保存ペイロード。undefined は送らない。
+ * password は includePassword が true のときだけ含める（空欄更新で既存値を消さない）。
  */
-export const buildStaffAdminPayload = (staffMember: StaffMember) => {
+export const buildStaffAdminPayload = (
+  staffMember: StaffMember,
+  options: { includePassword: boolean } = { includePassword: false },
+) => {
   const franchiseeId = (staffMember.franchiseeId || staffMember.companyId || '').trim()
   const storeId = (staffMember.storeId || defaultStoreId).trim() || defaultStoreId
   const name = staffMember.name.trim()
   const loginId = (staffMember.loginId || staffMember.userId || name).trim() || name
   const role = toRole(staffMember.role)
+  const trimmedPassword = staffMember.password?.trim() ?? ''
 
-  return {
+  const base = {
     id: staffMember.id,
     companyId: franchiseeId,
     franchiseeId,
@@ -156,7 +200,6 @@ export const buildStaffAdminPayload = (staffMember: StaffMember) => {
     storeName: (staffMember.storeName || '').trim(),
     userId: (staffMember.userId || loginId).trim() || loginId,
     loginId,
-    password: staffMember.password || '',
     name,
     role,
     status: staffMember.status ?? (staffMember.enabled !== false ? 'employed' : 'disabled'),
@@ -175,6 +218,12 @@ export const buildStaffAdminPayload = (staffMember: StaffMember) => {
     enabled: staffMember.enabled !== false,
     sortOrder: Math.max(staffMember.sortOrder || 1, 1),
   }
+
+  if (options.includePassword && trimmedPassword) {
+    return { ...base, password: trimmedPassword }
+  }
+
+  return base
 }
 
 export const isStaffReadyToSave = (staffMember: StaffMember) => {
@@ -207,12 +256,11 @@ export async function saveStaffMember(
   sessionContext: StaffSaveSessionContext = {},
 ) {
   const staffMemberRef = getStaffMemberRef(staffMember.id)
-  const masterPayload = buildStaffAdminPayload(staffMember)
 
-  if (!masterPayload.franchiseeId) {
+  if (!(staffMember.franchiseeId || staffMember.companyId || '').trim()) {
     throw new Error('従業員の会社ID（franchiseeId）が未設定です。')
   }
-  if (!masterPayload.storeId) {
+  if (!(staffMember.storeId || '').trim() && !defaultStoreId) {
     throw new Error('従業員の店舗ID（storeId）が未設定です。')
   }
 
@@ -233,6 +281,21 @@ export async function saveStaffMember(
     })
   }
 
+  const trimmedPassword = staffMember.password?.trim() ?? ''
+  if (operation === 'create' && !trimmedPassword) {
+    throw new Error('新規スタッフにはパスワードが必要です。')
+  }
+
+  const includePassword = operation === 'create' || Boolean(trimmedPassword)
+  const masterPayload = buildStaffAdminPayload(staffMember, { includePassword })
+
+  if (!masterPayload.franchiseeId) {
+    throw new Error('従業員の会社ID（franchiseeId）が未設定です。')
+  }
+  if (!masterPayload.storeId) {
+    throw new Error('従業員の店舗ID（storeId）が未設定です。')
+  }
+
   const payload = {
     ...masterPayload,
     ...(operation === 'create' ? { createdAt: serverTimestamp() } : {}),
@@ -242,25 +305,23 @@ export async function saveStaffMember(
   try {
     await setDoc(staffMemberRef, payload, { merge: true })
   } catch (error) {
-    console.warn('[StaffManagement] save failed', {
-      operation,
-      staffId: staffMember.id,
-      payload: {
-        ...masterPayload,
-        createdAt: operation === 'create' ? '[serverTimestamp]' : undefined,
-        updatedAt: '[serverTimestamp]',
-      },
-      payloadKeys: Object.keys(payload),
-      session: {
-        companyId: sessionContext.companyId ?? '',
-        franchiseeId: sessionContext.franchiseeId ?? '',
-        storeId: sessionContext.storeId ?? '',
-        staffRole: sessionContext.staffRole ?? '',
-        staffId: sessionContext.staffId ?? '',
-      },
-      errorCode: getErrorCode(error),
-      errorMessage: error instanceof Error ? error.message : String(error ?? ''),
-    })
+    console.warn(
+      '[StaffManagement] save failed',
+      redactAuthSensitiveFields({
+        operation,
+        staffId: staffMember.id,
+        payloadKeys: Object.keys(payload),
+        session: {
+          companyId: sessionContext.companyId ?? '',
+          franchiseeId: sessionContext.franchiseeId ?? '',
+          storeId: sessionContext.storeId ?? '',
+          staffRole: sessionContext.staffRole ?? '',
+          staffId: sessionContext.staffId ?? '',
+        },
+        errorCode: getErrorCode(error),
+        errorMessage: error instanceof Error ? error.message : String(error ?? ''),
+      }),
+    )
     throw error
   }
 
@@ -292,113 +353,7 @@ export async function saveStaffMember(
     })
   }
 
-  return staffMember
-}
-
-export async function ensureDefaultAdminStaffMember() {
-  await ensureDefaultCompany()
-  await ensureDefaultStore(defaultCompanyId)
-  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
-  const staffMemberRef = getStaffMemberRef(defaultAdminStaffMemberId)
-  const snapshot = await getDoc(staffMemberRef)
-
-  if (snapshot.exists()) {
-    const existingStaffMember = toStaffMember(snapshot)
-    if (
-      existingStaffMember.userId === defaultAdminStaffUserId ||
-      existingStaffMember.userId === 'admin' ||
-      existingStaffMember.name === '山本信勝'
-    ) {
-      const migratedStaffMember: StaffMember = {
-        ...existingStaffMember,
-        name: '山本信勝',
-        userId: defaultAdminStaffUserId,
-        password: defaultAdminStaffPassword,
-        role: 'hq_admin',
-        enabled: true,
-        storeId: headquartersStore.id,
-        storeName: headquartersStore.name,
-        memo: existingStaffMember.memo || '株式会社千葉福祉サポート初期管理者アカウント',
-      }
-
-      await setDoc(staffMemberRef, {
-        ...migratedStaffMember,
-        updatedAt: serverTimestamp(),
-      }, { merge: true })
-      return migratedStaffMember
-    }
-
-    return existingStaffMember
-  }
-
-  const staffMember: StaffMember = {
-    id: defaultAdminStaffMemberId,
-    companyId: defaultCompanyId,
-    franchiseeId: defaultCompanyId,
-    storeId: headquartersStore.id,
-    storeName: '株式会社千葉福祉サポート',
-    userId: defaultAdminStaffUserId,
-    password: defaultAdminStaffPassword,
-    name: '山本信勝',
-    role: 'hq_admin',
-    canDrive: false,
-    isActive: true,
-    phoneNumber: '',
-    email: '',
-    address: '',
-    licenseNumber: '',
-    licenseExpiresAt: '',
-    accidentHistory: '',
-    memo: '株式会社千葉福祉サポート初期管理者アカウント',
-    enabled: true,
-    sortOrder: 1,
-  }
-
-  await setDoc(staffMemberRef, {
-    ...staffMember,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  })
-  return staffMember
-}
-
-
-export async function migrateLegacySuperAdminStaffMembers() {
-  const staffMembers = await fetchStaffMembers()
-  const legacySuperAdminStaffMembers = staffMembers.filter(
-    (staffMember) =>
-      (staffMember.id === defaultAdminStaffMemberId || staffMember.companyId === defaultCompanyId) &&
-      (staffMember.userId === defaultAdminStaffUserId ||
-        staffMember.userId === 'admin' ||
-        staffMember.name === '山本信勝'),
-  )
-
-  if (legacySuperAdminStaffMembers.length === 0) {
-    return
-  }
-
-  const headquartersStore = await ensureHeadquartersStore(defaultCompanyId)
-  await Promise.all(
-    legacySuperAdminStaffMembers.map((staffMember) =>
-      setDoc(
-        getStaffMemberRef(staffMember.id),
-        {
-          ...staffMember,
-          companyId: defaultCompanyId,
-          franchiseeId: defaultCompanyId,
-          storeId: headquartersStore.id,
-          storeName: headquartersStore.name,
-          role: 'hq_admin',
-          userId: defaultAdminStaffUserId,
-          password: defaultAdminStaffPassword,
-          enabled: true,
-          memo: staffMember.memo || '株式会社千葉福祉サポート管理者アカウント',
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      ),
-    ),
-  )
+  return stripStaffPasswordForClient(staffMember)
 }
 
 export async function authenticateStaff({

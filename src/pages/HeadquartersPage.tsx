@@ -15,8 +15,12 @@ import type { Company, CompanyStatus, StaffMember, Store, Vehicle } from '../typ
 import type { StoredCaseRecord } from '../services/caseRecords'
 import { formatFareYen } from '../services/fare'
 import { getActualFareYen } from '../utils/caseRecords'
-import { resetHeadquartersDevelopmentData } from '../services/developmentReset'
 import { PreOpeningDataResetPanel } from '../components/admin/PreOpeningDataResetPanel'
+import {
+  buildDevelopmentResetConfirmText,
+  isDevelopmentResetUiAllowed,
+  readClientDevelopmentResetConfig,
+} from '../utils/developmentResetGuard'
 import {
   applySubscriptionPlanToCompany,
   defaultSubscriptionPlan,
@@ -119,7 +123,8 @@ const getOwnerStaffForCompany = (staffMembers: StaffMember[], companyId: string)
 const createOwnerLoginDraftFromCompany = (company: Company, staffMembers: StaffMember[]): OwnerLoginDraft => {
   const ownerStaff = getOwnerStaffForCompany(staffMembers, company.id)
   return {
-    password: ownerStaff?.password || company.representativeInitialPassword || '',
+    // Never hydrate existing passwords into the form.
+    password: '',
     userId: ownerStaff?.loginId || ownerStaff?.userId || company.representativeLoginId || '',
   }
 }
@@ -185,6 +190,11 @@ export function HeadquartersPage() {
   const [sortKey, setSortKey] = useState<CompanySortKey>('joinedAt')
   const [message, setMessage] = useState('加盟店情報を読み込み中です。')
   const [isLoading, setIsLoading] = useState(true)
+  const [resetProjectIdInput, setResetProjectIdInput] = useState('')
+  const [resetConfirmTextInput, setResetConfirmTextInput] = useState('')
+  const [resetBootstrapPasswordInput, setResetBootstrapPasswordInput] = useState('')
+  const [isDevelopmentResetOpen, setIsDevelopmentResetOpen] = useState(false)
+  const [isDevelopmentResetRunning, setIsDevelopmentResetRunning] = useState(false)
 
   const loadData = async () => {
     setIsLoading(true)
@@ -345,7 +355,11 @@ export function HeadquartersPage() {
     const isExistingCompany = existingCompany !== null
     if (!companyId || !companyName) { setMessage('加盟店IDと加盟店名を入力してください。'); return }
     if (!isExistingCompany && (!ownerUserId || !ownerPassword)) { setMessage('新規加盟店は代表ログインIDと初期パスワードを入力してください。'); return }
-    if (isExistingCompany && ownerUserId && !ownerPassword && !existingOwnerStaff?.password) { setMessage('代表者ログインIDを保存する場合は初期パスワードも入力してください。'); return }
+    // Password is never hydrated into the form; empty means "keep existing" on update.
+    if (isExistingCompany && ownerUserId && !existingOwnerStaff && !ownerPassword) {
+      setMessage('代表アカウントを新規作成する場合は初期パスワードも入力してください。')
+      return
+    }
 
     const ownerName = draftCompany.representativeName?.trim() || draftCompany.ownerName.trim() || ownerUserId
     const nextStatus = draftCompany.status ?? 'screening'
@@ -360,7 +374,7 @@ export function HeadquartersPage() {
         ownerName,
         representativeName: ownerName,
         representativeLoginId: ownerUserId,
-        representativeInitialPassword: ownerPassword || draftCompany.representativeInitialPassword || existingCompany?.representativeInitialPassword || '',
+        ...(ownerPassword ? { representativeInitialPassword: ownerPassword } : {}),
         enabled: ['screening', 'preparing', 'active', 'ending'].includes(nextStatus),
         status: nextStatus,
       },
@@ -389,7 +403,8 @@ export function HeadquartersPage() {
         storeName: existingOwnerStaff?.storeName || ownerStore?.name || initialStoreName,
         userId: ownerUserId || existingOwnerStaff?.userId || ownerStaffId,
         loginId: ownerUserId || existingOwnerStaff?.loginId || existingOwnerStaff?.userId || ownerStaffId,
-        password: ownerPassword || existingOwnerStaff?.password || '',
+        // Empty password on update is omitted by saveStaffMember (preserves Firestore value).
+        password: ownerPassword,
         name: ownerName,
         role: 'owner',
         canDrive: existingOwnerStaff?.canDrive ?? true,
@@ -409,6 +424,7 @@ export function HeadquartersPage() {
 
     await loadData()
     setSelectedCompanyId(companyId)
+    setOwnerLoginDraft((current) => ({ ...current, password: '' }))
     setMessage(isExistingCompany ? '加盟店情報を保存しました。' : '加盟店と代表者IDを保存しました。')
   }
 
@@ -447,17 +463,43 @@ export function HeadquartersPage() {
     navigate('/owner')
   }
 
+  const developmentResetEnv = readClientDevelopmentResetConfig(import.meta.env)
+  const showDevelopmentResetUi = isDevelopmentResetUiAllowed({
+    projectId: developmentResetEnv.projectId,
+    enabled: developmentResetEnv.enabled,
+    allowedProjectIds: developmentResetEnv.allowedProjectIds,
+  })
+  const developmentResetExpectedConfirm = showDevelopmentResetUi
+    ? buildDevelopmentResetConfirmText(developmentResetEnv.projectId)
+    : ''
+
   const handleDevelopmentDataReset = async () => {
-    const confirmed = window.confirm('加盟店・売上・勤務・従業員・車両データを削除し、FC本部の初期データのみ再作成します。実行しますか？')
-    if (!confirmed) return
+    if (!showDevelopmentResetUi) {
+      setMessage('この環境では開発データリセットを実行できません。')
+      return
+    }
+    setIsDevelopmentResetRunning(true)
     setMessage('データをリセット中です。')
     try {
-      const summary = await resetHeadquartersDevelopmentData()
+      const { resetHeadquartersDevelopmentData } = await import('../services/developmentReset')
+      const summary = await resetHeadquartersDevelopmentData({
+        projectId: resetProjectIdInput.trim(),
+        confirmText: resetConfirmTextInput.trim(),
+        bootstrapAdminPassword: resetBootstrapPasswordInput,
+      })
+      setResetBootstrapPasswordInput('')
+      setResetConfirmTextInput('')
+      setResetProjectIdInput('')
+      setIsDevelopmentResetOpen(false)
       await loadData()
       setSelectedCompanyId('')
-      setMessage(`データをリセットしました。削除件数: ${Object.values(summary.deletedByCollection).reduce((total, count) => total + count, 0)}件`)
+      setMessage(
+        `データをリセットしました（project: ${summary.projectId}）。削除件数: ${Object.values(summary.deletedByCollection).reduce((total, count) => total + count, 0)}件`,
+      )
     } catch (error) {
       setMessage(error instanceof Error ? `データリセットに失敗しました。${error.message}` : 'データリセットに失敗しました。')
+    } finally {
+      setIsDevelopmentResetRunning(false)
     }
   }
 
@@ -486,11 +528,77 @@ export function HeadquartersPage() {
           <span>管理者：{authSession?.name || workSession.currentSession?.staffName || '未設定'}</span>
           <Link className="secondary-action" to="/accounting">経理</Link>
           <button className="secondary-action" type="button" onClick={handleLogout}>ログアウト</button>
-          <button className="secondary-action" type="button" onClick={handleDevelopmentDataReset}>開発データリセット</button>
+          {showDevelopmentResetUi ? (
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={() => setIsDevelopmentResetOpen((open) => !open)}
+            >
+              開発データリセット
+            </button>
+          ) : null}
         </div>
       </section>
+      {showDevelopmentResetUi && isDevelopmentResetOpen ? (
+        <section className="admin-section" id="開発データリセット" aria-labelledby="dev-reset-title">
+          <h2 id="dev-reset-title">開発データリセット（開発環境のみ）</h2>
+          <p className="empty-note">
+            対象 project: <code>{developmentResetEnv.projectId}</code> / 本番ではありません / 削除は元に戻せません。
+          </p>
+          <ul className="empty-note">
+            <li>削除対象の概要: auditLogs / caseRecords / workSessions / meterSettings / vehicles / stores / staffMembers / companies</li>
+            <li>実行後に FC本部の初期会社・店舗・管理者のみ再作成します</li>
+            <li>確認文字列: <code>{developmentResetExpectedConfirm}</code></li>
+          </ul>
+          <label>
+            対象 project ID（完全一致）
+            <input
+              value={resetProjectIdInput}
+              onChange={(event) => setResetProjectIdInput(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            確認文字列
+            <input
+              value={resetConfirmTextInput}
+              onChange={(event) => setResetConfirmTextInput(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={developmentResetExpectedConfirm}
+            />
+          </label>
+          <label>
+            新しい開発管理者パスワード（12文字以上・英数字）
+            <input
+              type="password"
+              value={resetBootstrapPasswordInput}
+              onChange={(event) => setResetBootstrapPasswordInput(event.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={isDevelopmentResetRunning}
+            onClick={() => void handleDevelopmentDataReset()}
+          >
+            {isDevelopmentResetRunning ? '実行中…' : 'リセットを実行'}
+          </button>
+        </section>
+      ) : null}
       <nav className="hq-menu" aria-label="FC本部メニュー">
-        {['要対応加盟店','FC全体KPI','加盟店管理','開業前テストデータ初期化','FC収益分析','売上分析','エリア分析','ランキング','管理者設定'].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
+        {[
+          '要対応加盟店',
+          'FC全体KPI',
+          '加盟店管理',
+          ...(showDevelopmentResetUi ? (['開業前テストデータ初期化'] as const) : []),
+          'FC収益分析',
+          '売上分析',
+          'エリア分析',
+          'ランキング',
+          '管理者設定',
+        ].map((item) => <a key={item} href={`#${item}`}>{item}</a>)}
       </nav>
       <p className="save-note">{isLoading ? '読み込み中です。' : message}</p>
 
@@ -549,7 +657,7 @@ export function HeadquartersPage() {
               <Input label="会社名（法人名）" value={draftCompany.corporateName ?? ''} onChange={(value) => updateDraftCompany('corporateName', value)} />
               <Input label="代表者名" value={draftCompany.representativeName ?? draftCompany.ownerName} onChange={(value) => updateDraftCompany('representativeName', value)} />
               <Input label="代表者ログインID" value={ownerLoginDraft.userId} onChange={(value) => { updateOwnerLoginDraft('userId', value); updateDraftCompany('representativeLoginId', value) }} />
-              <Input label="初期パスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
+              <Input label="新しいパスワード" type="password" value={ownerLoginDraft.password} onChange={(value) => { updateOwnerLoginDraft('password', value); updateDraftCompany('representativeInitialPassword', value) }} />
               <Input label="主な営業エリア" value={draftCompany.area ?? ''} onChange={(value) => updateDraftCompany('area', value)} />
               <Input label="加盟日" type="date" value={draftCompany.contractStartDate ?? ''} onChange={(value) => updateDraftCompany('contractStartDate', value)} />
               <label>
@@ -625,11 +733,13 @@ export function HeadquartersPage() {
         </div>
       </section>
 
+      {showDevelopmentResetUi ? (
       <section className="admin-section" id="開業前テストデータ初期化">
         <h2>開業前テストデータ初期化</h2>
         <p className="empty-note">
           加盟店・店舗を選択し、開業前のテスト運用データとログを削除します。
           監査ログ・実行ログも削除されます。開業後は使用しないでください。
+          対象 project: <code>{developmentResetEnv.projectId}</code>（本番では利用不可）
         </p>
         <div className="settings-grid hq-form-grid">
           <label>
@@ -673,6 +783,7 @@ export function HeadquartersPage() {
           <p className="empty-note">加盟店と店舗を選択すると削除対象件数を表示できます。</p>
         )}
       </section>
+      ) : null}
 
       <section className="admin-section" id="FC収益分析">
         <h2>FC収益分析</h2>
