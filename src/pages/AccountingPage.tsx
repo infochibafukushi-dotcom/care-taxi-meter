@@ -42,6 +42,8 @@ import {
 import { fetchAccountingReceiptAccessUrl } from '../services/accountingReceiptAccess'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
 import { lookupInvoiceRegistrant } from '../services/invoiceRegistrantLookup'
+import { INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE } from '../services/accountingInvoiceLookupHistory'
+import type { InvoiceLookupAuditContext } from '../services/accountingInvoiceLookupHistory'
 import {
   ACCOUNTING_RECEIPT_FILE_ACCEPT,
   isAccountingReceiptPdfMime,
@@ -700,6 +702,7 @@ export function AccountingPage() {
     tone: 'success' | 'error'
     text: string
   } | null>(null)
+  const [invoiceLookupHistoryWarning, setInvoiceLookupHistoryWarning] = useState('')
 
   const yearMonthOptions = useMemo(() => buildYearMonthOptions(18), [])
   const calendarYearOptions = useMemo(() => buildCalendarYearOptions(5), [])
@@ -1663,6 +1666,27 @@ export function AccountingPage() {
     setStatusMessage('消費税額を再計算しました。')
   }
 
+  const buildInvoiceLookupAuditContext = (
+    origin: InvoiceLookupAuditContext['origin'],
+    options?: { expenseId?: string; receiptId?: string },
+  ): InvoiceLookupAuditContext => ({
+    actor: {
+      userId: staffId,
+      userName: staffName,
+      role,
+      franchiseeId: tenantScope.franchiseeId,
+      storeId: tenantScope.storeId,
+    },
+    franchiseeId: tenantScope.franchiseeId,
+    storeId: tenantScope.storeId,
+    origin,
+    expenseId: options?.expenseId || editingExpenseId || undefined,
+    receiptId: options?.receiptId || expenseForm?.receiptId || undefined,
+    onHistoryPersistFailure: () => {
+      setInvoiceLookupHistoryWarning(INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE)
+    },
+  })
+
   const handleQuoteInvoiceRegistrant = async () => {
     if (!expenseForm?.invoiceNumber?.trim()) {
       setInvoiceQuoteMessage({
@@ -1677,8 +1701,15 @@ export function AccountingPage() {
     setErrorMessage('')
     setStatusMessage('')
     setInvoiceQuoteMessage(null)
+    setInvoiceLookupHistoryWarning('')
     try {
-      const lookup = await lookupInvoiceRegistrant(expenseForm.invoiceNumber)
+      const lookup = await lookupInvoiceRegistrant(
+        expenseForm.invoiceNumber,
+        buildInvoiceLookupAuditContext('manual', {
+          expenseId: editingExpenseId || undefined,
+          receiptId: expenseForm.receiptId || undefined,
+        }),
+      )
       if (lookup.status === 'success') {
         const registrant = lookup.registrant
         setExpenseForm((current) =>
@@ -2151,6 +2182,7 @@ export function AccountingPage() {
     setErrorMessage('')
     setStatusMessage('')
     setOcrCandidateNotice('')
+    setInvoiceLookupHistoryWarning('')
     setOcrProgressMessage('OCR読取を開始しました。')
 
     try {
@@ -2203,6 +2235,10 @@ export function AccountingPage() {
         receiptId,
         imageBlob: receiptId ? recentReceiptBlobs[receiptId] : undefined,
         isPreparedOcrImage,
+        invoiceLookupAuditContext: buildInvoiceLookupAuditContext('ocr', {
+          expenseId: editingExpenseId || undefined,
+          receiptId: receiptId || undefined,
+        }),
         onProgress: (progress) => {
           setOcrProgressMessage(progress.message)
           setStatusMessage(progress.message)
@@ -2221,6 +2257,10 @@ export function AccountingPage() {
       }
 
       applyOcrResultToExpenseForm(result)
+
+      if (result.invoiceLookupHistoryWarning) {
+        setInvoiceLookupHistoryWarning(result.invoiceLookupHistoryWarning)
+      }
 
       if (receiptId) {
         await applyOcrCandidatesToAccountingReceipt({ receiptId, ocr: result })
@@ -2387,6 +2427,7 @@ export function AccountingPage() {
     setOcrRunningReceiptId(receipt.id)
     setErrorMessage('')
     setStatusMessage('')
+    setInvoiceLookupHistoryWarning('')
     setOcrStatusByReceiptId((current) => ({
       ...current,
       [receipt.id]: 'OCR読取を開始しました。',
@@ -2427,6 +2468,9 @@ export function AccountingPage() {
         mimeType: receipt.mimeType,
         imageBlob: recentReceiptBlobs[receipt.id],
         isPreparedOcrImage,
+        invoiceLookupAuditContext: buildInvoiceLookupAuditContext('ocr', {
+          receiptId: receipt.id,
+        }),
         onProgress: (progress) => {
           setOcrStatusByReceiptId((current) => ({
             ...current,
@@ -2453,6 +2497,10 @@ export function AccountingPage() {
           [receipt.id]: `${message} 手入力で登録できます。`,
         }))
         return
+      }
+
+      if (result.invoiceLookupHistoryWarning) {
+        setInvoiceLookupHistoryWarning(result.invoiceLookupHistoryWarning)
       }
 
       await applyOcrCandidatesToAccountingReceipt({ receiptId: receipt.id, ocr: result })
@@ -3492,6 +3540,11 @@ export function AccountingPage() {
           </p>
         ) : null}
         {statusMessage ? <p className="save-note">{statusMessage}</p> : null}
+        {invoiceLookupHistoryWarning ? (
+          <p className="accounting-warning" role="status">
+            {invoiceLookupHistoryWarning}
+          </p>
+        ) : null}
 
         {activeTab === 'pl-monthly' ? (
           <section className="accounting-panel" aria-label="月次PL">
@@ -4345,6 +4398,11 @@ export function AccountingPage() {
                       {invoiceQuoteMessage.text}
                     </p>
                   ) : null}
+                  {invoiceLookupHistoryWarning ? (
+                    <p className="accounting-warning" role="status">
+                      {invoiceLookupHistoryWarning}
+                    </p>
+                  ) : null}
                   {invoiceNumberWarning ? (
                     <p className="accounting-warning" role="alert">
                       {invoiceNumberWarning}
@@ -5176,6 +5234,7 @@ export function AccountingPage() {
             yearlyProfitLoss={yearlyProfitLoss}
             targetYearMonth={targetYearMonth}
             targetYear={targetYear}
+            accessScope={accessScope}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
           />
         ) : null}

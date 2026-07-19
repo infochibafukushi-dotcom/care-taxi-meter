@@ -17,6 +17,8 @@ import {
   applyInvoiceRegistrantLookupToParsedFields,
   lookupInvoiceRegistrant,
 } from './invoiceRegistrantLookup'
+import type { InvoiceLookupAuditContext } from './accountingInvoiceLookupHistory'
+import { INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE } from './accountingInvoiceLookupHistory'
 
 export const OCR_TIMEOUT_MS = 30_000
 export const OCR_TIMEOUT_MESSAGE =
@@ -58,6 +60,13 @@ type RunAccountingReceiptOcrInput = {
   /** PDFから生成済みのOCR用高解像度画像か（再縮小・再圧縮しない） */
   isPreparedOcrImage?: boolean
   onProgress?: (progress: AccountingReceiptOcrProgress) => void
+  /** インボイス検索履歴用。渡した場合のみ auditLogs へ1件保存する */
+  invoiceLookupAuditContext?: Omit<
+    import('./accountingInvoiceLookupHistory').InvoiceLookupAuditContext,
+    'origin'
+  > & {
+    origin?: import('./accountingInvoiceLookupHistory').InvoiceLookupHistoryOrigin
+  }
 }
 
 type OcrWorker = Awaited<ReturnType<typeof createWorker>>
@@ -325,15 +334,31 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
 
   let invoiceLookupStatus: AccountingReceiptOcrResult['invoiceLookupStatus'] = 'idle'
   let invoiceRegistrant: AccountingReceiptOcrResult['invoiceRegistrant']
+  let invoiceLookupHistoryWarning: string | undefined
 
   if (parsed.invoiceNumber) {
     reportProgress(input.onProgress, 'parsing', 'インボイス登録事業者を検索しています…')
     logOcrStep('invoice-lookup-start', { hasInvoiceNumber: true })
-    const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber)
+    let historyWarning = ''
+    const auditContext: InvoiceLookupAuditContext | undefined = input.invoiceLookupAuditContext
+      ? {
+          ...input.invoiceLookupAuditContext,
+          origin: input.invoiceLookupAuditContext.origin ?? 'ocr',
+          receiptId: input.invoiceLookupAuditContext.receiptId ?? input.receiptId,
+          onHistoryPersistFailure: () => {
+            historyWarning = INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE
+            input.invoiceLookupAuditContext?.onHistoryPersistFailure?.()
+          },
+        }
+      : undefined
+    const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber, auditContext)
     invoiceLookupStatus = lookup.status
     parsed = applyInvoiceRegistrantLookupToParsedFields(parsed, lookup)
     if (lookup.status === 'success') {
       invoiceRegistrant = lookup.registrant
+    }
+    if (historyWarning) {
+      invoiceLookupHistoryWarning = historyWarning
     }
     logOcrStep('invoice-lookup-done', {
       status: lookup.status,
@@ -386,6 +411,7 @@ const runOcrPipeline = async (input: RunAccountingReceiptOcrInput): Promise<Acco
     suggestedExpenseCategory: finalSuggested,
     invoiceRegistrant,
     invoiceLookupStatus,
+    invoiceLookupHistoryWarning,
     ocrCandidates,
     invoiceNotice:
       !hasInvoice && ocrCandidates.invoiceStatus === 'none'
@@ -438,6 +464,7 @@ export async function runAccountingReceiptOcr(
       invoiceRegisteredName: undefined as string | undefined,
       invoiceCheckStatus: '未確認' as const,
     }
+    // レビューデモは本番 Firestore へ履歴を書かない（lookup 側 / createAuditLog で抑止）
     const lookup = await lookupInvoiceRegistrant(parsed.invoiceNumber)
     parsed = applyInvoiceRegistrantLookupToParsedFields(parsed, lookup)
     return {

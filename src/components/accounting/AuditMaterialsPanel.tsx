@@ -3,6 +3,7 @@ import type { StoredAccountingExpense } from '../../types/accounting'
 import type { StoredAccountingFixedAsset } from '../../types/accountingFixedAssets'
 import type { StoredAccountingReceipt } from '../../services/accountingReceipts'
 import type { MonthlyProfitLoss, YearlyProfitLoss } from '../../types/accounting'
+import type { TenantAccessScope } from '../../services/tenancy'
 import {
   COST_OF_SALES_CATEGORIES,
   filterReportingExpensesByPostingYearMonth,
@@ -32,6 +33,7 @@ import { downloadAuditLinePdf, downloadAuditTablePdf } from '../../utils/account
 import { formatYearMonthLabel } from '../../utils/accountingPl'
 import type { AccountingSalesRow } from '../../utils/accountingSalesMapping'
 import { FIXED_ASSET_STATUS_LABELS } from '../../types/accountingFixedAssets'
+import { InvoiceLookupHistoryPanel } from './InvoiceLookupHistoryPanel'
 
 export type AuditExportType =
   | 'expenses'
@@ -58,6 +60,7 @@ type AuditMaterialsPanelProps = {
   yearlyProfitLoss: YearlyProfitLoss
   targetYearMonth: string
   targetYear: number
+  accessScope: TenantAccessScope
   onExportRecorded: (fileName: string) => void
 }
 
@@ -106,6 +109,7 @@ export function AuditMaterialsPanel({
   yearlyProfitLoss,
   targetYearMonth,
   targetYear,
+  accessScope,
   onExportRecorded,
 }: AuditMaterialsPanelProps) {
   const reportingMonthExpenses = useMemo(
@@ -366,6 +370,8 @@ export function AuditMaterialsPanel({
           年次PL PDF
         </button>
       </div>
+
+      <InvoiceLookupHistoryPanel accessScope={accessScope} />
     </section>
   )
 }

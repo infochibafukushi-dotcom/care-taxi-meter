@@ -8,6 +8,13 @@ import {
   getCachedInvoiceRegistrant,
   setCachedInvoiceRegistrant,
 } from '../utils/invoiceRegistrantCache'
+import {
+  INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE,
+  recordAccountingInvoiceLookupHistory,
+  type InvoiceLookupAuditContext,
+} from './accountingInvoiceLookupHistory'
+
+export type { InvoiceLookupAuditContext }
 
 type NtaAnnouncement = {
   registratedNumber?: string
@@ -194,7 +201,7 @@ const tryFallbackSuccess = (
   }
 }
 
-export async function lookupInvoiceRegistrant(
+async function lookupInvoiceRegistrantCore(
   invoiceNumberRaw: string,
 ): Promise<InvoiceRegistrantLookupResult> {
   const invoiceNumber = normalizeInvoiceRegistrationNumber(invoiceNumberRaw)
@@ -246,10 +253,8 @@ export async function lookupInvoiceRegistrant(
     if (!response.ok) {
       const failureMessage = explainHttpFailure(response.status, payload.message)
       console.warn('登録事業者名取得失敗', {
-        invoiceNumber,
         status: response.status,
-        message: payload.message,
-        apiBase: resolveInvoiceApiBaseUrl(),
+        reason: 'http_error',
       })
       return tryFallbackSuccess(invoiceNumber, failureMessage)
     }
@@ -273,7 +278,7 @@ export async function lookupInvoiceRegistrant(
       const failureMessage =
         payload.message?.trim() ||
         '登録事業者名取得失敗：登録情報が見つかりませんでした'
-      console.warn('登録事業者名取得失敗', { invoiceNumber, reason: 'not_found' })
+      console.warn('登録事業者名取得失敗', { reason: 'not_found' })
       return tryFallbackSuccess(invoiceNumber, failureMessage)
     }
 
@@ -291,12 +296,45 @@ export async function lookupInvoiceRegistrant(
         ? '登録事業者名取得失敗：通信エラー（CORS または API 到達不可）'
         : `登録事業者名取得失敗：${error instanceof Error ? error.message : '不明なエラー'}`
     console.warn('登録事業者名取得失敗', {
-      invoiceNumber,
-      error: error instanceof Error ? error.message : error,
-      apiBase: resolveInvoiceApiBaseUrl(),
+      reason: 'network_or_runtime',
+      errorName: error instanceof Error ? error.name : 'unknown',
     })
     return tryFallbackSuccess(invoiceNumber, networkMessage)
   }
+}
+
+/**
+ * インボイス登録事業者検索。
+ * 第2引数 auditContext がある場合のみ、検索完了後に auditLogs へ履歴を1件保存する。
+ * 履歴保存の成否は検索結果に影響しない。
+ */
+export async function lookupInvoiceRegistrant(
+  invoiceNumberRaw: string,
+  auditContext?: InvoiceLookupAuditContext,
+): Promise<InvoiceRegistrantLookupResult> {
+  const requestedAt = new Date().toISOString()
+  const result = await lookupInvoiceRegistrantCore(invoiceNumberRaw)
+
+  if (!auditContext) {
+    return result
+  }
+
+  const completedAt = new Date().toISOString()
+  const persist = await recordAccountingInvoiceLookupHistory({
+    auditContext,
+    result,
+    requestedAt,
+    completedAt,
+  })
+
+  if (!persist.ok) {
+    auditContext.onHistoryPersistFailure?.()
+    console.warn('[accounting] invoice lookup history unavailable', {
+      message: INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE,
+    })
+  }
+
+  return result
 }
 
 export const applyInvoiceRegistrantLookupToParsedFields = <

@@ -59,6 +59,8 @@ export type AccountingReceiptOcrResult = {
   suggestedExpenseCategory?: ExpenseCategory | ''
   invoiceRegistrant?: import('../types/invoiceRegistrant').InvoiceRegistrantInfo
   invoiceLookupStatus?: 'success' | 'not_found' | 'error' | 'skipped' | 'idle'
+  /** インボイス検索自体は成功しても履歴保存だけ失敗した場合の非ブロッキング警告 */
+  invoiceLookupHistoryWarning?: string
   ocrCandidates?: AccountingReceiptOcrCandidates
   invoiceNotice?: string
 }
