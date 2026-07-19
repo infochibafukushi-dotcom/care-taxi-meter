@@ -94,32 +94,66 @@ const safeAudit = async (params: Parameters<typeof createAuditLog>[0]) => {
   }
 }
 
-const queryActiveAssetsByExpenseId = async (expenseId: string): Promise<StoredAccountingFixedAsset[]> => {
+/**
+ * 固定資産は canReadAccounting のため、list は franchiseeId 制約が必須。
+ * expenseId のみの query は rules で PERMISSION_DENIED になり、経費 create 自体が失敗する。
+ */
+export const buildActiveAssetsByExpenseIdConstraints = (
+  expenseId: string,
+  franchiseeId: string,
+  options?: { includeIsDeletedFalse?: boolean },
+) => {
+  const constraints = [
+    where('franchiseeId', '==', franchiseeId),
+    where('expenseId', '==', expenseId),
+  ]
+  if (options?.includeIsDeletedFalse !== false) {
+    constraints.push(where('isDeleted', '==', false))
+  }
+  return constraints
+}
+
+const queryActiveAssetsByExpenseId = async (
+  expenseId: string,
+  franchiseeId: string,
+): Promise<StoredAccountingFixedAsset[]> => {
+  const tenantId = franchiseeId.trim()
+  if (!tenantId) {
+    return []
+  }
+
   const db = getFirestore(getFirebaseApp())
+  const mapDocs = (snapshots: Awaited<ReturnType<typeof getDocs>>) =>
+    snapshots.docs.map((snap) =>
+      normalizeStoredFixedAssetForSync({ id: snap.id, data: () => snap.data() as Record<string, unknown> }),
+    )
+
   try {
     const snapshots = await getDocs(
       query(
         collection(db, assetsCollection),
-        where('expenseId', '==', expenseId),
-        where('isDeleted', '==', false),
+        ...buildActiveAssetsByExpenseIdConstraints(expenseId, tenantId, {
+          includeIsDeletedFalse: true,
+        }),
       ),
     )
-    return snapshots.docs.map((snap) =>
-      normalizeStoredFixedAssetForSync({ id: snap.id, data: () => snap.data() as Record<string, unknown> }),
-    )
+    return mapDocs(snapshots)
   } catch {
-    // 複合 index 未整備時は単一 where にフォールバック
-    const snapshots = await getDocs(
-      query(collection(db, assetsCollection), where('expenseId', '==', expenseId)),
-    )
-    return snapshots.docs
-      .map((snap) =>
-        normalizeStoredFixedAssetForSync({
-          id: snap.id,
-          data: () => snap.data() as Record<string, unknown>,
-        }),
+    // 複合 index 未整備時は isDeleted なしにフォールバック（franchiseeId は維持）
+    try {
+      const snapshots = await getDocs(
+        query(
+          collection(db, assetsCollection),
+          ...buildActiveAssetsByExpenseIdConstraints(expenseId, tenantId, {
+            includeIsDeletedFalse: false,
+          }),
+        ),
       )
-      .filter((asset) => asset.isDeleted !== true)
+      return mapDocs(snapshots).filter((asset) => asset.isDeleted !== true)
+    } catch {
+      // 照会失敗で経費保存を止めない（新規 create 時は通常 0 件）
+      return []
+    }
   }
 }
 
@@ -127,10 +161,12 @@ export const loadLinkedAssetsForExpenseSave = async ({
   expenseId,
   linkedAssetId,
   knownAssets,
+  franchiseeId,
 }: {
   expenseId?: string
   linkedAssetId?: string
   knownAssets?: StoredAccountingFixedAsset[]
+  franchiseeId: string
 }): Promise<StoredAccountingFixedAsset[]> => {
   const merged = new Map<string, StoredAccountingFixedAsset>()
 
@@ -143,8 +179,8 @@ export const loadLinkedAssetsForExpenseSave = async ({
     }
   }
 
-  if (expenseId?.trim()) {
-    for (const asset of await queryActiveAssetsByExpenseId(expenseId.trim())) {
+  if (expenseId?.trim() && franchiseeId.trim()) {
+    for (const asset of await queryActiveAssetsByExpenseId(expenseId.trim(), franchiseeId)) {
       merged.set(asset.id, asset)
     }
   }
@@ -212,11 +248,12 @@ export async function saveExpenseWithFixedAssetSync(
     expenseId: mode === 'update' ? expenseId : undefined,
     linkedAssetId: expensePayload.linkedAssetId,
     knownAssets: input.knownAssets,
+    franchiseeId,
   })
 
   // 新規でも clientExpenseId 再送時に既存資産を拾う
   if (mode === 'create') {
-    for (const asset of await queryActiveAssetsByExpenseId(expenseId)) {
+    for (const asset of await queryActiveAssetsByExpenseId(expenseId, franchiseeId)) {
       linkedAssets.push(asset)
     }
   }
@@ -446,10 +483,14 @@ export async function softDeleteExpenseWithLinkedAssets({
 
   const linkedAssetId =
     typeof expenseData.linkedAssetId === 'string' ? expenseData.linkedAssetId : undefined
+  const tenantFranchiseeId =
+    (franchiseeId ?? '').trim() ||
+    String(expenseData.franchiseeId ?? expenseData.companyId ?? '').trim()
   const linkedAssets = await loadLinkedAssetsForExpenseSave({
     expenseId,
     linkedAssetId,
     knownAssets,
+    franchiseeId: tenantFranchiseeId,
   })
   const resolution = resolveLinkedFixedAssetsForExpense({
     expenseId,
