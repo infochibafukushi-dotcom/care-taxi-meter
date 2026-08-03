@@ -77,7 +77,37 @@ reservation-v4 に上記 API が未実装の場合、メーターアプリは Fi
 
 | `GET` | `/api/driver/fare-master/active` | 料金マスター active 取得（Bearer は proxy が付与） |
 
+### Invoice API
+
+| Method | Path | 説明 |
+|--------|------|------|
+| GET | `/api/invoice/registrant?number=T...` | 国税庁インボイス登録事業者照会（レガシー） |
+| POST | `/api/invoice-registry/check` | 判定基準日対応のインボイス登録確認（Firebase ID Token 必須） |
+
+## インボイス登録確認（`POST /api/invoice-registry/check`）
+
+- Secret: `NTA_APPLICATION_ID`（推奨。旧名 `NTA_INVOICE_API_ID` も可）
+- Var: `NTA_API_BASE_URL`（既定は本番 `https://web-api.invoice-kohyo.nta.go.jp`）
+- Var: `FIREBASE_PROJECT_ID`
+- D1: `DB` バインディング（キャッシュ・監査・レート制限）
+
+```bash
+cd workers/driver-proxy
+npx wrangler secret put NTA_APPLICATION_ID
+npx wrangler d1 create care-taxi-meter-invoice
+# wrangler.toml の database_id を更新後:
+npx wrangler d1 migrations apply care-taxi-meter-invoice --local
+npx wrangler d1 migrations apply care-taxi-meter-invoice --remote
+```
+
+検証環境を使う場合:
+
+```text
+NTA_API_BASE_URL=https://kensyo.invoice-kohyo.nta.go.jp
+```
+
 その他のパスは `404`、許可パスへの未対応メソッドは `405` です。`OPTIONS` は CORS preflight 用に許可パスのみ受け付けます。
+
 
 ## 環境変数
 

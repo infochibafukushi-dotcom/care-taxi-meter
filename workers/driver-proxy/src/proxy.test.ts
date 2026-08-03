@@ -125,10 +125,20 @@ describe('evaluateInvoiceProxyRoute', () => {
       '/api/invoice/registrant',
       new URLSearchParams({ number: 'T4200001013662' }),
     )
-    assert.equal(decision.kind, 'allowed')
-    if (decision.kind === 'allowed') {
+    assert.equal(decision.kind, 'registrant')
+    if (decision.kind === 'registrant') {
       assert.equal(decision.invoiceNumber, 'T4200001013662')
     }
+  })
+
+  it('allows registry check POST', async () => {
+    const { evaluateInvoiceProxyRoute } = await import('./invoiceRouting.ts')
+    const decision = evaluateInvoiceProxyRoute(
+      'POST',
+      '/api/invoice-registry/check',
+      new URLSearchParams(),
+    )
+    assert.equal(decision.kind, 'registry_check')
   })
 
   it('rejects invalid invoice numbers', async () => {

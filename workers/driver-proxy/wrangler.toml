@@ -6,12 +6,24 @@ compatibility_date = "2025-06-01"
 ALLOWED_ORIGINS = "https://infochibafukushi-dotcom.github.io,http://localhost:5173"
 ALLOWED_ORIGIN = "http://localhost:5173"
 RESERVATION_V4_ORIGIN = "https://throbbing-bush-8f59.info-chibafukushi.workers.dev"
-# NTA_INVOICE_API_ID — set via `wrangler secret put NTA_INVOICE_API_ID` (recommended)
-# or as a var after National Tax Agency application ID is issued.
+FIREBASE_PROJECT_ID = "care-taxi-meter"
+# Production NTA API (override to verification URL for kensyo testing)
+NTA_API_BASE_URL = "https://web-api.invoice-kohyo.nta.go.jp"
+# Secrets (never commit values):
+#   npx wrangler secret put NTA_APPLICATION_ID
+# Legacy alias still accepted in code: NTA_INVOICE_API_ID
 
 [[services]]
 binding = "RESERVATION_V4"
 service = "throbbing-bush-8f59"
+
+# Create with: npx wrangler d1 create care-taxi-meter-invoice
+# Then replace database_id below with the created ID.
+[[d1_databases]]
+binding = "DB"
+database_name = "care-taxi-meter-invoice"
+database_id = "dbb96650-f401-4716-9240-84df9d7058b6"
+migrations_dir = "migrations"
 
 # Secret (set via `wrangler secret put METER_DRIVER_TOKEN`):
 # METER_DRIVER_TOKEN

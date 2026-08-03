@@ -2931,3 +2931,104 @@ body.route-accounting,
   }
 }
 
+.invoice-registry-lookup {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.invoice-registry-lookup__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.invoice-registry-lookup__form {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.invoice-registry-lookup__form label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.invoice-registry-lookup__form input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.invoice-registry-lookup__dl {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.invoice-registry-lookup__dl > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.invoice-registry-lookup__dl dt {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.invoice-registry-lookup__dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.invoice-registry-status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.4rem;
+  font-weight: 700;
+}
+
+.invoice-registry-status-badge--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.invoice-registry-status-badge--expired,
+.invoice-registry-status-badge--cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.invoice-registry-status-badge--not_found,
+.invoice-registry-status-badge--unknown {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.invoice-registry-lookup__notes {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.accounting-invoice-apply-row {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .invoice-registry-lookup__dl > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+

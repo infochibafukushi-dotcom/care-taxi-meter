@@ -1,3 +1,6 @@
+import { fetchNtaInvoiceRegistry, resolveNtaApiBaseUrl } from './ntaInvoiceClient.ts'
+import { determineInvoiceRegistryStatus } from './ntaInvoiceStatus.ts'
+
 type NtaAnnouncement = {
   registratedNumber?: string
   name?: string
@@ -18,15 +21,16 @@ type NtaInvoiceApiResponse = {
 
 const NTA_PROCESS_LABELS: Record<string, string> = {
   '01': '登録',
-  '02': '取消',
+  '02': '登録',
   '03': '失効',
+  '04': '取消',
 }
 
 const resolveRegistrationStatus = (announcement: NtaAnnouncement) => {
-  if (announcement.disposalDate) {
+  if (announcement.process === '04' || announcement.disposalDate) {
     return '取消'
   }
-  if (announcement.expireDate) {
+  if (announcement.process === '03' || announcement.expireDate) {
     return '失効'
   }
   const processLabel = announcement.process
@@ -59,27 +63,26 @@ export const mapNtaAnnouncementToRegistrant = (
 export const fetchNtaInvoiceRegistrant = async ({
   invoiceNumber,
   applicationId,
+  baseUrl,
   fetchImpl = fetch,
 }: {
   invoiceNumber: string
   applicationId: string
+  baseUrl?: string | null
   fetchImpl?: typeof fetch
 }) => {
-  const upstreamUrl = new URL('https://web-api.invoice-kohyo.nta.go.jp/1/num')
-  upstreamUrl.searchParams.set('id', applicationId)
-  upstreamUrl.searchParams.set('number', invoiceNumber)
-  upstreamUrl.searchParams.set('type', '21')
-  upstreamUrl.searchParams.set('history', '0')
-
-  const upstreamResponse = await fetchImpl(upstreamUrl.toString(), {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
+  const result = await fetchNtaInvoiceRegistry({
+    applicationId,
+    registrationNumber: invoiceNumber,
+    basisDate: null,
+    baseUrl: resolveNtaApiBaseUrl(baseUrl),
+    fetchImpl,
   })
 
-  if (!upstreamResponse.ok) {
+  if (!result.ok) {
     return {
       ok: false as const,
-      status: upstreamResponse.status,
+      status: result.upstreamStatus && result.upstreamStatus >= 400 ? result.upstreamStatus : 502,
       body: {
         status: 'error',
         message: '登録事業者名取得失敗',
@@ -88,10 +91,12 @@ export const fetchNtaInvoiceRegistrant = async ({
     }
   }
 
-  const payload = (await upstreamResponse.json()) as NtaInvoiceApiResponse
-  const announcement = payload.announcement?.[0]
+  const decision = determineInvoiceRegistryStatus(result.response, { basisDate: null })
+  const announcement = Array.isArray(result.response.announcement)
+    ? result.response.announcement[0]
+    : undefined
 
-  if (!announcement?.name?.trim()) {
+  if (decision.status === 'not_found' || !announcement?.name?.trim()) {
     return {
       ok: true as const,
       status: 200,
@@ -99,7 +104,7 @@ export const fetchNtaInvoiceRegistrant = async ({
         status: 'not_found',
         message: '登録事業者名取得失敗',
         invoiceNumber,
-        announcement: payload.announcement ?? [],
+        announcement: result.response.announcement ?? [],
       },
     }
   }
@@ -110,7 +115,10 @@ export const fetchNtaInvoiceRegistrant = async ({
     body: {
       status: 'success',
       registrant: mapNtaAnnouncementToRegistrant(invoiceNumber, announcement),
-      announcement: payload.announcement ?? [],
+      announcement: result.response.announcement ?? [],
     },
   }
 }
+
+// keep type export for tests that may reference payload shape
+export type { NtaInvoiceApiResponse }

@@ -76,7 +76,7 @@ export type StoredAccountingInvoiceLookupHistory = {
 }
 
 const SENSITIVE_PATTERN =
-  /NTA_INVOICE_API_ID|Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|https?:\/\/[^\s]+|localStorage|cloudflare|stack|trace/gi
+  /NTA_APPLICATION_ID|NTA_INVOICE_API_ID|Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|https?:\/\/[^\s]+|localStorage|cloudflare|stack|trace/gi
 
 const MAX_ERROR_MESSAGE_LENGTH = 200
 

@@ -13,6 +13,8 @@ import {
   recordAccountingInvoiceLookupHistory,
   type InvoiceLookupAuditContext,
 } from './accountingInvoiceLookupHistory'
+import { getAuth } from 'firebase/auth'
+import { getFirebaseApp } from '../lib/firebase'
 
 export type { InvoiceLookupAuditContext }
 
@@ -40,8 +42,9 @@ type NtaInvoiceApiResponse = {
 
 const NTA_PROCESS_LABELS: Record<string, string> = {
   '01': '登録',
-  '02': '取消',
+  '02': '登録',
   '03': '失効',
+  '04': '取消',
 }
 
 /** 開発確認用。本番では NTA API を優先し、失敗時のみ使用する。 */
@@ -153,9 +156,9 @@ const explainHttpFailure = (status: number, payloadMessage?: string) => {
   const upstream = (payloadMessage ?? '').trim()
   if (
     status === 503 ||
-    /NTA_INVOICE_API_ID|not configured|API is not configured/i.test(upstream)
+    /NTA_APPLICATION_ID|NTA_INVOICE_API_ID|not configured|API is not configured/i.test(upstream)
   ) {
-    return '登録事業者名取得失敗：API設定未完了（Worker の NTA_INVOICE_API_ID 未設定）'
+    return '登録事業者名取得失敗：API設定未完了（Worker の NTA_APPLICATION_ID 未設定）'
   }
 
   if (status === 404) {
@@ -238,9 +241,19 @@ async function lookupInvoiceRegistrantCore(
 
   try {
     const url = `${resolveInvoiceApiBaseUrl()}/registrant?number=${encodeURIComponent(invoiceNumber)}`
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    try {
+      const user = getAuth(getFirebaseApp()).currentUser
+      const idToken = user ? await user.getIdToken() : null
+      if (idToken) {
+        headers.Authorization = `Bearer ${idToken}`
+      }
+    } catch {
+      // Auth unavailable — request proceeds and Worker returns 401 if required
+    }
     const response = await fetch(url, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers,
     })
 
     let payload: NtaInvoiceApiResponse = {}

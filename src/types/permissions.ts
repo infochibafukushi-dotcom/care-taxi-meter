@@ -21,8 +21,22 @@ export const roleHomePaths: Record<StaffRole, string> = {
 
 export const managementRoles: StaffRole[] = ['manager', 'owner', 'hq_admin']
 
+/**
+ * 経理画面（/accounting）への UI アクセス可否。
+ * - `owner` … FC加盟店オーナー（franchisee_owner）
+ * - `hq_admin` … FC本部管理者
+ *
+ * `manager` は Firestore 上の会計データ読取（isAccountingUser）対象でも、
+ * 経理 UI 機能への既存アクセス権はないため含めない。
+ */
 export const canAccessAccounting = (role: StaffRole | '') =>
   role === 'owner' || role === 'hq_admin'
+
+/**
+ * インボイス登録確認の UI / API 利用可否。
+ * 新規 role は増やさず、既存の経理 UI 権限（canAccessAccounting）をそのまま再利用する。
+ */
+export const canAccessInvoiceRegistry = canAccessAccounting
 
 export const canResetPreOpeningBusinessData = (role: StaffRole | '') =>
   role === 'owner' || role === 'hq_admin'

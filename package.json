@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node ./scripts/copyTesseractAssets.mjs && node ./node_modules/vite/bin/vite.js",
     "build": "node ./scripts/copyTesseractAssets.mjs && tsc -b && node ./scripts/viteBuild.mjs",
+    "typecheck": "tsc -b",
     "build:pages": "npm run build -- --base=/care-taxi-meter/",
     "lint": "eslint .",
     "test": "vitest run",

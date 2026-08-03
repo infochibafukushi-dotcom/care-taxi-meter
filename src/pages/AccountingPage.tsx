@@ -41,9 +41,21 @@ import {
 } from '../services/accountingReceipts'
 import { fetchAccountingReceiptAccessUrl } from '../services/accountingReceiptAccess'
 import { runAccountingReceiptOcr } from '../services/accountingReceiptOcr'
-import { lookupInvoiceRegistrant } from '../services/invoiceRegistrantLookup'
-import { INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE } from '../services/accountingInvoiceLookupHistory'
+import {
+  checkInvoiceRegistry,
+  mapRegistryDataToLegacyRegistrant,
+} from '../services/invoiceRegistryCheck'
+import { InvoiceRegistryLookup } from '../components/accounting/InvoiceRegistryLookup'
+import {
+  INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE,
+  recordAccountingInvoiceLookupHistory,
+} from '../services/accountingInvoiceLookupHistory'
 import type { InvoiceLookupAuditContext } from '../services/accountingInvoiceLookupHistory'
+import {
+  INVOICE_REGISTRY_STATUS_LABELS,
+  INVOICE_REGISTRY_VENDOR_MISMATCH_WARNING,
+} from '../types/invoiceRegistry'
+import { isVendorNameMismatch } from '../utils/invoiceRegistryNormalize'
 import {
   ACCOUNTING_RECEIPT_FILE_ACCEPT,
   isAccountingReceiptPdfMime,
@@ -132,7 +144,7 @@ import {
   type AccountingExportPackageRecordPayload,
   type StoredAccountingExport,
 } from '../types/accounting'
-import { canAccessAccounting } from '../types/permissions'
+import { canAccessAccounting, canAccessInvoiceRegistry } from '../types/permissions'
 import { ExpenseCategoryHelpDialog } from '../components/accounting/ExpenseCategoryHelpDialog'
 import { ExpenseListFilterPanel } from '../components/accounting/ExpenseListFilterPanel'
 import { FixedCostManagementPanel } from '../components/accounting/FixedCostManagementPanel'
@@ -277,6 +289,7 @@ type AccountingTab =
   | 'pl-yearly'
   | 'fixed-costs'
   | 'fixed-assets'
+  | 'invoice-registry'
   | 'audit'
   | 'etax'
   | 'tax-advisor'
@@ -291,6 +304,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'pl-yearly', label: '年次PL（暦年・管理会計）' },
   { tab: 'fixed-costs', label: '固定費管理' },
   { tab: 'fixed-assets', label: '固定資産台帳' },
+  { tab: 'invoice-registry', label: 'インボイス登録確認' },
   { tab: 'audit', label: '監査資料' },
   { tab: 'export', label: 'CSV・PDF出力' },
   { tab: 'etax', label: 'e-Tax入力用決算資料' },
@@ -708,6 +722,7 @@ export function AccountingPage() {
   const calendarYearOptions = useMemo(() => buildCalendarYearOptions(5), [])
 
   const canAccess = canAccessAccounting(role)
+  const canUseInvoiceRegistryUi = canAccessInvoiceRegistry(role)
 
   const reloadExportHistory = async () => {
     setExportHistoryLoading(true)
@@ -1691,9 +1706,9 @@ export function AccountingPage() {
     if (!expenseForm?.invoiceNumber?.trim()) {
       setInvoiceQuoteMessage({
         tone: 'error',
-        text: 'インボイス番号を入力してから【引用】を押してください。',
+        text: 'インボイス番号を入力してから【確認】を押してください。',
       })
-      setErrorMessage('インボイス番号を入力してから【引用】を押してください。')
+      setErrorMessage('インボイス番号を入力してから【確認】を押してください。')
       return
     }
 
@@ -1702,68 +1717,112 @@ export function AccountingPage() {
     setStatusMessage('')
     setInvoiceQuoteMessage(null)
     setInvoiceLookupHistoryWarning('')
+    const basisDate =
+      expenseForm.receiptDate || getExpenseReceiptDate(expenseForm) || undefined
+    const requestedAt = new Date().toISOString()
     try {
-      const lookup = await lookupInvoiceRegistrant(
-        expenseForm.invoiceNumber,
-        buildInvoiceLookupAuditContext('manual', {
-          expenseId: editingExpenseId || undefined,
-          receiptId: expenseForm.receiptId || undefined,
-        }),
-      )
-      if (lookup.status === 'success') {
-        const registrant = lookup.registrant
-        setExpenseForm((current) =>
-          current
-            ? {
-                ...current,
-                vendorName: registrant.registeredName || current.vendorName,
-                invoiceNumber: registrant.invoiceNumber || current.invoiceNumber,
-                invoiceRegisteredName: registrant.registeredName,
-                invoiceRegisteredNameVerified: true,
-                invoiceCorporateNumber: registrant.corporateNumber,
-                invoiceAddress: registrant.address || '',
-                invoiceRegistrationStatus: registrant.registrationStatus,
-                invoiceRegistrationDate: registrant.registrationDate || '',
-                invoiceTradeName: registrant.tradeName || '',
-                invoiceLookupMethod: registrant.lookupMethod,
-                invoiceRegistrant: registrant,
-                invoiceCheckStatus: '確認済',
-                invoiceStatus: 'verified',
-                invoiceCheckedAt: registrant.lookedUpAt || new Date().toISOString(),
-                updatedBy: staffId,
-                updatedByName: staffName,
-              }
-            : current,
-        )
-        const successText = lookup.usedFallback
-          ? `仕入先へ「${registrant.registeredName}」を反映しました（取得方法: fallback）。${lookup.fallbackReason ?? ''}`
-          : `仕入先へ「${registrant.registeredName}」を反映しました（インボイスあり・確認済）。`
-        setInvoiceQuoteMessage({ tone: 'success', text: successText })
-        setStatusMessage(successText)
+      const response = await checkInvoiceRegistry({
+        registrationNumber: expenseForm.invoiceNumber,
+        basisDate,
+      })
+      const completedAt = new Date().toISOString()
+      const auditContext = buildInvoiceLookupAuditContext('manual', {
+        expenseId: editingExpenseId || undefined,
+        receiptId: expenseForm.receiptId || undefined,
+      })
+
+      if (!response.ok) {
+        void recordAccountingInvoiceLookupHistory({
+          auditContext,
+          result: {
+            status: 'error',
+            invoiceNumber: expenseForm.invoiceNumber,
+            invoiceCheckStatus: '未確認',
+            message: response.error.message,
+          },
+          requestedAt,
+          completedAt,
+        }).then((persist) => {
+          if (!persist.ok) {
+            setInvoiceLookupHistoryWarning(INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE)
+          }
+        })
+        setInvoiceQuoteMessage({ tone: 'error', text: response.error.message })
+        setErrorMessage(response.error.message)
         return
       }
+
+      const data = response.data
+      const registrant = mapRegistryDataToLegacyRegistrant(data)
+      const mismatch = isVendorNameMismatch(expenseForm.vendorName, data.name)
+
+      void recordAccountingInvoiceLookupHistory({
+        auditContext,
+        result:
+          data.status === 'not_found'
+            ? {
+                status: 'not_found',
+                invoiceNumber: data.registrationNumber,
+                invoiceCheckStatus: '登録なし',
+                message: INVOICE_REGISTRY_STATUS_LABELS.not_found,
+              }
+            : {
+                status: 'success',
+                registrant,
+                invoiceCheckStatus: '確認済',
+              },
+        requestedAt,
+        completedAt,
+      }).then((persist) => {
+        if (!persist.ok) {
+          setInvoiceLookupHistoryWarning(INVOICE_LOOKUP_HISTORY_SAVE_FAILURE_MESSAGE)
+        }
+      })
 
       setExpenseForm((current) =>
         current
           ? {
               ...current,
-              invoiceRegisteredNameVerified: false,
-              invoiceCheckStatus: lookup.invoiceCheckStatus,
-              invoiceStatus: lookup.status === 'not_found' ? 'none' : current.invoiceStatus,
+              // 事業者名は自動上書きしない（ユーザー確認後に反映）
+              invoiceNumber: data.registrationNumber || current.invoiceNumber,
+              invoiceRegisteredName: data.name || '',
+              invoiceRegisteredNameVerified: data.isQualifiedAtBasisDate,
+              invoiceCorporateNumber: registrant.corporateNumber,
+              invoiceAddress: data.address || '',
+              invoiceRegistrationStatus: registrant.registrationStatus,
+              invoiceRegistrationDate: data.registrationDate || '',
+              invoiceTradeName: data.tradeName || '',
+              invoiceLookupMethod: registrant.lookupMethod,
+              invoiceRegistrant: registrant,
+              invoiceCheckStatus: data.status === 'not_found' ? '登録なし' : '確認済',
+              invoiceStatus: data.isQualifiedAtBasisDate
+                ? 'verified'
+                : data.status === 'not_found'
+                  ? 'none'
+                  : current.invoiceStatus,
+              invoiceCheckedAt: data.checkedAt,
               updatedBy: staffId,
               updatedByName: staffName,
             }
           : current,
       )
-      const failureText =
-        lookup.message || '登録事業者名取得失敗：原因不明。手入力で仕入先を入力してください。'
-      setInvoiceQuoteMessage({ tone: 'error', text: failureText })
-      setErrorMessage(failureText)
+
+      const statusLabel = INVOICE_REGISTRY_STATUS_LABELS[data.status]
+      const successText = mismatch
+        ? `${statusLabel}（${data.name ?? '名称不明'}）。${INVOICE_REGISTRY_VENDOR_MISMATCH_WARNING}`
+        : data.isQualifiedAtBasisDate
+          ? `${statusLabel}：公表名称「${data.name ?? ''}」（仕入先は自動変更していません）。`
+          : `${statusLabel}：公表名称「${data.name ?? '—'}」。`
+      setInvoiceQuoteMessage({
+        tone: data.isQualifiedAtBasisDate && !mismatch ? 'success' : 'error',
+        text: successText,
+      })
+      setStatusMessage(successText)
     } catch (error) {
       const failureText =
         error instanceof Error
           ? `登録事業者名取得失敗：${error.message}`
-          : 'インボイス引用に失敗しました。'
+          : 'インボイス確認に失敗しました。'
       setInvoiceQuoteMessage({ tone: 'error', text: failureText })
       setErrorMessage(failureText)
     } finally {
@@ -3313,7 +3372,7 @@ export function AccountingPage() {
         <section className="content-card accounting-card">
           <h1 id="accounting-title">経理</h1>
           <p className="case-error" role="alert">
-            経理画面はオーナーまたはFC本部管理者のみ利用できます。
+            経理画面は FC加盟店オーナーまたは FC本部管理者のみ利用できます。
           </p>
           <Link className="secondary-action" to="/">
             ホームへ戻る
@@ -3492,7 +3551,9 @@ export function AccountingPage() {
         ) : null}
 
         <nav className="accounting-main-menu" aria-label="経理メニュー">
-          {ACCOUNTING_MAIN_MENU.map(({ tab, label }) => (
+          {ACCOUNTING_MAIN_MENU.filter(
+            ({ tab }) => tab !== 'invoice-registry' || canUseInvoiceRegistryUi,
+          ).map(({ tab, label }) => (
             <button
               key={tab}
               className={
@@ -4366,12 +4427,42 @@ export function AccountingPage() {
                     <button
                       className="secondary-action accounting-invoice-quote-button"
                       type="button"
-                      disabled={isLookingUpInvoice || !expenseForm.invoiceNumber?.trim()}
+                      disabled={
+                        !canUseInvoiceRegistryUi ||
+                        isLookingUpInvoice ||
+                        !expenseForm.invoiceNumber?.trim()
+                      }
                       onClick={() => void handleQuoteInvoiceRegistrant()}
                     >
-                      {isLookingUpInvoice ? '取得中...' : '引用'}
+                      {isLookingUpInvoice ? '確認中...' : '確認'}
                     </button>
                   </div>
+                  {expenseForm.invoiceRegisteredName ? (
+                    <div className="accounting-invoice-apply-row">
+                      <p className="accounting-note">
+                        公表名称: {expenseForm.invoiceRegisteredName}
+                        {expenseForm.invoiceRegisteredNameVerified ? '（判定基準日時点で登録有効）' : ''}
+                      </p>
+                      {expenseForm.invoiceRegisteredName !== expenseForm.vendorName ? (
+                        <button
+                          type="button"
+                          className="secondary-action"
+                          onClick={() =>
+                            setExpenseForm((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    vendorName: current.invoiceRegisteredName || current.vendorName,
+                                  }
+                                : current,
+                            )
+                          }
+                        >
+                          公表名称を仕入先へ反映
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <label>
                     請求書番号
                     <input
@@ -5221,6 +5312,12 @@ export function AccountingPage() {
             onError={setErrorMessage}
             onStatus={setStatusMessage}
           />
+        ) : null}
+
+        {activeTab === 'invoice-registry' && canUseInvoiceRegistryUi ? (
+          <section className="accounting-panel" aria-label="インボイス登録確認">
+            <InvoiceRegistryLookup />
+          </section>
         ) : null}
 
         {activeTab === 'audit' ? (

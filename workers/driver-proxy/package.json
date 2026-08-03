@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test src/proxy.test.ts",
+    "test": "tsx --test src/proxy.test.ts src/ntaInvoice.test.ts",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },

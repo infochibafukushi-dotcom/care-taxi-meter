@@ -7,13 +7,15 @@ const appBasePath = githubPagesBase.replace(/\/$/, '')
 const driverApiProxyPath = `${appBasePath}/api/driver`
 const adminApiProxyPath = `${appBasePath}/api/admin`
 const invoiceApiProxyPath = `${appBasePath}/api/invoice`
+const invoiceRegistryApiProxyPath = `${appBasePath}/api/invoice-registry`
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const reservationOrigin = env.RESERVATION_V4_ORIGIN?.trim()
   const meterDriverToken = env.METER_DRIVER_TOKEN?.trim()
-  const ntaInvoiceApiId = env.NTA_INVOICE_API_ID?.trim()
+  const ntaInvoiceApiId =
+    env.NTA_APPLICATION_ID?.trim() || env.NTA_INVOICE_API_ID?.trim()
   const invoiceApiProxyTarget =
     env.VITE_RESERVATION_API_BASE_URL?.trim() || reservationOrigin || ''
 
@@ -58,6 +60,17 @@ export default defineConfig(({ mode }) => {
         }
       : undefined
 
+  // Registry check must go through Worker (auth + /1/valid). Never proxy browser → NTA directly.
+  const invoiceRegistryApiProxy: ProxyOptions | undefined = invoiceApiProxyTarget
+    ? {
+        target: invoiceApiProxyTarget,
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path: string) =>
+          path.startsWith(appBasePath) ? path.slice(appBasePath.length) || '/' : path,
+      }
+    : undefined
+
   const proxy: Record<string, ProxyOptions> = {}
   if (reservationDriverProxy) {
     proxy[driverApiProxyPath] = reservationDriverProxy
@@ -65,6 +78,9 @@ export default defineConfig(({ mode }) => {
   }
   if (invoiceApiProxy) {
     proxy[invoiceApiProxyPath] = invoiceApiProxy
+  }
+  if (invoiceRegistryApiProxy) {
+    proxy[invoiceRegistryApiProxyPath] = invoiceRegistryApiProxy
   }
 
   return {
