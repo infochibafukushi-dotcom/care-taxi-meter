@@ -44,7 +44,7 @@
 | Lifecycle 定義 | `scripts/firestore-backup-lifecycle.json` |
 
 **含まれる（allowlist）:**  
-`accountingExpenses`, `accountingAdjustments`, `accountingFixedCosts`, `accountingSales`, `accountingExports`, `accountingFixedAssets`, `accountingSettlementAuxiliary`, `caseRecords`, `workSessions`, `staffAttendance`, `companies`, `stores`, `vehicles`, `meterSettings`, `hqSettings`, `fcPlans`, `appSettings`, `preOpeningResetState`
+`accountingExpenses`, `accountingExpenseGroups`, `accountingExpenseReports`, `accountingAdjustments`, `accountingFixedCosts`, `accountingSales`, `accountingExports`, `accountingFixedAssets`, `accountingSettlementAuxiliary`, `caseRecords`, `workSessions`, `staffAttendance`, `companies`, `stores`, `vehicles`, `meterSettings`, `hqSettings`, `fcPlans`, `appSettings`, `preOpeningResetState`
 
 **含まれない（denylist / 別系統）:**  
 `auditLogs`, `loginAttempts`, `debugLogs`, `staffMembers`, `staffCredentials`, `accountingReceipts`、および **Firebase Storage 上の画像/PDF**

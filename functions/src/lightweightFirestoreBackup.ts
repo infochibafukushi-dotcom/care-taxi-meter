@@ -6,6 +6,8 @@ import { onSchedule } from 'firebase-functions/v2/scheduler'
 /** Keep in sync with src/utils/lightweightBackupPolicy.ts allowlist */
 const LIGHTWEIGHT_BACKUP_COLLECTION_ALLOWLIST = [
   'accountingExpenses',
+  'accountingExpenseGroups',
+  'accountingExpenseReports',
   'accountingAdjustments',
   'accountingFixedCosts',
   'accountingSales',

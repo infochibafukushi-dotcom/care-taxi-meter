@@ -9,6 +9,8 @@ export const LIGHTWEIGHT_BACKUP_RETENTION_DAYS = 30
 /** Firestore バックアップ対象コレクション（allowlist） */
 export const LIGHTWEIGHT_BACKUP_COLLECTION_ALLOWLIST = [
   'accountingExpenses',
+  'accountingExpenseGroups',
+  'accountingExpenseReports',
   'accountingAdjustments',
   'accountingFixedCosts',
   'accountingSales',

@@ -524,6 +524,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /accountingExpenseGroups/{groupId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if isAccountingUser() && canReadAccounting(resource.data);
+    }
+
+    match /accountingExpenseReports/{reportId} {
+      allow read: if canReadAccounting(resource.data);
+      allow create: if isAccountingUser() && canWriteAccountingData(request.resource.data);
+      allow update: if isAccountingUser()
+        && canReadAccounting(resource.data)
+        && canWriteAccountingData(request.resource.data);
+      allow delete: if isAccountingUser() && canReadAccounting(resource.data);
+    }
+
     match /appSettings/{settingsId} {
       allow read: if signedIn();
       allow write: if isHqAdmin();

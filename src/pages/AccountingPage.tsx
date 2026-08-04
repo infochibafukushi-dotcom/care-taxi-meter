@@ -9,6 +9,7 @@ import {
   fetchAccountingExpenses,
   invalidateAccountingExpense,
   softDeleteAccountingExpense,
+  updateAccountingExpense,
 } from '../services/accountingExpenses'
 import {
   createAccountingAdjustment,
@@ -155,6 +156,20 @@ import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPane
 import { TaxAdvisorPackagePanel } from '../components/accounting/TaxAdvisorPackagePanel'
 import { SubmissionPackagePanel } from '../components/accounting/SubmissionPackagePanel'
 import { UnorganizedReceiptsPanel } from '../components/accounting/UnorganizedReceiptsPanel'
+import { ExpenseEntryModeSwitch } from '../components/accounting/ExpenseEntryModeSwitch'
+import { GroupedExpenseForm } from '../components/accounting/GroupedExpenseForm'
+import { GroupedExpenseListCard } from '../components/accounting/GroupedExpenseListCard'
+import { ExpenseReportEditor } from '../components/accounting/ExpenseReportEditor'
+import {
+  fetchAccountingExpenseGroups,
+  softDeleteAccountingExpenseGroup,
+} from '../services/accountingExpenseGroups'
+import {
+  fetchAccountingExpenseReports,
+} from '../services/accountingExpenseReports'
+import type { StoredAccountingExpenseGroup } from '../types/accountingExpenseGroup'
+import type { StoredAccountingExpenseReport } from '../types/accountingExpenseReport'
+import { buildExpenseListDisplayItems } from '../utils/accountingExpenseGroup'
 import {
   selectAccountingReceiptInbox,
 } from '../utils/accountingReceiptLink'
@@ -630,6 +645,10 @@ export function AccountingPage() {
   const [expenseCsvScope, setExpenseCsvScope] = useState<'filtered' | 'all'>('all')
   const [caseRecords, setCaseRecords] = useState<StoredCaseRecord[]>([])
   const [expenses, setExpenses] = useState<Awaited<ReturnType<typeof fetchAccountingExpenses>>>([])
+  const [expenseGroups, setExpenseGroups] = useState<StoredAccountingExpenseGroup[]>([])
+  const [expenseReports, setExpenseReports] = useState<StoredAccountingExpenseReport[]>([])
+  const [expenseEntryMode, setExpenseEntryMode] = useState<'normal' | 'grouped'>('normal')
+  const [editingGroupId, setEditingGroupId] = useState('')
   const [adjustments, setAdjustments] = useState<Awaited<ReturnType<typeof fetchAccountingAdjustments>>>([])
   const [fixedCosts, setFixedCosts] = useState<Awaited<ReturnType<typeof fetchAccountingFixedCosts>>>([])
   const [fixedAssets, setFixedAssets] = useState<StoredAccountingFixedAsset[]>([])
@@ -880,6 +899,8 @@ export function AccountingPage() {
 
       let records: StoredCaseRecord[] | null = null
       let expenseRows: Awaited<ReturnType<typeof fetchAccountingExpenses>> | null = null
+      let expenseGroupRows: StoredAccountingExpenseGroup[] | null = null
+      let expenseReportRows: StoredAccountingExpenseReport[] | null = null
       let adjustmentRows: Awaited<ReturnType<typeof fetchAccountingAdjustments>> | null = null
       let fixedCostRows: Awaited<ReturnType<typeof fetchAccountingFixedCosts>> | null = null
       let fixedAssetRows: StoredAccountingFixedAsset[] | null = null
@@ -901,6 +922,20 @@ export function AccountingPage() {
         if (!cancelled) {
           setExpensesLoadFailed(true)
         }
+      }
+
+      try {
+        expenseGroupRows = await fetchAccountingExpenseGroups(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingExpenseGroups', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenseGroups', error))
+      }
+
+      try {
+        expenseReportRows = await fetchAccountingExpenseReports(accessScope)
+      } catch (error) {
+        logAccountingQueryFailure('accountingExpenseReports', accessScope, error)
+        loadErrors.push(formatAccountingQueryErrorMessage('accountingExpenseReports', error))
       }
 
       try {
@@ -953,6 +988,12 @@ export function AccountingPage() {
       if (expenseRows) {
         setExpenses(expenseRows)
         setExpensesLoadFailed(false)
+      }
+      if (expenseGroupRows) {
+        setExpenseGroups(expenseGroupRows)
+      }
+      if (expenseReportRows) {
+        setExpenseReports(expenseReportRows)
       }
       if (adjustmentRows) {
         setAdjustments(adjustmentRows)
@@ -1115,6 +1156,15 @@ export function AccountingPage() {
     [expenseListFilters, expenses, targetYearMonth],
   )
   const filteredMonthExpenses = expenseListQuery.items
+  const expenseListDisplayItems = useMemo(
+    () =>
+      buildExpenseListDisplayItems({
+        expenses: filteredMonthExpenses,
+        groups: expenseGroups,
+        targetYearMonth,
+      }),
+    [expenseGroups, filteredMonthExpenses, targetYearMonth],
+  )
   const filteredReportingExpenses = useMemo(
     () => selectExpensesForFilteredCsv(filteredMonthExpenses),
     [filteredMonthExpenses],
@@ -1387,12 +1437,16 @@ export function AccountingPage() {
   }
 
   const reloadExpensesAdjustmentsAndReceipts = async () => {
-    const [expenseRows, adjustmentRows, receiptRows] = await Promise.all([
+    const [expenseRows, groupRows, reportRows, adjustmentRows, receiptRows] = await Promise.all([
       fetchAccountingExpenses(accessScope),
+      fetchAccountingExpenseGroups(accessScope),
+      fetchAccountingExpenseReports(accessScope),
       fetchAccountingAdjustments(accessScope),
       fetchAccountingReceipts(accessScope),
     ])
     setExpenses(expenseRows)
+    setExpenseGroups(groupRows)
+    setExpenseReports(reportRows)
     setAdjustments(adjustmentRows)
     setAllReceipts(receiptRows)
     setUnorganizedReceipts(
@@ -2705,11 +2759,15 @@ export function AccountingPage() {
   }
 
   const reloadExpensesAndAdjustments = async () => {
-    const [expenseRows, adjustmentRows] = await Promise.all([
+    const [expenseRows, groupRows, reportRows, adjustmentRows] = await Promise.all([
       fetchAccountingExpenses(accessScope),
+      fetchAccountingExpenseGroups(accessScope),
+      fetchAccountingExpenseReports(accessScope),
       fetchAccountingAdjustments(accessScope),
     ])
     setExpenses(expenseRows)
+    setExpenseGroups(groupRows)
+    setExpenseReports(reportRows)
     setAdjustments(adjustmentRows)
   }
 
@@ -3187,6 +3245,58 @@ export function AccountingPage() {
       await reloadFixedAssets()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '経費の削除に失敗しました。')
+    }
+  }
+
+  const handleOpenExpenseGroup = (groupId: string) => {
+    setExpenseEntryMode('grouped')
+    setEditingGroupId(groupId)
+    setActiveTab('expenses')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleDeleteExpenseGroup = async (groupId: string) => {
+    const group = expenseGroups.find((row) => row.id === groupId)
+    const groupExpenses = expenses.filter(
+      (expense) => expense.expenseGroupId === groupId && !isExpenseDeleted(expense),
+    )
+    const receiptCount = groupExpenses.length || group?.expenseIds.length || 0
+    const confirmed = window.confirm(
+      `このまとめ経費を削除しますか？\n\n関連する領収書${receiptCount}件、レポート、写真も削除されます。\nこの操作は元に戻せません。`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await softDeleteAccountingExpenseGroup({
+        groupId,
+        expenses: groupExpenses,
+        deletedBy: staffId,
+        deletedByName: staffName,
+      })
+      const linkedReports = expenseReports.filter(
+        (report) =>
+          report.targetType === 'expense_group' &&
+          report.targetId === groupId &&
+          report.isDeleted !== true,
+      )
+      for (const report of linkedReports) {
+        const { softDeleteAccountingExpenseReportWithImages } = await import(
+          '../services/accountingExpenseReports'
+        )
+        await softDeleteAccountingExpenseReportWithImages({
+          report,
+          deletedBy: staffId,
+        })
+      }
+      if (editingGroupId === groupId) {
+        setEditingGroupId('')
+      }
+      setStatusMessage('まとめ経費を削除しました。')
+      await reloadExpensesAndAdjustments()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'まとめ経費の削除に失敗しました。')
     }
   }
 
@@ -3993,6 +4103,60 @@ export function AccountingPage() {
 
         {activeTab === 'expenses' && expenseForm ? (
           <section className="accounting-panel accounting-expense-panel" aria-label="経費入力">
+            {!editingExpenseId ? (
+              <ExpenseEntryModeSwitch
+                mode={expenseEntryMode}
+                disabled={isSavingExpense || isUploadingReceipt || isRunningOcr}
+                onChange={(mode) => {
+                  setExpenseEntryMode(mode)
+                  if (mode === 'normal') {
+                    setEditingGroupId('')
+                  }
+                }}
+              />
+            ) : null}
+
+            {expenseEntryMode === 'grouped' && !editingExpenseId ? (
+              <GroupedExpenseForm
+                franchiseeId={tenantScope.franchiseeId}
+                storeId={tenantScope.storeId}
+                staffId={staffId}
+                staffName={staffName}
+                existingGroup={
+                  editingGroupId
+                    ? expenseGroups.find((group) => group.id === editingGroupId) ?? null
+                    : null
+                }
+                existingExpenses={
+                  editingGroupId
+                    ? expenses.filter(
+                        (expense) =>
+                          expense.expenseGroupId === editingGroupId && !isExpenseDeleted(expense),
+                      )
+                    : []
+                }
+                existingReport={
+                  editingGroupId
+                    ? expenseReports.find(
+                        (report) =>
+                          report.targetType === 'expense_group' &&
+                          report.targetId === editingGroupId &&
+                          report.isDeleted !== true,
+                      ) ?? null
+                    : null
+                }
+                disabled={Boolean(authBlockedMessage) || expensesLoadFailed}
+                onSaved={(groupId) => {
+                  setEditingGroupId(groupId)
+                  void reloadExpensesAndAdjustments()
+                }}
+                onCancel={() => {
+                  setExpenseEntryMode('normal')
+                  setEditingGroupId('')
+                }}
+              />
+            ) : (
+              <>
             <h2>{editingExpenseId ? '経費編集' : '経費入力'}</h2>
             {editingExpenseId && editingExpenseSummary ? (
               <div className="accounting-expense-editing-summary" role="status">
@@ -4845,6 +5009,50 @@ export function AccountingPage() {
                     </div>
                   </fieldset>
 
+                  <ExpenseReportEditor
+                    franchiseeId={tenantScope.franchiseeId}
+                    storeId={tenantScope.storeId}
+                    staffId={staffId}
+                    staffName={staffName}
+                    targetType="expense"
+                    targetId={editingExpenseId}
+                    existingReport={
+                      editingExpenseId
+                        ? expenseReports.find(
+                            (report) =>
+                              report.targetType === 'expense' &&
+                              report.targetId === editingExpenseId &&
+                              report.isDeleted !== true,
+                          ) ?? null
+                        : null
+                    }
+                    autoStartDate={expenseForm.receiptDate || getExpenseReceiptDate(expenseForm) || null}
+                    autoEndDate={expenseForm.receiptDate || getExpenseReceiptDate(expenseForm) || null}
+                    relatedCategoryLabel={expenseForm.expenseCategory || '通常経費'}
+                    relatedAmountYen={expenseForm.taxIncludedAmount}
+                    disabled={isSavingExpense}
+                    onSaved={(reportId) => {
+                      if (!editingExpenseId) {
+                        return
+                      }
+                      void updateAccountingExpense(editingExpenseId, {
+                        reportId,
+                        updatedBy: staffId,
+                        updatedByName: staffName,
+                      }).then(() => reloadExpensesAndAdjustments())
+                    }}
+                    onDeleted={() => {
+                      if (!editingExpenseId) {
+                        return
+                      }
+                      void updateAccountingExpense(editingExpenseId, {
+                        reportId: null,
+                        updatedBy: staffId,
+                        updatedByName: staffName,
+                      }).then(() => reloadExpensesAndAdjustments())
+                    }}
+                  />
+
                   <div className="accounting-form-actions">
                     <button
                       className="primary-action"
@@ -5028,6 +5236,8 @@ export function AccountingPage() {
                 </div>
               </div>
             </section>
+              </>
+            )}
 
             <section className="accounting-expense-summaries" aria-label="経費集計サマリー">
               <h3>{formatYearMonthLabel(targetYearMonth)} の集計（確認済み・未削除）</h3>
@@ -5085,67 +5295,76 @@ export function AccountingPage() {
               id={ACCOUNTING_EXPENSE_LIST_SECTION_ID}
               aria-label="当月経費一覧（カード）"
             >
-              {filteredMonthExpenses.length > 0 ? (
-                filteredMonthExpenses.map((expense) => (
-                  <article key={expense.id} className="accounting-expense-card">
+              {expenseListDisplayItems.length > 0 ? (
+                expenseListDisplayItems.map((item) =>
+                  item.kind === 'group' ? (
+                    <GroupedExpenseListCard
+                      key={`group-${item.group.id}`}
+                      group={item.group}
+                      expenses={item.expenses}
+                      onOpen={() => handleOpenExpenseGroup(item.group.id)}
+                      onDelete={() => void handleDeleteExpenseGroup(item.group.id)}
+                    />
+                  ) : (
+                  <article key={item.expense.id} className="accounting-expense-card">
                     <header>
-                      <strong>{expense.vendorName || '（仕入先未入力）'}</strong>
+                      <strong>{item.expense.vendorName || '（仕入先未入力）'}</strong>
                       <span>
                         {EXPENSE_LIST_CONFIRMATION_STATUS_HEADER}{' '}
-                        {formatExpenseListConfirmationStatus(expense.confirmationStatus)}
+                        {formatExpenseListConfirmationStatus(item.expense.confirmationStatus)}
                       </span>
                     </header>
                     <dl>
                       <div>
                         <dt>証憑日</dt>
-                        <dd>{getExpenseReceiptDate(expense)}</dd>
+                        <dd>{getExpenseReceiptDate(item.expense)}</dd>
                       </div>
                       <div>
                         <dt>{POSTING_DATE_FIELD_LABEL}</dt>
-                        <dd>{getExpensePostingDate(expense)}</dd>
+                        <dd>{getExpensePostingDate(item.expense)}</dd>
                       </div>
                       <div>
                         <dt>仕入先</dt>
-                        <dd>{expense.vendorName || '－'}</dd>
+                        <dd>{item.expense.vendorName || '－'}</dd>
                       </div>
                       <div>
                         <dt>T番号</dt>
                         <dd className="accounting-expense-invoice-number">
-                          {formatExpenseListInvoiceNumber(expense.invoiceNumber)}
+                          {formatExpenseListInvoiceNumber(item.expense.invoiceNumber)}
                         </dd>
                       </div>
                       <div>
                         <dt>請求書番号</dt>
-                        <dd>{formatExpenseListBillingInvoiceNumber(expense.billingInvoiceNumber)}</dd>
+                        <dd>{formatExpenseListBillingInvoiceNumber(item.expense.billingInvoiceNumber)}</dd>
                       </div>
                       <div>
                         <dt>インボイス状態</dt>
-                        <dd>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</dd>
+                        <dd>{formatExpenseListInvoiceStatus(item.expense.invoiceStatus)}</dd>
                       </div>
                       <div>
                         <dt>内容</dt>
-                        <dd>{expense.description || '―'}</dd>
+                        <dd>{item.expense.description || '―'}</dd>
                       </div>
                       <div>
                         <dt>経費科目</dt>
-                        <dd>{expense.expenseCategory || '未選択'}</dd>
+                        <dd>{item.expense.expenseCategory || '未選択'}</dd>
                       </div>
                       <div>
                         <dt>PL反映区分</dt>
-                        <dd>{getPlTreatmentLabel(expense.plTreatment)}</dd>
+                        <dd>{getPlTreatmentLabel(item.expense.plTreatment)}</dd>
                       </div>
                       <div>
                         <dt>税込</dt>
-                        <dd>{formatFareYen(expense.taxIncludedAmount)}</dd>
+                        <dd>{formatFareYen(item.expense.taxIncludedAmount)}</dd>
                       </div>
                       <div>
                         <dt>{EXPENSE_LIST_CONFIRMATION_STATUS_HEADER}</dt>
-                        <dd>{formatExpenseListConfirmationStatus(expense.confirmationStatus)}</dd>
+                        <dd>{formatExpenseListConfirmationStatus(item.expense.confirmationStatus)}</dd>
                       </div>
                     </dl>
                     <div className="accounting-expense-card-actions">
                       {(() => {
-                        const actionStatus = getExpenseListActionStatusLabel(expense)
+                        const actionStatus = getExpenseListActionStatusLabel(item.expense)
                         if (!actionStatus) {
                           return null
                         }
@@ -5164,15 +5383,15 @@ export function AccountingPage() {
                       <button
                         className="secondary-action"
                         type="button"
-                        onClick={() => handleEditExpense(expense.id)}
+                        onClick={() => handleEditExpense(item.expense.id)}
                       >
                         編集
                       </button>
-                      {expense.confirmationStatus !== '無効' ? (
+                      {item.expense.confirmationStatus !== '無効' ? (
                         <button
                           className="secondary-action"
                           type="button"
-                          onClick={() => void handleInvalidateExpense(expense.id)}
+                          onClick={() => void handleInvalidateExpense(item.expense.id)}
                         >
                           無効化
                         </button>
@@ -5180,13 +5399,14 @@ export function AccountingPage() {
                       <button
                         className="secondary-action"
                         type="button"
-                        onClick={() => void handleDeleteExpense(expense.id)}
+                        onClick={() => void handleDeleteExpense(item.expense.id)}
                       >
                         削除
                       </button>
                     </div>
                   </article>
-                ))
+                  ),
+                )
               ) : (
                 <p className="accounting-note">
                   {expenseListQuery.isFiltered
@@ -5215,68 +5435,90 @@ export function AccountingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredMonthExpenses.length > 0 ? (
-                    filteredMonthExpenses.map((expense) => (
-                      <tr key={expense.id}>
-                        <td>{getExpenseReceiptDate(expense)}</td>
-                        <td>{getExpensePostingDate(expense)}</td>
-                        <td>{expense.vendorName}</td>
-                        <td className="accounting-expense-invoice-number">
-                          {formatExpenseListInvoiceNumber(expense.invoiceNumber)}
-                        </td>
-                        <td>{formatExpenseListBillingInvoiceNumber(expense.billingInvoiceNumber)}</td>
-                        <td>{formatExpenseListInvoiceStatus(expense.invoiceStatus)}</td>
-                        <td>{expense.description}</td>
-                        <td>{expense.expenseCategory || '未選択'}</td>
-                        <td>{getPlTreatmentLabel(expense.plTreatment)}</td>
-                        <td>{formatFareYen(expense.taxIncludedAmount)}</td>
-                        <td>{formatExpenseListConfirmationStatus(expense.confirmationStatus)}</td>
-                        <td>
-                          <div className="accounting-expense-row-actions">
-                            {(() => {
-                              const actionStatus = getExpenseListActionStatusLabel(expense)
-                              if (!actionStatus) {
-                                return null
-                              }
-                              return (
-                                <span
-                                  className={
-                                    actionStatus === EXPENSE_LIST_RECEIPT_PENDING_LABEL
-                                      ? 'accounting-expense-action-badge accounting-expense-action-badge--receipt-pending'
-                                      : 'accounting-expense-action-badge accounting-expense-action-badge--confirm-pending'
-                                  }
-                                >
-                                  {actionStatus}
-                                </span>
-                              )
-                            })()}
-                            <button
-                              className="secondary-action"
-                              type="button"
-                              onClick={() => handleEditExpense(expense.id)}
-                            >
-                              編集
-                            </button>
-                            {expense.confirmationStatus !== '無効' ? (
+                  {expenseListDisplayItems.length > 0 ? (
+                    expenseListDisplayItems.map((item) =>
+                      item.kind === 'group' ? (
+                        <tr key={`group-${item.group.id}`}>
+                          <td colSpan={2}>
+                            {item.group.startDate || '―'}
+                            {item.group.endDate && item.group.endDate !== item.group.startDate
+                              ? `～${item.group.endDate}`
+                              : ''}
+                          </td>
+                          <td colSpan={4}>{item.group.title || '（件名未入力）'}</td>
+                          <td>まとめ経費（{item.expenses.length || item.group.expenseIds.length}件）</td>
+                          <td>まとめ経費</td>
+                          <td>―</td>
+                          <td>{formatFareYen(item.group.totalAmount)}</td>
+                          <td>{item.group.confirmationStatus}</td>
+                          <td>
+                            <div className="accounting-expense-row-actions">
                               <button
                                 className="secondary-action"
                                 type="button"
-                                onClick={() => void handleInvalidateExpense(expense.id)}
+                                onClick={() => handleOpenExpenseGroup(item.group.id)}
                               >
-                                無効化
+                                詳細・編集
                               </button>
-                            ) : null}
-                            <button
-                              className="secondary-action"
-                              type="button"
-                              onClick={() => void handleDeleteExpense(expense.id)}
-                            >
-                              削除
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => void handleDeleteExpenseGroup(item.group.id)}
+                              >
+                                削除
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={item.expense.id}>
+                          <td>{getExpenseReceiptDate(item.expense)}</td>
+                          <td>{getExpensePostingDate(item.expense)}</td>
+                          <td>{item.expense.vendorName}</td>
+                          <td className="accounting-expense-invoice-number">
+                            {formatExpenseListInvoiceNumber(item.expense.invoiceNumber)}
+                          </td>
+                          <td>
+                            {formatExpenseListBillingInvoiceNumber(item.expense.billingInvoiceNumber)}
+                          </td>
+                          <td>{formatExpenseListInvoiceStatus(item.expense.invoiceStatus)}</td>
+                          <td>{item.expense.description}</td>
+                          <td>{item.expense.expenseCategory || '未選択'}</td>
+                          <td>{getPlTreatmentLabel(item.expense.plTreatment)}</td>
+                          <td>{formatFareYen(item.expense.taxIncludedAmount)}</td>
+                          <td>
+                            {formatExpenseListConfirmationStatus(item.expense.confirmationStatus)}
+                          </td>
+                          <td>
+                            <div className="accounting-expense-row-actions">
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => handleEditExpense(item.expense.id)}
+                              >
+                                編集
+                              </button>
+                              {item.expense.confirmationStatus !== '無効' ? (
+                                <button
+                                  className="secondary-action"
+                                  type="button"
+                                  onClick={() => void handleInvalidateExpense(item.expense.id)}
+                                >
+                                  無効化
+                                </button>
+                              ) : null}
+                              <button
+                                className="secondary-action"
+                                type="button"
+                                onClick={() => void handleDeleteExpense(item.expense.id)}
+                              >
+                                削除
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    )
                   ) : (
                     <tr>
                       <td colSpan={12}>

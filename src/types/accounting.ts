@@ -250,6 +250,13 @@ export type AccountingExpenseInput = AccountingTenantFields &
     /** 領収書画像の SHA-256 ハッシュ（二重計上検知用） */
     imageHash?: string
     lineItems?: AccountingExpenseLineItemDraft[]
+    /**
+     * まとめ経費の親グループ ID。通常経費は null / 未設定。
+     * PL 集計は本明細のみを対象とし、親グループは集計しない。
+     */
+    expenseGroupId?: string | null
+    /** 任意レポート ID（通常経費に1件紐付ける場合） */
+    reportId?: string | null
     confirmationStatus: ExpenseConfirmationStatus
     memo?: string
     createdBy: string

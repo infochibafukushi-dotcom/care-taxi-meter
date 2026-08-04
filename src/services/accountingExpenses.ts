@@ -146,6 +146,12 @@ const toStoredExpense = (snapshot: { id: string; data: () => Record<string, unkn
       typeof data.receiptPreviewStoragePath === 'string' ? data.receiptPreviewStoragePath : '',
     receiptId: typeof data.receiptId === 'string' ? data.receiptId : '',
     imageHash: typeof data.imageHash === 'string' ? data.imageHash : '',
+    expenseGroupId:
+      typeof data.expenseGroupId === 'string' && data.expenseGroupId.trim()
+        ? data.expenseGroupId.trim()
+        : null,
+    reportId:
+      typeof data.reportId === 'string' && data.reportId.trim() ? data.reportId.trim() : null,
     confirmationStatus: (data.confirmationStatus as ExpenseConfirmationStatus) ?? '未確認',
     isDeleted: data.isDeleted === true,
     deletedAt: readTimestampAsIso(data.deletedAt),
@@ -403,6 +409,8 @@ export const buildEmptyExpenseInput = ({
     receiptPreviewStoragePath: '',
     receiptId: '',
     lineItems: [],
+    expenseGroupId: null,
+    reportId: null,
     confirmationStatus: '未確認',
     memo: '',
     ocrRawText: '',

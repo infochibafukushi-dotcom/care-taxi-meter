@@ -59,5 +59,19 @@ service firebase.storage {
         || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))
         || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId));
     }
+
+    // 任意レポート写真（領収書とは別パス）
+    match /accounting/{pathFranchiseeId}/{storeId}/reports/{reportId}/{allPaths=**} {
+      allow read: if isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))
+        || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId));
+      allow write: if isHqAdmin()
+        || ((isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId)
+            || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId)))
+          && isAllowedAccountingReceiptContent());
+      allow delete: if isHqAdmin()
+        || (isFranchiseeOwner() && sameFranchiseeFromPath(pathFranchiseeId))
+        || (isStoreManager() && sameStoreFromPath(pathFranchiseeId, storeId));
+    }
   }
 }

@@ -12,6 +12,8 @@ import {
 describe('lightweightBackupPolicy', () => {
   it('keeps only allowlisted collections', () => {
     expect(isLightweightBackupCollection('accountingExpenses')).toBe(true)
+    expect(isLightweightBackupCollection('accountingExpenseGroups')).toBe(true)
+    expect(isLightweightBackupCollection('accountingExpenseReports')).toBe(true)
     expect(isLightweightBackupCollection('preOpeningResetState')).toBe(true)
     expect(isLightweightBackupCollection('auditLogs')).toBe(false)
     expect(shouldExcludeBackupCollection('staffMembers')).toBe(true)
