@@ -3,6 +3,7 @@ import {
   buildExpenseListDisplayItems,
   computeExpenseGroupDateRange,
   formatExpenseGroupPeriodLabel,
+  resolveExpenseGroupReceiptCount,
   sumExpenseGroupLineAmounts,
   validateExpenseGroupForSave,
 } from './accountingExpenseGroup'
@@ -118,6 +119,48 @@ describe('accountingExpenseGroup', () => {
     expect(august.filter((item) => item.kind === 'group')).toHaveLength(1)
     expect(august.filter((item) => item.kind === 'expense')).toHaveLength(1)
     expect(august.find((item) => item.kind === 'expense')?.expense.id).toBe('e3')
+
+    // 表示月に絞った明細でも expenseIds を優先（本番の一覧と同じ条件）
+    const augustMonthOnly = expenses.filter((expense) =>
+      (expense.postingDate || expense.transactionDate || '').startsWith('2026-08'),
+    )
+    const augustFiltered = buildExpenseListDisplayItems({
+      expenses: augustMonthOnly,
+      groups: [group],
+      targetYearMonth: '2026-08',
+    })
+    const augustGroup = augustFiltered.find((item) => item.kind === 'group')
+    expect(augustGroup?.kind).toBe('group')
+    if (augustGroup?.kind === 'group') {
+      expect(augustGroup.expenses).toHaveLength(1)
+      expect(resolveExpenseGroupReceiptCount(augustGroup.group, augustGroup.expenses)).toBe(2)
+    }
+
+    const septemberMonthOnly = expenses.filter((expense) =>
+      (expense.postingDate || expense.transactionDate || '').startsWith('2026-09'),
+    )
+    const septemberFiltered = buildExpenseListDisplayItems({
+      expenses: septemberMonthOnly,
+      groups: [group],
+      targetYearMonth: '2026-09',
+    })
+    const septemberGroup = septemberFiltered.find((item) => item.kind === 'group')
+    expect(septemberGroup?.kind).toBe('group')
+    if (septemberGroup?.kind === 'group') {
+      expect(septemberGroup.expenses).toHaveLength(1)
+      expect(resolveExpenseGroupReceiptCount(septemberGroup.group, septemberGroup.expenses)).toBe(2)
+    }
+  })
+
+  it('prefers expenseIds length over month-filtered related expenses', () => {
+    expect(
+      resolveExpenseGroupReceiptCount(
+        { expenseIds: ['e1', 'e2', 'e3'] },
+        [{ id: 'e1' }],
+      ),
+    ).toBe(3)
+
+    expect(resolveExpenseGroupReceiptCount({ expenseIds: [] }, [{ id: 'a' }, { id: 'b' }])).toBe(2)
   })
 })
 

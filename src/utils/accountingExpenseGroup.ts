@@ -161,6 +161,21 @@ export const buildExpenseListDisplayItems = ({
   return items.sort((a, b) => b.sortDate.localeCompare(a.sortDate))
 }
 
+/**
+ * まとめ経費の領収書件数。
+ * expenseIds を最優先（月またぎでも全件）。未設定の旧データのみ関連明細件数へフォールバック。
+ * 表示月に絞った明細件数は使わないこと。
+ */
+export const resolveExpenseGroupReceiptCount = (
+  group: Pick<StoredAccountingExpenseGroup, 'expenseIds'>,
+  relatedExpenses: readonly unknown[] = [],
+): number => {
+  if (Array.isArray(group.expenseIds) && group.expenseIds.length > 0) {
+    return group.expenseIds.length
+  }
+  return relatedExpenses.length
+}
+
 export const describeExpenseGroupSummary = ({
   title,
   groupType,

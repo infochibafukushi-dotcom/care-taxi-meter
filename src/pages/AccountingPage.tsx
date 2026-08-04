@@ -169,7 +169,10 @@ import {
 } from '../services/accountingExpenseReports'
 import type { StoredAccountingExpenseGroup } from '../types/accountingExpenseGroup'
 import type { StoredAccountingExpenseReport } from '../types/accountingExpenseReport'
-import { buildExpenseListDisplayItems } from '../utils/accountingExpenseGroup'
+import {
+  buildExpenseListDisplayItems,
+  resolveExpenseGroupReceiptCount,
+} from '../utils/accountingExpenseGroup'
 import {
   selectAccountingReceiptInbox,
 } from '../utils/accountingReceiptLink'
@@ -3260,7 +3263,9 @@ export function AccountingPage() {
     const groupExpenses = expenses.filter(
       (expense) => expense.expenseGroupId === groupId && !isExpenseDeleted(expense),
     )
-    const receiptCount = groupExpenses.length || group?.expenseIds.length || 0
+    const receiptCount = group
+      ? resolveExpenseGroupReceiptCount(group, groupExpenses)
+      : groupExpenses.length
     const confirmed = window.confirm(
       `このまとめ経費を削除しますか？\n\n関連する領収書${receiptCount}件、レポート、写真も削除されます。\nこの操作は元に戻せません。`,
     )
@@ -5301,7 +5306,10 @@ export function AccountingPage() {
                     <GroupedExpenseListCard
                       key={`group-${item.group.id}`}
                       group={item.group}
-                      expenses={item.expenses}
+                      expenses={expenses.filter(
+                        (expense) =>
+                          expense.expenseGroupId === item.group.id && !isExpenseDeleted(expense),
+                      )}
                       onOpen={() => handleOpenExpenseGroup(item.group.id)}
                       onDelete={() => void handleDeleteExpenseGroup(item.group.id)}
                     />
@@ -5446,7 +5454,18 @@ export function AccountingPage() {
                               : ''}
                           </td>
                           <td colSpan={4}>{item.group.title || '（件名未入力）'}</td>
-                          <td>まとめ経費（{item.expenses.length || item.group.expenseIds.length}件）</td>
+                          <td>
+                            まとめ経費（
+                            {resolveExpenseGroupReceiptCount(
+                              item.group,
+                              expenses.filter(
+                                (expense) =>
+                                  expense.expenseGroupId === item.group.id &&
+                                  !isExpenseDeleted(expense),
+                              ),
+                            )}
+                            件）
+                          </td>
                           <td>まとめ経費</td>
                           <td>―</td>
                           <td>{formatFareYen(item.group.totalAmount)}</td>

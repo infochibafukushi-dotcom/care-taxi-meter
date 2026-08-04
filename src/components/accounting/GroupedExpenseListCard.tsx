@@ -1,10 +1,14 @@
 import type { StoredAccountingExpense } from '../../types/accounting'
 import type { StoredAccountingExpenseGroup } from '../../types/accountingExpenseGroup'
-import { describeExpenseGroupSummary } from '../../utils/accountingExpenseGroup'
+import {
+  describeExpenseGroupSummary,
+  resolveExpenseGroupReceiptCount,
+} from '../../utils/accountingExpenseGroup'
 import { formatFareYen } from '../../services/fare'
 
 type Props = {
   group: StoredAccountingExpenseGroup
+  /** 旧データ（expenseIds 未設定）向けフォールバック。表示月で絞らない全関連明細を渡す */
   expenses: StoredAccountingExpense[]
   onOpen: () => void
   onDelete: () => void
@@ -17,7 +21,7 @@ export function GroupedExpenseListCard({ group, expenses, onOpen, onDelete }: Pr
     startDate: group.startDate,
     endDate: group.endDate,
     totalAmount: group.totalAmount,
-    receiptCount: expenses.length || group.expenseIds.length,
+    receiptCount: resolveExpenseGroupReceiptCount(group, expenses),
   })
 
   return (
