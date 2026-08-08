@@ -81,6 +81,8 @@ const toReceiptRecord = (
   storagePath: toStringValue(data.storagePath),
   originalStoragePath: toStringValue(data.originalStoragePath),
   ocrImageStoragePath: toStringValue(data.ocrImageStoragePath),
+  legalMasterStoragePath: toStringValue(data.legalMasterStoragePath),
+  thumbnailStoragePath: toStringValue(data.thumbnailStoragePath),
   downloadUrl: toStringValue(data.downloadUrl),
   imageUrl: toStringValue(data.imageUrl),
   originalDownloadUrl: toStringValue(data.originalDownloadUrl),
@@ -88,11 +90,19 @@ const toReceiptRecord = (
   documentType: toStringValue(data.documentType),
   mimeType: toStringValue(data.mimeType),
   originalMimeType: toStringValue(data.originalMimeType),
+  captureMode: toStringValue(data.captureMode),
 })
 
 const parseVariant = (value: unknown): AccountingReceiptAccessVariant => {
-  if (value === 'original') {
-    return 'original'
+  if (
+    value === 'original' ||
+    value === 'master' ||
+    value === 'thumbnail' ||
+    value === 'legacy' ||
+    value === 'ocr' ||
+    value === 'preview'
+  ) {
+    return value
   }
   return 'preview'
 }

@@ -3150,3 +3150,123 @@ body.route-accounting,
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Receipt scanner (legal pending timestamp) ---- */
+.receipt-scanner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.receipt-scanner-panel {
+  width: min(100%, 720px);
+  max-height: min(92vh, 960px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
+}
+
+.receipt-scanner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.receipt-scanner-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.receipt-scanner-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.receipt-scanner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.receipt-scanner-actions .primary-action,
+.receipt-scanner-actions .secondary-action,
+.receipt-scanner-actions .accounting-receipt-upload-button {
+  flex: 1 1 auto;
+  min-height: 44px;
+}
+
+.receipt-scanner-quality {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.receipt-scanner-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.receipt-scanner-legal-banner {
+  border: 1px solid #b45309;
+  background: #fffbeb;
+  color: #78350f;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.receipt-scanner-zoom {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.receipt-corner-editor {
+  position: relative;
+  width: 100%;
+  min-height: 280px;
+  height: min(50vh, 420px);
+  background: #0f172a;
+  border-radius: 8px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.receipt-corner-editor-image {
+  position: absolute;
+  display: block;
+  max-width: none;
+  pointer-events: none;
+}
+
+.receipt-corner-editor-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.receipt-corner-editor-poly {
+  fill: rgba(56, 189, 248, 0.15);
+  stroke: #38bdf8;
+  stroke-width: 2;
+}
+
+.receipt-corner-editor-handle {
+  fill: #f8fafc;
+  stroke: #0284c7;
+  stroke-width: 3;
+  cursor: grab;
+  touch-action: none;
+}

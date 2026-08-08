@@ -52,11 +52,29 @@ export const detectAccountingReceiptDocumentType = (
   }
 
   const mime = (file.type || '').trim().toLowerCase()
-  if (isAccountingReceiptPdfMime(mime) || file.name.toLowerCase().endsWith('.pdf')) {
+  const fileName = (file.name || '').trim().toLowerCase()
+  if (isAccountingReceiptPdfMime(mime) || fileName.endsWith('.pdf')) {
     return 'pdf'
   }
 
-  if (isAccountingReceiptImageMime(mime) || /\.(jpe?g|png|webp)$/i.test(file.name)) {
+  if (isAccountingReceiptImageMime(mime) || /\.(jpe?g|png|webp)$/i.test(fileName)) {
+    return 'image'
+  }
+
+  // Android Chrome capture の派生 MIME（image/jpg 以外の image/*）。
+  // gif/bmp/svg/tiff は非対応のまま拒否する。
+  if (
+    mime.startsWith('image/') &&
+    !mime.includes('gif') &&
+    !mime.includes('bmp') &&
+    !mime.includes('svg') &&
+    !mime.includes('tiff')
+  ) {
+    return 'image'
+  }
+
+  // カメラ由来で拡張子なし・MIME空のケース（例: name=image）
+  if (!mime && (/^image\d*$/i.test(fileName) || fileName === 'image')) {
     return 'image'
   }
 

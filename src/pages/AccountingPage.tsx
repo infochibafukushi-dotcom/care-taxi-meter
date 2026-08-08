@@ -58,7 +58,10 @@ import {
 } from '../types/invoiceRegistry'
 import { isVendorNameMismatch } from '../utils/invoiceRegistryNormalize'
 import {
-  ACCOUNTING_RECEIPT_FILE_ACCEPT,
+  ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE,
+  ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE,
+  isAccountingReceiptFileSizeAllowed,
+  isAccountingReceiptHeicLike,
   isAccountingReceiptPdfMime,
   validateAccountingReceiptUploadFile,
 } from '../utils/accountingReceiptFile'
@@ -160,6 +163,11 @@ import { ExpenseEntryModeSwitch } from '../components/accounting/ExpenseEntryMod
 import { GroupedExpenseForm } from '../components/accounting/GroupedExpenseForm'
 import { GroupedExpenseListCard } from '../components/accounting/GroupedExpenseListCard'
 import { ExpenseReportEditor } from '../components/accounting/ExpenseReportEditor'
+import {
+  ReceiptScannerFlow,
+  type ReceiptScannerCompletedPayload,
+} from '../components/accounting/ReceiptScannerFlow'
+import { LEGAL_PENDING_TIMESTAMP_USER_LABELS } from '../types/accountingReceiptLegal'
 import {
   fetchAccountingExpenseGroups,
   softDeleteAccountingExpenseGroup,
@@ -715,8 +723,12 @@ export function AccountingPage() {
     summary: string
   } | null>(null)
   const receiptFileInputRef = useRef<HTMLInputElement | null>(null)
+  const receiptImageFileInputRef = useRef<HTMLInputElement | null>(null)
   const receiptUploadInFlightRef = useRef(false)
   const pendingUnorganizedReceiptIdsRef = useRef<string[]>([])
+  const [receiptScannerOpen, setReceiptScannerOpen] = useState(false)
+  const [receiptScannerFile, setReceiptScannerFile] = useState<File | null>(null)
+  const [legalPendingBanner, setLegalPendingBanner] = useState(false)
   const [adjustmentForm, setAdjustmentForm] = useState<AccountingAdjustmentInput | null>(null)
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false)
   const [isExpenseCategoryHelpOpen, setIsExpenseCategoryHelpOpen] = useState(false)
@@ -1895,7 +1907,8 @@ export function AccountingPage() {
     if (isUploadingReceipt || isRunningOcr || receiptUploadInFlightRef.current || isRotatingReceipt) {
       return
     }
-    receiptFileInputRef.current?.click()
+    // ドロップゾーンクリックは画像スキャナ経路を優先（PDF専用inputではない）
+    receiptImageFileInputRef.current?.click()
   }
 
   /**
@@ -2195,9 +2208,123 @@ export function AccountingPage() {
     }
   }
 
+  const openReceiptScanner = (file: File) => {
+    // 旧 upload より先にスキャナを開く（legacy への誤フォールバック防止）
+    setReceiptScannerFile(file)
+    setReceiptScannerOpen(true)
+  }
+
+  /**
+   * カメラ撮影専用。MIME判定に失敗しても画像としてスキャナへ渡す。
+   * 旧 handleReceiptUpload には入れない。
+   */
+  const handleCameraCaptureFiles = (files: FileList | null, input?: HTMLInputElement | null) => {
+    if (!expenseForm || !files || files.length === 0) {
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    if (receiptUploadInFlightRef.current || isUploadingReceipt || isRunningOcr || isRotatingReceipt) {
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    const file = files[0]
+    if (
+      shouldPromptReceiptReplacement(hasExistingAccountingReceiptAttachment(expenseForm)) &&
+      !window.confirm(ACCOUNTING_RECEIPT_REPLACE_CONFIRM_MESSAGE)
+    ) {
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    if (!isAccountingReceiptFileSizeAllowed(file.size)) {
+      setReceiptSelectionError(true)
+      setErrorMessage(ACCOUNTING_RECEIPT_FILE_TOO_LARGE_MESSAGE)
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    if (isAccountingReceiptHeicLike(file)) {
+      setReceiptSelectionError(true)
+      setErrorMessage(ACCOUNTING_RECEIPT_UNSUPPORTED_TYPE_MESSAGE)
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    setReceiptSelectionError(false)
+    if (input) {
+      input.value = ''
+    }
+    openReceiptScanner(file)
+  }
+
+  const handleReceiptScannerCompleted = async (payload: ReceiptScannerCompletedPayload) => {
+    const previousReceiptId = expenseForm?.receiptId?.trim() ?? ''
+    const protectedReceiptIds = [editingExpenseBaseline?.form.receiptId]
+    rememberPendingUnorganizedReceipt(payload.receiptId)
+
+    const replacedId = resolveReplacedUnorganizedReceiptIdToDiscard({
+      previousReceiptId,
+      nextReceiptId: payload.receiptId,
+      protectedReceiptIds,
+    })
+    if (replacedId) {
+      try {
+        await discardUnorganizedAccountingReceipt(replacedId)
+      } catch {
+        // 保護対象は壊さない
+      }
+      pendingUnorganizedReceiptIdsRef.current = pendingUnorganizedReceiptIdsRef.current.filter(
+        (id) => id !== replacedId,
+      )
+    }
+
+    setExpenseForm((current) =>
+      current
+        ? {
+            ...current,
+            ...payload.expensePatch,
+            receiptId: payload.receiptId,
+            receiptImageUrl: '',
+            receiptPreviewImageUrl: '',
+            receiptFileUrl: '',
+            receiptFileStoragePath: payload.legalMasterStoragePath,
+            receiptPreviewStoragePath: payload.thumbnailStoragePath,
+            receiptStoragePath: payload.thumbnailStoragePath,
+            imageHash: payload.imageHash,
+          }
+        : current,
+    )
+    clearReceiptPreviewObjectUrl()
+    setReceiptPreviewObjectUrl(payload.previewObjectUrl)
+    setReceiptLocalSelectionActive(true)
+    setRecentReceiptBlobs((current) => ({
+      ...current,
+      [payload.receiptId]: payload.ocrBlob,
+    }))
+    setLegalPendingBanner(true)
+    setStatusMessage(
+      `${LEGAL_PENDING_TIMESTAMP_USER_LABELS.title}（${LEGAL_PENDING_TIMESTAMP_USER_LABELS.subtitle}）。${LEGAL_PENDING_TIMESTAMP_USER_LABELS.notice}`,
+    )
+    setReceiptScannerOpen(false)
+    setReceiptScannerFile(null)
+    await reloadUnorganizedReceipts()
+  }
+
   /**
    * ファイル選択（input）とドラッグ＆ドロップの共通エントリ。
-   * 保存形式・OCR・Storage アップロードは既存 handleReceiptUpload に委譲する。
+   * 画像はスキャナ経路、PDF は既存 upload 経路。
    */
   const handleSelectedReceiptFiles = async (
     files: ArrayLike<File> | null | undefined,
@@ -2233,8 +2360,26 @@ export function AccountingPage() {
       return
     }
 
-    receiptUploadInFlightRef.current = true
     setReceiptSelectionError(false)
+    const validation = validateAccountingReceiptUploadFile(selection.file)
+    if (!validation.ok) {
+      setReceiptSelectionError(true)
+      setErrorMessage(validation.message)
+      if (input) {
+        input.value = ''
+      }
+      return
+    }
+
+    if (validation.documentType === 'image') {
+      if (input) {
+        input.value = ''
+      }
+      openReceiptScanner(selection.file)
+      return
+    }
+
+    receiptUploadInFlightRef.current = true
     try {
       await handleReceiptUpload(selection.file, input)
     } finally {
@@ -3721,6 +3866,35 @@ export function AccountingPage() {
             {invoiceLookupHistoryWarning}
           </p>
         ) : null}
+        {legalPendingBanner ? (
+          <div className="receipt-scanner-legal-banner" role="status">
+            <strong>{LEGAL_PENDING_TIMESTAMP_USER_LABELS.title}</strong>
+            <div>{LEGAL_PENDING_TIMESTAMP_USER_LABELS.subtitle}</div>
+            <div>{LEGAL_PENDING_TIMESTAMP_USER_LABELS.notice}</div>
+          </div>
+        ) : null}
+
+        <ReceiptScannerFlow
+          open={receiptScannerOpen}
+          franchiseeId={tenantScope.franchiseeId}
+          storeId={tenantScope.storeId}
+          staffId={staffId}
+          staffName={staffName}
+          initialFile={receiptScannerFile}
+          onClose={() => {
+            setReceiptScannerOpen(false)
+            setReceiptScannerFile(null)
+          }}
+          onCompleted={(payload) => {
+            void handleReceiptScannerCompleted(payload)
+          }}
+          onFallbackLegacy={(file) => {
+            setReceiptScannerOpen(false)
+            setReceiptScannerFile(null)
+            setLegalPendingBanner(false)
+            void handleReceiptUpload(file)
+          }}
+        />
 
         {activeTab === 'pl-monthly' ? (
           <section className="accounting-panel" aria-label="月次PL">
@@ -4254,11 +4428,11 @@ export function AccountingPage() {
                 )}
               </div>
               <p className="accounting-note">
-                <strong>スマホ運用：</strong>撮影 → OCR読取 → 「領収書だけ保存」で一時保存（PL未反映）。
-                PCで後から編集・確定してください。
+                <strong>スマホ運用：</strong>撮影 → 範囲確認（四隅）→ 画質確認 → OCR → 正式保存準備。
+                確定前の画像は端末内のみ保持し、確定時に法定マスターを保存します。
                 <br />
                 <strong>PC運用：</strong>未整理領収書 → 編集する → OCR候補を確認・修正 → 確定する。
-                confirmed のみ PL・CSV・集計へ反映されます。
+                confirmed のみ PL・CSV・集計へ反映されます。PDFは従来どおり選択できます。
               </p>
               <div
                 className="accounting-receipt-actions"
@@ -4267,23 +4441,36 @@ export function AccountingPage() {
                 onKeyDown={(event) => event.stopPropagation()}
               >
                 <label className="accounting-receipt-upload-button primary-action">
-                  カメラで撮影
+                  領収書を撮影
                   <input
                     accept="image/*"
                     capture="environment"
                     className="accounting-hidden-input"
-                    disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
+                    disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt || receiptScannerOpen}
                     type="file"
                     onChange={(event) =>
-                      void handleSelectedReceiptFiles(event.target.files, event.currentTarget)
+                      handleCameraCaptureFiles(event.target.files, event.currentTarget)
                     }
                   />
                 </label>
                 <label className="accounting-receipt-upload-button secondary-action">
-                  画像・PDFを選択
+                  画像から選択
+                  <input
+                    ref={receiptImageFileInputRef}
+                    accept="image/jpeg,image/png,image/webp,image/*"
+                    className="accounting-hidden-input"
+                    disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt || receiptScannerOpen}
+                    type="file"
+                    onChange={(event) =>
+                      handleCameraCaptureFiles(event.target.files, event.currentTarget)
+                    }
+                  />
+                </label>
+                <label className="accounting-receipt-upload-button secondary-action">
+                  PDFを選択
                   <input
                     ref={receiptFileInputRef}
-                    accept={ACCOUNTING_RECEIPT_FILE_ACCEPT}
+                    accept="application/pdf"
                     className="accounting-hidden-input"
                     disabled={isUploadingReceipt || isRunningOcr || isRotatingReceipt}
                     type="file"

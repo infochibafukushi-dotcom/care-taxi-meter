@@ -31,6 +31,12 @@ import type {
   StoredAccountingReceipt,
 } from '../types/accounting'
 import {
+  normalizeAccountingReceiptCaptureMode,
+  normalizeAccountingReceiptLegalStatus,
+  normalizeAccountingReceiptTimestampStatus,
+  type ReceiptPaperSizeType,
+} from '../types/accountingReceiptLegal'
+import {
   buildAccountingReceiptStorageFileName,
   isAccountingReceiptPdfMime,
 } from '../utils/accountingReceiptFile'
@@ -261,7 +267,56 @@ export const toStoredReceipt = (snapshot: {
     deletedAt: typeof data.deletedAt === 'string' ? data.deletedAt : undefined,
     deletedBy: typeof data.deletedBy === 'string' ? data.deletedBy : undefined,
     deleteReason: typeof data.deleteReason === 'string' ? data.deleteReason : undefined,
+    captureMode: normalizeAccountingReceiptCaptureMode(data.captureMode),
+    legalStatus: normalizeAccountingReceiptLegalStatus(data.legalStatus),
+    transactionDate: typeof data.transactionDate === 'string' ? data.transactionDate : undefined,
+    receivedDate: typeof data.receivedDate === 'string' ? data.receivedDate : undefined,
+    capturedAt: typeof data.capturedAt === 'string' ? data.capturedAt : undefined,
+    legalSavedAt: typeof data.legalSavedAt === 'string' ? data.legalSavedAt : undefined,
+    legalMasterStoragePath:
+      typeof data.legalMasterStoragePath === 'string' ? data.legalMasterStoragePath : undefined,
+    thumbnailStoragePath:
+      typeof data.thumbnailStoragePath === 'string' ? data.thumbnailStoragePath : undefined,
+    legalMasterMimeType:
+      typeof data.legalMasterMimeType === 'string' ? data.legalMasterMimeType : undefined,
+    legalWidthPx: typeof data.legalWidthPx === 'number' ? data.legalWidthPx : undefined,
+    legalHeightPx: typeof data.legalHeightPx === 'number' ? data.legalHeightPx : undefined,
+    paperSizeType:
+      typeof data.paperSizeType === 'string'
+        ? (data.paperSizeType as ReceiptPaperSizeType)
+        : undefined,
+    paperWidthMm: typeof data.paperWidthMm === 'number' ? data.paperWidthMm : undefined,
+    paperHeightMm: typeof data.paperHeightMm === 'number' ? data.paperHeightMm : undefined,
+    estimatedDpi: typeof data.estimatedDpi === 'number' ? data.estimatedDpi : undefined,
+    fileHash: typeof data.fileHash === 'string' ? data.fileHash : undefined,
+    version: typeof data.version === 'number' ? data.version : undefined,
+    previousVersionId:
+      typeof data.previousVersionId === 'string' ? data.previousVersionId : undefined,
+    timestampStatus: data.timestampStatus
+      ? normalizeAccountingReceiptTimestampStatus(data.timestampStatus)
+      : undefined,
+    timestampProvider:
+      typeof data.timestampProvider === 'string' ? data.timestampProvider : undefined,
+    timestampTokenId: typeof data.timestampTokenId === 'string' ? data.timestampTokenId : undefined,
+    timestampedAt: typeof data.timestampedAt === 'string' ? data.timestampedAt : undefined,
   }
+}
+
+/** 一覧・初期プレビュー用。scanner は thumbnail 優先。 */
+export const resolveAccountingReceiptDisplayVariant = (
+  receipt: Pick<
+    StoredAccountingReceipt,
+    'captureMode' | 'thumbnailStoragePath' | 'legalMasterStoragePath' | 'documentType'
+  >,
+  purpose: 'list' | 'detail' = 'list',
+): AccountingReceiptAccessVariant => {
+  if (receipt.captureMode === 'scanner_v1') {
+    if (purpose === 'detail') {
+      return receipt.legalMasterStoragePath ? 'master' : 'preview'
+    }
+    return receipt.thumbnailStoragePath ? 'thumbnail' : 'preview'
+  }
+  return purpose === 'detail' ? 'original' : 'preview'
 }
 
 export const getAccountingReceiptPreviewImageUrl = (receipt: StoredAccountingReceipt) => {
@@ -443,6 +498,7 @@ export async function uploadAccountingReceiptFile({
       pdfPageCount: documentType === 'pdf' ? pdfPageCount : undefined,
       status: 'unorganized' satisfies ReceiptStatus,
       receiptStatus: 'draft' satisfies AccountingReceiptWorkflowStatus,
+      captureMode: 'legacy',
       sourceDevice,
       memo: memo ?? '',
       ...candidateFields,

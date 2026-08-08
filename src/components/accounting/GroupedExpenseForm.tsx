@@ -14,6 +14,11 @@ import { EXPENSE_GROUP_TYPE_LABELS } from '../../types/accountingExpenseGroup'
 import { ExpenseGroupTypeSelect } from './ExpenseEntryModeSwitch'
 import { ExpenseReportEditor } from './ExpenseReportEditor'
 import {
+  ReceiptScannerFlow,
+  type ReceiptScannerCompletedPayload,
+} from './ReceiptScannerFlow'
+import { LEGAL_PENDING_TIMESTAMP_USER_LABELS } from '../../types/accountingReceiptLegal'
+import {
   buildEmptyExpenseInput,
 } from '../../services/accountingExpenses'
 import {
@@ -27,8 +32,8 @@ import {
 } from '../../services/accountingReceipts'
 import { runAccountingReceiptOcr } from '../../services/accountingReceiptOcr'
 import { checkInvoiceRegistry } from '../../services/invoiceRegistryCheck'
-import { normalizeAccountingReceiptImage } from '../../utils/accountingReceiptImage'
 import { createAccountingPdfPreview } from '../../utils/accountingReceiptPdf'
+import { normalizeAccountingReceiptImage } from '../../utils/accountingReceiptImage'
 import {
   ACCOUNTING_RECEIPT_FILE_ACCEPT,
   validateAccountingReceiptUploadFile,
@@ -143,6 +148,9 @@ export function GroupedExpenseForm({
   const [savedGroupId, setSavedGroupId] = useState(existingGroup?.id ?? '')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const savingRef = useRef(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scannerFile, setScannerFile] = useState<File | null>(null)
+  const scannerQueueRef = useRef<File[]>([])
 
   const totalAmount = useMemo(
     () => sumExpenseGroupLineAmounts(lines.map((line) => line.taxIncludedAmount)),
@@ -166,6 +174,184 @@ export function GroupedExpenseForm({
     )
   }
 
+  const processPdfFile = async (file: File) => {
+    const localId = createLocalId()
+    const base = buildEmptyExpenseInput({
+      franchiseeId,
+      storeId,
+      staffId,
+      staffName,
+    })
+    const draft: GroupedExpenseLineDraft = {
+      ...base,
+      localId,
+      confirmationStatus: '確認済み',
+      ocrStatus: 'idle',
+      invoiceLookupLabel: '登録番号なし',
+      isEditing: true,
+      description: '',
+    }
+    setLines((current) => [...current, draft])
+
+    try {
+      const preview = await createAccountingPdfPreview(file)
+      const ocrImageFile = preview.previewFile
+      const uploaded = await uploadAccountingReceiptFile({
+        originalFile: file,
+        ocrImageFile,
+        documentType: 'pdf',
+        pdfPageCount: preview.pageCount,
+        franchiseeId,
+        storeId,
+        uploadedBy: staffId,
+        uploadedByName: staffName,
+      })
+
+      const previewUrl = URL.createObjectURL(ocrImageFile)
+      updateLine(localId, {
+        receiptId: uploaded.receiptId,
+        receiptFileStoragePath: uploaded.originalStoragePath,
+        receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
+        receiptStoragePath: uploaded.ocrImageStoragePath,
+        receiptFileName: file.name,
+        receiptFileMimeType: file.type,
+        imageHash: uploaded.imageHash,
+        previewUrl,
+        ocrStatus: 'running',
+        ocrMessage: 'OCR読取中…',
+      })
+
+      try {
+        const downloadUrl = await resolveAccountingReceiptDownloadUrl({
+          downloadUrl: '',
+          storagePath: uploaded.ocrImageStoragePath,
+          receiptId: uploaded.receiptId,
+          variant: 'preview',
+        })
+
+        const ocrResult = await runAccountingReceiptOcr({
+          ocrImageDownloadUrl: downloadUrl,
+          ocrImageStoragePath: uploaded.ocrImageStoragePath,
+          downloadUrl,
+          storagePath: uploaded.ocrImageStoragePath,
+          mimeType: ocrImageFile.type || 'image/jpeg',
+          receiptId: uploaded.receiptId,
+          imageBlob: ocrImageFile,
+          isPreparedOcrImage: true,
+        })
+
+        if (ocrResult.status === 'error' || ocrResult.status === 'not_configured') {
+          updateLine(localId, {
+            ocrStatus: ocrResult.status === 'not_configured' ? 'skipped' : 'error',
+            ocrMessage:
+              ocrResult.message ||
+              (ocrResult.status === 'not_configured'
+                ? 'OCR未設定のため手入力してください。'
+                : 'OCRに失敗しました。手入力で登録できます。'),
+          })
+        } else {
+          const withOcr = applyAccountingReceiptOcrToExpense(
+            {
+              ...base,
+              receiptId: uploaded.receiptId,
+              receiptFileStoragePath: uploaded.originalStoragePath,
+              receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
+              receiptStoragePath: uploaded.ocrImageStoragePath,
+              receiptFileName: file.name,
+              receiptFileMimeType: file.type,
+              imageHash: uploaded.imageHash,
+              confirmationStatus: '確認済み',
+            },
+            ocrResult,
+          )
+          updateLine(localId, {
+            ...withOcr,
+            localId,
+            existingExpenseId: undefined,
+            ocrStatus: 'success',
+            ocrMessage: ocrResult.message || 'OCR完了（要確認）',
+            invoiceLookupLabel: mapInvoiceLabel({
+              invoiceNumber: withOcr.invoiceNumber,
+              invoiceCheckStatus: withOcr.invoiceCheckStatus,
+              invoiceStatus: withOcr.invoiceStatus,
+              lookupFailed: ocrResult.invoiceLookupStatus === 'error',
+            }),
+            previewUrl,
+            isEditing: true,
+          })
+          try {
+            await applyOcrCandidatesToAccountingReceipt({
+              receiptId: uploaded.receiptId,
+              ocr: ocrResult,
+              editedBy: staffId,
+            })
+          } catch {
+            // ignore
+          }
+        }
+      } catch (error) {
+        updateLine(localId, {
+          ocrStatus: 'error',
+          ocrMessage: error instanceof Error ? error.message : 'OCRに失敗しました。',
+        })
+      }
+    } catch (error) {
+      updateLine(localId, {
+        ocrStatus: 'error',
+        ocrMessage: error instanceof Error ? error.message : 'アップロードに失敗しました。',
+      })
+    }
+  }
+
+  const startNextScannerFile = (queue: File[]) => {
+    if (queue.length === 0) {
+      scannerQueueRef.current = []
+      setScannerOpen(false)
+      setScannerFile(null)
+      setIsUploading(false)
+      return
+    }
+    const [next, ...rest] = queue
+    scannerQueueRef.current = rest
+    setScannerFile(next)
+    setScannerOpen(true)
+  }
+
+  const handleScannerCompleted = (payload: ReceiptScannerCompletedPayload) => {
+    const localId = createLocalId()
+    const base = buildEmptyExpenseInput({
+      franchiseeId,
+      storeId,
+      staffId,
+      staffName,
+    })
+    const withPatch = {
+      ...base,
+      ...payload.expensePatch,
+      localId,
+      confirmationStatus: '確認済み' as const,
+      ocrStatus: 'success' as const,
+      ocrMessage: `${LEGAL_PENDING_TIMESTAMP_USER_LABELS.title} / ${LEGAL_PENDING_TIMESTAMP_USER_LABELS.subtitle}`,
+      invoiceLookupLabel: mapInvoiceLabel({
+        invoiceNumber: payload.expensePatch.invoiceNumber,
+        invoiceCheckStatus: payload.expensePatch.invoiceCheckStatus,
+        invoiceStatus: payload.expensePatch.invoiceStatus,
+      }),
+      previewUrl: payload.previewObjectUrl,
+      isEditing: true,
+      receiptId: payload.receiptId,
+      imageHash: payload.imageHash,
+      receiptFileStoragePath: payload.legalMasterStoragePath,
+      receiptPreviewStoragePath: payload.thumbnailStoragePath,
+      receiptStoragePath: payload.thumbnailStoragePath,
+    }
+    setLines((current) => [...current, withPatch])
+    setStatusMessage(
+      `${LEGAL_PENDING_TIMESTAMP_USER_LABELS.title}（${LEGAL_PENDING_TIMESTAMP_USER_LABELS.subtitle}）。${LEGAL_PENDING_TIMESTAMP_USER_LABELS.notice}`,
+    )
+    startNextScannerFile(scannerQueueRef.current)
+  }
+
   const handleUploadFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0 || disabled) {
       return
@@ -174,6 +360,7 @@ export function GroupedExpenseForm({
     setIsUploading(true)
     setErrorMessage('')
     const uploadErrors: string[] = []
+    const imageFiles: File[] = []
 
     for (const file of Array.from(fileList)) {
       const validation = validateAccountingReceiptUploadFile(file)
@@ -181,144 +368,23 @@ export function GroupedExpenseForm({
         uploadErrors.push(`${file.name}: ${validation.message}`)
         continue
       }
-
-      const localId = createLocalId()
-      const base = buildEmptyExpenseInput({
-        franchiseeId,
-        storeId,
-        staffId,
-        staffName,
-      })
-      const draft: GroupedExpenseLineDraft = {
-        ...base,
-        localId,
-        confirmationStatus: '確認済み',
-        ocrStatus: 'idle',
-        invoiceLookupLabel: '登録番号なし',
-        isEditing: true,
-        description: '',
-      }
-      setLines((current) => [...current, draft])
-
-      try {
-        let originalFile = file
-        let ocrImageFile: File
-        let pdfPageCount: number | undefined
-        if (validation.documentType === 'pdf') {
-          const preview = await createAccountingPdfPreview(file)
-          ocrImageFile = preview.previewFile
-          pdfPageCount = preview.pageCount
-        } else {
-          ocrImageFile = await normalizeAccountingReceiptImage(file)
-          originalFile = ocrImageFile
-        }
-
-        const uploaded = await uploadAccountingReceiptFile({
-          originalFile,
-          ocrImageFile,
-          documentType: validation.documentType,
-          pdfPageCount,
-          franchiseeId,
-          storeId,
-          uploadedBy: staffId,
-          uploadedByName: staffName,
-        })
-
-        const previewUrl = URL.createObjectURL(ocrImageFile)
-        updateLine(localId, {
-          receiptId: uploaded.receiptId,
-          receiptFileStoragePath: uploaded.originalStoragePath,
-          receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
-          receiptStoragePath: uploaded.ocrImageStoragePath,
-          receiptFileName: file.name,
-          receiptFileMimeType: file.type,
-          imageHash: uploaded.imageHash,
-          previewUrl,
-          ocrStatus: 'running',
-          ocrMessage: 'OCR読取中…',
-        })
-
-        try {
-          const downloadUrl = await resolveAccountingReceiptDownloadUrl({
-            downloadUrl: '',
-            storagePath: uploaded.ocrImageStoragePath,
-            receiptId: uploaded.receiptId,
-            variant: 'preview',
-          })
-
-          const ocrResult = await runAccountingReceiptOcr({
-            ocrImageDownloadUrl: downloadUrl,
-            ocrImageStoragePath: uploaded.ocrImageStoragePath,
-            downloadUrl,
-            storagePath: uploaded.ocrImageStoragePath,
-            mimeType: ocrImageFile.type || 'image/jpeg',
-            receiptId: uploaded.receiptId,
-            imageBlob: ocrImageFile,
-            isPreparedOcrImage: true,
-          })
-
-          if (ocrResult.status === 'error' || ocrResult.status === 'not_configured') {
-            updateLine(localId, {
-              ocrStatus: ocrResult.status === 'not_configured' ? 'skipped' : 'error',
-              ocrMessage:
-                ocrResult.message ||
-                (ocrResult.status === 'not_configured'
-                  ? 'OCR未設定のため手入力してください。'
-                  : 'OCRに失敗しました。手入力で登録できます。'),
-            })
-          } else {
-            const withOcr = applyAccountingReceiptOcrToExpense(
-              {
-                ...base,
-                receiptId: uploaded.receiptId,
-                receiptFileStoragePath: uploaded.originalStoragePath,
-                receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
-                receiptStoragePath: uploaded.ocrImageStoragePath,
-                receiptFileName: file.name,
-                receiptFileMimeType: file.type,
-                imageHash: uploaded.imageHash,
-                confirmationStatus: '確認済み',
-              },
-              ocrResult,
-            )
-            await applyOcrCandidatesToAccountingReceipt({
-              receiptId: uploaded.receiptId,
-              ocr: ocrResult,
-            })
-            updateLine(localId, {
-              ...withOcr,
-              localId,
-              previewUrl,
-              ocrStatus: 'success',
-              ocrMessage: 'OCR候補を反映しました。内容を確認・修正してください。',
-              invoiceLookupLabel: mapInvoiceLabel({
-                invoiceNumber: withOcr.invoiceNumber,
-                invoiceCheckStatus: withOcr.invoiceCheckStatus,
-                invoiceStatus: withOcr.invoiceStatus,
-              }),
-              isEditing: true,
-            })
-          }
-        } catch (ocrError) {
-          updateLine(localId, {
-            ocrStatus: 'error',
-            ocrMessage:
-              ocrError instanceof Error
-                ? ocrError.message
-                : 'OCRに失敗しました。手入力で登録できます。',
-          })
-        }
-      } catch (error) {
-        uploadErrors.push(
-          `${file.name}: ${error instanceof Error ? error.message : 'アップロードに失敗しました。'}`,
-        )
-        setLines((current) => current.filter((line) => line.localId !== localId))
+      if (validation.documentType === 'pdf') {
+        await processPdfFile(file)
+      } else {
+        imageFiles.push(file)
       }
     }
 
     if (uploadErrors.length > 0) {
       setErrorMessage(uploadErrors.join('\n'))
     }
+
+    if (imageFiles.length > 0) {
+      // Android メモリ対策: 画像は1枚ずつスキャナ処理
+      startNextScannerFile(imageFiles)
+      return
+    }
+
     setIsUploading(false)
   }
 
@@ -436,6 +502,71 @@ export function GroupedExpenseForm({
 
   return (
     <section className="accounting-grouped-expense-form" aria-label="まとめ経費">
+      <ReceiptScannerFlow
+        open={scannerOpen}
+        franchiseeId={franchiseeId}
+        storeId={storeId}
+        staffId={staffId}
+        staffName={staffName}
+        initialFile={scannerFile}
+        onClose={() => {
+          // キュー残りは破棄（ユーザーが閉じた）
+          scannerQueueRef.current = []
+          setScannerOpen(false)
+          setScannerFile(null)
+          setIsUploading(false)
+        }}
+        onCompleted={handleScannerCompleted}
+        onFallbackLegacy={(file) => {
+          // 解像度不足時は従来圧縮アップロードへ（captureMode 未設定 = legacy）
+          void (async () => {
+            const localId = createLocalId()
+            const base = buildEmptyExpenseInput({ franchiseeId, storeId, staffId, staffName })
+            setLines((current) => [
+              ...current,
+              {
+                ...base,
+                localId,
+                confirmationStatus: '確認済み',
+                ocrStatus: 'idle',
+                invoiceLookupLabel: '登録番号なし',
+                isEditing: true,
+                description: '',
+              },
+            ])
+            try {
+              const ocrImageFile = await normalizeAccountingReceiptImage(file)
+              const uploaded = await uploadAccountingReceiptFile({
+                originalFile: ocrImageFile,
+                ocrImageFile,
+                documentType: 'image',
+                franchiseeId,
+                storeId,
+                uploadedBy: staffId,
+                uploadedByName: staffName,
+              })
+              const previewUrl = URL.createObjectURL(ocrImageFile)
+              updateLine(localId, {
+                receiptId: uploaded.receiptId,
+                receiptFileStoragePath: uploaded.originalStoragePath,
+                receiptPreviewStoragePath: uploaded.ocrImageStoragePath,
+                receiptStoragePath: uploaded.ocrImageStoragePath,
+                imageHash: uploaded.imageHash,
+                previewUrl,
+                ocrStatus: 'success',
+                ocrMessage: '紙原本保存前提（通常登録）',
+              })
+            } catch (error) {
+              updateLine(localId, {
+                ocrStatus: 'error',
+                ocrMessage: error instanceof Error ? error.message : '登録に失敗しました。',
+              })
+            } finally {
+              startNextScannerFile(scannerQueueRef.current)
+            }
+          })()
+        }}
+      />
       <header className="accounting-grouped-expense-header">
         <h2>まとめ経費</h2>
         <p className="accounting-note">複数の領収書を1件の目的別経費として登録</p>

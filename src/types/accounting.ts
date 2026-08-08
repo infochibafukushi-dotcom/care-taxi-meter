@@ -1,4 +1,5 @@
 import type { InvoiceRegistrantInfo } from './invoiceRegistrant'
+import type { AccountingReceiptLegalFields } from './accountingReceiptLegal'
 import type {
   AccountingReceiptConfirmedFields,
   AccountingReceiptEditHistoryEntry,
@@ -317,7 +318,8 @@ export type AccountingReceiptDocumentType = 'image' | 'pdf'
 
 export type AccountingReceiptInput = AccountingTenantFields &
   AccountingReceiptCandidateFields &
-  AccountingOcrData & {
+  AccountingOcrData &
+  AccountingReceiptLegalFields & {
     storagePath: string
     downloadUrl: string
     /** alias for downloadUrl — used by mobile→PC workflows */

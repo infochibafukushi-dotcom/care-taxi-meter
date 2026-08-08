@@ -86,10 +86,24 @@ export async function fetchAccountingReceiptAccessUrl({
       throw new Error('証憑URLの取得に失敗しました。')
     }
 
+    const allowedVariants: AccountingReceiptAccessVariant[] = [
+      'preview',
+      'original',
+      'master',
+      'thumbnail',
+      'legacy',
+      'ocr',
+    ]
+    const resolvedVariant =
+      typeof data?.variant === 'string' &&
+      allowedVariants.includes(data.variant as AccountingReceiptAccessVariant)
+        ? (data.variant as AccountingReceiptAccessVariant)
+        : variant
+
     const result: AccountingReceiptAccessUrlResult = {
       url,
       expiresAt,
-      variant: data?.variant === 'original' ? 'original' : 'preview',
+      variant: resolvedVariant,
       receiptId: typeof data?.receiptId === 'string' && data.receiptId.trim() ? data.receiptId : id,
     }
 

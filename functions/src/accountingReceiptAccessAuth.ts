@@ -8,7 +8,13 @@ export type AccountingReceiptAccessRole =
   | 'driver'
   | string
 
-export type AccountingReceiptAccessVariant = 'preview' | 'original'
+export type AccountingReceiptAccessVariant =
+  | 'preview'
+  | 'original'
+  | 'master'
+  | 'thumbnail'
+  | 'legacy'
+  | 'ocr'
 
 export type AccountingReceiptAccessAuth = {
   uid: string
@@ -25,6 +31,8 @@ export type AccountingReceiptAccessRecord = {
   storagePath?: string
   originalStoragePath?: string
   ocrImageStoragePath?: string
+  legalMasterStoragePath?: string
+  thumbnailStoragePath?: string
   downloadUrl?: string
   imageUrl?: string
   originalDownloadUrl?: string
@@ -32,6 +40,7 @@ export type AccountingReceiptAccessRecord = {
   documentType?: string
   mimeType?: string
   originalMimeType?: string
+  captureMode?: string
 }
 
 export const ACCOUNTING_RECEIPT_ACCESS_URL_TTL_MS = 7 * 60 * 1000
@@ -126,7 +135,26 @@ export function resolveAccountingReceiptStoragePathForVariant(
   receipt: AccountingReceiptAccessRecord,
   variant: AccountingReceiptAccessVariant,
 ): string {
-  if (variant === 'original') {
+  if (variant === 'master') {
+    return (
+      toStringValue(receipt.legalMasterStoragePath) ||
+      toStringValue(receipt.originalStoragePath) ||
+      toStringValue(receipt.storagePath) ||
+      ''
+    )
+  }
+
+  if (variant === 'thumbnail') {
+    return (
+      toStringValue(receipt.thumbnailStoragePath) ||
+      toStringValue(receipt.ocrImageStoragePath) ||
+      toStringValue(receipt.legalMasterStoragePath) ||
+      toStringValue(receipt.storagePath) ||
+      ''
+    )
+  }
+
+  if (variant === 'legacy' || variant === 'original') {
     return (
       toStringValue(receipt.originalStoragePath) ||
       toStringValue(receipt.storagePath) ||
@@ -134,9 +162,29 @@ export function resolveAccountingReceiptStoragePathForVariant(
     )
   }
 
+  if (variant === 'ocr') {
+    return (
+      toStringValue(receipt.ocrImageStoragePath) ||
+      toStringValue(receipt.thumbnailStoragePath) ||
+      toStringValue(receipt.legalMasterStoragePath) ||
+      toStringValue(receipt.storagePath) ||
+      ''
+    )
+  }
+
+  const thumb = toStringValue(receipt.thumbnailStoragePath)
+  if (thumb) {
+    return thumb
+  }
+
   const ocrPath = toStringValue(receipt.ocrImageStoragePath)
   if (ocrPath) {
     return ocrPath
+  }
+
+  const legalMaster = toStringValue(receipt.legalMasterStoragePath)
+  if (legalMaster) {
+    return legalMaster
   }
 
   if (isPdfReceipt(receipt)) {

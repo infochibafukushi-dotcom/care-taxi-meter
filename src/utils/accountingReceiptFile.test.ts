@@ -78,6 +78,14 @@ describe('accountingReceiptFile validation', () => {
     expect(detectAccountingReceiptDocumentType({ name: 'x.heic', type: '' })).toBeNull()
   })
 
+  it('treats Android camera-like empty MIME / image name as image for scanner path', () => {
+    expect(detectAccountingReceiptDocumentType({ name: 'image', type: '' })).toBe('image')
+    expect(detectAccountingReceiptDocumentType({ name: 'image.jpg', type: '' })).toBe('image')
+    expect(detectAccountingReceiptDocumentType({ name: 'photo.bin', type: 'image/jpeg' })).toBe(
+      'image',
+    )
+  })
+
   it('sanitizes file names safely', () => {
     expect(sanitizeAccountingReceiptFileName('../../evil\\name.pdf')).toBe('.._.._evil_name.pdf')
     expect(sanitizeAccountingReceiptFileName('   ')).toBe('receipt')
