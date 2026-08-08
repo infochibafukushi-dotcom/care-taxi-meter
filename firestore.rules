@@ -472,6 +472,17 @@ service cloud.firestore {
         && canReadAccounting(resource.data)
         && canWriteAccountingData(request.resource.data);
       allow delete: if isAccountingUser() && canReadAccounting(resource.data);
+
+      // スキャナ保存の版履歴（master / timestamp メタ）。画像本体は Storage。
+      match /versions/{versionId} {
+        allow read: if canReadAccounting(get(/databases/$(database)/documents/accountingReceipts/$(receiptId)).data);
+        allow create, update: if isAccountingUser()
+          && canWriteAccountingData(request.resource.data)
+          && canReadAccounting(get(/databases/$(database)/documents/accountingReceipts/$(receiptId)).data);
+        // タイムスタンプ発行前の hard delete でのみクライアント削除を許可
+        allow delete: if isAccountingUser()
+          && canReadAccounting(get(/databases/$(database)/documents/accountingReceipts/$(receiptId)).data);
+      }
     }
 
     match /accountingExports/{exportId} {

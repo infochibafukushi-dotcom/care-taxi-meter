@@ -270,13 +270,23 @@ export const toStoredReceipt = (snapshot: {
     captureMode: normalizeAccountingReceiptCaptureMode(data.captureMode),
     legalStatus: normalizeAccountingReceiptLegalStatus(data.legalStatus),
     transactionDate: typeof data.transactionDate === 'string' ? data.transactionDate : undefined,
-    receivedDate: typeof data.receivedDate === 'string' ? data.receivedDate : undefined,
+    receivedDate:
+      typeof data.receivedDate === 'string'
+        ? data.receivedDate
+        : data.receivedDate === null
+          ? null
+          : undefined,
+    foundDate: typeof data.foundDate === 'string' ? data.foundDate : undefined,
     capturedAt: typeof data.capturedAt === 'string' ? data.capturedAt : undefined,
     legalSavedAt: typeof data.legalSavedAt === 'string' ? data.legalSavedAt : undefined,
     legalMasterStoragePath:
       typeof data.legalMasterStoragePath === 'string' ? data.legalMasterStoragePath : undefined,
     thumbnailStoragePath:
       typeof data.thumbnailStoragePath === 'string' ? data.thumbnailStoragePath : undefined,
+    timestampTokenStoragePath:
+      typeof data.timestampTokenStoragePath === 'string'
+        ? data.timestampTokenStoragePath
+        : undefined,
     legalMasterMimeType:
       typeof data.legalMasterMimeType === 'string' ? data.legalMasterMimeType : undefined,
     legalWidthPx: typeof data.legalWidthPx === 'number' ? data.legalWidthPx : undefined,
@@ -290,8 +300,12 @@ export const toStoredReceipt = (snapshot: {
     estimatedDpi: typeof data.estimatedDpi === 'number' ? data.estimatedDpi : undefined,
     fileHash: typeof data.fileHash === 'string' ? data.fileHash : undefined,
     version: typeof data.version === 'number' ? data.version : undefined,
+    activeVersion: typeof data.activeVersion === 'number' ? data.activeVersion : undefined,
     previousVersionId:
       typeof data.previousVersionId === 'string' ? data.previousVersionId : undefined,
+    changeReason: typeof data.changeReason === 'string' ? data.changeReason : undefined,
+    changedAt: typeof data.changedAt === 'string' ? data.changedAt : undefined,
+    changedBy: typeof data.changedBy === 'string' ? data.changedBy : undefined,
     timestampStatus: data.timestampStatus
       ? normalizeAccountingReceiptTimestampStatus(data.timestampStatus)
       : undefined,
@@ -299,6 +313,21 @@ export const toStoredReceipt = (snapshot: {
       typeof data.timestampProvider === 'string' ? data.timestampProvider : undefined,
     timestampTokenId: typeof data.timestampTokenId === 'string' ? data.timestampTokenId : undefined,
     timestampedAt: typeof data.timestampedAt === 'string' ? data.timestampedAt : undefined,
+    timestampVerifiedAt:
+      typeof data.timestampVerifiedAt === 'string' ? data.timestampVerifiedAt : undefined,
+    timestampAlgorithm:
+      typeof data.timestampAlgorithm === 'string' ? data.timestampAlgorithm : undefined,
+    scannerInputMode:
+      data.scannerInputMode === 'rapid' || data.scannerInputMode === 'business_cycle'
+        ? data.scannerInputMode
+        : undefined,
+    requiresPaperOriginal:
+      typeof data.requiresPaperOriginal === 'boolean' ? data.requiresPaperOriginal : undefined,
+    paperOriginalReason:
+      typeof data.paperOriginalReason === 'string' ? data.paperOriginalReason : undefined,
+    retentionUntil: typeof data.retentionUntil === 'string' ? data.retentionUntil : undefined,
+    deadlineDueDate: typeof data.deadlineDueDate === 'string' ? data.deadlineDueDate : undefined,
+    isDeleted: typeof data.isDeleted === 'boolean' ? data.isDeleted : undefined,
   }
 }
 

@@ -4,6 +4,7 @@ import {
   doc,
   getFirestore,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes } from 'firebase/storage'
@@ -12,6 +13,13 @@ import type {
   AccountingReceiptLegalStatus,
   ReceiptPaperSizeSelection,
 } from '../types/accountingReceiptLegal'
+import { DEFAULT_SCANNER_INPUT_MODE } from '../utils/accountingScannerDeadline'
+import { evaluateScannerDeadline } from '../utils/accountingScannerDeadline'
+import {
+  buildLegalMasterStoragePath,
+  buildLegalThumbnailStoragePath,
+} from '../utils/accountingScannerPaths'
+import { normalizeScannerSearchVendorName } from '../utils/accountingScannerSearchQuery'
 import { detectSourceDevice } from '../types/accounting'
 import { computeFileSha256 } from '../utils/imageHash'
 import { removeUndefinedFields } from '../utils/removeUndefinedFields'
@@ -19,30 +27,14 @@ import { isReviewDemoRuntimeEnabled } from '../utils/reviewDemo'
 import { resolveAccountingTenantFields } from './accountingTenant'
 import { assertTransitionAccountingReceiptLegalStatus } from '../utils/receiptLegalStatus'
 import { LEGAL_MASTER_MAX_BYTES } from '../utils/receiptLegalMaster'
+import { recordScannerAuditEvent } from './accountingScannerAudit'
+
+export {
+  buildLegalMasterStoragePath,
+  buildLegalThumbnailStoragePath,
+} from '../utils/accountingScannerPaths'
 
 const collectionName = 'accountingReceipts'
-
-export const buildLegalMasterStoragePath = (params: {
-  franchiseeId: string
-  storeId: string
-  receiptId: string
-  version?: number
-}) => {
-  const version = params.version ?? 1
-  return `accounting/${params.franchiseeId}/${params.storeId}/receipts/${params.receiptId}/legal/v${version}/master.jpg`
-}
-
-export const buildLegalThumbnailStoragePath = (params: {
-  franchiseeId: string
-  storeId: string
-  receiptId: string
-  version?: number
-  thumbExt?: 'webp' | 'jpg'
-}) => {
-  const version = params.version ?? 1
-  const ext = params.thumbExt ?? 'webp'
-  return `accounting/${params.franchiseeId}/${params.storeId}/receipts/${params.receiptId}/legal/v${version}/thumb.${ext}`
-}
 
 const uploadStorageFile = async (storagePath: string, file: Blob, contentType: string) => {
   if (file.size >= LEGAL_MASTER_MAX_BYTES) {
@@ -65,10 +57,13 @@ export type SaveLegalPendingTimestampInput = {
   estimatedDpi: number
   capturedAt: string
   transactionDate?: string
-  receivedDate?: string
-  /** 事前に固定した receiptId（冪等）。未指定なら新規発行 */
+  receivedDate?: string | null
+  foundDate?: string
   receiptId?: string
   memo?: string
+  businessHolidays?: string[]
+  vendorNameCandidate?: string
+  amountTotalCandidate?: number | null
 }
 
 export type SaveLegalPendingTimestampResult = {
@@ -79,16 +74,29 @@ export type SaveLegalPendingTimestampResult = {
   legalStatus: AccountingReceiptLegalStatus
   version: number
   imageHash: string
+  requiresPaperOriginal: boolean
+  deadlineDueDate: string | null
 }
 
 /**
- * 正式保存準備: master → thumb → Firestore。
- * legalStatus = legal_pending_timestamp（タイムスタンプ未付与）。
- * OCR画像は保存しない。
+ * 正式保存準備: master → thumb → Firestore + versions/v1。
+ * タイムスタンプ未付与のため legal_pending_timestamp または late_saved。
  */
 export async function saveAccountingReceiptLegalPendingTimestamp(
   input: SaveLegalPendingTimestampInput,
 ): Promise<SaveLegalPendingTimestampResult> {
+  const deadline = evaluateScannerDeadline({
+    receivedDate: input.receivedDate,
+    foundDate: input.foundDate,
+    mode: DEFAULT_SCANNER_INPUT_MODE,
+    calendar: { holidays: input.businessHolidays },
+  })
+
+  // タイムスタンプ未付与の間は legal_pending_timestamp を維持。
+  // 期限超過は requiresPaperOriginal / paperOriginalReason で表現し、
+  // 発行・検証成功時に late_saved へ遷移する（ダミー発行での昇格は禁止）。
+  const legalStatus: AccountingReceiptLegalStatus = 'legal_pending_timestamp'
+
   if (isReviewDemoRuntimeEnabled()) {
     const fileHash = await computeFileSha256(input.legalMasterBlob)
     return {
@@ -96,9 +104,11 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
       fileHash,
       legalMasterStoragePath: '',
       thumbnailStoragePath: '',
-      legalStatus: 'legal_pending_timestamp',
+      legalStatus,
       version: 1,
       imageHash: fileHash,
+      requiresPaperOriginal: deadline.requiresPaperOriginal,
+      deadlineDueDate: deadline.dueDate,
     }
   }
 
@@ -110,7 +120,6 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
   const version = 1
   const sourceDevice = detectSourceDevice()
   const fileHash = await computeFileSha256(input.legalMasterBlob)
-  // 二重計上互換: imageHash にも同じハッシュを入れる（マスター確定バイト）
   const imageHash = fileHash
 
   const thumbIsWebp = input.thumbnailBlob.type === 'image/webp'
@@ -140,7 +149,9 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
         captureMode: 'scanner_v1',
         legalStatus: 'image_review',
         version,
+        activeVersion: version,
         timestampStatus: 'none',
+        scannerInputMode: DEFAULT_SCANNER_INPUT_MODE,
         sourceDevice,
         memo: input.memo ?? '',
         uploadedBy: input.uploadedBy,
@@ -149,7 +160,8 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
         updatedBy: input.uploadedBy,
         capturedAt: input.capturedAt,
         transactionDate: input.transactionDate || '',
-        receivedDate: input.receivedDate || input.transactionDate || '',
+        receivedDate: input.receivedDate ?? null,
+        foundDate: input.foundDate || '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         editHistory: [
@@ -182,7 +194,7 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
   await uploadStorageFile(legalMasterStoragePath, input.legalMasterBlob, 'image/jpeg')
   await uploadStorageFile(thumbnailStoragePath, input.thumbnailBlob, thumbContentType)
 
-  assertTransitionAccountingReceiptLegalStatus('image_review', 'legal_pending_timestamp')
+  assertTransitionAccountingReceiptLegalStatus('image_review', legalStatus)
 
   await updateDoc(doc(db, collectionName, receiptId), {
     storagePath: legalMasterStoragePath,
@@ -199,7 +211,7 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
     originalMimeType: 'image/jpeg',
     originalFileSizeBytes: input.legalMasterBlob.size,
     captureMode: 'scanner_v1',
-    legalStatus: 'legal_pending_timestamp',
+    legalStatus,
     legalMasterStoragePath,
     thumbnailStoragePath,
     legalMasterMimeType: 'image/jpeg',
@@ -212,18 +224,86 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
     fileHash,
     imageHash,
     version,
+    activeVersion: version,
     previousVersionId: '',
     timestampStatus: 'pending',
     timestampProvider: '',
     timestampTokenId: '',
     timestampedAt: '',
+    timestampVerifiedAt: '',
+    timestampAlgorithm: '',
+    timestampTokenStoragePath: '',
     capturedAt: input.capturedAt,
     transactionDate: input.transactionDate || '',
-    receivedDate: input.receivedDate || input.transactionDate || '',
-    // legalSavedAt はタイムスタンプ付与後（第3段階）まで設定しない
+    receivedDate: input.receivedDate ?? null,
+    foundDate: input.foundDate || '',
+    scannerInputMode: DEFAULT_SCANNER_INPUT_MODE,
+    requiresPaperOriginal: deadline.requiresPaperOriginal,
+    paperOriginalReason: deadline.reason || '',
+    deadlineDueDate: deadline.dueDate || '',
+    // 法定保存期間の目安（自動物理削除はしない）
+    retentionUntil: (() => {
+      const base = (input.transactionDate || input.receivedDate || input.capturedAt || '').slice(0, 10)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) {
+        return ''
+      }
+      const year = Number(base.slice(0, 4)) + 7
+      return `${year}${base.slice(4)}`
+    })(),
+    searchAmountYen:
+      typeof input.amountTotalCandidate === 'number' && Number.isFinite(input.amountTotalCandidate)
+        ? input.amountTotalCandidate
+        : null,
+    searchVendorName: normalizeScannerSearchVendorName(input.vendorNameCandidate ?? ''),
+    vendorNameCandidate: input.vendorNameCandidate ?? '',
+    amountTotalCandidate:
+      typeof input.amountTotalCandidate === 'number' && Number.isFinite(input.amountTotalCandidate)
+        ? input.amountTotalCandidate
+        : null,
     status: 'unorganized',
     updatedBy: input.uploadedBy,
     updatedAt: serverTimestamp(),
+  })
+
+  await setDoc(
+    doc(db, collectionName, receiptId, 'versions', `v${version}`),
+    removeUndefinedFields({
+      version,
+      previousVersion: null,
+      legalMasterStoragePath,
+      thumbnailStoragePath,
+      fileHash,
+      legalWidthPx: input.widthPx,
+      legalHeightPx: input.heightPx,
+      estimatedDpi: input.estimatedDpi,
+      timestampStatus: 'pending',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      createdBy: input.uploadedBy,
+      franchiseeId: input.franchiseeId,
+      storeId: input.storeId,
+      companyId: input.franchiseeId,
+    }),
+  )
+
+  await recordScannerAuditEvent({
+    eventType: 'image_confirmed',
+    receiptId,
+    version,
+    franchiseeId: input.franchiseeId,
+    storeId: input.storeId,
+    actor: {
+      userId: input.uploadedBy,
+      userName: input.uploadedByName,
+      role: '',
+      franchiseeId: input.franchiseeId,
+      storeId: input.storeId,
+    },
+    metadata: {
+      legalStatus,
+      fileHash,
+      requiresPaperOriginal: deadline.requiresPaperOriginal,
+    },
   })
 
   return {
@@ -231,8 +311,10 @@ export async function saveAccountingReceiptLegalPendingTimestamp(
     fileHash,
     legalMasterStoragePath,
     thumbnailStoragePath,
-    legalStatus: 'legal_pending_timestamp',
+    legalStatus,
     version,
     imageHash,
+    requiresPaperOriginal: deadline.requiresPaperOriginal,
+    deadlineDueDate: deadline.dueDate,
   }
 }

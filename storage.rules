@@ -36,6 +36,9 @@ service firebase.storage {
         && (
           request.resource.contentType.matches('image/.*')
           || request.resource.contentType == 'application/pdf'
+          // RFC3161 TimeStampResp (.tsr) — 法定タイムスタンプトークン
+          || request.resource.contentType == 'application/timestamp-reply'
+          || request.resource.contentType == 'application/octet-stream'
         );
     }
 

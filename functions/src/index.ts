@@ -20,6 +20,8 @@ export {
 export { deleteStaffMemberCompletely } from './deleteStaffMemberCompletely'
 export { runLightweightFirestoreBackup } from './lightweightFirestoreBackup'
 export { getAccountingReceiptAccessUrl } from './getAccountingReceiptAccessUrl'
+export { issueAccountingReceiptTimestamp } from './issueAccountingReceiptTimestamp'
+export { verifyAccountingReceiptTimestamp } from './verifyAccountingReceiptTimestamp'
 
 initializeApp()
 

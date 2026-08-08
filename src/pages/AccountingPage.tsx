@@ -155,6 +155,7 @@ import { FixedCostManagementPanel } from '../components/accounting/FixedCostMana
 import { ExpenseAssetBranchPanel } from '../components/accounting/ExpenseAssetBranchPanel'
 import { FixedAssetLedgerPanel } from '../components/accounting/FixedAssetLedgerPanel'
 import { AuditMaterialsPanel } from '../components/accounting/AuditMaterialsPanel'
+import { ScannerLegalAdminPanel } from '../components/accounting/ScannerLegalAdminPanel'
 import { ETaxSettlementPanel } from '../components/accounting/ETaxSettlementPanel'
 import { TaxAdvisorPackagePanel } from '../components/accounting/TaxAdvisorPackagePanel'
 import { SubmissionPackagePanel } from '../components/accounting/SubmissionPackagePanel'
@@ -317,6 +318,7 @@ type AccountingTab =
   | 'fixed-assets'
   | 'invoice-registry'
   | 'audit'
+  | 'scanner-legal'
   | 'etax'
   | 'tax-advisor'
   | 'submission'
@@ -332,6 +334,7 @@ const ACCOUNTING_MAIN_MENU: Array<{ tab: AccountingTab; label: string }> = [
   { tab: 'fixed-assets', label: '固定資産台帳' },
   { tab: 'invoice-registry', label: 'インボイス登録確認' },
   { tab: 'audit', label: '監査資料' },
+  { tab: 'scanner-legal', label: 'スキャナ保存（税務）' },
   { tab: 'export', label: 'CSV・PDF出力' },
   { tab: 'etax', label: 'e-Tax入力用決算資料' },
   { tab: 'tax-advisor', label: '税理士相談用 一式資料' },
@@ -757,6 +760,7 @@ export function AccountingPage() {
 
   const canAccess = canAccessAccounting(role)
   const canUseInvoiceRegistryUi = canAccessInvoiceRegistry(role)
+  const canManageScannerLegal = role === 'owner' || role === 'hq_admin'
 
   const reloadExportHistory = async () => {
     setExportHistoryLoading(true)
@@ -5781,6 +5785,33 @@ export function AccountingPage() {
             targetYear={targetYear}
             accessScope={accessScope}
             onExportRecorded={(fileName) => setStatusMessage(`${fileName} を出力しました。`)}
+          />
+        ) : null}
+
+        {activeTab === 'scanner-legal' ? (
+          <ScannerLegalAdminPanel
+            accessScope={accessScope}
+            actor={{
+              userId: staffId,
+              userName: staffName,
+              role,
+              franchiseeId: tenantScope.franchiseeId,
+              storeId: tenantScope.storeId,
+            }}
+            canManageLegal={canManageScannerLegal}
+            expenses={expenses.map((expense) => ({
+              id: expense.id,
+              receiptId: expense.receiptId,
+              vendorName: expense.vendorName,
+              taxIncludedAmount: expense.taxIncludedAmount,
+              description: expense.description,
+            }))}
+            onOpenExpense={(expenseId) => {
+              navigateAccountingTab('expenses')
+              handleEditExpense(expenseId)
+            }}
+            onStatusMessage={setStatusMessage}
+            onErrorMessage={setErrorMessage}
           />
         ) : null}
 

@@ -19,6 +19,7 @@ export const ACCOUNTING_RECEIPT_TIMESTAMP_STATUSES = [
   'pending',
   'issued',
   'failed',
+  'verification_failed',
 ] as const
 export type AccountingReceiptTimestampStatus =
   (typeof ACCOUNTING_RECEIPT_TIMESTAMP_STATUSES)[number]
@@ -33,6 +34,26 @@ export const RECEIPT_PAPER_SIZE_TYPES = [
   'unknown',
 ] as const
 export type ReceiptPaperSizeType = (typeof RECEIPT_PAPER_SIZE_TYPES)[number]
+
+export const SCANNER_INPUT_MODES = ['rapid', 'business_cycle'] as const
+export type ScannerInputMode = (typeof SCANNER_INPUT_MODES)[number]
+
+export const SCANNER_DELETE_REASONS = [
+  'wrong_receipt',
+  'duplicate',
+  'capture_failed',
+  'wrong_expense',
+  'other',
+] as const
+export type ScannerDeleteReason = (typeof SCANNER_DELETE_REASONS)[number]
+
+export const SCANNER_DELETE_REASON_LABELS: Record<ScannerDeleteReason, string> = {
+  wrong_receipt: '別の領収書を登録した',
+  duplicate: '重複登録',
+  capture_failed: '撮影失敗',
+  wrong_expense: '別経費に登録した',
+  other: 'その他',
+}
 
 export type ReceiptPoint = {
   x: number
@@ -87,11 +108,14 @@ export type AccountingReceiptLegalFields = {
   captureMode?: AccountingReceiptCaptureMode
   legalStatus?: AccountingReceiptLegalStatus
   transactionDate?: string
-  receivedDate?: string
+  receivedDate?: string | null
+  /** 受領日不明時の発見日 */
+  foundDate?: string
   capturedAt?: string
   legalSavedAt?: string
   legalMasterStoragePath?: string
   thumbnailStoragePath?: string
+  timestampTokenStoragePath?: string
   legalMasterMimeType?: string
   legalWidthPx?: number
   legalHeightPx?: number
@@ -99,20 +123,70 @@ export type AccountingReceiptLegalFields = {
   paperWidthMm?: number
   paperHeightMm?: number
   estimatedDpi?: number
-  /** 法定マスター JPEG の SHA-256（タイムスタンプ対象予定） */
+  /** 法定マスター JPEG の SHA-256（タイムスタンプ対象） */
   fileHash?: string
   version?: number
+  activeVersion?: number
   previousVersionId?: string
+  changeReason?: string
+  changedAt?: string
+  changedBy?: string
   timestampStatus?: AccountingReceiptTimestampStatus
   timestampProvider?: string
   timestampTokenId?: string
   timestampedAt?: string
+  timestampVerifiedAt?: string
+  timestampAlgorithm?: string
+  scannerInputMode?: ScannerInputMode
+  requiresPaperOriginal?: boolean
+  paperOriginalReason?: string
+  retentionUntil?: string
+  deadlineDueDate?: string
+  isDeleted?: boolean
+  /** Firestore 検索用正規化支払先 */
+  searchVendorName?: string
+  /** Firestore 検索用金額（円） */
+  searchAmountYen?: number | null
+}
+
+export type AccountingReceiptVersionRecord = {
+  version: number
+  previousVersion?: number | null
+  legalMasterStoragePath: string
+  thumbnailStoragePath?: string
+  timestampTokenStoragePath?: string
+  fileHash: string
+  legalWidthPx?: number
+  legalHeightPx?: number
+  estimatedDpi?: number
+  timestampStatus: AccountingReceiptTimestampStatus
+  timestampProvider?: string
+  timestampTokenId?: string
+  timestampedAt?: string
+  timestampVerifiedAt?: string
+  timestampAlgorithm?: string
+  changeReason?: string
+  createdAt?: string
+  createdBy?: string
+  isActive?: boolean
 }
 
 export const LEGAL_PENDING_TIMESTAMP_USER_LABELS = {
   title: 'スキャナ画像確定済み',
   subtitle: 'タイムスタンプ未付与',
+  notice: '正式スキャナ保存はまだ完了していません。紙原本を保管してください',
+} as const
+
+export const LEGAL_TIMESTAMP_UNCONFIGURED_LABELS = {
+  title: 'タイムスタンプサービス未設定',
+  subtitle: '正式スキャナ保存はまだ完了していません',
   notice: '紙原本を保管してください',
+} as const
+
+export const LEGAL_SAVED_LABELS = {
+  title: 'スキャナ保存要件上の保存処理完了',
+  subtitle: '経理確認待ち',
+  notice: '運用規程に従い紙原本の取扱いを確認してください',
 } as const
 
 export const normalizeAccountingReceiptLegalStatus = (
@@ -156,3 +230,40 @@ export const isScannerCaptureMode = (
 export const isLegalPendingTimestamp = (
   legalStatus: AccountingReceiptLegalStatus | undefined | null,
 ) => legalStatus === 'legal_pending_timestamp'
+
+export const isTimestampIssued = (
+  timestampStatus: AccountingReceiptTimestampStatus | undefined | null,
+) => timestampStatus === 'issued'
+
+/** 紙原本保管が必要か（正式保存未完了・期限超過・受領日不明など） */
+export const requiresPaperOriginalRetention = (fields: {
+  captureMode?: AccountingReceiptCaptureMode
+  legalStatus?: AccountingReceiptLegalStatus
+  timestampStatus?: AccountingReceiptTimestampStatus
+  requiresPaperOriginal?: boolean
+  receivedDate?: string | null
+  foundDate?: string
+}): boolean => {
+  if (fields.requiresPaperOriginal) {
+    return true
+  }
+  if (fields.captureMode !== 'scanner_v1') {
+    return true
+  }
+  if (fields.legalStatus === 'late_saved' || fields.legalStatus === 'deleted') {
+    return true
+  }
+  if (!fields.receivedDate) {
+    return true
+  }
+  if (fields.timestampStatus !== 'issued') {
+    return true
+  }
+  if (
+    fields.legalStatus !== 'legal_saved_accounting_pending' &&
+    fields.legalStatus !== 'accounting_confirmed'
+  ) {
+    return true
+  }
+  return false
+}

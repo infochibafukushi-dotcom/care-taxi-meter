@@ -230,6 +230,57 @@
       ]
     },
     {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "captureMode", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "captureMode", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "captureMode", "order": "ASCENDING" },
+        { "fieldPath": "legalStatus", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "captureMode", "order": "ASCENDING" },
+        { "fieldPath": "searchAmountYen", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "accountingReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "franchiseeId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "captureMode", "order": "ASCENDING" },
+        { "fieldPath": "searchVendorName", "order": "ASCENDING" }
+      ]
+    },
+
+    {
       "collectionGroup": "accountingExpenseGroups",
       "queryScope": "COLLECTION",
       "fields": [
